@@ -1,5 +1,5 @@
-#ifndef WZH_TAILREDPANDA_AUDIO_H_
-#define WZH_TAILREDPANDA_AUDIO_H_
+#ifndef WZH_CRAWLPANDA_AUDIO_H_
+#define WZH_CRAWLPANDA_AUDIO_H_
 
 #include <atomic>
 #include <cstdint>
@@ -11,7 +11,7 @@ enum class PandaAction : uint8_t;
 
 // 供动作引擎读取的“声音活跃度”。本地声音没有真正的 PCM 包络（解码和
 // I2S 输出都由 XiaoZhi AudioService 完成），这里用 Opus 包字节数估算
-// 响度，足以驱动尾巴/头的跟随舞动。
+// 响度，足以驱动头部/前肢的跟随舞动。
 struct PandaMotionData {
     bool playing;
     float level;   // 0..1 平滑响度
@@ -33,6 +33,11 @@ public:
     bool PlayRandomSound(const char* category);
     void StopPlayback();
     PandaMotionData GetMotionData() const;
+
+    // 由 XiaoZhi AudioService 的输出包络回调驱动（TTS/在线回复的真实响度）。
+    void FeedTtsLevel(float level, float attack);
+    // 在线 TTS 播放期间的响度数据（playing 仅在确有输出时置真）。
+    PandaMotionData GetTtsMotionData() const;
 
     int file_count() const { return file_count_; }
     int SoundCountByCategory(const char* category) const;
@@ -67,6 +72,9 @@ private:
     std::atomic<uint32_t> motion_elapsed_ms_{0};
     std::atomic<uint32_t> motion_duration_ms_{0};
     std::atomic<int> motion_sound_index_{-1};
+    // 在线 TTS 包络（来自 AudioService 输出回调）。
+    std::atomic<float> tts_level_{0.0f};
+    std::atomic<float> tts_attack_{0.0f};
     float fast_envelope_ = 0.0f;
     float slow_envelope_ = 0.0f;
 
@@ -79,4 +87,4 @@ private:
     int RandomIndexInCategory(const char* category) const;
 };
 
-#endif  // WZH_TAILREDPANDA_AUDIO_H_
+#endif  // WZH_CRAWLPANDA_AUDIO_H_

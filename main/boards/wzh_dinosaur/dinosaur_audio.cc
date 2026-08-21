@@ -107,9 +107,12 @@ bool DinosaurAudio::ReadToc() {
     if (12 + count * entry_size > sizeof(toc)) {
         return false;
     }
+    // 与旧工程 flash_audio_init 一致：逐个校验条目，遇到损坏条目只跳过，
+    // 而不是让整颗 flash 的音频全部失效。
+    uint32_t valid = 0;
     for (uint32_t i = 0; i < count; ++i) {
         const uint8_t* entry = toc + 12 + i * entry_size;
-        auto& file = files_[i];
+        auto& file = files_[valid];
         std::memcpy(file.name, entry, sizeof(file.name));
         file.name[sizeof(file.name) - 1] = '\0';
         std::memcpy(&file.offset, entry + 64, sizeof(file.offset));
@@ -126,11 +129,16 @@ bool DinosaurAudio::ReadToc() {
         const uint32_t address = DINO_FLASH_DATA_START + file.offset;
         if (file.name[0] == '\0' || file.size == 0 || address < DINO_FLASH_DATA_START ||
             address >= DINO_FLASH_SIZE || file.size > DINO_FLASH_SIZE - address) {
-            ESP_LOGW(TAG, "Ignoring invalid TOC entry %lu", static_cast<unsigned long>(i));
-            return false;
+            ESP_LOGW(TAG, "Skipping invalid TOC entry %lu", static_cast<unsigned long>(i));
+            continue;
         }
+        ++valid;
     }
-    file_count_ = static_cast<int>(count);
+    file_count_ = static_cast<int>(valid);
+    if (file_count_ > 0) {
+        ESP_LOGI(TAG, "TOC loaded: %d valid of %lu entries", file_count_,
+                 static_cast<unsigned long>(count));
+    }
     return file_count_ > 0;
 }
 
@@ -217,6 +225,22 @@ void DinosaurAudio::StopPlayback() {
     Application::GetInstance().GetAudioService().ResetDecoder();
 }
 
+void DinosaurAudio::FeedTtsLevel(float level, float attack) {
+    tts_level_.store(level);
+    tts_attack_.store(attack);
+}
+
+DinoMotionData DinosaurAudio::GetMotionData() const {
+    DinoMotionData data = {};
+    data.playing = is_playing_.load();
+    data.level = motion_level_.load();
+    data.attack = motion_attack_.load();
+    data.elapsed_ms = motion_elapsed_ms_.load();
+    data.duration_ms = motion_duration_ms_.load();
+    data.sound_index = motion_sound_index_.load();
+    return data;
+}
+
 void DinosaurAudio::AudioTaskEntry(void* arg) { static_cast<DinosaurAudio*>(arg)->AudioTask(); }
 
 void DinosaurAudio::AudioTask() {
@@ -239,6 +263,15 @@ bool DinosaurAudio::PlayFile(int index) {
     }
 
     const uint32_t generation = playback_generation_.load();
+    const auto& file = files_[index];
+    motion_sound_index_.store(index);
+    motion_elapsed_ms_.store(0);
+    motion_duration_ms_.store(file.duration_ms);
+    motion_level_.store(0.0f);
+    motion_attack_.store(0.0f);
+    fast_envelope_ = 0.0f;
+    slow_envelope_ = 0.0f;
+    is_playing_.store(true);
 
     // OggDemuxer 只拆出 Opus 包；真正的解码和 I2S 输出仍由 AudioService 完成。
     bool ok = true;
@@ -248,6 +281,20 @@ bool DinosaurAudio::PlayFile(int index) {
             if (playback_generation_.load() != generation) {
                 ok = false;
                 return;
+            }
+            // 用 Opus 包大小估算响度：语音包越大越“响”，与真实 PCM 包络趋势一致。
+            if (sample_rate > 0) {
+                const uint32_t frame_ms = 60;
+                const float kbps =
+                    static_cast<float>(size) * 8.0f * 1000.0f / static_cast<float>(frame_ms);
+                float raw = kbps / 24000.0f;
+                raw = std::clamp(raw, 0.0f, 1.0f);
+                fast_envelope_ += (raw - fast_envelope_) * (raw > fast_envelope_ ? 0.48f : 0.12f);
+                slow_envelope_ += (raw - slow_envelope_) * 0.035f;
+                float onset = (fast_envelope_ - slow_envelope_ * 1.08f) * 3.2f;
+                onset = std::clamp(onset, 0.0f, 1.0f);
+                motion_level_.store(slow_envelope_);
+                motion_attack_.store(onset);
             }
             auto packet = std::make_unique<AudioStreamPacket>();
             packet->sample_rate = sample_rate;
@@ -259,7 +306,6 @@ bool DinosaurAudio::PlayFile(int index) {
         });
 
     uint8_t buffer[kReadChunk];
-    const auto& file = files_[index];
     ESP_LOGI(TAG, "Playing offline sound: %s", file.name);
     // 分块顺序读取，避免为完整音频文件申请大块 RAM。
     for (uint32_t offset = 0;
@@ -271,6 +317,11 @@ bool DinosaurAudio::PlayFile(int index) {
         }
         demuxer.Process(buffer, chunk);
         offset += chunk;
+        motion_elapsed_ms_.store(
+            static_cast<uint32_t>(offset * file.duration_ms / std::max<uint32_t>(1, file.size)));
     }
+    is_playing_.store(false);
+    motion_level_.store(0.0f);
+    motion_attack_.store(0.0f);
     return ok;
 }

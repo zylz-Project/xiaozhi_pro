@@ -57,6 +57,9 @@ inline float frnd() {
     return static_cast<float>(esp_random()) / 4294967296.0f;
 }
 
+int irnd(int count) { return count > 0 ? static_cast<int>(esp_random() % static_cast<uint32_t>(count)) : 0; }
+int irand(int low, int high) { return low + irnd(high - low + 1); }
+
 // ============================================================================
 // 关键帧编舞库。KEEP 表示该轴沿用上一帧，由此形成“头先动、脖子后随、
 // 尾巴最后响应”的动物时序。角度均为本板舵机直接角度：
@@ -214,6 +217,78 @@ constexpr ClipSet kActionClips[] = {
     {kEatClips, 1},      {kListenClips, 1},    {kStartledClips, 1}, {kSleepyClips, 1},
 };
 
+// ============================================================================
+// 身体部位级动作剪辑：从当前姿态起手，结束时回到默认姿态。方向性动作
+// （看左/看右/抬头/低头）不参与随机镜像，保证朝向正确。
+// ============================================================================
+constexpr Keyframe kBodyShakeHeadFrames[] = {
+    {kKeep, kKeep, 55, kKeep, kKeep, 130, MotionEase::kFastOut},
+    {kKeep, kKeep, 125, kKeep, kKeep, 130, MotionEase::kFastOut},
+    {kKeep, kKeep, 55, kKeep, kKeep, 130, MotionEase::kFastOut},
+    {kKeep, kKeep, 125, kKeep, kKeep, 130, MotionEase::kFastOut},
+    {kKeep, kKeep, 90, kKeep, kKeep, 420, MotionEase::kSmooth},
+};
+constexpr Keyframe kBodyLookLeftFrames[] = {
+    {kKeep, kKeep, 140, kKeep, kKeep, 320, MotionEase::kFastOut},
+    {kKeep, kKeep, 140, kKeep, kKeep, 550, MotionEase::kLinear},
+    {kKeep, kKeep, 90, kKeep, kKeep, 420, MotionEase::kSmooth},
+};
+constexpr Keyframe kBodyLookRightFrames[] = {
+    {kKeep, kKeep, 40, kKeep, kKeep, 320, MotionEase::kFastOut},
+    {kKeep, kKeep, 40, kKeep, kKeep, 550, MotionEase::kLinear},
+    {kKeep, kKeep, 90, kKeep, kKeep, 420, MotionEase::kSmooth},
+};
+constexpr Keyframe kBodyLookUpFrames[] = {
+    {25, kKeep, kKeep, kKeep, kKeep, 300, MotionEase::kFastOut},
+    {25, kKeep, kKeep, kKeep, kKeep, 500, MotionEase::kLinear},
+    {70, kKeep, kKeep, kKeep, kKeep, 420, MotionEase::kSmooth},
+};
+constexpr Keyframe kBodyLookDownFrames[] = {
+    {120, kKeep, kKeep, kKeep, kKeep, 300, MotionEase::kFastOut},
+    {120, kKeep, kKeep, kKeep, kKeep, 500, MotionEase::kLinear},
+    {70, kKeep, kKeep, kKeep, kKeep, 420, MotionEase::kSmooth},
+};
+constexpr Keyframe kBodyWagTailFrames[] = {
+    {kKeep, kKeep, kKeep, kKeep, 55, 130, MotionEase::kFastOut},
+    {kKeep, kKeep, kKeep, kKeep, 125, 130, MotionEase::kFastOut},
+    {kKeep, kKeep, kKeep, kKeep, 55, 130, MotionEase::kFastOut},
+    {kKeep, kKeep, kKeep, kKeep, 125, 130, MotionEase::kFastOut},
+    {kKeep, kKeep, kKeep, kKeep, 90, 420, MotionEase::kSmooth},
+};
+constexpr Keyframe kBodyTwistNeckFrames[] = {
+    {kKeep, 50, kKeep, kKeep, kKeep, 250, MotionEase::kSmooth},
+    {kKeep, 130, kKeep, kKeep, kKeep, 250, MotionEase::kSmooth},
+    {kKeep, 50, kKeep, kKeep, kKeep, 250, MotionEase::kSmooth},
+    {kKeep, 90, kKeep, kKeep, kKeep, 400, MotionEase::kSmooth},
+};
+
+constexpr MotionClip kBodyClips[] = {
+    {"body-shake-head", kBodyShakeHeadFrames, std::size(kBodyShakeHeadFrames)},
+    {"body-look-left", kBodyLookLeftFrames, std::size(kBodyLookLeftFrames)},
+    {"body-look-right", kBodyLookRightFrames, std::size(kBodyLookRightFrames)},
+    {"body-look-up", kBodyLookUpFrames, std::size(kBodyLookUpFrames)},
+    {"body-look-down", kBodyLookDownFrames, std::size(kBodyLookDownFrames)},
+    {"body-wag-tail", kBodyWagTailFrames, std::size(kBodyWagTailFrames)},
+    {"body-twist-neck", kBodyTwistNeckFrames, std::size(kBodyTwistNeckFrames)},
+};
+
+// 待机"个性姿态"：多轴协同的坐姿，轮换时身体缓慢漂移过去。
+struct IdlePose {
+    int neck_tilt;
+    int neck_lean;
+    int head_turn;
+    int tail_ud;
+    int tail_lr;
+};
+constexpr IdlePose kIdlePoses[] = {
+    {70, 90, 90, 90, 90},     // 平静
+    {64, 96, 104, 96, 100},   // 警觉
+    {78, 84, 76, 82, 84},     // 困倦
+    {60, 100, 112, 102, 74},  // 好奇
+    {74, 88, 84, 94, 106},    // 放松
+    {66, 94, 96, 98, 96},     // 轻快
+};
+
 // 待机“生命脉冲”：每次只做一次观察、甩尾、嗅闻或精神一振，随后完整
 // 回落。它们打破待机正弦的可预测性，让静止的恐龙仍有生命感。
 constexpr Keyframe kPulseGlanceFrames[] = {
@@ -296,6 +371,37 @@ void DinosaurController::InitializeServos() {
 
 void DinosaurController::SetPose(const Pose& requested) {
     Pose pose = requested;
+    // 在线说话用 TTS 真实响度、离线本地声音用 Opus 包络：尾巴/头都随
+    // 音频舞动，与参考工程的"声音跟随"层一致。
+    if (audio_ != nullptr) {
+        bool reactive = false;
+        float level = 0.0f;
+        float attack = 0.0f;
+        if (speaking_.load()) {
+            // TTS 包络对每个音节都有 attack 尖峰，直接使用会让头/尾抖动，
+            // 这里压低幅度只保留"随语音轻摆"的效果。
+            level = audio_->GetTtsLevel() * 0.6f;
+            attack = audio_->GetTtsAttack() * 0.45f;
+            reactive = level > 0.01f;
+        } else {
+            const DinoMotionData sound = audio_->GetMotionData();
+            if (sound.playing) {
+                level = sound.level;
+                attack = sound.attack;
+                reactive = true;
+            }
+        }
+        if (reactive) {
+            speak_phase_ += 0.30f + 0.45f * level;
+            pose.tail_lr += static_cast<int>(
+                std::lround(std::sin(speak_phase_) * std::min(14.0f, level * 26.0f)));
+            pose.tail_ud += static_cast<int>(
+                std::lround(std::sin(speak_phase_ * 0.7f + 0.6f) * std::min(5.0f, level * 9.0f)));
+            if (attack > 0.15f) {
+                pose.head_turn += (esp_random() & 1U) ? 4 : -4;
+            }
+        }
+    }
     // 所有入口最终都在这里限幅。尾巴上下轴机械空间最紧，使用板级专用限位。
     pose.neck_tilt = std::clamp(pose.neck_tilt, 0, 180);
     pose.neck_lean = std::clamp(pose.neck_lean, 0, 180);
@@ -487,19 +593,32 @@ void DinosaurController::RunPulse(const wzh_dino::MotionClip& clip) {
     }
 }
 
-void DinosaurController::RunIdleFrame(uint32_t tick) {
-    // 使用不同频率的正弦波叠加出“呼吸感”，避免五个关节同步摆动。
+void DinosaurController::RunIdlePose(uint32_t tick) {
+    // 每 4~8 秒轮换一个"个性姿态"，再叠加呼吸正弦，让待机有真实感。
+    if (tick >= next_idle_pose_tick_) {
+        idle_pose_index_ = (idle_pose_index_ + 1 + irnd(static_cast<int>(std::size(kIdlePoses)) - 1)) %
+                           static_cast<int>(std::size(kIdlePoses));
+        next_idle_pose_tick_ = tick + static_cast<uint32_t>(irand(200, 400));
+    }
+    const IdlePose& target = kIdlePoses[idle_pose_index_];
+    const float k = 0.018f;
+    idle_drift_[0] += (static_cast<float>(target.neck_tilt) - idle_drift_[0]) * k;
+    idle_drift_[1] += (static_cast<float>(target.neck_lean) - idle_drift_[1]) * k;
+    idle_drift_[2] += (static_cast<float>(target.head_turn) - idle_drift_[2]) * k;
+    idle_drift_[3] += (static_cast<float>(target.tail_ud) - idle_drift_[3]) * k;
+    idle_drift_[4] += (static_cast<float>(target.tail_lr) - idle_drift_[4]) * k;
+    // 呼吸微动叠加在个性姿态上。
     const float seconds = tick * kTickMs / 1000.0f;
     Pose pose = {
-        SERVO_NECK_TILT_DEFAULT + static_cast<int>(4 * std::sin(seconds * 1.3f) +
-                                                   2 * std::sin(seconds * 0.37f + 0.8f)),
-        SERVO_NECK_LEAN_DEFAULT + static_cast<int>(6 * std::sin(seconds * 0.53f + 0.5f) +
-                                                   2 * std::sin(seconds * 1.9f)),
-        SERVO_HEAD_TURN_DEFAULT + static_cast<int>(5 * std::sin(seconds * 0.77f + 1.1f)),
-        SERVO_TAIL_UD_DEFAULT + static_cast<int>(8 * std::sin(seconds * 0.61f) +
-                                                 3 * std::sin(seconds * 2.3f + 0.4f)),
-        SERVO_TAIL_LR_DEFAULT + static_cast<int>(12 * std::sin(seconds * 0.83f + 0.7f) +
-                                                 4 * std::sin(seconds * 2.7f + 1.5f)),
+        static_cast<int>(std::lround(idle_drift_[0] + 4 * std::sin(seconds * 1.3f) +
+                                     2 * std::sin(seconds * 0.37f + 0.8f))),
+        static_cast<int>(std::lround(idle_drift_[1] + 6 * std::sin(seconds * 0.53f + 0.5f) +
+                                     2 * std::sin(seconds * 1.9f))),
+        static_cast<int>(std::lround(idle_drift_[2] + 5 * std::sin(seconds * 0.77f + 1.1f))),
+        static_cast<int>(std::lround(idle_drift_[3] + 8 * std::sin(seconds * 0.61f) +
+                                     3 * std::sin(seconds * 2.3f + 0.4f))),
+        static_cast<int>(std::lround(idle_drift_[4] + 12 * std::sin(seconds * 0.83f + 0.7f) +
+                                     4 * std::sin(seconds * 2.7f + 1.5f))),
     };
     SetPose(pose);
 }
@@ -508,17 +627,26 @@ void DinosaurController::TaskEntry(void* arg) { static_cast<DinosaurController*>
 
 void DinosaurController::Task() {
     uint32_t tick = 0;
-    int64_t next_offline_action = esp_timer_get_time() + 8 * 1000000LL;
+    // 开机后尽快执行第一个动作并播放声音（开机叫声），之后由自主调度继续。
+    int64_t next_offline_action = esp_timer_get_time() + 2 * 1000000LL;
     next_pulse_ms_ = 3000 + esp_random() % 5000;
     while (true) {
         ActionRequest request;
         // 明确请求优先级最高。在线请求不播放本地音频，以免和 TTS 重叠。
         if (xQueueReceive(action_queue_, &request, 0) == pdTRUE) {
-            if (request.with_local_sound && !conversation_active_.load() && audio_ != nullptr) {
-                audio_->PlayForAction(request.action);
+            if (request.is_body) {
+                // 身体部位指令：直接播放对应剪辑，不随机镜像/幅度。
+                RunBodyAction(static_cast<DinoBodyAction>(request.action));
+            } else {
+                if (request.with_local_sound && !conversation_active_.load() && audio_ != nullptr) {
+                    audio_->PlayForAction(request.action);
+                }
+                RunAction(request.action);
             }
-            RunAction(request.action);
-            next_offline_action = esp_timer_get_time() + (5 + esp_random() % 6) * 1000000LL;
+            // 开机引导动作(kDiscover)不推迟开机叫声，其余动作给足间隔。
+            if (request.action != DinoAction::kDiscover) {
+                next_offline_action = esp_timer_get_time() + (5 + esp_random() % 6) * 1000000LL;
+            }
             // 动作结束后让随机脉冲也延后，避免“动作+脉冲”连轴转。
             next_pulse_ms_ = esp_timer_get_time() / 1000 + 4000 + esp_random() % 8000;
         } else if (!conversation_active_.load() && esp_timer_get_time() >= next_offline_action) {
@@ -543,7 +671,7 @@ void DinosaurController::Task() {
                 RunPulse(*PickPulse());
                 next_pulse_ms_ = now_ms + 5000 + esp_random() % 9000;
             }
-            RunIdleFrame(tick++);
+            RunIdlePose(tick++);
             vTaskDelay(pdMS_TO_TICKS(kTickMs));
         }
     }
@@ -570,17 +698,107 @@ bool DinosaurController::TriggerAction(DinoAction action, bool with_local_sound)
     return xQueueSend(action_queue_, &request, 0) == pdTRUE;
 }
 
+bool DinosaurController::TriggerBodyAction(DinoBodyAction action) {
+    if (action_queue_ == nullptr) {
+        return false;
+    }
+    ESP_LOGI(TAG, "Body action: %s", BodyActionName(action));
+    ActionRequest request{static_cast<DinoAction>(action), false, true};
+    if (xQueueSend(action_queue_, &request, 0) == pdTRUE) {
+        return true;
+    }
+    ActionRequest discarded;
+    xQueueReceive(action_queue_, &discarded, 0);
+    return xQueueSend(action_queue_, &request, 0) == pdTRUE;
+}
+
+const wzh_dino::MotionClip* DinosaurController::PickBodyClip(DinoBodyAction action) {
+    return &kBodyClips[static_cast<uint8_t>(action)];
+}
+
+void DinosaurController::RunBodyAction(DinoBodyAction action) {
+    const wzh_dino::MotionClip* clip = PickBodyClip(action);
+    ESP_LOGI(TAG, "Body action: %s", clip->name);
+    const float living_phase = frnd() * 6.2832f;
+    Pose pose = current_pose_;
+    for (uint8_t i = 0; i < clip->count; ++i) {
+        const wzh_dino::Keyframe& key = clip->frames[i];
+        // 不随机镜像/幅度，保证"向左看"确实是向左看。
+        const Pose target = ResolveKeyframe(key, pose, false, 1.0f);
+        PlaySegment(pose, target, key.duration_ms, key.ease, living_phase);
+        pose = target;
+    }
+    const Pose rest = {SERVO_NECK_TILT_DEFAULT, SERVO_NECK_LEAN_DEFAULT, SERVO_HEAD_TURN_DEFAULT,
+                       SERVO_TAIL_UD_DEFAULT, SERVO_TAIL_LR_DEFAULT};
+    PlaySegment(pose, rest, 360, wzh_dino::MotionEase::kSmooth, living_phase);
+}
+
+bool DinosaurController::ParseBodyAction(const std::string& name, DinoBodyAction& action) {
+    static const struct {
+        const char* name;
+        DinoBodyAction action;
+    } actions[] = {{"shake_head", DinoBodyAction::kShakeHead},
+                   {"look_left", DinoBodyAction::kLookLeft},
+                   {"look_right", DinoBodyAction::kLookRight},
+                   {"look_up", DinoBodyAction::kLookUp},
+                   {"look_down", DinoBodyAction::kLookDown},
+                   {"wag_tail", DinoBodyAction::kWagTail},
+                   {"twist_neck", DinoBodyAction::kTwistNeck}};
+    for (const auto& item : actions) {
+        if (name == item.name) {
+            action = item.action;
+            return true;
+        }
+    }
+    return false;
+}
+
+const char* DinosaurController::BodyActionName(DinoBodyAction action) {
+    switch (action) {
+        case DinoBodyAction::kShakeHead:
+            return "shake_head";
+        case DinoBodyAction::kLookLeft:
+            return "look_left";
+        case DinoBodyAction::kLookRight:
+            return "look_right";
+        case DinoBodyAction::kLookUp:
+            return "look_up";
+        case DinoBodyAction::kLookDown:
+            return "look_down";
+        case DinoBodyAction::kWagTail:
+            return "wag_tail";
+        case DinoBodyAction::kTwistNeck:
+            return "twist_neck";
+        default:
+            break;
+    }
+    return "shake_head";
+}
+
 void DinosaurController::SetConversationActive(bool active) {
     const bool changed = conversation_active_.exchange(active) != active;
     if (!changed) {
         return;
     }
     ESP_LOGI(TAG, "Mode changed to %s", active ? "online/conversation" : "offline/autonomous");
+    if (!active) {
+        speaking_.store(false);
+    }
     if (active && audio_ != nullptr) {
         audio_->StopPlayback();
     }
     // 开始对话用倾听动作迎接用户；回到待机后立即恢复自主模式。
     TriggerAction(active ? DinoAction::kListen : DinoAction::kDiscover, !active);
+}
+
+void DinosaurController::SetSpeaking(bool speaking) {
+    speaking_.store(speaking);
+}
+
+void DinosaurController::SetDefaultPose() {
+    const Pose rest = {SERVO_NECK_TILT_DEFAULT, SERVO_NECK_LEAN_DEFAULT, SERVO_HEAD_TURN_DEFAULT,
+                       SERVO_TAIL_UD_DEFAULT, SERVO_TAIL_LR_DEFAULT};
+    SetPose(rest);
 }
 
 DinoAction DinosaurController::EmotionToAction(const std::string& emotion) const {
@@ -630,9 +848,41 @@ void DinosaurController::HandleUserSpeechEmotion(const char* text) {
     if (!conversation_active_.load() || text == nullptr || text[0] == '\0') {
         return;
     }
+    // 身体部位指令优先级最高："摇摇头/向左看/抬头/低头/摇尾巴/扭脖子"等。
+    static const struct {
+        DinoBodyAction action;
+        const char* words[4];
+    } body_rules[] = {
+        {DinoBodyAction::kShakeHead, {"摇头", "晃晃头", "甩头", "晃头"}},
+        {DinoBodyAction::kLookLeft, {"向左看", "看左边", "看左", "左看"}},
+        {DinoBodyAction::kLookRight, {"向右看", "看右边", "看右", "右看"}},
+        {DinoBodyAction::kLookUp, {"抬头", "看看上面", "看上面", "仰望"}},
+        {DinoBodyAction::kLookDown, {"低头", "看看下面", "看下面", "俯视"}},
+        {DinoBodyAction::kWagTail, {"摇尾巴", "甩尾巴", "摆尾巴", "摇摇尾巴"}},
+        {DinoBodyAction::kTwistNeck, {"扭脖子", "扭扭脖子", "歪脖子", "转转脖子"}},
+    };
+    int body_best = -1;
+    int body_score = 0;
+    for (size_t rule = 0; rule < sizeof(body_rules) / sizeof(body_rules[0]); ++rule) {
+        int score = 0;
+        for (size_t word = 0; word < 4 && body_rules[rule].words[word] != nullptr; ++word) {
+            if (std::strstr(text, body_rules[rule].words[word]) != nullptr) {
+                ++score;
+            }
+        }
+        if (score > body_score) {
+            body_score = score;
+            body_best = static_cast<int>(rule);
+        }
+    }
+    if (body_score > 0) {
+        ESP_LOGI(TAG, "User speech body: %s -> %s", text,
+                 BodyActionName(body_rules[body_best].action));
+        TriggerBodyAction(body_rules[body_best].action);
+        return;
+    }
     // 服务端 llm.emotion 经常缺失，这里对用户转写文本做一次轻量关键词
-    // 兜底判断，让明显的情绪表达也能立刻驱动身体语言。未命中则不干预，
-    // 不命中说明这句没有强烈情绪，交给自主逻辑处理。
+    // 兜底判断，让明显的情绪也能立刻驱动身体语言。未命中则不干预。
     static const struct {
         DinoAction action;
         const char* words[6];
@@ -740,6 +990,21 @@ void DinosaurController::RegisterMcpTools() {
                         return "invalid action";
                     }
                     TriggerAction(action, !conversation_active_.load());
+                    return true;
+                });
+    mcp.AddTool("self.dinosaur.body",
+                "控制恐龙的某个身体部位做动作。用户明确要求某个身体部位动作时使用，"
+                "例如「摇摇头」→ shake_head，「向左看」→ look_left，「向右看」→ look_right，"
+                "「抬头」→ look_up，「低头」→ look_down，「摇摇尾巴」→ wag_tail，"
+                "「扭扭脖子」→ twist_neck。"
+                "action 取值：shake_head, look_left, look_right, look_up, look_down, wag_tail, twist_neck。",
+                PropertyList({Property("action", kPropertyTypeString)}),
+                [this](const PropertyList& properties) -> ReturnValue {
+                    DinoBodyAction action;
+                    if (!ParseBodyAction(properties["action"].value<std::string>(), action)) {
+                        return "invalid body action";
+                    }
+                    TriggerBodyAction(action);
                     return true;
                 });
     mcp.AddTool("self.dinosaur.get_mode", "返回恐龙当前 online 或 offline 模式。", PropertyList(),

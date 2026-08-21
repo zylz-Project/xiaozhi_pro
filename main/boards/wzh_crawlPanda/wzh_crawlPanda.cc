@@ -49,10 +49,16 @@ public:
         power_.Initialize();
         local_audio_.Initialize();
         controller_.Initialize(&local_audio_);
+        // 关机序列：断电前把舵机放回默认安全姿态。
+        power_.RegisterShutdownHook([this]() { controller_.SetDefaultPose(); });
+        // 在线 TTS 的真实响度 → 本地音频模块 → 动作引擎，让说话随音频舞动。
+        Application::GetInstance().GetAudioService().SetOutputAudioLevelListener(
+            [this](float level, float attack) { local_audio_.FeedTtsLevel(level, attack); });
         controller_.RegisterMcpTools();
         InitializeConversationMode();
         InitializeButton();
     }
+
 
     AudioCodec* GetAudioCodec() override {
         // 延迟构造 codec，保证 codec_i2c_bus_ 已由构造函数创建。
@@ -126,7 +132,7 @@ private:
     void InitializeButton() {
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
-            // 启动/配网阶段优先进入配网，其余状态沿用 XiaoZhi 的按键对话行为。
+            // 启动/配网阶段进入我们自己的配网门户，其余状态沿用按键对话行为。
             if (app.GetDeviceState() == kDeviceStateStarting ||
                 app.GetDeviceState() == kDeviceStateWifiConfiguring) {
                 EnterWifiConfigMode();
@@ -138,7 +144,8 @@ private:
             // 在线时只做动作，避免本地声音与服务端 TTS 同时播放。
             controller_.TriggerAction(PandaAction::kHappy, !controller_.IsConversationActive());
         });
-        ESP_LOGI(TAG, "Boot key: click to talk/configure, double click for a happy action");
+        ESP_LOGI(TAG, "Boot key: click to talk/configure, double click for a happy action; "
+                      "power key double click toggles chat");
     }
 };
 

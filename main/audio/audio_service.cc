@@ -1,6 +1,8 @@
 #include "audio_service.h"
 #include <esp_log.h>
+#include <algorithm>
 #include <cstring>
+#include <utility>
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)        \
     (esp_ae_rate_cvt_cfg_t)                                  \
@@ -334,6 +336,22 @@ void AudioService::AudioOutputTask() {
         }
 
         codec_->OutputData(task->pcm);
+
+        /* Report the loudness envelope so servo/robot boards can follow the
+         * audio currently playing (TTS or local sound). */
+        if (output_audio_level_listener_ && !task->pcm.empty()) {
+            uint64_t abs_sum = 0;
+            for (int16_t sample : task->pcm) {
+                abs_sum += static_cast<uint64_t>(sample < 0 ? -sample : sample);
+            }
+            float raw = static_cast<float>(abs_sum) / static_cast<float>(task->pcm.size()) / 9000.0f;
+            raw = std::clamp(raw, 0.0f, 1.0f);
+            output_fast_env_ += (raw - output_fast_env_) * (raw > output_fast_env_ ? 0.48f : 0.12f);
+            output_slow_env_ += (raw - output_slow_env_) * 0.035f;
+            float onset = (output_fast_env_ - output_slow_env_ * 1.08f) * 3.2f;
+            onset = std::clamp(onset, 0.0f, 1.0f);
+            output_audio_level_listener_(output_slow_env_, onset);
+        }
 
         /* Update the last output time */
         last_output_time_ = std::chrono::steady_clock::now();
@@ -705,6 +723,10 @@ void AudioService::EnableDeviceAec(bool enable) {
 
 void AudioService::SetCallbacks(AudioServiceCallbacks& callbacks) {
     callbacks_ = callbacks;
+}
+
+void AudioService::SetOutputAudioLevelListener(OutputAudioLevelListener listener) {
+    output_audio_level_listener_ = std::move(listener);
 }
 
 void AudioService::PlaySound(const std::string_view& ogg) {

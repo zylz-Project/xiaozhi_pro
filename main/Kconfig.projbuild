@@ -6,6 +6,15 @@ config OTA_URL
     help
         The application will access this URL to check for new firmwares and server address.
 
+config WIFI_CONNECT_TIMEOUT_SEC
+    int "WiFi connect timeout before entering config mode (seconds)"
+    default 60
+    range 5 120
+    help
+        If the device cannot connect to the saved WiFi within this many
+        seconds, it enters WiFi config mode. Lower values (e.g. 10) enter
+        the provisioning page faster when the saved network is unreachable.
+
 choice
     prompt "Flash Assets"
     default FLASH_DEFAULT_ASSETS if !USE_EMOTE_MESSAGE_STYLE

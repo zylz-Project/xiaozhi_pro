@@ -248,6 +248,38 @@ constexpr int8_t kFamily[kBehaviourCount][4] = {
     {C_STARTLED, -1, -1, -1},
 };
 
+// ============================================================================
+// 身体部位级动作剪辑：从当前姿态起手，结束时回到默认坐姿 90/90/150。
+// 方向性动作（看左/看右）不可镜像，避免反向。
+// ============================================================================
+constexpr Keyframe kBodyShakeHead[] = {
+    {140, 60, 90, 150}, {140, 120, 90, 150}, {140, 60, 90, 150}, {140, 120, 90, 150},
+    {320, 90, 90, 150}};
+constexpr Keyframe kBodyLookLeft[] = {{300, 140, 90, 150}, {600, 140, 90, 150}, {400, 90, 90, 150}};
+constexpr Keyframe kBodyLookRight[] = {
+    {300, 40, 90, 150}, {600, 40, 90, 150}, {400, 90, 90, 150}};
+constexpr Keyframe kBodyWagTail[] = {
+    {160, 90, 55, 148}, {160, 90, 125, 148}, {160, 90, 55, 148}, {160, 90, 125, 148},
+    {320, 90, 90, 150}};
+constexpr Keyframe kBodyTwistNeck[] = {
+    {280, 55, 95, 150}, {280, 125, 95, 150}, {280, 55, 95, 150}, {400, 90, 90, 150}};
+
+enum BodyClipId {
+    BODY_SHAKE_HEAD,
+    BODY_LOOK_LEFT,
+    BODY_LOOK_RIGHT,
+    BODY_WAG_TAIL,
+    BODY_TWIST_NECK,
+    BODY_COUNT,
+};
+constexpr Clip kBodyClips[BODY_COUNT] = {
+    {"body_shake_head", kBodyShakeHead, std::size(kBodyShakeHead), true},
+    {"body_look_left", kBodyLookLeft, std::size(kBodyLookLeft), false},
+    {"body_look_right", kBodyLookRight, std::size(kBodyLookRight), false},
+    {"body_wag_tail", kBodyWagTail, std::size(kBodyWagTail), true},
+    {"body_twist_neck", kBodyTwistNeck, std::size(kBodyTwistNeck), true},
+};
+
 bool Contains(const char* text, const char* token) {
     return text != nullptr && std::strstr(text, token) != nullptr;
 }
@@ -471,11 +503,11 @@ wzh_panda::Pose PandaController::ApplyAudioMotion(const wzh_panda::Pose& pose,
         tail_due_ms = 0;
         return result;
     }
-    if (audio.attack > 0.16f && now_ms - last_onset_ms > 320) {
+    if (audio.attack > 0.20f && now_ms - last_onset_ms > 420) {
         onset_side = -onset_side;
-        onset_offset = onset_side * (5.0f + 10.0f * audio.attack);
-        pending_tail_offset = -onset_side * (5.0f + 8.0f * audio.attack);
-        tail_due_ms = now_ms + static_cast<uint32_t>(irand(160, 320));
+        onset_offset = onset_side * (4.0f + 8.0f * audio.attack);
+        pending_tail_offset = -onset_side * (4.0f + 6.0f * audio.attack);
+        tail_due_ms = now_ms + static_cast<uint32_t>(irand(180, 360));
         last_onset_ms = now_ms;
     }
     if (tail_due_ms != 0 && now_ms >= tail_due_ms) {
@@ -491,18 +523,6 @@ wzh_panda::Pose PandaController::ApplyAudioMotion(const wzh_panda::Pose& pose,
     return result;
 }
 
-void PandaController::FeedSpeakingMotion(PandaMotionData& motion) {
-    // 在线 TTS 没有本地包络数据，这里用平滑的伪电平驱动轻量舞动，
-    // 让说话期间小熊猫尾巴/头保持跟随，而不是完全静止。
-    static float phase = 0.0f;
-    const float level = 0.5f + 0.25f * std::sin(phase * 0.9f + 0.7f);
-    const float attack = std::sin(phase * 2.3f) > 0.85f ? 0.35f : 0.0f;
-    motion.playing = true;
-    motion.level = level;
-    motion.attack = attack;
-    phase += 0.04f + 0.03f * level;
-}
-
 void PandaController::TaskEntry(void* arg) { static_cast<PandaController*>(arg)->Task(); }
 
 void PandaController::Task() {
@@ -510,7 +530,8 @@ void PandaController::Task() {
     const int ambient_count = audio_ != nullptr ? audio_->SoundCountByCategory("ambient") : 0;
     ESP_LOGI(TAG, "living motion: animal=%d ambient=%d", animal_count, ambient_count);
     uint32_t now_ms = esp_log_timestamp();
-    next_sound_ms_ = now_ms + 8000;
+    // 开机后尽快播放第一个声音（开机叫声），之后由自主调度继续播放。
+    next_sound_ms_ = now_ms + 2000;
     next_ambient_ms_ = now_ms + 300000;
     next_idle_ms_ = now_ms + 1800;
     StartClip(C_SETTLE, now_ms);
@@ -518,14 +539,22 @@ void PandaController::Task() {
         now_ms = esp_log_timestamp();
         const bool offline = !conversation_active_.load();
 
-        // 明确请求（情绪/MCP/按键）优先级最高，在线时不播本地声音以免与 TTS 重叠。
+        // 明确请求（情绪/MCP/按键/身体部位）优先级最高，在线时不播本地声音以免与 TTS 重叠。
         ActionRequest request;
         if (xQueueReceive(action_queue_, &request, 0) == pdTRUE) {
-            if (request.with_local_sound && offline && audio_ != nullptr) {
-                audio_->PlayForAction(request.action);
+            if (request.is_body) {
+                // 身体部位指令：直接播放对应剪辑，不经过行为族随机挑选。
+                StartClip(BodyClipId(static_cast<PandaBodyAction>(request.action)), now_ms);
+            } else {
+                if (request.with_local_sound && offline && audio_ != nullptr) {
+                    audio_->PlayForAction(request.action);
+                }
+                StartClip(ChooseClip(ActionToBehaviour(request.action)), now_ms);
             }
-            StartClip(ChooseClip(ActionToBehaviour(request.action)), now_ms);
-            next_sound_ms_ = now_ms + 6000 + esp_random() % 6000;
+            // 开机引导动作(kDiscover)不推迟开机叫声，其余动作给足间隔。
+            if (!request.is_body && request.action != PandaAction::kDiscover) {
+                next_sound_ms_ = now_ms + 6000 + esp_random() % 6000;
+            }
             next_ambient_ms_ = now_ms + 120000;
             next_idle_ms_ = now_ms + 4000 + esp_random() % 5000;
             clip_finished_ms_ = 0;
@@ -580,9 +609,16 @@ void PandaController::Task() {
             }
         }
 
-        // 在线说话期间合成轻量舞动数据，让小熊猫随 TTS 摆动。
+        // 在线说话期间用 AudioService 的真实 TTS 包络驱动舞动。
+        // 包络对语音的每个音节都会产生 attack 尖峰，直接使用会让头/尾巴
+        // 抖动，这里把 TTS 包络整体压低并平滑，只保留"随语音轻摆"的幅度。
         if (!offline && speaking_.load()) {
-            FeedSpeakingMotion(motion);
+            PandaMotionData tts = audio_->GetTtsMotionData();
+            if (tts.playing) {
+                tts.level *= 0.6f;
+                tts.attack *= 0.45f;
+                motion = tts;
+            }
         }
 
         UpdatePlayer(now_ms);
@@ -638,6 +674,74 @@ bool PandaController::TriggerAction(PandaAction action, bool with_local_sound) {
     return xQueueSend(action_queue_, &request, 0) == pdTRUE;
 }
 
+bool PandaController::TriggerBodyAction(PandaBodyAction action) {
+    if (action_queue_ == nullptr) {
+        return false;
+    }
+    ESP_LOGI(TAG, "Body action: %s", BodyActionName(action));
+    ActionRequest request{static_cast<PandaAction>(action), false, true};
+    if (xQueueSend(action_queue_, &request, 0) == pdTRUE) {
+        return true;
+    }
+    ActionRequest discarded;
+    xQueueReceive(action_queue_, &discarded, 0);
+    return xQueueSend(action_queue_, &request, 0) == pdTRUE;
+}
+
+int PandaController::BodyClipId(PandaBodyAction action) {
+    switch (action) {
+        case PandaBodyAction::kShakeHead:
+            return BODY_SHAKE_HEAD;
+        case PandaBodyAction::kLookLeft:
+            return BODY_LOOK_LEFT;
+        case PandaBodyAction::kLookRight:
+            return BODY_LOOK_RIGHT;
+        case PandaBodyAction::kWagTail:
+            return BODY_WAG_TAIL;
+        case PandaBodyAction::kTwistNeck:
+            return BODY_TWIST_NECK;
+        default:
+            break;
+    }
+    return BODY_SHAKE_HEAD;
+}
+
+bool PandaController::ParseBodyAction(const std::string& name, PandaBodyAction& action) {
+    static const struct {
+        const char* name;
+        PandaBodyAction action;
+    } actions[] = {{"shake_head", PandaBodyAction::kShakeHead},
+                   {"look_left", PandaBodyAction::kLookLeft},
+                   {"look_right", PandaBodyAction::kLookRight},
+                   {"wag_tail", PandaBodyAction::kWagTail},
+                   {"twist_neck", PandaBodyAction::kTwistNeck}};
+    for (const auto& item : actions) {
+        if (name == item.name) {
+            action = item.action;
+            return true;
+        }
+    }
+    return false;
+}
+
+const char* PandaController::BodyActionName(PandaBodyAction action) {
+    switch (action) {
+        case PandaBodyAction::kShakeHead:
+            return "shake_head";
+        case PandaBodyAction::kLookLeft:
+            return "look_left";
+        case PandaBodyAction::kLookRight:
+            return "look_right";
+        case PandaBodyAction::kWagTail:
+            return "wag_tail";
+        case PandaBodyAction::kTwistNeck:
+            return "twist_neck";
+        default:
+            break;
+    }
+    return "shake_head";
+}
+
 void PandaController::SetConversationActive(bool active) {
     const bool changed = conversation_active_.exchange(active) != active;
     if (!changed) {
@@ -656,6 +760,10 @@ void PandaController::SetConversationActive(bool active) {
 
 void PandaController::SetSpeaking(bool speaking) {
     speaking_.store(speaking);
+}
+
+void PandaController::SetDefaultPose() {
+    SetServoAngles(SERVO_HEAD_DEFAULT, SERVO_TAIL_LR_DEFAULT, SERVO_TAIL_UD_DEFAULT);
 }
 
 PandaAction PandaController::EmotionToAction(const std::string& emotion) const {
@@ -701,6 +809,37 @@ void PandaController::HandleLlmEmotion(const char* emotion) {
 
 void PandaController::HandleUserSpeechEmotion(const char* text) {
     if (!conversation_active_.load() || text == nullptr || text[0] == '\0') {
+        return;
+    }
+    // 身体部位指令优先级最高："摇摇头/向左看/摇尾巴/扭扭脖子"等。
+    static const struct {
+        PandaBodyAction action;
+        const char* words[4];
+    } body_rules[] = {
+        {PandaBodyAction::kShakeHead, {"摇头", "晃晃头", "甩头", "晃头"}},
+        {PandaBodyAction::kLookLeft, {"向左看", "看左边", "看左", "左看"}},
+        {PandaBodyAction::kLookRight, {"向右看", "看右边", "看右", "右看"}},
+        {PandaBodyAction::kWagTail, {"摇尾巴", "甩尾巴", "摆尾巴", "摇摇尾巴"}},
+        {PandaBodyAction::kTwistNeck, {"扭脖子", "扭扭脖子", "歪脖子", "转转脖子"}},
+    };
+    int body_best = -1;
+    int body_score = 0;
+    for (size_t rule = 0; rule < sizeof(body_rules) / sizeof(body_rules[0]); ++rule) {
+        int score = 0;
+        for (size_t word = 0; word < 4 && body_rules[rule].words[word] != nullptr; ++word) {
+            if (std::strstr(text, body_rules[rule].words[word]) != nullptr) {
+                ++score;
+            }
+        }
+        if (score > body_score) {
+            body_score = score;
+            body_best = static_cast<int>(rule);
+        }
+    }
+    if (body_score > 0) {
+        ESP_LOGI(TAG, "User speech body: %s -> %s", text,
+                 BodyActionName(body_rules[body_best].action));
+        TriggerBodyAction(body_rules[body_best].action);
         return;
     }
     // 服务端 llm.emotion 经常缺失，这里对用户转写文本做一次轻量关键词
@@ -810,6 +949,20 @@ void PandaController::RegisterMcpTools() {
                         return "invalid action";
                     }
                     TriggerAction(action, !conversation_active_.load());
+                    return true;
+                });
+    mcp.AddTool("self.panda.body",
+                "控制小熊猫的某个身体部位做动作。用户明确要求某个身体部位动作时使用，"
+                "例如「摇摇头」→ shake_head，「向左看」→ look_left，「向右看」→ look_right，"
+                "「摇摇尾巴」→ wag_tail，「扭扭脖子」→ twist_neck。"
+                "action 取值：shake_head, look_left, look_right, wag_tail, twist_neck。",
+                PropertyList({Property("action", kPropertyTypeString)}),
+                [this](const PropertyList& properties) -> ReturnValue {
+                    PandaBodyAction action;
+                    if (!ParseBodyAction(properties["action"].value<std::string>(), action)) {
+                        return "invalid body action";
+                    }
+                    TriggerBodyAction(action);
                     return true;
                 });
     mcp.AddTool("self.panda.get_mode", "返回小熊猫当前 online 或 offline 模式。", PropertyList(),

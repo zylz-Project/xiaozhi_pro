@@ -23,8 +23,8 @@
 
 static const char *TAG = "WifiBoard";
 
-// Connection timeout in seconds
-static constexpr int CONNECT_TIMEOUT_SEC = 60;
+// Connection timeout in seconds (Kconfig, default 60).
+static constexpr int CONNECT_TIMEOUT_SEC = CONFIG_WIFI_CONNECT_TIMEOUT_SEC;
 
 WifiBoard::WifiBoard() {
     // Create connection timeout timer

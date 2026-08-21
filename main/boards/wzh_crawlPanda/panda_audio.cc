@@ -49,10 +49,10 @@ bool PandaAudio::Initialize() {
         ESP_LOGW(TAG, "W25N01GV init failed: %s", esp_err_to_name(err));
         return false;
     }
-    if (w25n01gv_get_capacity() < PANDA_FLASH_SIZE) {
-        ESP_LOGW(TAG, "W25N01GV capacity below expected %u MB", PANDA_FLASH_SIZE / 1024 / 1024);
-        return false;
-    }
+    // w25n01gv_init 已通过 JEDEC ID 校验芯片；get_capacity 返回的是用户区
+    // 容量（125 MiB，物理 128 MiB 扣 BBM 保留块），不能与物理容量比较。
+    ESP_LOGI(TAG, "External NAND capacity: %llu MiB",
+             static_cast<unsigned long long>(w25n01gv_get_capacity() / 1024 / 1024));
     if (!ReadToc()) {
         ESP_LOGW(TAG, "No valid default-audio TOC; offline movement will remain available");
         return false;
@@ -96,9 +96,12 @@ bool PandaAudio::ReadToc() {
     if (12 + count * entry_size > sizeof(toc)) {
         return false;
     }
+    // 与旧工程 flash_audio_init 一致：逐个校验条目，遇到损坏条目只跳过，
+    // 而不是让整颗 flash 的音频全部失效。
+    uint32_t valid = 0;
     for (uint32_t i = 0; i < count; ++i) {
         const uint8_t* entry = toc + 12 + i * entry_size;
-        auto& file = files_[i];
+        auto& file = files_[valid];
         std::memcpy(file.name, entry, sizeof(file.name));
         file.name[sizeof(file.name) - 1] = '\0';
         std::memcpy(&file.offset, entry + 64, sizeof(file.offset));
@@ -114,11 +117,16 @@ bool PandaAudio::ReadToc() {
         const uint32_t address = PANDA_FLASH_DATA_START + file.offset;
         if (file.name[0] == '\0' || file.size == 0 || address < PANDA_FLASH_DATA_START ||
             address >= PANDA_FLASH_SIZE || file.size > PANDA_FLASH_SIZE - address) {
-            ESP_LOGW(TAG, "Ignoring invalid TOC entry %lu", static_cast<unsigned long>(i));
-            return false;
+            ESP_LOGW(TAG, "Skipping invalid TOC entry %lu", static_cast<unsigned long>(i));
+            continue;
         }
+        ++valid;
     }
-    file_count_ = static_cast<int>(count);
+    file_count_ = static_cast<int>(valid);
+    if (file_count_ > 0) {
+        ESP_LOGI(TAG, "TOC loaded: %d valid of %lu entries", file_count_,
+                 static_cast<unsigned long>(count));
+    }
     return file_count_ > 0;
 }
 
@@ -224,6 +232,10 @@ void PandaAudio::StopPlayback() {
     is_playing_.store(false);
     motion_level_.store(0.0f);
     motion_attack_.store(0.0f);
+    // 清掉输出包络残留：本地声音的输出也会喂 tts_level_，进入对话时若不
+    // 清零，speaking 状态会带着上一段本地声音的包络立刻"舞动"。
+    tts_level_.store(0.0f);
+    tts_attack_.store(0.0f);
     Application::GetInstance().GetAudioService().ResetDecoder();
 }
 
@@ -235,6 +247,20 @@ PandaMotionData PandaAudio::GetMotionData() const {
     data.elapsed_ms = motion_elapsed_ms_.load();
     data.duration_ms = motion_duration_ms_.load();
     data.sound_index = motion_sound_index_.load();
+    return data;
+}
+
+void PandaAudio::FeedTtsLevel(float level, float attack) {
+    tts_level_.store(level);
+    tts_attack_.store(attack);
+}
+
+PandaMotionData PandaAudio::GetTtsMotionData() const {
+    PandaMotionData data = {};
+    data.playing = tts_level_.load() > 0.01f;
+    data.level = tts_level_.load();
+    data.attack = tts_attack_.load();
+    data.sound_index = -1;
     return data;
 }
 

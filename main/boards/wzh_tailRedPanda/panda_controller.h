@@ -24,6 +24,17 @@ enum class PandaAction : uint8_t {
     kSleepy,
 };
 
+// 身体部位级动作（语音控制："摇摇头/向左看/摇尾巴/扭扭脖子"等）。
+// 名称同时作为 MCP self.panda.body 的参数，增删时同步更新 BodyActionName。
+enum class PandaBodyAction : uint8_t {
+    kShakeHead,
+    kLookLeft,
+    kLookRight,
+    kWagTail,
+    kTwistNeck,
+    kCount,
+};
+
 namespace wzh_panda {
 
 struct Pose {
@@ -86,11 +97,17 @@ public:
     void HandleLlmEmotion(const char* emotion);
     void HandleUserSpeechEmotion(const char* text);
     bool TriggerAction(PandaAction action, bool with_local_sound = false);
+    // 身体部位级动作（摇头/看左/看右/摇尾巴/扭脖子）。队列与 TriggerAction
+    // 共用，在线对话时也会正常执行。
+    bool TriggerBodyAction(PandaBodyAction action);
+    // 关机序列用：直接写回默认安全姿态（不经过动作队列）。
+    void SetDefaultPose();
 
 private:
     struct ActionRequest {
         PandaAction action;
         bool with_local_sound;
+        bool is_body;
     };
 
     PandaAudio* audio_ = nullptr;
@@ -145,8 +162,10 @@ private:
     void AddMicroMotion(wzh_panda::Pose& pose, uint32_t now_ms, float life);
     wzh_panda::Pose ApplyAudioMotion(const wzh_panda::Pose& pose, const PandaMotionData& audio,
                                      uint32_t now_ms);
-    void FeedSpeakingMotion(PandaMotionData& motion);
     static wzh_panda::Behaviour ActionToBehaviour(PandaAction action);
+    static int BodyClipId(PandaBodyAction action);
+    static bool ParseBodyAction(const std::string& name, PandaBodyAction& action);
+    static const char* BodyActionName(PandaBodyAction action);
     PandaAction EmotionToAction(const std::string& emotion) const;
     static bool ParseAction(const std::string& name, PandaAction& action);
     static const char* ActionName(PandaAction action);

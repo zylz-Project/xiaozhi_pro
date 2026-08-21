@@ -24,6 +24,18 @@ enum class PandaAction : uint8_t {
     kSleepy,
 };
 
+// 身体部位级动作（语音控制："摇摇头/向左看/挥挥手/举起前肢"等）。
+// 名称同时作为 MCP self.panda.body 的参数，增删时同步更新 BodyActionName。
+enum class PandaBodyAction : uint8_t {
+    kShakeHead,
+    kLookLeft,
+    kLookRight,
+    kWaveLeft,
+    kWaveRight,
+    kRaiseArms,
+    kCount,
+};
+
 namespace wzh_panda {
 
 struct Pose {
@@ -86,11 +98,17 @@ public:
     void HandleLlmEmotion(const char* emotion);
     void HandleUserSpeechEmotion(const char* text);
     bool TriggerAction(PandaAction action, bool with_local_sound = false);
+    // 身体部位级动作（摇头/看左/看右/挥手/举起前肢）。队列与 TriggerAction
+    // 共用，在线对话时也会正常执行。
+    bool TriggerBodyAction(PandaBodyAction action);
+    // 关机序列用：直接写回默认安全姿态（不经过动作队列）。
+    void SetDefaultPose();
 
 private:
     struct ActionRequest {
         PandaAction action;
         bool with_local_sound;
+        bool is_body;
     };
 
     PandaAudio* audio_ = nullptr;
@@ -123,17 +141,10 @@ private:
     bool was_playing_ = false;
     wzh_panda::Behaviour sound_behaviour_ = wzh_panda::Behaviour::kCurious;
 
-    // ---- 常驻微动层状态 ----
-    float breath_phase_ = 0.0f;
-    uint32_t breath_period_ = 3400;
-    float gaze_pos_ = 0.0f;
-    float gaze_target_ = 0.0f;
-    uint32_t gaze_next_ms_ = 0;
-    float tremor_phase_ = 0.0f;
-
     static void TaskEntry(void* arg);
     void Task();
     void InitializeServos();
+    void SetServoAngle(int idx, int angle);
     void SetServoAngles(int head, int left_arm, int right_arm);
     void OutputPose(const wzh_panda::Pose& pose);
     void StartClip(int clip_id, uint32_t now_ms);
@@ -141,11 +152,12 @@ private:
     int ChooseClip(wzh_panda::Behaviour behaviour);
     bool QueueRandomSound(const char* category);
     wzh_panda::Behaviour ClassifySound(int index) const;
-    void AddMicroMotion(wzh_panda::Pose& pose, uint32_t now_ms, float life);
     wzh_panda::Pose ApplyAudioMotion(const wzh_panda::Pose& pose, const PandaMotionData& audio,
                                      uint32_t now_ms);
-    void FeedSpeakingMotion(PandaMotionData& motion);
     static wzh_panda::Behaviour ActionToBehaviour(PandaAction action);
+    static int BodyClipId(PandaBodyAction action);
+    static bool ParseBodyAction(const std::string& name, PandaBodyAction& action);
+    static const char* BodyActionName(PandaBodyAction action);
     PandaAction EmotionToAction(const std::string& emotion) const;
     static bool ParseAction(const std::string& name, PandaAction& action);
     static const char* ActionName(PandaAction action);

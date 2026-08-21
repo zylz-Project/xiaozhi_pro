@@ -34,6 +34,11 @@ public:
     void StopPlayback();
     PandaMotionData GetMotionData() const;
 
+    // 由 XiaoZhi AudioService 的输出包络回调驱动（TTS/在线回复的真实响度）。
+    void FeedTtsLevel(float level, float attack);
+    // 在线 TTS 播放期间的响度数据（playing 仅在确有输出时置真）。
+    PandaMotionData GetTtsMotionData() const;
+
     int file_count() const { return file_count_; }
     int SoundCountByCategory(const char* category) const;
     const char* SoundName(int index) const;
@@ -67,6 +72,9 @@ private:
     std::atomic<uint32_t> motion_elapsed_ms_{0};
     std::atomic<uint32_t> motion_duration_ms_{0};
     std::atomic<int> motion_sound_index_{-1};
+    // 在线 TTS 包络（来自 AudioService 输出回调）。
+    std::atomic<float> tts_level_{0.0f};
+    std::atomic<float> tts_attack_{0.0f};
     float fast_envelope_ = 0.0f;
     float slow_envelope_ = 0.0f;
 

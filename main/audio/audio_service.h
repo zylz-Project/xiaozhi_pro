@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <chrono>
 #include <mutex>
+#include <functional>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -130,6 +131,13 @@ public:
 
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
+    // Optional hook for boards that drive servo/robot motion from the actual
+    // loudness of the audio currently being played (TTS, prompts, offline
+    // sounds). Fired from the output task with a smoothed 0..1 level and a
+    // short attack energy. Only meaningful when playback is running.
+    using OutputAudioLevelListener = std::function<void(float level, float attack)>;
+    void SetOutputAudioLevelListener(OutputAudioLevelListener listener);
+
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
@@ -140,6 +148,10 @@ public:
 private:
     AudioCodec* codec_ = nullptr;
     AudioServiceCallbacks callbacks_;
+    OutputAudioLevelListener output_audio_level_listener_;
+    // 输出包络状态（双时间常数平滑），用于驱动舵机等随音频动作。
+    float output_fast_env_ = 0.0f;
+    float output_slow_env_ = 0.0f;
     std::unique_ptr<AudioEngine> audio_engine_;
     std::unique_ptr<AudioDebugger> audio_debugger_;
     void* opus_encoder_ = nullptr;
