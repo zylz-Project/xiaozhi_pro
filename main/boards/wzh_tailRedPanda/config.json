@@ -1,0 +1,12 @@
+{
+    "type": "wzh-tailredpanda",
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "wzh-tailredpanda",
+            "sdkconfig_append": [
+                "CONFIG_ESP_CONSOLE_NONE=y"
+            ]
+        }
+    ]
+}

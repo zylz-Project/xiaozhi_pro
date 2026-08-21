@@ -55,6 +55,10 @@ Application::~Application() {
 
 bool Application::SetDeviceState(DeviceState state) { return state_machine_.TransitionTo(state); }
 
+int Application::AddDeviceStateChangeListener(DeviceStateMachine::StateCallback callback) {
+    return state_machine_.AddStateChangeListener(std::move(callback));
+}
+
 void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);

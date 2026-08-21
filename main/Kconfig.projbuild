@@ -577,6 +577,15 @@ choice BOARD_TYPE
     config BOARD_TYPE_WDMOMO_CGC_144
         bool "WDMomo ESP32-CGC-144"
         depends on IDF_TARGET_ESP32
+    config BOARD_TYPE_WZH_DINOSAUR
+        bool "WZH Dinosaur"
+        depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_WZH_TAILREDPANDA
+        bool "WZH Tail Red Panda"
+        depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_WZH_CRAWLPANDA
+        bool "WZH Crawl Panda"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_XMINI_C3
         bool "Xmini C3"
         depends on IDF_TARGET_ESP32C3

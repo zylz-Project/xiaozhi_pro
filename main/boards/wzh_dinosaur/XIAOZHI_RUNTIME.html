@@ -1,0 +1,1541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XiaoZhi 工程运行原理 — WZH Dinosaur 版本</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #faf9f6;
+    --surface: #ffffff;
+    --text: #1a1a2e;
+    --text-secondary: #5a5a6e;
+    --border: #e0ddd6;
+    --accent: #d97706;
+    --accent-2: #7c3aed;
+    --accent-3: #059669;
+    --accent-light: #fef3c7;
+    --accent2-light: #ede9fe;
+    --accent3-light: #d1fae5;
+    --code-bg: #f4f2ed;
+    --table-stripe: #faf8f4;
+    --sidebar-bg: #1a1a2e;
+    --sidebar-text: #c4c4d0;
+    --sidebar-active: #d97706;
+    --heading: #0f172a;
+    --mermaid-bg: #ffffff;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-lg: 0 4px 24px rgba(0,0,0,0.08);
+  }
+  [data-theme="dark"] {
+    --bg: #0b1120;
+    --surface: #1a2332;
+    --text: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --border: #2d3a4a;
+    --accent: #f59e0b;
+    --accent-2: #a78bfa;
+    --accent-3: #34d399;
+    --accent-light: #422006;
+    --accent2-light: #1e1147;
+    --accent3-light: #052e16;
+    --code-bg: #111b2a;
+    --table-stripe: #172233;
+    --sidebar-bg: #080d18;
+    --sidebar-text: #94a3b8;
+    --heading: #f1f5f9;
+    --mermaid-bg: #1a2332;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-lg: 0 4px 24px rgba(0,0,0,0.5);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.78;
+    display: flex;
+    transition: background 0.3s, color 0.3s;
+  }
+
+  /* ── Progress bar ── */
+  #progress-bar {
+    position: fixed; top: 0; left: 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3));
+    z-index: 9999;
+    transition: width 0.15s linear;
+    border-radius: 0 3px 3px 0;
+  }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 280px; min-width: 280px; height: 100vh;
+    position: fixed; top: 0; left: 0;
+    background: var(--sidebar-bg); color: var(--sidebar-text);
+    overflow-y: auto; padding: 20px 0;
+    z-index: 100; font-size: 13.5px;
+    border-right: 1px solid rgba(255,255,255,0.06);
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  }
+  #sidebar.hidden { transform: translateX(-100%); }
+
+  #sidebar .logo {
+    padding: 0 18px 16px;
+    font-size: 16px; font-weight: 700; color: #fff;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 4px; letter-spacing: 0.3px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  #sidebar .logo .icon { font-size: 22px; }
+
+  #sidebar nav { padding: 8px 0; }
+  #sidebar nav a {
+    display: block; padding: 5px 18px;
+    color: inherit; text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: all 0.2s; font-size: 13px;
+    position: relative; overflow: hidden;
+  }
+  #sidebar nav a::after {
+    content: ""; position: absolute; left: 0; bottom: 0;
+    width: 0; height: 100%;
+    background: rgba(255,255,255,0.03);
+    transition: width 0.3s;
+  }
+  #sidebar nav a:hover::after,
+  #sidebar nav a.active::after { width: 100%; }
+  #sidebar nav a:hover,
+  #sidebar nav a.active {
+    color: var(--sidebar-active);
+    border-left-color: var(--sidebar-active);
+  }
+  #sidebar nav a.h2 { padding-left: 30px; font-size: 12.5px; }
+  #sidebar nav a.h2::before {
+    content: "·"; position: absolute; left: 20px;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  #sidebar nav a.h2:hover::before,
+  #sidebar nav a.h2.active::before { opacity: 1; }
+
+  #sidebar .sidebar-badge {
+    display: inline-block;
+    background: rgba(217,119,6,0.2);
+    color: var(--accent);
+    font-size: 10px; padding: 1px 6px;
+    border-radius: 10px; margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  /* ── Toolbar ── */
+  .toolbar {
+    position: fixed; top: 12px; right: 20px;
+    display: flex; gap: 8px; z-index: 200;
+  }
+  .toolbar button {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    cursor: pointer; font-size: 15px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s; box-shadow: var(--shadow);
+    position: relative;
+  }
+  .toolbar button:hover {
+    background: var(--accent-light);
+    color: var(--accent);
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg);
+  }
+  .toolbar button:active { transform: scale(0.92); }
+  .toolbar button .tooltip {
+    position: absolute; right: 44px; white-space: nowrap;
+    background: var(--sidebar-bg); color: #fff;
+    padding: 4px 10px; border-radius: 4px; font-size: 11px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .toolbar button:hover .tooltip { opacity: 1; }
+
+  /* ── Main ── */
+  #main {
+    margin-left: 280px;
+    width: calc(100% - 280px);
+    padding: 48px 60px 120px;
+    transition: margin-left 0.3s, width 0.3s;
+    display: flex;
+    justify-content: center;
+  }
+  #main.full-width { margin-left: 0; width: 100%; }
+  #main .content-wrapper {
+    max-width: 900px;
+    width: 100%;
+  }
+
+  /* ── Typography ── */
+  h1 {
+    font-size: 30px; font-weight: 800; color: var(--heading);
+    margin-bottom: 4px; letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  h1 + p { color: var(--text-secondary); margin-bottom: 40px; font-size: 15px; }
+
+  h2 {
+    font-size: 21px; font-weight: 700; color: var(--heading);
+    margin-top: 56px; margin-bottom: 18px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    letter-spacing: -0.2px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2 .section-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 14px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  h3 {
+    font-size: 16.5px; font-weight: 700; color: var(--heading);
+    margin-top: 34px; margin-bottom: 10px;
+  }
+  h4 {
+    font-size: 14.5px; font-weight: 600; color: var(--heading);
+    margin-top: 24px; margin-bottom: 8px;
+  }
+  p { margin-bottom: 14px; }
+  ul, ol { margin-bottom: 14px; padding-left: 22px; }
+  li { margin-bottom: 4px; }
+  a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
+  a:hover { text-decoration: underline; }
+  strong { font-weight: 600; color: var(--heading); }
+
+  /* ── Code ── */
+  code {
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+    font-size: 13px; background: var(--code-bg);
+    padding: 2px 6px; border-radius: 3px;
+    color: #c2410c; transition: background 0.2s;
+  }
+  [data-theme="dark"] code { color: #fbbf24; }
+
+  .code-block {
+    position: relative; margin-bottom: 20px;
+  }
+  .code-block pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 48px 20px 20px;
+    overflow-x: auto; font-size: 13px; line-height: 1.6;
+    box-shadow: var(--shadow);
+    transition: box-shadow 0.3s, border-color 0.3s;
+  }
+  .code-block pre:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--accent);
+  }
+  .code-block pre code {
+    background: none; padding: 0; color: var(--text);
+  }
+  .copy-btn {
+    position: absolute; top: 10px; right: 10px;
+    width: 30px; height: 30px; border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.2s, transform 0.15s;
+  }
+  .code-block:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { transform: scale(1.08); }
+  .copy-btn.copied { background: var(--accent3-light); border-color: var(--accent-3); }
+  .copy-btn.copied::after {
+    content: "✓"; color: var(--accent-3);
+  }
+
+  /* ── Tables ── */
+  .table-wrap {
+    overflow-x: auto; margin-bottom: 20px;
+    border-radius: 10px; border: 1px solid var(--border);
+    box-shadow: var(--shadow); transition: box-shadow 0.3s;
+  }
+  .table-wrap:hover { box-shadow: var(--shadow-lg); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { padding: 11px 16px; text-align: left; }
+  th {
+    background: var(--code-bg); font-weight: 700;
+    color: var(--heading); white-space: nowrap;
+    position: sticky; top: 0;
+  }
+  td { border-top: 1px solid var(--border); }
+  tbody tr { transition: background 0.2s; }
+  tbody tr:hover { background: var(--accent-light); }
+
+  /* ── Mermaid container ── */
+  .mermaid-wrap {
+    background: var(--mermaid-bg);
+    padding: 24px 16px; margin-bottom: 24px;
+    border: 1px solid var(--border);
+    border-radius: 12px; text-align: center;
+    overflow-x: auto; box-shadow: var(--shadow);
+    transition: box-shadow 0.3s, transform 0.3s;
+    position: relative;
+  }
+  .mermaid-wrap:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
+  }
+  .mermaid-wrap .diagram-label {
+    position: absolute; top: -10px; left: 16px;
+    background: var(--surface); padding: 2px 10px;
+    border-radius: 10px; font-size: 11px;
+    color: var(--text-secondary); border: 1px solid var(--border);
+  }
+
+  /* ── Callout box ── */
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-light);
+    padding: 16px 20px; border-radius: 0 10px 10px 0;
+    margin-bottom: 20px; font-size: 14px;
+    box-shadow: var(--shadow);
+    position: relative; overflow: hidden;
+    animation: calloutIn 0.6s ease-out both;
+  }
+  .callout::before {
+    content: "💡"; position: absolute; top: 10px; right: 16px;
+    font-size: 20px; opacity: 0.3;
+  }
+  .callout.warn {
+    border-left-color: #e11d48;
+    background: #fce4ec;
+  }
+  .callout.warn::before { content: "⚠️"; }
+  .callout.info {
+    border-left-color: var(--accent-2);
+    background: var(--accent2-light);
+  }
+  .callout.info::before { content: "ℹ️"; }
+  [data-theme="dark"] .callout.warn { background: #2d0a14; }
+  [data-theme="dark"] .callout.info { background: var(--accent2-light); }
+
+  @keyframes calloutIn {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* ── Step flow ── */
+  .step-flow {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 20px; align-items: center;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 13.5px;
+  }
+  .step-flow .step {
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 10px 16px; border-radius: 8px;
+    box-shadow: var(--shadow); transition: all 0.3s;
+    position: relative;
+    animation: stepIn 0.4s ease-out both;
+    cursor: default;
+  }
+  .step-flow .step:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--accent);
+  }
+  .step-flow .step .step-num {
+    display: inline-block;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    font-size: 11px; text-align: center; line-height: 20px;
+    margin-right: 6px; font-weight: 700;
+  }
+  .step-flow .step-arrow {
+    color: var(--accent); font-size: 18px;
+    font-weight: 700; animation: arrowPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes stepIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes arrowPulse {
+    0%, 100% { opacity: 0.3; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.2); }
+  }
+
+  /* ── Sequence text block ── */
+  .seq-text {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 20px;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 12.5px; line-height: 1.7;
+    white-space: pre; overflow-x: auto;
+    margin-bottom: 20px; color: var(--text);
+    box-shadow: var(--shadow);
+    transition: box-shadow 0.3s;
+  }
+  .seq-text:hover { box-shadow: var(--shadow-lg); }
+
+  /* ── Reveal on scroll ── */
+  .reveal {
+    opacity: 0; transform: translateY(24px);
+    transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+  }
+  .reveal.visible {
+    opacity: 1; transform: translateY(0);
+  }
+
+  /* ── Interactive tabs for sections ── */
+  .tab-container {
+    margin-bottom: 20px;
+  }
+  .tab-buttons {
+    display: flex; gap: 4px; margin-bottom: 0;
+  }
+  .tab-btn {
+    padding: 8px 18px; border: 1px solid var(--border);
+    background: var(--surface); cursor: pointer;
+    border-radius: 8px 8px 0 0; font-size: 13px;
+    font-weight: 600; color: var(--text-secondary);
+    transition: all 0.2s; border-bottom: none;
+  }
+  .tab-btn.active {
+    background: var(--code-bg); color: var(--accent);
+    border-color: var(--border);
+  }
+  .tab-panel {
+    display: none; padding: 20px;
+    border: 1px solid var(--border); border-radius: 0 10px 10px 10px;
+    background: var(--code-bg);
+  }
+  .tab-panel.active { display: block; }
+
+  /* ── Floating badges ── */
+  .tag {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 11.5px; font-weight: 600;
+    margin-right: 4px;
+  }
+  .tag.hw { background: #fce4ec; color: #c62828; }
+  .tag.sw { background: #e3f2fd; color: #1565c0; }
+  .tag.net { background: #e8f5e9; color: #2e7d32; }
+  .tag.dino { background: #fef3c7; color: #e65100; }
+  [data-theme="dark"] .tag.hw { background: #2d0a14; color: #ef5350; }
+  [data-theme="dark"] .tag.sw { background: #091c31; color: #64b5f6; }
+  [data-theme="dark"] .tag.net { background: #0a1f0c; color: #66bb6a; }
+  [data-theme="dark"] .tag.dino { background: #2d1a04; color: #ffb74d; }
+
+  /* ── Highlight box ── */
+  .highlight-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;
+    box-shadow: var(--shadow); transition: all 0.3s;
+  }
+  .highlight-card:hover {
+    box-shadow: var(--shadow-lg); transform: translateY(-2px);
+  }
+
+  /* ── Pulse dot ── */
+  .pulse-dot {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin-right: 6px;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .pulse-dot.green { background: var(--accent-3); }
+  .pulse-dot.amber { background: var(--accent); }
+  .pulse-dot.red { background: #e11d48; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 currentColor; }
+    50% { box-shadow: 0 0 0 6px transparent; }
+  }
+
+  /* ── Back to top ── */
+  #back-to-top {
+    position: fixed; bottom: 28px; right: 28px;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: none;
+    cursor: pointer; font-size: 18px;
+    box-shadow: 0 4px 16px rgba(217,119,6,0.35);
+    opacity: 0; pointer-events: none;
+    transform: translateY(12px);
+    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+    z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #back-to-top.visible {
+    opacity: 1; pointer-events: auto;
+    transform: translateY(0);
+  }
+  #back-to-top:hover { transform: translateY(-3px) scale(1.05); }
+  #back-to-top:active { transform: scale(0.92); }
+
+  /* ── Mobile sidebar toggle ── */
+  #sidebar-toggle {
+    display: none; position: fixed; top: 12px; left: 12px;
+    z-index: 300; width: 38px; height: 38px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--surface);
+    font-size: 18px; cursor: pointer; box-shadow: var(--shadow);
+  }
+
+  /* ── Search ── */
+  .search-box {
+    padding: 6px 18px; margin-bottom: 8px;
+  }
+  .search-box input {
+    width: 100%; padding: 8px 12px; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.05);
+    color: #fff; font-size: 12px; outline: none;
+    transition: border-color 0.2s;
+  }
+  .search-box input:focus { border-color: var(--accent); }
+  .search-box input::placeholder { color: rgba(255,255,255,0.25); }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    #sidebar { transform: translateX(-100%); }
+    #sidebar.open { transform: translateX(0); }
+    #sidebar-toggle { display: flex; align-items: center; justify-content: center; }
+    #main { margin-left: 0; width: 100%; padding: 24px 20px 80px; }
+    #main.full-width { margin-left: 0; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 17px; margin-top: 36px; flex-wrap: wrap; }
+    .toolbar { right: 10px; top: 8px; gap: 4px; }
+    .toolbar button { width: 32px; height: 32px; font-size: 13px; }
+    .step-flow { flex-direction: column; align-items: flex-start; }
+    .step-flow .step-arrow { transform: rotate(90deg); }
+    #back-to-top { bottom: 16px; right: 16px; width: 38px; height: 38px; }
+  }
+
+  @media print {
+    #sidebar, #sidebar-toggle, .toolbar, #back-to-top, #progress-bar { display: none !important; }
+    #main { margin-left: 0; width: 100%; padding: 0; }
+    #main .content-wrapper { max-width: 100%; }
+    .reveal { opacity: 1 !important; transform: none !important; }
+    .copy-btn { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Progress bar ── -->
+<div id="progress-bar" style="width:0%"></div>
+
+<!-- ── Sidebar toggle (mobile) ── -->
+<button id="sidebar-toggle" onclick="toggleSidebar()" aria-label="菜单">☰</button>
+
+<!-- ── Toolbar ── -->
+<div class="toolbar">
+  <button onclick="toggleTheme()" aria-label="切换主题">
+    🌓 <span class="tooltip">切换深色/浅色</span>
+  </button>
+  <button onclick="toggleSidebar()" aria-label="侧边栏">
+    📑 <span class="tooltip">侧边栏</span>
+  </button>
+  <button onclick="scrollToTop()" aria-label="回到顶部">
+    ⬆ <span class="tooltip">回到顶部</span>
+  </button>
+  <button onclick="expandAllSections()" aria-label="展开全部">
+    🔽 <span class="tooltip">展开全部图表</span>
+  </button>
+</div>
+
+<!-- ═══════════ SIDEBAR ═══════════ -->
+<aside id="sidebar">
+  <div class="logo"><span class="icon">📘</span> XiaoZhi 运行原理</div>
+  <div class="search-box">
+    <input type="text" id="sidebar-search" placeholder="🔍 搜索章节..." oninput="filterSidebar()">
+  </div>
+  <nav id="toc"></nav>
+</aside>
+
+<!-- ═══════════ MAIN ═══════════ -->
+<main id="main">
+<div class="content-wrapper">
+
+<!-- ── Hero ── -->
+<div class="reveal">
+<h1>XiaoZhi 工程运行原理</h1>
+<p style="font-size:15px">
+  WZH Dinosaur 版本 &nbsp;·&nbsp;
+  从固件构建到舵机动作的完整运行时说明
+  <br>
+  <span class="tag hw">硬件</span>
+  <span class="tag sw">软件架构</span>
+  <span class="tag net">网络</span>
+  <span class="tag dino">恐龙专属</span>
+</p>
+
+<p>
+本文从固件构建、ESP32-S3 启动、板型创建、联网、语音对话、服务端协议、MCP 工具，一直讲到 <code>wzh_dinosaur</code> 的舵机动作和离线声音，说明整个工程在运行时是怎样协作的。
+</p>
+
+<div class="callout info" style="margin-top:12px">
+  <strong>📂 工程根目录：</strong>
+  <code>/home/wzh/program/ESP32/zylz_project/test_xiaozhi_Final</code>
+</div>
+</div>
+
+<!-- ═══════ 1 ═══════ -->
+<h2 id="c1"><span class="section-num">1</span> 一句话理解整个系统</h2>
+
+<div class="reveal">
+<p>XiaoZhi 固件的核心是一个由<strong>事件驱动</strong>的 <code>Application</code> 主循环，由 6 大模块协同工作：</p>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:20px">
+  <div class="highlight-card" style="border-left:3px solid var(--accent)">
+    <strong>🎯 Board</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:6px 0 0">音频、网络、显示、电池等硬件能力</p>
+  </div>
+  <div class="highlight-card" style="border-left:3px solid var(--accent-2)">
+    <strong>🎤 AudioService</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:6px 0 0">麦克风采集、唤醒词、Opus 编解码、播放</p>
+  </div>
+  <div class="highlight-card" style="border-left:3px solid var(--accent-3)">
+    <strong>🌐 Protocol</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:6px 0 0">音频 & JSON 消息 → 服务端 ASR/TTS/LLM</p>
+  </div>
+  <div class="highlight-card" style="border-left:3px solid #6366f1">
+    <strong>🔒 StateMachine</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:6px 0 0">限制设备只能在合法状态间切换</p>
+  </div>
+  <div class="highlight-card" style="border-left:3px solid #ec4899">
+    <strong>⚙️ Application</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:6px 0 0">FreeRTOS 事件组织者，主循环调度中心</p>
+  </div>
+  <div class="highlight-card" style="border-left:3px solid #f43f5e">
+    <strong>🦖 wzh_dinosaur</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:6px 0 0">电源、五路舵机、W25Q256 离线声音、情绪动作</p>
+  </div>
+</div>
+</div>
+
+<div class="reveal">
+<div class="mermaid-wrap">
+  <span class="diagram-label">系统架构图</span>
+<div class="mermaid">
+flowchart TD
+    Main["🚀 app_main"] --> App["⚙️ Application"]
+    App --> Board["🎯 Board / WzhDinosaur"]
+    App --> State["🔒 DeviceStateMachine"]
+    App --> Audio["🎤 AudioService"]
+    App --> Protocol["🌐 Protocol"]
+    App --> MCP["🔧 McpServer"]
+
+    Board --> Wifi["📶 WifiBoard / WiFiManager"]
+    Board --> Codec["🎵 ES8311 AudioCodec"]
+    Board --> Dino["🦖 DinosaurController"]
+    Board --> Power["🔋 DinosaurPower"]
+    Board --> LocalAudio["💾 DinosaurAudio"]
+
+    Audio --> Codec
+    Audio --> Engine["🧠 AFE AudioEngine"]
+    Protocol --> WS["🔌 WebSocket"]
+    Protocol --> MQ["📡 MQTT + UDP"]
+    MCP --> Dino
+    LocalAudio --> Audio
+    Dino --> Servos["🤖 五路舵机"]
+</div>
+</div>
+</div>
+
+<!-- ═══════ 2 ═══════ -->
+<h2 id="c2"><span class="section-num">2</span> 构建时如何选中这块板</h2>
+
+<div class="reveal">
+<p>运行固件之前，构建系统必须保证只编译一个板型。<code>wzh_dinosaur</code> 的选择链路：</p>
+
+<div class="step-flow">
+  <span class="step"><span class="step-num">1</span>config.json</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">2</span>build.py</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">3</span>Kconfig</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">4</span>CMakeLists</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">5</span>*.cc 编译</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">6</span>create_board()</span>
+</div>
+</div>
+
+<div class="reveal">
+<div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)" title="复制">📋</button>
+<pre><code>python3 scripts/build.py wzh_dinosaur --name wzh-dinosaur</code></pre>
+</div>
+</div>
+
+<div class="reveal">
+<div class="callout">
+  <strong>要点：</strong>
+  <ul style="margin:8px 0 0">
+    <li>目录名 <code>wzh_dinosaur</code>（下划线），构建名 <code>wzh-dinosaur</code>（连字符）</li>
+    <li>芯片目标：<strong>ESP32-S3</strong></li>
+    <li><code>DECLARE_BOARD(WzhDinosaur)</code> 生成唯一工厂函数</li>
+    <li>ESP32-S3 主 Flash ≠ W25Q256 恐龙声音存储，二者是<strong>不同硬件</strong></li>
+  </ul>
+</div>
+</div>
+
+<!-- ═══════ 3 ═══════ -->
+<h2 id="c3"><span class="section-num">3</span> 关键目录和职责</h2>
+
+<div class="reveal">
+<div class="table-wrap">
+<table>
+  <thead><tr><th>路径</th><th>运行时职责</th></tr></thead>
+  <tbody>
+    <tr><td><code>main/main.cc</code></td><td>ESP-IDF 入口，初始化 NVS 并启动应用</td></tr>
+    <tr><td><code>main/application.*</code></td><td>主事件循环、会话生命周期和高层行为</td></tr>
+    <tr><td><code>main/device_state_machine.*</code></td><td>检查并执行合法状态转换</td></tr>
+    <tr><td><code>main/boards/common/board.*</code></td><td>所有板型必须实现的硬件接口</td></tr>
+    <tr><td><code>main/boards/common/wifi_board.*</code></td><td>Wi-Fi 连接、配网和网络事件</td></tr>
+    <tr><td><code>main/audio/audio_service.*</code></td><td>音频输入、输出、队列和 Opus 编解码</td></tr>
+    <tr><td><code>main/audio/engines/</code></td><td>AFE/VAD/AEC/唤醒词等输入处理</td></tr>
+    <tr><td><code>main/protocols/</code></td><td>WebSocket 与 MQTT/UDP 传输</td></tr>
+    <tr><td><code>main/mcp_server.*</code></td><td>设备工具注册、参数校验、调用与回复</td></tr>
+    <tr><td><code>main/ota.*</code></td><td>版本检查、激活和固件升级</td></tr>
+    <tr><td><code>main/assets.*</code></td><td>固件资源分区及资源升级</td></tr>
+    <tr><td><code>main/boards/wzh_dinosaur/</code></td><td>🦖 恐龙硬件、动作、电源和离线声音</td></tr>
+  </tbody>
+</table>
+</div>
+</div>
+
+<!-- ═══════ 4 ═══════ -->
+<h2 id="c4"><span class="section-num">4</span> ESP32-S3 上电后的完整启动顺序</h2>
+
+<div class="reveal">
+<h3 id="c4-1">4.1 进入 <code>app_main</code></h3>
+
+<p>ESP-IDF 启动 FreeRTOS 后调用 <code>app_main()</code>，按照严格的 5 步序列启动：</p>
+
+<div class="step-flow">
+  <span class="step"><span class="step-num">1</span>nvs_flash_init()</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">2</span>擦除恢复</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">3</span>GetInstance()</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">4</span>Initialize()</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">5</span>Run() 🔄 永不返回</span>
+</div>
+</div>
+
+<div class="reveal">
+<h3 id="c4-3">4.3 <code>WzhDinosaur</code> 构造顺序</h3>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-bottom:20px">
+  <div class="highlight-card reveal">
+    <strong style="color:var(--accent)">① I2C 总线</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 0">创建 ES8311 使用的 I2C0</p>
+  </div>
+  <div class="highlight-card reveal">
+    <strong style="color:var(--accent-2)">② 电源</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 0">拉高 GPIO7 锁存，初始化 ADC，启动电源任务</p>
+  </div>
+  <div class="highlight-card reveal">
+    <strong style="color:var(--accent-3)">③ 离线音频</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 0">初始化 W25Q256 SPI，读取 PNDA TOC</p>
+  </div>
+  <div class="highlight-card reveal">
+    <strong style="color:#6366f1">④ 舵机控制器</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 0">开启电源，配置 LEDC PWM，启动动作任务</p>
+  </div>
+  <div class="highlight-card reveal">
+    <strong style="color:#ec4899">⑤ MCP 注册</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 0">注册 3 个恐龙专用 MCP 工具</p>
+  </div>
+  <div class="highlight-card reveal">
+    <strong style="color:#f43f5e">⑥ GPIO 回调</strong>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 0">单击/双击回调，投递无声 discover 动作</p>
+  </div>
+</div>
+</div>
+
+<!-- ═══════ 5 ═══════ -->
+<h2 id="c5"><span class="section-num">5</span> 主事件循环</h2>
+
+<div class="reveal">
+<p><code>Application::Run()</code> 把主任务优先级设为 <strong>10</strong>，永久等待 Event Group：</p>
+
+<div class="mermaid-wrap">
+  <span class="diagram-label">事件驱动模型</span>
+<div class="mermaid">
+flowchart LR
+    A["🌐 网络回调"] --> E["⚡ Event Group"]
+    B["🎤 音频任务"] --> E
+    C["⏰ 定时器"] --> E
+    D["🔘 按键"] --> E
+    E --> F["🔔 唤醒主循环"]
+    F --> G["📋 主任务串行处理"]
+</div>
+</div>
+
+<p style="margin-top:16px">核心设计原则：</p>
+<div class="callout info" style="margin-top:8px">
+  <code>Application::Schedule()</code> 是跨任务修改状态的主要入口——回调不应直接修改状态，而是把函数放入 <code>main_tasks_</code> 队列，再唤醒主循环执行。
+</div>
+</div>
+
+<!-- ═══════ 6 ═══════ -->
+<h2 id="c6"><span class="section-num">6</span> 设备状态机</h2>
+
+<div class="reveal">
+<div class="mermaid-wrap">
+  <span class="diagram-label">状态转换图</span>
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> unknown
+    unknown --> starting
+    starting --> wifi_configuring: 没有凭据或超时
+    wifi_configuring --> activating: 配网成功
+    starting --> activating: Wi-Fi 直接连接
+    activating --> idle: 激活完成
+    idle --> connecting: 按键或唤醒词
+    connecting --> listening: 语音通道打开
+    listening --> speaking: 服务端 TTS
+    speaking --> listening: 自动对话继续
+    speaking --> idle: 手动模式结束
+    listening --> idle: 停止/关闭会话
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<table>
+  <thead><tr><th>状态</th><th>含义</th><th>指示灯</th></tr></thead>
+  <tbody>
+    <tr><td><code>idle</code></td><td>在线待机，等待触发</td><td><span class="pulse-dot green"></span> 待命中</td></tr>
+    <tr><td><code>connecting</code></td><td>建立语音会话通道</td><td><span class="pulse-dot amber"></span> 连接中</td></tr>
+    <tr><td><code>listening</code></td><td>录制并发送用户语音</td><td><span class="pulse-dot green" style="animation-duration:0.6s"></span> 录音中</td></tr>
+    <tr><td><code>speaking</code></td><td>接收并播放服务端 TTS</td><td><span class="pulse-dot amber" style="animation-duration:0.6s"></span> 播放中</td></tr>
+    <tr><td><code>wifi_configuring</code></td><td>配网模式</td><td><span class="pulse-dot red"></span> 等待配网</td></tr>
+    <tr><td><code>fatal_error</code></td><td>不可恢复错误</td><td><span class="pulse-dot red" style="animation-duration:0.4s"></span> 错误</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ═══════ 7 ═══════ -->
+<h2 id="c7"><span class="section-num">7</span> Wi-Fi 与配网流程</h2>
+
+<div class="reveal">
+<div class="mermaid-wrap">
+  <span class="diagram-label">Wi-Fi 事件消费链路</span>
+<div class="mermaid">
+flowchart TD
+    A["📡 WifiManager"] --> B["WifiBoard::OnNetworkEvent"]
+    B --> C["🦖 WzhDinosaur 包装"]
+    C --> D["设置 online/offline"]
+    C --> E["转发给 Application"]
+    E --> F["更新公共状态"]
+    E --> G["激活/初始化协议"]
+    E --> H["断网关闭会话"]
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<div class="callout warn">
+  ⚠️ 恐龙的 <code>online_</code> 表示 <strong>Wi-Fi 已连接</strong>，不表示语音会话已打开。语音通道在用户开始对话时才建立。
+</div>
+</div>
+
+<!-- ═══════ 8 ═══════ -->
+<h2 id="c8"><span class="section-num">8</span> 激活、资源、OTA 和协议</h2>
+
+<div class="reveal">
+<div class="step-flow">
+  <span class="step"><span class="step-num">1</span>创建 Ota 对象</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">2</span>检查资源分区</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">3</span>查询固件版本</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">4</span>执行 OTA</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">5</span>创建协议</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">6</span>进入 idle ✅</span>
+</div>
+
+<div class="callout info">
+  <strong>协议选择规则：</strong>MQTT 参数优先 → WebSocket 参数其次 → MQTT 默认路径兜底
+</div>
+<div class="callout warn">
+  <strong>注意区分两类"下载"：</strong>DinosaurAudio <strong>只读</strong> W25Q256，不下载不更新；XiaoZhi 核心仍保留 assets 更新和 OTA。
+</div>
+</div>
+
+<!-- ═══════ 9 ═══════ -->
+<h2 id="c9"><span class="section-num">9</span> 两种服务端传输方式</h2>
+
+<div class="reveal">
+<div class="tab-container">
+  <div class="tab-buttons">
+    <button class="tab-btn active" onclick="switchTab(this,'tab-ws')">🔌 WebSocket</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-mqtt')">📡 MQTT + UDP</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-api')">🔧 统一 API</button>
+  </div>
+  <div class="tab-panel active" id="tab-ws">
+    <p><strong>单连接模式</strong> — 一条连接同时传输：</p>
+    <ul>
+      <li>文本 JSON 控制消息</li>
+      <li>二进制 Opus 音频包</li>
+    </ul>
+    <p>打开通道时发送 <code>hello</code> 声明协议版本、MCP 能力、音频格式。</p>
+  </div>
+  <div class="tab-panel" id="tab-mqtt">
+    <p><strong>双通道模式</strong>：</p>
+    <ul>
+      <li><strong>MQTT：</strong>会话控制、JSON 消息、MCP、STT/TTS 状态</li>
+      <li><strong>UDP：</strong>实时 Opus 音频，AES-CTR 加解密</li>
+    </ul>
+    <p>UDP 通过时间戳和序列号检查重复、乱序或丢包。</p>
+  </div>
+  <div class="tab-panel" id="tab-api">
+    <p>上层不关心底层实现，统一接口：</p>
+    <ul>
+      <li><code>OpenAudioChannel()</code> / <code>CloseAudioChannel()</code></li>
+      <li><code>SendAudio()</code></li>
+      <li><code>SendStartListening()</code> / <code>SendStopListening()</code></li>
+      <li><code>SendAbortSpeaking()</code></li>
+      <li><code>SendMcpMessage()</code></li>
+    </ul>
+  </div>
+</div>
+</div>
+
+<!-- ═══════ 10 ═══════ -->
+<h2 id="c10"><span class="section-num">10</span> 音频系统怎样运行</h2>
+
+<div class="reveal">
+<h3 id="c10-3">10.3 用户语音上行</h3>
+
+<div class="mermaid-wrap">
+  <span class="diagram-label">语音上行流水线</span>
+<div class="mermaid">
+flowchart LR
+    Mic["🎙️ 麦克风"] --> ES["ES8311\n24 kHz"]
+    ES --> Input["audio_input"]
+    Input --> Resample["⬇ 16 kHz"]
+    Resample --> AFE["🧠 AFE/VAD/AEC"]
+    AFE --> EQ["📦 编码队列"]
+    EQ --> Opus["🗜️ opus_codec"]
+    Opus --> SQ["📤 发送队列"]
+    SQ --> Main["⚙️ 主循环"]
+    Main --> Net["🌐 网络发送"]
+    Net --> Server["☁️ ASR/LLM"]
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<div class="callout warn">
+  ⚠️ 音频队列满时<strong>丢弃旧帧</strong>而非阻塞——旧语音晚发送无意义，阻塞可能导致管线死锁。
+</div>
+</div>
+
+<!-- ═══════ 11 ═══════ -->
+<h2 id="c11"><span class="section-num">11</span> 按键和唤醒词如何开始一轮对话</h2>
+
+<div class="reveal">
+<h3 id="c11-1">11.1 GPIO0 单击行为</h3>
+
+<table>
+  <thead><tr><th>当前状态</th><th>单击行为</th></tr></thead>
+  <tbody>
+    <tr><td><code>starting</code> / <code>wifi_configuring</code></td><td>进入/保持配网流程</td></tr>
+    <tr><td><code>idle</code></td><td>→ <code>connecting</code> → <code>listening</code></td></tr>
+    <tr><td><code>speaking</code></td><td>发送中断 TTS 命令</td></tr>
+    <tr><td><code>listening</code></td><td>关闭当前语音通道</td></tr>
+  </tbody>
+</table>
+
+<p style="margin-top:12px"><strong>GPIO0 双击：</strong>直接提交 <code>happy</code> 动作——在线只做动作，离线还会播放本地声音。</p>
+</div>
+
+<!-- ═══════ 12 ═══════ -->
+<h2 id="c12"><span class="section-num">12</span> 服务端消息怎样影响设备</h2>
+
+<div class="reveal">
+<table>
+  <thead><tr><th><code>type</code></th><th>处理结果</th></tr></thead>
+  <tbody>
+    <tr><td><code>tts</code></td><td>切换 speaking/listening/idle，显示回复文本</td></tr>
+    <tr><td><code>stt</code></td><td>保存或显示用户识别文本</td></tr>
+    <tr><td><code>llm</code></td><td>更新情绪；🦖 恐龙板把情绪转换成舵机动作</td></tr>
+    <tr><td><code>mcp</code></td><td>交给设备端 <code>McpServer</code> 处理</td></tr>
+    <tr><td><code>system</code></td><td>处理重启等系统命令</td></tr>
+    <tr><td><code>alert</code></td><td>更新状态、情绪、消息并播放提示音</td></tr>
+    <tr><td><code>custom</code></td><td>构建启用时处理自定义消息</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ═══════ 13 ═══════ -->
+<h2 id="c13"><span class="section-num">13</span> MCP 工具调用链</h2>
+
+<div class="reveal">
+<p><code>wzh_dinosaur</code> 注册的三个专属工具：</p>
+<ul>
+  <li><code>self.dinosaur.react_to_user_emotion</code></li>
+  <li><code>self.dinosaur.action</code></li>
+  <li><code>self.dinosaur.get_mode</code></li>
+</ul>
+
+<div class="mermaid-wrap">
+  <span class="diagram-label">MCP 调用时序</span>
+<div class="mermaid">
+sequenceDiagram
+    participant LLM as ☁️ 大模型
+    participant P as 🌐 Protocol
+    participant M as 🔧 McpServer
+    participant A as ⚙️ 主任务
+    participant D as 🦖 DinosaurController
+
+    LLM->>P: type=mcp, tools/call
+    P->>M: ParseMessage()
+    M->>M: ✅ 检查工具名、参数
+    M->>A: Schedule(callback)
+    A->>D: TriggerAction()
+    D-->>A: 动作进入队列 ✓
+    A->>M: ReturnValue
+    M->>P: JSON-RPC result
+    P-->>LLM: 调用结果
+</div>
+</div>
+
+<div class="callout">
+  恐龙工具只把请求放进 <code>dino_motion</code> 队列，<strong>不阻塞主循环</strong>。
+</div>
+</div>
+
+<!-- ═══════ 14 ═══════ -->
+<h2 id="c14"><span class="section-num">14</span> 大模型情绪如何变成恐龙动作</h2>
+
+<div class="reveal">
+<div class="tab-container">
+  <div class="tab-buttons">
+    <button class="tab-btn active" onclick="switchTab(this,'tab-auto')">🤖 自动链路</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-mcp-emotion')">🎯 MCP 链路</button>
+  </div>
+  <div class="tab-panel active" id="tab-auto">
+    <p>服务端发来 <code>{"type":"llm","emotion":"happy"}</code>，链路：</p>
+    <div class="step-flow" style="font-size:12px">
+      <span class="step">llm.emotion</span><span class="step-arrow">→</span>
+      <span class="step">Display::SetEmotion</span><span class="step-arrow">→</span>
+      <span class="step">HandleLlmEmotion</span><span class="step-arrow">→</span>
+      <span class="step">EmotionToAction</span><span class="step-arrow">→</span>
+      <span class="step">action_queue_</span><span class="step-arrow">→</span>
+      <span class="step">🤖 舵机动作</span>
+    </div>
+  </div>
+  <div class="tab-panel" id="tab-mcp-emotion">
+    <p>大模型通过 <code>self.dinosaur.react_to_user_emotion</code> 工具主动调用，参数：</p>
+    <code>happy / loving / sad / angry / surprised / thinking / neutral</code>
+    <table style="margin-top:12px">
+      <thead><tr><th>情绪</th><th>动作</th></tr></thead>
+      <tbody>
+        <tr><td>happy, laughing, funny</td><td>😊 happy</td></tr>
+        <tr><td>loving, grateful</td><td>🥰 affection</td></tr>
+        <tr><td>sad, crying, tired</td><td>😴 sleepy</td></tr>
+        <tr><td>angry, confident</td><td>😤 proud</td></tr>
+        <tr><td>surprised, fearful</td><td>😲 startled</td></tr>
+        <tr><td>thinking, curious</td><td>🔍 discover</td></tr>
+        <tr><td>neutral / 未知</td><td>👂 listen</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<!-- ═══════ 15 ═══════ -->
+<h2 id="c15"><span class="section-num">15</span> 恐龙动作任务怎样运行</h2>
+
+<div class="reveal">
+<p><code>DinosaurController</code> 管理<strong>五路舵机</strong>：</p>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px;text-align:center">
+  <div class="highlight-card" style="padding:14px 8px">
+    <div style="font-size:28px">🦴</div>
+    <div style="font-size:12px;font-weight:600">颈部俯仰</div>
+  </div>
+  <div class="highlight-card" style="padding:14px 8px">
+    <div style="font-size:28px">↔️</div>
+    <div style="font-size:12px;font-weight:600">颈部侧倾</div>
+  </div>
+  <div class="highlight-card" style="padding:14px 8px">
+    <div style="font-size:28px">👀</div>
+    <div style="font-size:12px;font-weight:600">头部转向</div>
+  </div>
+  <div class="highlight-card" style="padding:14px 8px">
+    <div style="font-size:28px">🦎</div>
+    <div style="font-size:12px;font-weight:600">尾巴上下</div>
+  </div>
+  <div class="highlight-card" style="padding:14px 8px">
+    <div style="font-size:28px">〰️</div>
+    <div style="font-size:12px;font-weight:600">尾巴左右</div>
+  </div>
+</div>
+
+<p><strong>队列规则：</strong></p>
+<ul>
+  <li>容量为 4 的 <code>action_queue_</code></li>
+  <li>1.2 秒内重复动作<strong>合并</strong></li>
+  <li>队列满时<strong>丢弃最旧</strong>，保留最新意图</li>
+  <li>20 ms 插值步长 + SmoothStep 平滑</li>
+  <li>随机左右镜像，减少机械重复</li>
+  <li>空闲时五关节<strong>正弦摆动</strong>形成"呼吸"效果 🫁</li>
+</ul>
+</div>
+
+<!-- ═══════ 16 ═══════ -->
+<h2 id="c16"><span class="section-num">16</span> 在线和离线模式切换</h2>
+
+<div class="reveal">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+  <div class="highlight-card" style="border-top:3px solid var(--accent-3)">
+    <h4 style="margin-top:0">🟢 在线模式</h4>
+    <ul style="font-size:13px">
+      <li>Wi-Fi Connected → online=true</li>
+      <li>先做 listen 动作</li>
+      <li>停止离线随机动作</li>
+      <li>不播放 W25Q256 声音</li>
+      <li>接收 llm.emotion + MCP</li>
+    </ul>
+  </div>
+  <div class="highlight-card" style="border-top:3px solid #f59e0b">
+    <h4 style="margin-top:0">🟡 离线模式</h4>
+    <ul style="font-size:13px">
+      <li>Wi-Fi Disconnected → online=false</li>
+      <li>做 discover + 本地声音</li>
+      <li>继续空闲呼吸动作</li>
+      <li>7～16 秒随机动作</li>
+      <li>从 W25Q256 选择声音</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout info">
+  离线模式<strong>不是另一套 app_main</strong>——XiaoZhi 主循环、AudioService 和板级任务仍然运行，只是没有服务端语音会话。
+</div>
+</div>
+
+<!-- ═══════ 17 ═══════ -->
+<h2 id="c17"><span class="section-num">17</span> W25Q256 离线声音链路</h2>
+
+<div class="reveal">
+<div class="mermaid-wrap">
+  <span class="diagram-label">离线声音播放流程</span>
+<div class="mermaid">
+flowchart LR
+    Action["🎬 离线动作"] --> Select["📂 选择声音"]
+    Select --> Queue["📋 dino_audio 队列"]
+    Queue --> SPI["💾 分块读 W25Q256"]
+    SPI --> OGG["📦 OggDemuxer"]
+    OGG --> Decode["🔊 解码队列"]
+    Decode --> Output["🔉 ES8311 扬声器"]
+</div>
+</div>
+
+<p><code>DinosaurAudio</code> 复用 AudioService，不与在线 TTS 产生驱动冲突。</p>
+</div>
+
+<!-- ═══════ 18 ═══════ -->
+<h2 id="c18"><span class="section-num">18</span> 电源与电池任务</h2>
+
+<div class="reveal">
+<div class="highlight-card">
+  <p><strong><code>dino_power</code> 任务职责：</strong></p>
+  <ul>
+    <li>GPIO7 维持电源锁存</li>
+    <li>每 20ms 读取模拟电源键</li>
+    <li>长按 1.5s → 拉低 GPIO7 关机</li>
+    <li>每 5s 采样电池 ADC ×32 取平均</li>
+    <li>3.2～4.2V → 0～100% 线性映射</li>
+  </ul>
+  <div class="callout warn" style="margin:10px 0 0">
+    无充电检测脚 → <code>charging=false</code>, <code>discharging=true</code> 固定报告。电量只是粗略估算。
+  </div>
+</div>
+</div>
+
+<!-- ═══════ 19 ═══════ -->
+<h2 id="c19"><span class="section-num">19</span> 主要 FreeRTOS 上下文</h2>
+
+<div class="reveal">
+<table>
+  <thead><tr><th>任务</th><th>职责</th><th>可阻塞?</th></tr></thead>
+  <tbody>
+    <tr><td>ESP-IDF main</td><td><code>Application::Run()</code> 主循环</td><td>❌ 不应阻塞</td></tr>
+    <tr><td>activation</td><td>资源、OTA、激活、协议初始化</td><td>✅ 可以等待</td></tr>
+    <tr><td>audio_input</td><td>实时麦克风读取</td><td>❌ 不应阻塞</td></tr>
+    <tr><td>AFE fetch</td><td>VAD/AEC/唤醒词</td><td>❌ 不应阻塞</td></tr>
+    <tr><td>opus_codec</td><td>Opus 编解码</td><td>❌ 有界队列</td></tr>
+    <tr><td>audio_output</td><td>扬声器 PCM 输出</td><td>❌ 音频节奏驱动</td></tr>
+    <tr><td>dino_motion</td><td>舵机插值和完整动作</td><td>✅ 可以延时</td></tr>
+    <tr><td>dino_audio</td><td>Flash 读取 + OGG 拆包</td><td>✅ 可等待解码</td></tr>
+    <tr><td>dino_power</td><td>按键和电池轮询</td><td>✅ 低优先级</td></tr>
+    <tr><td>Wi-Fi/协议回调</td><td>网络事件和数据接收</td><td>❌ 只投递事件</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ═══════ 20 ═══════ -->
+<h2 id="c20"><span class="section-num">20</span> 一次完整在线对话时序</h2>
+
+<div class="reveal">
+<div class="mermaid-wrap">
+  <span class="diagram-label">在线对话 — 完整交互流程</span>
+<div class="mermaid">
+sequenceDiagram
+    participant U as 👤 用户
+    participant B as 🦖 WzhDinosaur
+    participant A as ⚙️ Application
+    participant AS as 🎤 AudioService
+    participant P as 🌐 Protocol
+    participant S as ☁️ 服务端
+    participant D as 🤖 DinosaurController
+
+    U->>B: 单击或唤醒词
+    B->>A: 设置主事件
+    A->>A: idle → connecting
+    A->>P: OpenAudioChannel
+    P-->>A: hello / opened
+    A->>A: connecting → listening
+    A->>AS: EnableVoiceProcessing
+    U->>AS: 🎙️ 麦克风语音
+    AS->>A: Opus 发送队列
+    A->>P: SendAudio
+    P->>S: 用户 Opus
+    S-->>P: stt 文本
+    S-->>P: llm emotion / MCP
+    P->>D: 提交动作
+    S-->>P: tts:start + TTS
+    A->>A: listening → speaking
+    P->>AS: 下行 Opus 解码
+    AS-->>U: 🔊 扬声器声音
+    D-->>U: 🤖 情绪身体动作
+    S-->>P: tts:stop
+    A->>A: speaking → listening/idle
+</div>
+</div>
+</div>
+
+<!-- ═══════ 21 ═══════ -->
+<h2 id="c21"><span class="section-num">21</span> 一次完整离线运行时序</h2>
+
+<div class="reveal">
+<div class="mermaid-wrap">
+  <span class="diagram-label">离线运行 — 本地交互循环</span>
+<div class="mermaid">
+sequenceDiagram
+    participant W as 📶 WiFiBoard
+    participant C as 🦖 DinosaurController
+    participant DA as 💾 DinosaurAudio
+    participant AS as 🎤 AudioService
+    participant ES as 🔊 ES8311
+
+    W->>C: Disconnected
+    C->>C: online=false
+    C->>C: discover 动作
+    loop 🔄 每 7～16 秒
+        C->>C: 随机选择动作
+        C->>DA: PlayForAction
+        DA->>DA: 选择 PNDA 文件
+        DA->>AS: 提交 Opus 包
+        AS->>ES: 解码输出 PCM
+    end
+</div>
+</div>
+</div>
+
+<!-- ═══════ 22 ═══════ -->
+<h2 id="c22"><span class="section-num">22</span> 调试时建议观察的日志</h2>
+
+<div class="reveal">
+<p>串口日志中可重点搜索的关键标签：</p>
+
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
+  <span class="tag sw">Board</span>
+  <span class="tag sw">Application</span>
+  <span class="tag sw">StateMachine</span>
+  <span class="tag net">WifiBoard</span>
+  <span class="tag hw">AudioService</span>
+  <span class="tag net">WS</span>
+  <span class="tag net">MQTT</span>
+  <span class="tag sw">MCP</span>
+  <span class="tag dino">WzhDinosaur</span>
+  <span class="tag dino">DinosaurMotion</span>
+  <span class="tag dino">DinosaurAudio</span>
+  <span class="tag dino">DinosaurPower</span>
+</div>
+
+<p>典型正常启动顺序：</p>
+<div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)" title="复制">📋</button>
+<pre><code>Board 创建并打印 UUID
+WzhDinosaur 初始化硬件
+DinosaurAudio 加载预置声音
+StateMachine: unknown -> starting
+WifiBoard 开始连接
+网络 Connected
+StateMachine: starting -> activating
+协议初始化
+StateMachine: activating -> idle
+按键/唤醒后 idle -> connecting -> listening
+服务端 TTS 后 listening -> speaking</code></pre>
+</div>
+</div>
+
+<!-- ═══════ 23 ═══════ -->
+<h2 id="c23"><span class="section-num">23</span> 修改功能时应该放在哪一层</h2>
+
+<div class="reveal">
+<table>
+  <thead><tr><th>需求</th><th>推荐位置</th></tr></thead>
+  <tbody>
+    <tr><td>修改恐龙引脚/舵机角度</td><td><code>wzh_dinosaur/config.h</code></td></tr>
+    <tr><td>新增恐龙动作</td><td><code>dinosaur_controller.*</code></td></tr>
+    <tr><td>修改情绪→动作映射</td><td><code>EmotionToAction()</code></td></tr>
+    <tr><td>新增恐龙 MCP 工具</td><td><code>RegisterMcpTools()</code></td></tr>
+    <tr><td>修改 W25Q256 文件匹配</td><td><code>dinosaur_audio.*</code></td></tr>
+    <tr><td>修改电源键/电池估算</td><td><code>dinosaur_power.*</code></td></tr>
+    <tr><td>修改共用对话行为</td><td><code>application.*</code></td></tr>
+    <tr><td>修改音频队列/编解码</td><td><code>audio/audio_service.*</code></td></tr>
+    <tr><td>修改 WS/MQTT 共同语义</td><td><code>protocols/protocol.*</code></td></tr>
+    <tr><td>修改单一传输实现</td><td><code>websocket_protocol.*</code> 或 <code>mqtt_protocol.*</code></td></tr>
+  </tbody>
+</table>
+
+<div class="callout info">
+  板型专用逻辑应尽量留在 <code>main/boards/wzh_dinosaur/</code>，不要让核心模块依赖 <code>WzhDinosaur</code> 或板级 <code>config.h</code>。
+</div>
+</div>
+
+<!-- ═══════ 24 ═══════ -->
+<h2 id="c24"><span class="section-num">24</span> 当前实现边界</h2>
+
+<div class="reveal">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-bottom:20px">
+  <div class="highlight-card">⚙️ 编译通过 ≠ 舵机方向正确，需真机校准</div>
+  <div class="highlight-card">💾 W25Q256 必须有正确格式的 PNDA TOC</div>
+  <div class="highlight-card">🧠 设备端不做 ASR/大模型，离线只有预置声音</div>
+  <div class="highlight-card">🎭 用户情绪由服务端文本模型判断</div>
+  <div class="highlight-card">🖥️ 无屏幕但有 Display 对象——情绪适配器</div>
+  <div class="highlight-card">🔗 在线/Wi-Fi/协议/对话 是四个不同概念</div>
+</div>
+</div>
+
+<!-- ═══════ 25 ═══════ -->
+<h2 id="c25"><span class="section-num">25</span> 建议的阅读顺序</h2>
+
+<div class="reveal">
+<p>按照"先理解调度，再理解数据流，最后看恐龙集成"的顺序：</p>
+
+<div class="step-flow">
+  <span class="step"><span class="step-num">1</span>main.cc</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">2</span>application.*</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">3</span>state_machine</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">4</span>board.*</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">5</span>wifi_board.*</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">6</span>wzh_dinosaur.cc</span>
+</div>
+<div class="step-flow" style="margin-top:4px">
+  <span class="step"><span class="step-num">7</span>audio_service.*</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">8</span>protocol.*</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">9</span>ws/mqtt proto</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">10</span>mcp_server.*</span>
+  <span class="step-arrow">→</span>
+  <span class="step"><span class="step-num">11</span>dinosaur_*.*</span>
+</div>
+</div>
+
+<p style="margin-top: 48px; text-align: center; color: var(--text-secondary); font-size: 13px; padding: 24px 0; border-top: 1px solid var(--border)">
+  📘  XiaoZhi 工程运行原理 · WZH Dinosaur 版本 · 全文共 25 章<br>
+  涵盖固件构建 → ESP32-S3 启动 → 板型创建 → 联网 → 语音对话 → MCP → 舵机动作 → 离线声音
+</p>
+
+</div><!-- /.content-wrapper -->
+</main>
+
+<!-- ── Back to top button ── -->
+<button id="back-to-top" onclick="scrollToTop()" title="回到顶部">⬆</button>
+
+
+<script>
+// ══════════ Mermaid ══════════
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  securityLevel: 'loose',
+  themeVariables: {
+    primaryColor: '#fef3c7',
+    primaryBorderColor: '#d97706',
+    primaryTextColor: '#1a1a2e',
+    lineColor: '#94a3b8',
+    secondaryColor: '#f1f5f9',
+    tertiaryColor: '#faf9f6',
+  }
+});
+
+// ══════════ Theme ══════════
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  const next = current === 'dark' ? '' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('xiaozi-theme', next);
+  location.reload();
+}
+(function() {
+  if (localStorage.getItem('xiaozi-theme') === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+
+// ══════════ Progress bar ══════════
+window.addEventListener('scroll', () => {
+  const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+  const scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  const progress = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
+  document.getElementById('progress-bar').style.width = progress + '%';
+
+  // Back to top
+  const btn = document.getElementById('back-to-top');
+  if (scrollTop > 500) btn.classList.add('visible');
+  else btn.classList.remove('visible');
+});
+
+// ══════════ Scroll reveal ══════════
+const revealObserver = new IntersectionObserver((entries) => {
+  entries.forEach((e, i) => {
+    if (e.isIntersecting) {
+      setTimeout(() => e.target.classList.add('visible'), i * 30);
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
+
+// ══════════ Back to top ══════════
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ══════════ Sidebar toggle ══════════
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+
+// ══════════ Tab switcher ══════════
+function switchTab(btn, panelId) {
+  const container = btn.closest('.tab-container');
+  container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  container.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(panelId).classList.add('active');
+}
+
+// ══════════ Copy code ══════════
+function copyCode(btn) {
+  const pre = btn.closest('.code-block').querySelector('pre');
+  const text = pre.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.classList.add('copied');
+    btn.textContent = '';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.textContent = '📋';
+    }, 1500);
+  });
+}
+
+// ══════════ Expand all Mermaid diagrams ══════════
+function expandAllSections() {
+  document.querySelectorAll('.mermaid').forEach(m => {
+    m.style.maxHeight = m.style.maxHeight === 'none' ? '' : 'none';
+  });
+}
+
+// ══════════ Build sidebar TOC ══════════
+(function buildToc() {
+  const toc = document.getElementById('toc');
+  const headings = document.querySelectorAll('#main h2, #main h3');
+  headings.forEach(h => {
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent.replace(/^\d+\.?\d*\s*/, ''); // strip leading numbers
+    a.className = h.tagName === 'H3' ? 'h2' : '';
+    a.setAttribute('data-search', a.textContent.toLowerCase());
+    toc.appendChild(a);
+  });
+})();
+
+// ══════════ Sidebar search filter ══════════
+function filterSidebar() {
+  const q = document.getElementById('sidebar-search').value.toLowerCase();
+  document.querySelectorAll('#toc a').forEach(a => {
+    const match = q === '' || a.getAttribute('data-search').includes(q);
+    a.style.display = match ? '' : 'none';
+  });
+}
+
+// ══════════ Active TOC highlight ══════════
+(function() {
+  const links = document.querySelectorAll('#toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const a = document.querySelector(`#toc a[href="#${e.target.id}"]`);
+        if (a) a.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-80px 0px -75% 0px' });
+  document.querySelectorAll('#main h2, #main h3').forEach(h => observer.observe(h));
+})();
+
+// ══════════ Keyboard shortcuts ══════════
+document.addEventListener('keydown', e => {
+  // Ctrl+D / Cmd+D → toggle dark mode
+  if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+    e.preventDefault(); toggleTheme();
+  }
+  // Ctrl+Shift+T → back to top
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'T') {
+    e.preventDefault(); scrollToTop();
+  }
+  // Escape → close sidebar (mobile)
+  if (e.key === 'Escape') {
+    document.getElementById('sidebar').classList.remove('open');
+  }
+});
+
+console.log('🦖 XiaoZhi 运行原理文档已就绪');
+console.log('  快捷键: Ctrl+D 切换主题 | Ctrl+Shift+T 回到顶部 | Esc 关闭侧栏');
+</script>
+
+</body>
+</html>
