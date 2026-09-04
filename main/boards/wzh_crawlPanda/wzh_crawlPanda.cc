@@ -43,6 +43,9 @@ private:
 class WzhCrawlPanda : public WifiBoard {
 public:
     WzhCrawlPanda() : boot_button_(BOOT_BUTTON_GPIO), display_(controller_) {
+        // 配网热点和 DHCP 主机名使用产品前缀（"CrawlPanda-XXXX"），
+        // 必须在 StartNetwork 之前设置。
+        wifi_ssid_prefix_ = PANDA_AP_PREFIX;
         // 初始化顺序有依赖：ES8311 需要 I2C；动作控制器需要先拿到本地
         // 音频对象；MCP 工具最后注册，确保回调触发时控制器已经可用。
         InitializeI2c();
