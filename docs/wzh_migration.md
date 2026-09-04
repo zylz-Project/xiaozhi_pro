@@ -108,8 +108,10 @@
 
 ### 5.4 阶段 3：小智对话联动完善
 
-- ☐ connecting 停本地声 + 注意姿态；listening 安静朝向；speaking 真实包络驱动；打断即停
-- ☐ wifi_configuring 安静安全姿态；关机序列完善
+- ☑ connecting 停本地声 + 注意姿态（`SetConversationActive`）；speaking 真实包络驱动（`SetOutputAudioLevelListener`）；打断即停（状态切换 + ResetDecoder）
+- ☐ listening 轻微倾听微反应（VAD 驱动，随动作专项一起做）
+- ☑ wifi_configuring / upgrading / activating 安静姿态（暂停自主行为与本地声音）
+- ☑ 关机序列：先停本地声音，再回安全姿态，后断电
 - ☑ 状态监听已接入（`AddDeviceStateChangeListener`，connecting/listening/speaking/audio_testing）
 
 ### 5.5 阶段 4：Flash 完整音频管理

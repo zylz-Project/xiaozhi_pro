@@ -55,7 +55,11 @@ public:
         local_audio_.Initialize();
         controller_.Initialize(&local_audio_);
         // 关机序列：断电前把舵机放回默认安全姿态。
-        power_.RegisterShutdownHook([this]() { controller_.SetDefaultPose(); });
+        power_.RegisterShutdownHook([this]() {
+            // 先停本地声音，再把舵机放回默认安全姿态。
+            local_audio_.StopPlayback();
+            controller_.SetDefaultPose();
+        });
         // 在线 TTS 的真实响度 → 本地音频模块 → 动作引擎，让说话随音频舞动。
         Application::GetInstance().GetAudioService().SetOutputAudioLevelListener(
             [this](float level, float attack) { local_audio_.FeedTtsLevel(level, attack); });
@@ -119,6 +123,14 @@ private:
         // speaking 状态单独上报，让 TTS 播放期间爬爬熊猫能随语音轻摆。
         Application::GetInstance().AddDeviceStateChangeListener(
             [this](DeviceState, DeviceState new_state) {
+                if (new_state == kDeviceStateWifiConfiguring || new_state == kDeviceStateUpgrading ||
+                    new_state == kDeviceStateActivating) {
+                    // 配网/升级/激活期间保持安静姿态：暂停自主行为和本地
+                    // 声音，只保留一次性的注意动作。
+                    controller_.SetConversationActive(true);
+                    controller_.SetSpeaking(false);
+                    return;
+                }
                 const bool active =
                     new_state == kDeviceStateConnecting || new_state == kDeviceStateListening ||
                     new_state == kDeviceStateSpeaking || new_state == kDeviceStateAudioTesting;
