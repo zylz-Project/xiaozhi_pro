@@ -8,8 +8,11 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+#include "wzh_audio_player.h"
+
 class PandaAudio;
-struct PandaMotionData;
+
+using PandaMotionData = wzh::MotionData;
 
 // 大模型和离线逻辑统一使用的动作集合。动作名称同时作为 MCP 对外接口，
 // 增删或改名时需要同步检查 ParseAction、ActionName 和服务端提示词。

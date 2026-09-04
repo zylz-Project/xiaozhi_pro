@@ -13,6 +13,8 @@
 #include "dinosaur_power.h"
 #include "display/display.h"
 #include "wifi_board.h"
+#include "wzh_audio_hub.h"
+#include "wzh_mcp_tools.h"
 
 #define TAG "WzhDinosaur"
 
@@ -58,6 +60,11 @@ public:
         Application::GetInstance().GetAudioService().SetOutputAudioLevelListener(
             [this](float level, float attack) { local_audio_.FeedTtsLevel(level, attack); });
         controller_.RegisterMcpTools();
+        // 音频管理工具（列表/试听/删除/擦除/状态），Web 控制台取消后的入口。
+        wzh::RegisterAudioMcpTools("dinosaur", &local_audio_.audio_store(), &local_audio_);
+        // 云端音频同步：后台静默运行，不阻塞联网与对话。
+        audio_hub_.Start(&local_audio_.audio_store());
+        wzh::RegisterHubMcpTools("dinosaur", &audio_hub_);
         InitializeConversationMode();
         InitializeButton();
     }
@@ -102,6 +109,7 @@ private:
     Button boot_button_;
     DinosaurPower power_;
     DinosaurAudio local_audio_;
+    wzh::AudioHub audio_hub_;
     DinosaurController controller_;
     DinosaurDisplay display_;
 

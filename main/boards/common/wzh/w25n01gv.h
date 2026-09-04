@@ -2,10 +2,12 @@
 
 /**
  * @file w25n01gv.h
- * @brief Winbond W25N01GVZEIG 1Gbit SPI NAND driver.
+ * @brief Winbond W25N01GVZEIG 1Gbit SPI NAND driver (wzh shared layer).
  *
- * The public read/write API uses linear byte addresses. Internally the driver
- * performs the NAND page-to-cache and cache-to-page command sequences.
+ * The public read/write API uses linear byte addresses over the user area
+ * (blocks 0..999; blocks 1000..1023 stay reserved for the chip's BBM LUT).
+ * Bus setup is owned by wzh_flash.c — call w25n01gv_attach() after
+ * wzh_spi_setup() has run.
  */
 
 #include <stdbool.h>
@@ -63,8 +65,8 @@ extern "C" {
 #define W25N01GV_STATUS_WEL              (1U << 1)
 #define W25N01GV_STATUS_BUSY             (1U << 0)
 
-esp_err_t w25n01gv_init(void);
-void w25n01gv_deinit(void);
+/** 复位芯片、校验 JEDEC、解除阵列保护并开启 ECC。总线必须已由 wzh_flash 初始化。 */
+esp_err_t w25n01gv_attach(void);
 
 esp_err_t w25n01gv_read_jedec_id(uint8_t *manufacturer_id,
                                   uint8_t *device_id_high,
@@ -82,10 +84,6 @@ esp_err_t w25n01gv_read_status(uint8_t *protection,
                                 uint8_t *configuration,
                                 uint8_t *status);
 esp_err_t w25n01gv_is_bad_block(uint32_t block_index, bool *is_bad);
-
-esp_err_t w25n01gv_diagnose(void);
-esp_err_t w25n01gv_quick_test(void);
-int w25n01gv_full_test(int test_blocks);
 
 #ifdef __cplusplus
 }

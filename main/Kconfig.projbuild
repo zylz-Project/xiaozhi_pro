@@ -1078,4 +1078,43 @@ menu "TAIJIPAI_S3_CONFIG"
         启动双声道
 endmenu
 
+menu "WZH Product Configuration"
+    depends on BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_TAILREDPANDA
+
+    choice WZH_FLASH_TYPE
+        prompt "External audio flash type"
+        default WZH_FLASH_AUTO_DETECT
+        help
+            三款产品默认搭载 W25N01GV SPI NAND（128MB）。以开机日志中的
+            JEDEC ID 为准（NAND: EF AA 21；NOR: EF 40/60 xx）。个别批次
+            若换成 NOR，可在真机确认后在此强制指定。
+        config WZH_FLASH_AUTO_DETECT
+            bool "Auto detect (JEDEC ID)"
+            help
+                运行时读取 JEDEC ID 自动选择 NOR/NAND 驱动。
+        config WZH_FLASH_FORCE_NAND
+            bool "Force W25N01GV (SPI NAND)"
+            help
+                跳过探测，直接按 NAND 初始化；芯片不符时初始化失败。
+        config WZH_FLASH_FORCE_NOR
+            bool "Force W25Q256-class (SPI NOR)"
+            help
+                跳过探测，直接按 NOR 初始化；芯片不符时初始化失败。
+    endchoice
+
+    config WZH_AUDIO_SYNC_ENABLE
+        bool "Enable Audio Hub background sync"
+        default y
+        help
+            后台向 Audio Hub 注册设备并增量同步本地声音。
+            关闭后设备仍可完整离线运行（对话与本地声音不受影响）。
+
+    config WZH_AUDIO_SYNC_SERVER
+        string "Audio Hub server base URL"
+        default "http://192.168.1.7:5000"
+        help
+            Audio Hub 服务地址（老工程硬编码 192.168.1.7:5000）。
+            可通过 NVS（audio_hub 命名空间，server 键）覆盖，无需重烧固件。
+endmenu
+
 endmenu

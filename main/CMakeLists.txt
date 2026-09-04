@@ -886,6 +886,17 @@ file(GLOB BOARD_SOURCES
 )
 list(APPEND SOURCES ${BOARD_SOURCES})
 
+# WZH 三产品共享基础层（Flash 抽象/PNDA 音频仓库/播放引擎等），
+# 只在三块 WZH 板型下参与编译，不影响其他板型的固件体积。
+if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_BOARD_TYPE_WZH_TAILREDPANDA)
+    file(GLOB WZH_COMMON_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/*.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/*.c
+    )
+    list(APPEND SOURCES ${WZH_COMMON_SOURCES})
+    list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh)
+endif()
+
 # Select one audio engine for each chip family
 if(CONFIG_IDF_TARGET_ESP32S3 OR CONFIG_IDF_TARGET_ESP32P4 OR CONFIG_IDF_TARGET_ESP32S31)
     list(APPEND SOURCES "audio/engines/afe_audio_engine.cc")
@@ -1083,6 +1094,7 @@ idf_component_register(SRCS ${SOURCES}
                         esp_driver_tsens
                         esp_app_format
                         app_update
+                        esp_http_client
                         spi_flash
                         mbedtls
                         console

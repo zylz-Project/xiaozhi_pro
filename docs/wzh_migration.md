@@ -94,17 +94,17 @@
 
 ### 5.2 阶段 1：基线与修复
 
-- ☐ AP 前缀修复（`wifi_ssid_prefix_` → `WifiManagerConfig`）
+- ☑ AP 前缀修复（`wifi_ssid_prefix_` → `WifiManagerConfig`）
 - ☑ 硬件真值表与 Flash 真相（本文档）
-- ☐ 真机 JEDEC 读取确认恐龙 Flash 型号
+- ☐ 真机 JEDEC 读取确认恐龙 Flash 型号（固件启动日志已会打印 JEDEC）
 
 ### 5.3 阶段 2：共享产品基础层（`main/boards/common/wzh/`）
 
-- ☐ `wzh_flash`：JEDEC 自动探测 + NOR(w25q256)/NAND(w25n01gv) 双驱动 + 读/写/擦统一 API
-- ☐ `wzh_audio_store`：TOC v1/v2 读取 + v3 双槽 CRC 写入、流式写、删除、擦除、回读校验
-- ☐ `wzh_audio_player`：三产品共用播放引擎（AudioService 投递 + 包络 + 互斥）
-- ☐ 产品配置描述（名称/前缀/Hub 产品 ID 的单一来源）
-- ☐ 三板去重（移除两份 w25n01gv.c 拷贝与重复 panda_audio 路径）
+- ☑ `wzh_flash`：JEDEC 自动探测 + NOR(w25q256)/NAND(w25n01gv) 双驱动 + 读/写/擦统一 API
+- ☑ `wzh_audio_store`：TOC v1/v2 读取 + v3 双槽 CRC 写入、流式写、删除、擦除、回读校验
+- ☑ `wzh_audio_player`：三产品共用播放引擎（AudioService 投递 + 包络 + 互斥）
+- ☑ 产品配置描述（`wzh_product.h`：名称/前缀/Hub 产品 ID/Flash 引脚的单一来源）
+- ☑ 三板去重（移除两份 w25n01gv.c 拷贝；恐龙改用共享 Flash 层，首次具备 Flash 音频）
 
 ### 5.4 阶段 3：小智对话联动完善
 
@@ -114,19 +114,19 @@
 
 ### 5.5 阶段 4：Flash 完整音频管理
 
-- ☐ 流式写入 + 断电恢复（v3 双槽）
-- ☐ 新增/替换/删除/全部擦除 + 写入后目录即时刷新
-- ☐ OGG/Opus 头校验 + 逐页回读校验 + 写入期间静音但不阻塞主循环
-- ☐ NAND 坏块/ECC/整页编程；NOR 4KB 扇区/页编程
+- ☑ 流式写入 + 断电恢复（v3 双槽；NOR 单槽擦写窗口由 CRC 检出）
+- ☑ 新增/替换/删除/全部擦除 + 写入后目录即时刷新
+- ☑ OGG/Opus 头校验 + 逐块回读校验 + 写入期间拒绝本地播放
+- ☑ NAND 坏块/ECC/整页编程；NOR 4KB 扇区/页编程
 
 ### 5.6 阶段 5：Web 产品控制台 —— **已取消**（见 §0）
 
 ### 5.7 阶段 6：Audio Hub 注册与同步
 
-- ☐ 注册/激活码/绑定轮询/心跳（后台任务，不阻塞对话）
-- ☐ 清单 + 增量下载 + revision 保存 + 指数退避 + 失败保留旧声音
-- ☐ Kconfig 服务地址（去掉 192.168.1.7 硬编码）+ 启用开关
-- ☐ 对话期间降速/暂停下载；Web…→MCP 手动同步入口
+- ☑ 注册/激活码/绑定轮询/心跳（后台任务，不阻塞对话）
+- ☑ 清单 + 增量下载 + revision 保存 + 线性退避 + 失败保留旧声音/旧 revision
+- ☑ Kconfig 服务地址（`WZH_AUDIO_SYNC_SERVER`，NVS `audio_hub/server` 可覆盖）+ 启用开关
+- ☑ 对话期间暂停下载；MCP `sync_now`/`sync_status` 手动入口
 
 ### 5.8 阶段 7-8：统一生命行为调度与产品动作专项
 
@@ -138,7 +138,8 @@
 
 ### 5.9 阶段 9：MCP 与验收
 
-- ☐ 产品 MCP 工具补全（sound_list/play/delete/erase/flash_status/sync_now/get_status/stop_motion）
+- ☑ 音频管理 MCP 工具（sound_list/play/delete/erase/flash_status + sync_status/sync_now）
+- ☐ 产品 MCP 工具唯一命名 + 兼容别名（self.crawl_panda.* / self.dinosaur.* / self.red_panda.*）
 - ☐ 情绪→动作统一去重与冷却
 - ☐ 三板 IDF 6.0.x 全量编译 + 真机验收清单（见各阶段 PR 描述）
 

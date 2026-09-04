@@ -56,15 +56,14 @@
 #define SERVO_FREQ_HZ 50
 #define SERVO_DUTY_RES LEDC_TIMER_13_BIT
 
-// W25Q256 中保存已经烧录好的默认声音，运行时只读。
-// 前 4 KiB 存放 PNDA TOC，音频数据从 DINO_FLASH_DATA_START 开始。
+// 外部音频 Flash（型号以真机 JEDEC ID 为准，NAND: EF AA 21 / NOR: EF 40 19，
+// 由 wzh_flash 运行时自动探测；早期配置误写为 W25Q256，参考工程三款均为
+// W25N01GV NAND）。TOC 与文件布局见 docs/wzh_migration.md §3。
 #define DINO_FLASH_HOST SPI2_HOST
 #define DINO_FLASH_CS_PIN GPIO_NUM_10
 #define DINO_FLASH_CLK_PIN GPIO_NUM_9
 #define DINO_FLASH_MOSI_PIN GPIO_NUM_47
 #define DINO_FLASH_MISO_PIN GPIO_NUM_21
-#define DINO_FLASH_SIZE (32U * 1024U * 1024U)
-#define DINO_FLASH_DATA_START 4096U
 
 // 自定义配网热点前缀：开机没有已保存 WiFi 时，开启 "Dino-XXXX" 热点配网。
 #define PANDA_AP_PREFIX "Dino"
