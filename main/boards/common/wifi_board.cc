@@ -55,9 +55,16 @@ void WifiBoard::StartNetwork() {
     // Initialize WiFi manager
     WifiManagerConfig config;
     config.ssid_prefix = wifi_ssid_prefix_;
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    /* WZH 产品：配网页默认中文（页面右上角仍可切换语言）；睡眠开关对
+     * 无屏玩具无效，隐藏以免用户困惑。OTA 地址保留，便于将来自建升级服务。 */
+    config.language = "zh-CN";
+    config.show_sleep_config = false;
+#else
     config.language = Lang::CODE;
-    config.show_ota_config = true;
     config.show_sleep_config = true;
+#endif
+    config.show_ota_config = true;
 
     // Set a DHCP hostname so the router shows a friendly name instead of "espressif".
     // Uses the same "<prefix>-<last 2 MAC bytes>" scheme as the config AP SSID.
