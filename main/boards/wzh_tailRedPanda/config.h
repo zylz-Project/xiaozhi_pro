@@ -69,7 +69,7 @@
 #define PANDA_FLASH_MOSI_PIN GPIO_NUM_47
 #define PANDA_FLASH_MISO_PIN GPIO_NUM_21
 
-// 自定义配网热点前缀：开机没有已保存 WiFi 时，开启 "Panda-XXXX" 热点配网。
-#define PANDA_AP_PREFIX "Panda"
+// 自定义配网热点前缀：开机没有已保存 WiFi 时，开启 "RedPanda-XXXX" 热点配网。
+#define PANDA_AP_PREFIX "RedPanda"
 
 #endif  // _WZH_TAILREDPANDA_CONFIG_H_

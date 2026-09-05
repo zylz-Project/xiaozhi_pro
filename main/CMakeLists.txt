@@ -1018,6 +1018,8 @@ if(NOT LANG_DIR STREQUAL "en-US")
     endforeach()
 endif()
 
+# 注意：不能用 CONFIGURE_DEPENDS —— IDF 的 component 脚本模式会 include 本文件，
+# 脚本模式下该选项报错。新增音效文件后重新构建（重新 configure）即可生效。
 file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
 
 # If target chip is ESP32, exclude specific files to avoid build errors
@@ -1139,6 +1141,7 @@ add_custom_command(
     DEPENDS
         ${LANG_JSON}
         ${PROJECT_DIR}/scripts/gen_lang.py
+        ${COMMON_SOUNDS}
     COMMENT "Generating ${LANG_DIR} language config"
 )
 

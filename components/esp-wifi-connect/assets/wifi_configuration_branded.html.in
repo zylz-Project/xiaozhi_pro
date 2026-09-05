@@ -11,19 +11,20 @@
             --accent: @WZH_ACCENT@;
             --accent-hover: @WZH_ACCENT_HOVER@;
             --accent-soft: @WZH_ACCENT_SOFT@;
+            --blob: @WZH_ACCENT_SOFT@;
             --bg-grad-1: @WZH_BG_1@;
             --bg-grad-2: @WZH_BG_2@;
             --surface: #ffffff;
-            --surface-muted: #f5f7fb;
-            --border: #e2e8f0;
+            --surface-muted: #f8fafc;
+            --border: #e8edf4;
             --border-strong: #cbd5e1;
-            --text: #0f172a;
+            --text: #1e293b;
             --text-muted: #64748b;
             --danger: #dc2626;
             --success: #16a34a;
-            --radius: 14px;
-            --radius-sm: 10px;
-            --shadow: 0 10px 30px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
+            --radius: 18px;
+            --radius-sm: 12px;
+            --shadow: 0 1px 2px rgba(30, 41, 59, 0.05), 0 16px 36px -16px @WZH_ACCENT_SOFT@;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -31,6 +32,7 @@
                 --accent: @WZH_ACCENT_DARK@;
                 --accent-hover: @WZH_ACCENT_HOVER_DARK@;
                 --accent-soft: @WZH_ACCENT_SOFT_DARK@;
+                --blob: @WZH_ACCENT_SOFT_DARK@;
                 --bg-grad-1: #0b1220;
                 --bg-grad-2: #111827;
                 --surface: #1e293b;
@@ -41,7 +43,7 @@
                 --text-muted: #94a3b8;
                 --danger: #f87171;
                 --success: #4ade80;
-                --shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+                --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 36px -16px rgba(0, 0, 0, 0.5);
             }
         }
 
@@ -49,11 +51,14 @@
         * { box-sizing: border-box; }
         html, body { height: 100%; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Helvetica, Arial, sans-serif;
             margin: 0;
-            padding: 12px 16px 32px;
+            padding: 16px 16px 36px;
             color: var(--text);
-            background: linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2));
+            background:
+                radial-gradient(720px 480px at 112% -8%, var(--blob), transparent 60%),
+                radial-gradient(640px 460px at -18% 108%, var(--blob), transparent 55%),
+                linear-gradient(160deg, var(--bg-grad-1), var(--bg-grad-2));
             background-attachment: fixed;
             -webkit-font-smoothing: antialiased;
             min-height: 100%;
@@ -68,22 +73,22 @@
         .app-header {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin: 0 4px 10px;
+            gap: 12px;
+            margin: 2px 2px 16px;
         }
         .app-header .logo {
-            width: 32px;
-            height: 32px;
+            width: 46px;
+            height: 46px;
             flex: none;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 9px;
-            background: var(--accent);
-            color: #fff;
-            box-shadow: var(--shadow);
+            font-size: 22px;
+            line-height: 1;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            box-shadow: 0 10px 20px -10px var(--accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.28);
         }
-        .app-header .logo svg { width: 19px; height: 19px; }
 
         /* ========== ZYLZ Brand ========== */
         .app-header .brand {
@@ -102,6 +107,11 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        .app-header .brand-zylz {
+            color: var(--accent);
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
         .app-header .brand-sub {
             font-size: 12px;
             color: var(--text-muted);
@@ -117,12 +127,23 @@
         }
 
         h3 {
-            font-size: 14px;
-            font-weight: 600;
-            letter-spacing: 0.02em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
             text-transform: uppercase;
             color: var(--text-muted);
             margin: 0 0 12px;
+        }
+        h3::before {
+            content: "";
+            width: 4px;
+            height: 14px;
+            border-radius: 2px;
+            background: var(--accent);
+            flex: none;
         }
 
         /* ========== Form Elements ========== */
@@ -166,20 +187,23 @@
 
         input[type="submit"] {
             width: 100%;
-            background: var(--accent);
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
             color: #fff;
             border: none;
             border-radius: var(--radius-sm);
             padding: 13px;
             font-size: 15px;
             font-weight: 600;
+            letter-spacing: 0.02em;
             cursor: pointer;
-            transition: background 0.15s, transform 0.05s;
+            box-shadow: 0 10px 22px -10px var(--accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+            transition: background 0.15s, transform 0.05s, box-shadow 0.15s;
         }
-        input[type="submit"]:hover { background: var(--accent-hover); }
-        input[type="submit"]:active { transform: translateY(1px); }
+        input[type="submit"]:hover { filter: brightness(1.05); }
+        input[type="submit"]:active { transform: translateY(1px); box-shadow: none; }
         input[type="submit"]:disabled {
             background: var(--border-strong);
+            box-shadow: none;
             cursor: not-allowed;
         }
 
@@ -199,6 +223,7 @@
             align-items: center;
             gap: 8px;
             margin-left: auto;
+            flex: none;
         }
         .language-switch svg {
             width: 18px;
@@ -230,33 +255,33 @@
         .tabs {
             display: flex;
             gap: 6px;
-            padding: 6px;
+            padding: 8px 10px 0;
             margin: 0;
             background: var(--surface-muted);
             border-bottom: 1px solid var(--border);
         }
         .tab {
             flex: 1;
-            padding: 10px 14px;
+            padding: 11px 14px;
             cursor: pointer;
             text-align: center;
             font-size: 14px;
             font-weight: 600;
             color: var(--text-muted);
             border: none;
-            border-radius: 9px;
+            border-radius: 10px 10px 0 0;
             background: transparent;
-            transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+            transition: background 0.15s, color 0.15s;
         }
         .tab:hover { color: var(--text); }
         .tab.active {
             background: var(--surface);
             color: var(--accent);
-            box-shadow: var(--shadow);
+            font-weight: 700;
         }
         .tab-content {
             display: none;
-            padding: 20px;
+            padding: 20px 20px 22px;
             background: var(--surface);
         }
         .tab-content.active {
@@ -278,7 +303,7 @@
             align-items: center;
             justify-content: space-between;
             gap: 10px;
-            padding: 5px 12px;
+            padding: 6px 12px;
             background: var(--surface-muted);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
@@ -305,9 +330,9 @@
 
         /* ========== AP List Styles ========== */
         #ap_list {
-            margin: 16px 0 0;
+            margin: 18px 0 0;
             padding: 16px 0 0;
-            border-top: 1px solid var(--border);
+            border-top: 1px dashed var(--border-strong);
         }
         #ap_list > p:first-child {
             font-size: 13px;
@@ -337,19 +362,21 @@
             justify-content: space-between;
             gap: 10px;
             margin-top: 6px;
-            padding: 7px 12px;
+            padding: 9px 12px;
             color: var(--text);
             text-decoration: none;
-            font-size: 13px;
+            font-size: 13.5px;
+            font-weight: 500;
             background: var(--surface-muted);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            transition: border-color 0.15s, background 0.15s;
+            transition: border-color 0.15s, background 0.15s, transform 0.1s;
         }
         #ap_list a:hover {
             border-color: var(--accent);
             background: var(--accent-soft);
             text-decoration: none;
+            transform: translateY(-1px);
         }
 
         /* ========== Advanced rows ========== */
@@ -358,6 +385,11 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            padding: 12px 14px;
+            background: var(--surface-muted);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 16px;
         }
         .field-inline label { margin: 0; }
         .field-inline select { width: auto; min-width: 120px; margin-left: auto; }
@@ -481,17 +513,10 @@
     <div class="page">
     <!-- Header -->
     <header class="app-header">
-        <span class="logo" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
-                <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
-                <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-                <line x1="12" y1="20" x2="12.01" y2="20"/>
-            </svg>
-        </span>
+        <span class="logo" aria-hidden="true">@WZH_EMOJI@</span>
         <!-- ZYLZ brand -->
         <div class="brand">
-            <div class="brand-name">@WZH_EMOJI@ @WZH_BRAND_NAME@</div>
+            <div class="brand-name"><span class="brand-zylz">ZYLZ</span> · @WZH_BRAND_NAME@</div>
             <div class="brand-sub">设备配网 · WiFi Setup</div>
         </div>
         <!-- Language switcher -->

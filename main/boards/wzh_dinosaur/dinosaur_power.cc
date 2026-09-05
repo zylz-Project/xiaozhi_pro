@@ -88,9 +88,10 @@ void DinosaurPower::TaskEntry(void* arg) { static_cast<DinosaurPower*>(arg)->Tas
 
 void DinosaurPower::Shutdown() {
     ESP_LOGW(TAG, "Long press %d ms: power-off sequence...", POWER_LONG_PRESS_MS);
-    // 0. 关机提示音。
-    Application::GetInstance().GetAudioService().PlaySound(Lang::Sounds::OGG_VIBRATION);
-    vTaskDelay(pdMS_TO_TICKS(400));
+    // 0. 关机提示音（内嵌下行叮咚，不读外部 Flash）。延时盖过整段提示音，
+    // 避免稍后 StopPlayback 把叮咚拦腰切断。
+    Application::GetInstance().GetAudioService().PlaySound(Lang::Sounds::OGG_POWER_OFF);
+    vTaskDelay(pdMS_TO_TICKS(700));
     // 1. 舵机回中（板级回调，断电前回到安全姿态）。
     if (shutdown_hook_) {
         shutdown_hook_();
@@ -124,10 +125,12 @@ void DinosaurPower::Task() {
     int click_count = 0;
     int battery_tick = 0;
 
-    vTaskDelay(pdMS_TO_TICKS(3000));  // 等待系统稳定
+    vTaskDelay(pdMS_TO_TICKS(1200));  // 等待音频服务就绪
 
-    // 开机提示音由 flash 开机叫声（+2s）和激活成功音（OGG_SUCCESS）承担，
-    // 这里不再重复播放，避免与连上大模型的提示音相撞。
+    // 开机提示音：内嵌上行叮咚（不读外部 Flash，硬件就绪即可响，早于
+    // 联网流程）。叮咚先播，控制器自主调度的 Flash 开机叫声经
+    // IsPlaybackIdle 门控自动排在叮咚之后，两者不重叠。
+    Application::GetInstance().GetAudioService().PlaySound(Lang::Sounds::OGG_POWER_ON);
     ESP_LOGI(TAG, "Power task ready");
 
     while (true) {
