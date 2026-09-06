@@ -247,7 +247,7 @@ pose_.tail_lr += (target.tail_lr - pose_.tail_lr) * k;
 pose_.tail_ud += (target.tail_ud - pose_.tail_ud) * k;
 ```
 
-指数追踪天然起止速度为零、软着陆无硬停；也是迁移阶段 8 对齐参考工程 Catmull-Rom 的方向。
+指数追踪天然起止速度为零、软着陆无硬停；与小熊猫参考工程（`BASE/tailRedPanda/main/auto_run.cc`）逐行同源，也是迁移阶段 8 对齐的方向。
 
 ### 2.4 第四段：姿态合成与舵机输出
 
@@ -381,12 +381,40 @@ attack = clamp((fast − slow × 1.08) × 3.2, 0, 1);    // onset 检测：快�
 
 身体部位动作的 add 点在 `kBodyClips` + 身体动作枚举 + `ParseBodyAction`/`BodyActionName`，以及 `HandleUserSpeechEmotion` 的关键词表。
 
-## 7. 与参考工程的差距（阶段 7-8 待办）
+## 7. 与参考工程的对比（阶段 7-8 待办）
 
-当前恐龙库是简化版（11 剪辑）。参考工程 `BASE/dinosaur/main/auto_run.cc`（V3.3，只读参考，勿改）有：
+参考工程 = `BASE/<product>/main/auto_run.cc`（V3.3，只读，勿改）。三个产品逐一对：
 
-- 29 个互动变体 + 5 个环境场景 + 4 个待机生命动作；
-- Catmull-Rom 五轴插值（比恐龙现在的逐段 SmoothStep 更平滑）；
-- 表演签名（近期表演去重）。
+### 7.1 爬爬熊猫 / 摇尾小熊猫 —— 方法一致（忠实移植）
 
-阶段 7 计划先做统一行为调度器（有界优先级队列：安全 > 手动 > 明确动作 > 情绪 > 对话 > 音频 > 自主 > 微动作，含平滑打断、精力状态、低电量降级），阶段 8 再逐产品把动作专项对齐参考工程。当前三产品各自的调度（恐龙的定时随机/爬爬小熊猫的计时器组）将来都收拢进统一调度器。
+- 爬爬：数据结构（Keyframe/Clip/mirrorable）、ease_motion 五次多项式、kFamily 行为族、ShuffleBag、计时器组调度（next_sound/next_idle/next_ambient/was_playing 声音状态机）与参考 `crawlPanda/main/auto_run.cc`（368 行）逐项对应。
+- 小熊猫：FlowTarget（lead=(progress−0.70)/0.30）、指数追踪 k=1−exp(−20/τ)、mirror_balance ±2、tempo frand(0.88,1.14) 与参考 `tailRedPanda/main/auto_run.cc`（423 行）逐项对应。
+- 差异仅在宿主环境：小智侧改用 `wzh::AudioPlayer`/`AudioService` 播声音、包络来自 Opus 包估算 + 在线 TTS 真实响度；参考工程用自己的 I2S 播放任务和 IsAudioPlaying 布尔量。**参考工程没有"随声音响度舞动"这层，小智侧是新增增强。**
+
+### 7.2 恐龙 —— 同源但引擎简化，差距集中在这里
+
+参考 `dinosaur/main/auto_run.cc`（1867 行引擎 + 416 行 `auto_run_data.cc` 数据表）vs 小智侧 `dinosaur_controller.cc`（1014 行，数据引擎一体）。**相同的骨架**：kKeep 哨兵、Ease 三档（枚举同源）、8 动作枚举 + ClipSet 池 + 4 槽队列 + 20ms 拍、AttentionPose 先看用户、收势回正、声音文件名→动作匹配（同一份中文关键词表）。**缺的机制**（按影响排序）：
+
+| 参考工程机制 | 作用 | 小智侧现状 |
+| --- | --- | --- |
+| 30 条剪辑（每动作 3~4 变体） | 动作库本体（`auto_run_data.cc`，数据/引擎分离） | 11 条（1~2 变体/动作），数据引擎混在一文件 |
+| Catmull-Rom 四点插值（EASE_SMOOTH 走 `catmull_pose`，前后帧都参与） | 相邻段曲线连续，无折角 | 逐段 SmoothStep 线性外推，段间有折角 |
+| 每帧独立 tempo（variation_seed 哈希 → 118%~154%/帧） | 同一剪辑每次表演节奏逐帧不同 | 单一 clip 级 tempo（0.90~1.15） |
+| 动作专属 intensity（1.06~1.47）+ head 轴上限 1.12 | 大动作（happy/startled）视觉冲击更强 | 统一 0.92~1.10 |
+| TailStyle(7)/NeckStyle(5)/HeadStyle(4) 空间风格随机 + 按动作加权（choose_tail_style 防三连同款） | 同一剪辑叠加不同空间轨迹，重复感低 | 无（轨迹完全由关键帧决定） |
+| organic_sin 波形（sin+0.12sin2φ+0.05sin3φ 谐波） | 待机/表演微动更有机 | 纯 sin 微动 |
+| story_envelope（sin(progress·π) 开根）+ neck/tail orbit 椭圆 | 动作有"叙事弧"：中段幅度大首尾收敛 | living 微动恒幅 |
+| **表演签名**（recent_signatures[12] 哈希 clip+mirror+三风格，撞签重掷） | 不重复"骨架相同"的表演 | 只去重剪辑首项（ShuffleBag/avoid） |
+| `continue_with_audio` 剪辑标志（proud 6.9s 叫声配多段连续表演） | 长声音不停手、不回呆站 | 无（声音配一段就完） |
+| 6 个 BehaviorParam 待机个性（center/amplitude/period 五轴参数表） | 待机姿态+频率都可配置 | 6 个姿态 + 固定正弦 |
+| 5 个自然场景（NATURE_HORIZON_SCAN/RAIN_LISTEN/LOW_DRINK/LOOK_UP/RAIN_SHAKE，staged_ramp/pulse 时间线编排 + 洗牌） | 5~9s 的环境化长表演（配 ambient 声） | 无 |
+| PoseFade rejoin（800ms 渐变回待机） | 表演结束不跳变 | 直接切 |
+| g_tail_lr_bias 左右停留面积记忆（6.7s 时间常数）→ 镜像概率校正 + 输出端 ±22% 反偏 | 防止长期偏一侧 | 仅 mirror_balance 计数 |
+| g_hard_swing 调试模式 | 真机校准用 | 无 |
+| tail_ud 编码 0=上/125=下，输出时 `SERVO_MAX_ANGLE − pose.tail_ud` 转换 | 编舞角度语义化 | 直接舵机角 55~180（迁移时注意换算） |
+
+参考工程**没有**而小智侧已有的：音频包络驱动舞动（Opus 包估算/TTS 真实响度驱动头尾摆）——这是小智侧新增增强；参考工程只用了 IsAudioPlaying 布尔量做门控。
+
+### 7.3 阶段 7-8 落点
+
+阶段 7 先做统一行为调度器（有界优先级队列：安全 > 手动 > 明确动作 > 情绪 > 对话 > 音频 > 自主 > 微动作，含平滑打断、精力状态、低电量降级），三产品各自的调度收拢进来。阶段 8 恐龙对齐参考工程：按上表把**数据/引擎分离 + 30 剪辑 + Catmull-Rom + 三风格随机 + 表演签名 + continue_with_audio + 自然场景**逐项移植（顺序即影响排序）；爬爬/小熊猫只需把新增机制（如签名去重）回补。
