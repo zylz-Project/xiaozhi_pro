@@ -1,0 +1,1064 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ZYLZ 设备台</title>
+<style>
+  :root {
+    --bg: #f4f2ea; --surface: #fdfbf5; --surface-2: #eae7dc;
+    --fg: #1d2a23; --muted: #68766d; --line: #d6d2c4; --line-strong: #b9b5a7;
+    --accent: #2f6b4f; --accent-strong: #1e4c37; --accent-soft: #deede3;
+    --ok: #2f7a52; --warn: #a26a20; --danger: #a33a32; --info: #3c667f;
+    --shadow: 0 1px 2px rgb(29 42 35 / .05), 0 8px 24px rgb(29 42 35 / .05);
+    --radius: 14px;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    --display: "Noto Serif CJK SC", "Songti SC", "STSong", Georgia, serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111814; --surface: #18221b; --surface-2: #202c24;
+      --fg: #e7eee8; --muted: #9aa89f; --line: #2f3c34; --line-strong: #435247;
+      --accent: #82c9a1; --accent-strong: #a8dcbd; --accent-soft: #1e3528;
+      --ok: #82c9a1; --warn: #e0ad60; --danger: #e08479; --info: #82b3cf;
+      --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .25);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; min-height: 100vh;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 36px;
+    background: var(--bg); color: var(--fg);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .shell { max-width: 1120px; margin: 0 auto; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding-block: 20px 16px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .mark { font-family: var(--mono); font-size: 13px; letter-spacing: .18em; color: var(--accent); font-weight: 700; }
+  .name { font-family: var(--display); font-size: 25px; letter-spacing: .03em; font-weight: 600; }
+  .net-pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; background: var(--surface); }
+  .net-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+  .net-pill.on i { background: var(--ok); }
+  .net-pill.off i { background: var(--danger); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+  .hero { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); overflow: hidden; }
+  .hero-main { padding: 24px 26px 22px; min-width: 0; }
+  .eyebrow { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+  .product-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 4px; }
+  h1 { font-family: var(--display); font-size: clamp(28px, 4vw, 38px); font-weight: 600; letter-spacing: .02em; line-height: 1.1; margin: 0; }
+  .state-pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600; background: var(--accent-soft); color: var(--accent-strong); }
+  .state-pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .state-pill.busy { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  .sub code { font-family: var(--mono); font-size: 12px; }
+  .strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .cell { background: var(--surface-2); border-radius: 10px; padding: 10px 11px; min-width: 0; }
+  .cell .k { font-size: 11px; color: var(--muted); display: block; margin-bottom: 3px; }
+  .cell .v { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.off { background: var(--line-strong); }
+  .hero-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line); }
+  .hint { font-size: 12px; color: var(--muted); }
+  .metrics { border-left: 1px solid var(--line); padding: 22px; display: flex; flex-direction: column; gap: 15px; min-width: 0; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%); }
+  .battery-row { display: flex; align-items: center; gap: 15px; }
+  .ring { position: relative; width: 88px; height: 88px; flex: none; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring .track { fill: none; stroke: var(--line); stroke-width: 7; }
+  .ring .fill { fill: none; stroke: var(--accent); stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset .5s ease; }
+  .ring .pct { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--mono); font-size: 20px; font-weight: 700; }
+  .ring .pct small { font-size: 10px; font-weight: 500; color: var(--muted); }
+  .battery-copy .big { font-size: 15px; font-weight: 600; }
+  .battery-copy .small { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .battery-voltage { margin: 4px 0; font-family: var(--mono); font-size: 18px; font-weight: 650; }
+  .battery-voltage small { font-family: var(--sans); font-size: 11px; font-weight: 400; color: var(--muted); margin-right: 7px; }
+  .touch-panel { margin-top: 18px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+  .touch-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+  .touch-state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  .touch-channels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+  .touch-channel { border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--surface); font-size: 11px; text-align: center; }
+  .touch-channel b { display: block; font-family: var(--mono); font-size: 12px; margin-bottom: 2px; }
+  .touch-channel.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+  .touch-channel.unknown { color: var(--muted); }
+  .touch-readings { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .metric .k { font-size: 11px; color: var(--muted); display: block; }
+  .metric .v { font-family: var(--mono); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+  .metric .v small { font-family: var(--sans); font-weight: 400; color: var(--muted); font-size: 11px; }
+  .columns { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); gap: 18px; margin-top: 18px; align-items: start; }
+  .card-head { padding: 18px 20px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .card-title { margin: 0; font-size: 16px; font-weight: 650; }
+  .card-sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+  .card-body { padding: 15px 20px 20px; }
+  .stats { display: flex; gap: 13px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .stats b { color: var(--fg); font-weight: 600; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 11px; }
+  .filter { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 5px 12px; font-size: 12.5px; color: var(--muted); }
+  .filter[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .search { flex: 1 1 150px; min-width: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); padding: 6px 13px; font-size: 13px; }
+  .rows { display: flex; flex-direction: column; gap: 2px; }
+  .row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px; border-radius: 9px; min-width: 0; }
+  .row:hover { background: var(--surface-2); }
+  .row.playing { background: var(--accent-soft); }
+  .play { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--surface); display: grid; place-items: center; font-size: 12px; color: var(--accent-strong); flex: none; }
+  .play:hover { border-color: var(--accent); }
+  .row-main { min-width: 0; }
+  .row-name { font-size: 13.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-meta { font-family: var(--mono); font-size: 10.5px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag { font-size: 10.5px; border-radius: 5px; padding: 1px 6px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+  .tag.ambient { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  .progress { height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 4px; display: none; }
+  .row.playing .progress { display: block; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s linear; }
+  .empty { color: var(--muted); font-size: 13px; padding: 18px 8px; text-align: center; }
+  .lib-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--line); margin-top: 11px; padding-top: 11px; }
+  .lib-foot .note { font-size: 11.5px; color: var(--muted); max-width: 45ch; }
+  .btn { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 9px; padding: 7px 13px; font-size: 13px; font-weight: 550; display: inline-flex; align-items: center; gap: 7px; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--accent-strong); padding-inline: 8px; }
+  .btn.ghost:hover { background: var(--accent-soft); }
+  .hub-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+  .hub-status b { color: var(--fg); font-weight: 600; }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-top: 13px; }
+  .field label { font-size: 11.5px; color: var(--muted); }
+  .field input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); padding: 7px 10px; font-family: var(--mono); font-size: 11.5px; }
+  .hub-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 11px; }
+  .notice { font-size: 11.5px; color: var(--muted); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; margin-top: 11px; overflow-wrap: anywhere; }
+  .notice code { font-family: var(--mono); color: var(--fg); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .chip { font-size: 11px; padding: 3px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); }
+  .chip b { color: var(--fg); }
+  .chip.new b { color: var(--accent-strong); }
+  .chip.changed b { color: var(--warn); }
+  .diff { margin-top: 9px; border-top: 1px solid var(--line); max-height: 310px; overflow-y: auto; }
+  .diff-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line); min-width: 0; }
+  .diff-row:last-child { border-bottom: 0; }
+  .diff-row input { accent-color: var(--accent); width: 15px; height: 15px; }
+  .diff-name { min-width: 0; }
+  .diff-name b { display: block; font-size: 12.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .diff-name span { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .badge { font-size: 10px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; font-weight: 600; }
+  .badge.new { color: var(--accent-strong); background: var(--accent-soft); }
+  .badge.changed { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); }
+  .badge.same { color: var(--muted); background: var(--surface-2); }
+  .badge.local { color: var(--info); background: color-mix(in srgb, var(--info) 13%, transparent); }
+  .job { margin-top: 11px; display: none; }
+  .job.on { display: block; }
+  .bar { height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
+  .job p { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin: 6px 0 0; min-height: 1.4em; overflow-wrap: anywhere; }
+  .api { margin-top: 18px; }
+  .api-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+  .api-grid > * { min-width: 0; }
+  .code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 11px; line-height: 1.7; overflow-x: auto; white-space: pre; }
+  .api-note { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  .diag { margin-top: 18px; }
+  .diag summary { list-style: none; cursor: pointer; padding: 14px 20px; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .diag summary::-webkit-details-marker { display: none; }
+  .diag summary::before { content: "+"; font-family: var(--mono); color: var(--accent); font-weight: 700; }
+  .diag[open] summary::before { content: "−"; }
+  .diag-body { padding: 0 20px 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 11px; }
+  .kv { border-top: 1px solid var(--line); padding-top: 8px; min-width: 0; }
+  .kv .k { font-size: 10.5px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+  .kv .v { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+  .foot { margin-top: 20px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+  .foot code { font-family: var(--mono); }
+  .toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 12px); opacity: 0; pointer-events: none; background: var(--fg); color: var(--bg); border-radius: 9px; padding: 8px 14px; font-size: 12.5px; box-shadow: var(--shadow); transition: opacity .18s ease, transform .18s ease; max-width: calc(100vw - 32px); z-index: 20; }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+  @media (max-width: 880px) { .hero { grid-template-columns: 1fr; } .metrics { border-left: 0; border-top: 1px solid var(--line); } .columns { grid-template-columns: 1fr; } .api-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 520px) {
+    .strip { grid-template-columns: 1fr 1fr; }
+    .hero-main, .metrics { padding: 18px; }
+    .card-head, .card-body { padding-inline: 15px; }
+    .row { grid-template-columns: 32px minmax(0, 1fr); }
+    .row .tag { grid-column: 2; justify-self: start; }
+  }
+
+[hidden]{display:none!important}
+.dev-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.dev-head .net-pill{margin-left:auto}
+.developer{border:1px solid var(--accent);margin-bottom:22px}.dev-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.dev-control{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.dev-control input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
+.dev-danger{border:1px solid #e3b2ab;border-radius:16px;padding:18px;margin-top:22px;background:var(--surface)}.dev-danger p{font-size:13px;color:var(--muted)}
+.btn.danger{background:#a63832;color:#fff;border-color:#a63832}.dev-job{padding:14px;border-radius:12px;background:var(--accent-soft);margin-top:16px;font-size:14px}
+.dev-meter{height:8px;border-radius:10px;overflow:hidden;background:#e5e9e3;margin-top:10px}.dev-meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .1s}
+.dev-small{font-size:13px;color:var(--muted);margin:10px 0}.dev-ops{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
+dialog{border:0;border-radius:22px;padding:28px;width:min(440px,calc(100% - 32px));color:var(--fg);background:var(--surface);box-shadow:0 20px 80px #18302733}
+dialog::backdrop{background:#16292488}dialog h2{margin-top:0}dialog label{display:block;margin:14px 0 6px}dialog input{width:100%;font:inherit;border:1px solid #c8d4cc;border-radius:10px;padding:11px}dialog p{line-height:1.7;font-size:14px}.dialog-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}.form-error{color:#a63832;min-height:20px;font-size:13px}
+.bar i.working{width:35%!important;animation:working 1.4s infinite ease-in-out}@keyframes working{0%{transform:translateX(-110%)}100%{transform:translateX(310%)}}
+@media(max-width:720px){.dev-grid{grid-template-columns:1fr}.topbar{gap:10px;flex-wrap:wrap}.dev-head{gap:6px}.dev-head .net-pill{font-size:11px}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><span class="mark">ZYLZ</span><span class="name">设备台</span></div>
+    <div class="dev-head"><span class="net-pill" id="netPill"><i></i><span id="netText">连接中…</span></span><button class="btn ghost" id="developerOpen">开发者模式</button></div>
+  </header>
+
+  <section class="card hero">
+    <div class="hero-main">
+      <span class="eyebrow">本地管理页 · 设备热点</span>
+      <div class="product-line">
+        <h1 id="productName">读取中…</h1>
+        <span class="state-pill" id="statePill"><i></i><span id="stateText">连接中</span></span>
+      </div>
+      <p class="sub"><code id="buildName">—</code> · 固件 <span id="version">—</span> · <span id="uptime">—</span></p>
+      <div class="strip">
+        <div class="cell"><span class="k">小智会话</span><span class="v"><i class="dot off" id="dotSession"></i><span id="vSession">未建立</span></span></div>
+        <div class="cell"><span class="k">麦克风</span><span class="v"><i class="dot off" id="dotMic"></i><span id="vMic">未开启</span></span></div>
+        <div class="cell"><span class="k">扬声器</span><span class="v"><i class="dot off" id="dotSpk"></i><span id="vSpk">空闲</span></span></div>
+        <div class="cell"><span class="k">舵机</span><span class="v"><i class="dot off" id="dotServo"></i><span id="vServo">已断电</span></span></div>
+      </div>
+      <div class="touch-panel" aria-label="触摸传感器状态">
+        <div class="touch-head"><b>触摸传感器</b><span class="touch-state"><i class="dot off" id="touchDot"></i><span id="touchState">等待读取</span></span></div>
+        <div class="touch-channels">
+          <div class="touch-channel unknown" id="touchSW1"><b>SW1</b><span>—</span></div>
+          <div class="touch-channel unknown" id="touchSW2"><b>SW2</b><span>—</span></div>
+          <div class="touch-channel unknown" id="touchSW3"><b>SW3</b><span>—</span></div>
+          <div class="touch-channel unknown" id="touchSW4"><b>SW4</b><span>—</span></div>
+        </div>
+        <div class="touch-readings"><span id="touchVoltage">输入电压 — mV</span><span id="touchCode">稳定编码 —</span><span>状态每 2 秒刷新</span></div>
+      </div>
+      <div class="hero-actions">
+        <button class="btn primary" id="chatBtn">进入对话</button>
+        <span class="hint">双击机身电源键或 BOOT 键同样可用；单击不启动对话。</span>
+      </div>
+    </div>
+    <aside class="metrics">
+      <div class="battery-row">
+        <div class="ring">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <circle class="track" cx="50" cy="50" r="43"></circle>
+            <circle class="fill" id="batteryArc" cx="50" cy="50" r="43" stroke-dasharray="270.18" stroke-dashoffset="270.18"></circle>
+          </svg>
+          <div class="pct"><span id="batteryPct">—</span><small>%</small></div>
+        </div>
+        <div class="battery-copy">
+          <div class="big" id="batteryBig">读取中</div>
+          <div class="battery-voltage"><small>静置电压</small><span id="batteryVoltage">— V</span></div>
+          <div class="small" id="batterySampling">等待静置采样</div>
+          <div class="small" id="batterySmall">—</div>
+        </div>
+      </div>
+      <div class="metric-grid">
+        <div class="metric"><span class="k">Wi-Fi</span><span class="v"><span id="wifiSsid">—</span><br><small id="wifiDetail">—</small></span></div>
+        <div class="metric"><span class="k">温度</span><span class="v" id="temp">—</span></div>
+        <div class="metric"><span class="k">Flash</span><span class="v" id="flashType">—</span></div>
+        <div class="metric"><span class="k">音频占用</span><span class="v" id="flashUse">—</span></div>
+      </div>
+      <div class="notice" id="apInfo">设备热点读取中…</div>
+    </aside>
+  </section>
+
+  <div class="columns">
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title">Flash 音频库</h2>
+          <p class="card-sub" id="audioSub">正在读取设备目录…</p>
+        </div>
+        <div class="stats" id="libStats"></div>
+      </div>
+      <div class="card-body">
+        <div class="controls">
+          <button class="filter" data-filter="all" aria-pressed="true">全部</button>
+          <button class="filter" data-filter="animal" aria-pressed="false">动物音</button>
+          <button class="filter" data-filter="ambient" aria-pressed="false">环境音</button>
+          <input class="search" id="search" type="search" placeholder="搜索名称…" aria-label="搜索音频">
+        </div>
+        <div class="rows" id="audioRows"><div class="empty">正在读取…</div></div>
+        <div class="lib-foot">
+          <span class="note">这里显示设备 Flash 中的真实音频；对话期间暂停试听。</span>
+          <span style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn ghost" id="audioRefresh">刷新目录</button>
+            <button class="btn ghost" id="audioStop">停止试听</button>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title">Audio Hub · 手动更新</h2>
+          <p class="card-sub">不自动联网；点检查后才访问服务器</p>
+        </div>
+        <span class="hub-status"><i class="dot off" id="hubDot"></i><b id="hubState">未检查</b></span>
+      </div>
+      <div class="card-body">
+        <div class="notice" id="hubBound">正在读取绑定信息…</div>
+        <div class="hub-actions">
+          <button class="btn primary" id="hubCheck">连接并检查</button>
+          <button class="btn" id="hubRefresh">刷新状态</button>
+        </div>
+        <div class="chips" id="hubChips" hidden></div>
+        <div class="diff" id="hubDiff" hidden></div>
+        <div class="hub-actions" id="hubUpdateActions" hidden>
+          <button class="btn primary" id="hubUpdate">更新所选</button>
+          <button class="btn" id="hubClear">清空选择</button>
+        </div>
+        <div class="job" id="hubJob">
+          <div class="bar"><i id="hubBar"></i></div>
+          <p id="hubMessage">—</p>
+        </div>
+        <p class="card-sub" style="margin-top:11px">检查只读清单，不写 Flash。更新只处理勾选项；本地独有录音保留，不随远端清单删除。</p>
+      </div>
+    </section>
+  </div>
+
+  <section class="card developer" id="developerPanel" hidden>
+    <div class="card-head"><div><span class="eyebrow">开发者模式已解锁</span><h2 class="card-title">展示与调试工作台</h2><p class="card-sub">更快检查声音、动作与设备状态</p></div><button class="btn ghost" id="developerClose">退出开发者模式</button></div>
+    <div class="card-body">
+      <div class="dev-grid">
+        <div><h3>扬声器音量</h3><div class="dev-control"><input id="devVolume" type="range" min="0" max="100" value="70" aria-label="扬声器音量"><output id="devVolumeValue">70%</output><button class="btn primary" id="devVolumeSave">应用音量</button></div><p class="dev-small">0 为静音，应用后保存，重启仍保留。</p></div>
+        <div><h3>声音与动作联动</h3><div id="devVoice">等待真实声音…</div><div class="dev-meter"><i id="devLevel"></i></div><div class="dev-ops"><button class="btn" id="devDemo">随机展示一段</button><button class="btn" id="devCenter">停止并归中</button></div><p class="dev-small">展示使用现有动物音和配套动作；保护生效时暂停动作。</p></div>
+      </div>
+      <div class="dev-ops"><button class="btn ghost" id="devExport">导出诊断和音频目录</button><span class="dev-small" id="devMemory">正在读取诊断…</span></div>
+      <p class="dev-small" id="devPlayback">播放缓冲读取中…</p>
+      <div class="dev-danger"><h3>外置音频 Flash</h3><p>清空外置 Flash 的音效和目录，预置调校配套保留。外置音频可手动重新导入；设备固件、小智绑定和 Wi-Fi 配置保留。对话或更新进行中无法擦除。</p><button class="btn danger" id="devErase">擦除外置 Flash 音频</button></div>
+      <div class="dev-job" id="devJob" role="status">尚未执行擦除</div>
+    </div>
+  </section>
+
+  <details class="card api" id="developerApi" hidden><summary style="padding:18px 24px;cursor:pointer">开发接口与调用说明</summary>
+
+    <div class="card-head">
+      <div>
+        <h2 class="card-title">本地接口</h2>
+        <p class="card-sub">同一热点下访问 <code>http://192.168.4.1:8080</code>；写入调试接口需要开发者令牌</p>
+      </div>
+    </div>
+    <div class="card-body api-grid">
+      <div class="code">GET  /api/status
+GET  /api/audio
+POST /api/audio/play   {"name":"..."}
+POST /api/audio/stop
+POST /api/chat/toggle
+POST /api/hub/check
+GET  /api/hub/diff
+POST /api/hub/update   {"names":["..."]}
+POST /api/developer/login  {"password":"..."}
+POST /api/developer/volume {"volume":70}
+POST /api/developer/center
+POST /api/developer/demo
+POST /api/developer/flash/erase {"confirm":"ERASE"}</div>
+      <div>
+        <div class="code">curl http://192.168.4.1:8080/api/audio
+
+curl -X POST http://192.168.4.1:8080/api/audio/play \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"熊猫撒娇声音"}'</div>
+        <p class="api-note">页面与 MCP 共用同一份设备目录；不会另建一套对话协议，也不会把 Hub token 下发给浏览器。</p>
+      </div>
+    </div>
+  </details>
+
+  <details class="card diag">
+    <summary>诊断 · 会话、Flash 与网络</summary>
+    <div class="diag-body">
+      <div class="kv"><div class="k">设备状态</div><div class="v" id="diagState">—</div></div>
+      <div class="kv"><div class="k">运行时间</div><div class="v" id="diagUptime">—</div></div>
+      <div class="kv"><div class="k">热点</div><div class="v" id="diagAp">—</div></div>
+      <div class="kv"><div class="k">STA 地址</div><div class="v" id="diagIp">—</div></div>
+      <div class="kv"><div class="k">Flash 写入</div><div class="v" id="diagWrite">—</div></div>
+      <div class="kv"><div class="k">Hub 任务</div><div class="v" id="diagHub">—</div></div>
+    </div>
+  </details>
+
+  <footer class="foot">
+    <span>数据由设备实时返回；页面无外部字体/CDN。</span>
+    <span>三款产品共用页面 · 固件 2.4.1</span>
+  </footer>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+
+<dialog id="developerDialog"><form id="developerLoginForm"><h2>进入开发者模式</h2><p>解锁音量、动作检查和 Flash 维护。普通音频浏览与小智对话无需进入。</p><label for="developerPassword">开发者密码</label><input id="developerPassword" type="password" autocomplete="off" required><p class="form-error" id="developerError" role="alert"></p><div class="dialog-actions"><button type="button" class="btn ghost" id="developerCancel">取消</button><button type="submit" class="btn primary" id="developerLogin">进入</button></div></form></dialog>
+<dialog id="eraseDialog"><form id="eraseForm"><h2>清空外置音频 Flash？</h2><p id="eraseDetail">全部本地音频和目录将被删除，无法撤销。</p><p>擦除期间请保持供电。此操作不会擦除设备固件、小智绑定或 Wi-Fi 配置。</p><label for="eraseConfirm">输入 ERASE 确认清空</label><input id="eraseConfirm" autocomplete="off" spellcheck="false" required><p class="form-error" id="eraseError" role="alert"></p><div class="dialog-actions"><button type="button" class="btn ghost" id="eraseCancel">取消</button><button type="submit" class="btn danger" id="eraseSubmit" disabled>确认擦除</button></div></form></dialog>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var statusData = null;
+  var audioFiles = [];
+  var diffData = null;
+  var filter = 'all';
+  var query = '';
+  var selected = new Set();
+  var hubPoll = null;
+  var statusPoll = null;
+  var developerToken = "";
+  var developerData = null;
+  var volumeDirty = false;
+  var hubOperation = "check";
+
+  var PRODUCT_ACCENT = {
+    'wzh-crawlpanda': ['#2f6b4f', '#1e4c37', '#deede3'],
+    'wzh-tailredpanda': ['#a84f3c', '#7e3627', '#f1e0d9'],
+    'wzh-dinosaur': ['#b87526', '#835015', '#f3e6d2']
+  };
+  var STATE_LABEL = {
+    idle: '待机', connecting: '连接中', listening: '收音中', speaking: '回复中',
+    starting: '启动中', wifi_configuring: '配网中', activating: '激活中',
+    upgrading: '升级中', audio_testing: '音频测试', fatal_error: '故障', unknown: '未知'
+  };
+
+  function toast(message) {
+    var el = $('toast');
+    el.textContent = message;
+    el.classList.add('on');
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.classList.remove('on'); }, 2400);
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes && bytes !== 0) return '—';
+    if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    return Math.round(bytes / 1024) + ' KB';
+  }
+
+  function formatMs(ms) {
+    if (!ms) return '—';
+    return (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' 秒';
+  }
+
+  function formatUptime(s) {
+    if (!s && s !== 0) return '—';
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    if (h) return '已运行 ' + h + ' 小时 ' + m + ' 分';
+    return '已运行 ' + m + ' 分';
+  }
+
+  function applyAccent(build) {
+    var colors = PRODUCT_ACCENT[build] || PRODUCT_ACCENT['wzh-crawlpanda'];
+    document.documentElement.style.setProperty('--accent', colors[0]);
+    document.documentElement.style.setProperty('--accent-strong', colors[1]);
+    document.documentElement.style.setProperty('--accent-soft', colors[2]);
+  }
+
+  async function getJson(path, options) {
+    var response = await fetch(path, options);
+    var body = null;
+    try { body = await response.json(); } catch (e) { body = null; }
+    if (!response.ok) {
+      if (body && body.error === 'developer_locked') lockDeveloper();
+      throw new Error((body && body.error) || ('HTTP ' + response.status));
+    }
+    return body || {};
+  }
+
+  function postJson(path, payload) {
+    return getJson(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload ? JSON.stringify(payload) : '{}'
+    });
+  }
+
+  function setNet(text, tone) {
+    $('netText').textContent = text;
+    $('netPill').className = 'net-pill' + (tone ? ' ' + tone : '');
+  }
+
+  function renderStatus() {
+    var s = statusData;
+    if (!s) return;
+    applyAccent(s.build);
+    $('productName').textContent = s.product || '设备';
+    $('buildName').textContent = s.build || '—';
+    $('version').textContent = s.version || '—';
+    $('uptime').textContent = formatUptime(s.uptime_s);
+    var state = s.state || 'unknown';
+    $('stateText').textContent = STATE_LABEL[state] || state;
+    $('statePill').className = 'state-pill' + (state === 'idle' ? '' : ' busy');
+    var active = ['connecting', 'listening', 'speaking'].indexOf(state) >= 0;
+    $('vSession').textContent = active ? STATE_LABEL[state] : '未建立';
+    $('dotSession').className = 'dot ' + (active ? 'ok' : 'off');
+    var mic = !!(s.audio && s.audio.capture_running);
+    var wake = !!(s.audio && s.audio.wake_running);
+    $('vMic').textContent = mic ? '对话收音' : wake ? '唤醒待命' : (s.audio && s.audio.input_enabled ? '输入待命' : '未开启');
+    $('dotMic').className = 'dot ' + (mic || wake ? 'ok' : 'off');
+    var speaking = !!(s.audio && s.audio.playback_idle === false);
+    $('vSpk').textContent = speaking ? '播放处理中' : (s.audio && s.audio.playing ? '本地试听' : '空闲');
+    $('dotSpk').className = 'dot ' + (speaking || (s.audio && s.audio.playing) ? 'ok' : 'off');
+    var servo = s.servo_powered;
+    $('vServo').textContent = servo ? '已上电' : '已断电';
+    $('dotServo').className = 'dot ' + (servo ? 'warn' : 'off');
+    $('chatBtn').textContent = active ? '退出对话' : '进入对话';
+    $('chatBtn').className = 'btn ' + (active ? '' : 'primary');
+
+    var battery = s.battery || {};
+    var restSource = battery.voltage_source === 'rest';
+    var level = battery.available ? battery.level : null;
+    if (restSource && typeof battery.rest_age_ms !== 'number') level = null;
+    $('batteryPct').textContent = level === null ? '—' : level;
+    var circumference = 2 * Math.PI * 43;
+    $('batteryArc').setAttribute('stroke-dasharray', circumference.toFixed(2));
+    $('batteryArc').setAttribute('stroke-dashoffset',
+      (circumference * (1 - (level === null ? 0 : level / 100))).toFixed(2));
+    $('batteryBig').textContent = level === null ? (restSource ? '等待静置' : '未提供') :
+      (level > 60 ? '电量充足' : level > 25 ? '电量一般' : '电量偏低');
+    $('batterySmall').textContent = level === null ? (restSource ? '静置后更新电量' : '设备未报告电量') :
+      '电池供电 · 无充电检测';
+    var batteryMv = battery.voltage_mv;
+    var batteryVoltageValid = typeof batteryMv === 'number' && Number.isFinite(batteryMv) && batteryMv > 0;
+    $('batteryVoltage').textContent = batteryVoltageValid ? (batteryMv / 1000).toFixed(3) + ' V' : '— V';
+    $('batteryVoltage').title = batteryVoltageValid ? batteryMv + ' mV（静置滤波值）' : '等待有效静置电压采样';
+    if (typeof battery.live_voltage_mv === 'number')
+      $('batteryVoltage').title += '；当前采样 ' + battery.live_voltage_mv + ' mV';
+    if (typeof battery.protection_voltage_mv === 'number')
+      $('batteryVoltage').title += '；保护判定 ' + battery.protection_voltage_mv + ' mV';
+    var restAge = typeof battery.rest_age_ms === 'number' ? Math.floor(battery.rest_age_ms / 1000) : null;
+    $('batterySampling').textContent = !restSource ? '滤波电压' : !battery.sample_valid
+      ? '采样未就绪或异常' : !batteryVoltageValid ? '等待静置读数稳定'
+      : battery.under_load ? '动作或播放中 · 保留静置值'
+      : !battery.rest_ready ? '动作后稳定中 · 保留静置值' : '静置采样中';
+    if (restSource && restAge !== null && restAge >= 30)
+      $('batterySampling').textContent += ' · ' + restAge + '秒前';
+    if ((s.servo_faults || 0) & 1) {
+      $('batteryBig').textContent = '低电保护';
+      $('batterySampling').textContent = '动作已暂停 · 等待静置恢复确认';
+    }
+
+    var touch = s.touch || {};
+    var touchAvailable = touch.available === true;
+    var touchValid = touchAvailable && touch.valid === true && Number.isInteger(touch.code) && touch.code >= 0 && touch.code <= 15;
+    var touchMvValid = touchAvailable && typeof touch.voltage_mv === 'number' && Number.isFinite(touch.voltage_mv) && touch.voltage_mv >= 0;
+    var touchInvalid = touchAvailable && (!touchMvValid || touch.raw_code === -1);
+    $('touchState').textContent = !touchAvailable ? '未提供' : touchValid
+      ? (touch.code ? '检测到触摸' : '全部释放') : touchInvalid ? '采样异常或尚未就绪' : '等待稳定';
+    $('touchDot').className = 'dot ' + (!touchAvailable ? 'off' : touchValid ? 'ok' : 'warn');
+    $('touchVoltage').textContent = '输入电压 ' + (touchMvValid ? touch.voltage_mv : '—') + ' mV';
+    $('touchCode').textContent = '稳定编码 ' + (touchValid ? '0x' + touch.code.toString(16).toUpperCase().padStart(2, '0') : '—');
+    for (var channel = 0; channel < 4; channel++) {
+      var tile = $('touchSW' + (channel + 1));
+      var pressed = touchValid && !!(touch.code & (1 << channel));
+      tile.className = 'touch-channel' + (!touchValid ? ' unknown' : pressed ? ' active' : '');
+      tile.querySelector('span').textContent = !touchValid ? '—' : pressed ? '触发' : '释放';
+    }
+
+    var wifi = s.wifi || {};
+    $('wifiSsid').textContent = wifi.connected ? (wifi.ssid || '已连接') : '未联网';
+    $('wifiDetail').textContent = wifi.connected
+      ? ((wifi.ip || '—') + ' · ' + (wifi.rssi || '—') + ' dBm')
+      : '仅热点可用';
+    $('apInfo').innerHTML = '设备热点 <code>' + escapeHtml(wifi.ap_ssid || '—') + '</code> · 管理页 <code>192.168.4.1:8080</code>';
+    setNet(wifi.connected ? '已联网 · 热点可用' : '设备热点 · 未连路由器', wifi.connected ? 'on' : 'off');
+
+    $('temp').textContent = (s.temperature_c === undefined || s.temperature_c === null)
+      ? '未提供' : Number(s.temperature_c).toFixed(1) + ' °C';
+    var flash = s.flash || {};
+    $('flashType').innerHTML = (flash.type || '—') + ' <small>' + (flash.layout || '—') + '</small>';
+    $('flashUse').textContent = (flash.files || 0) + ' 段 · ' + formatBytes(flash.used) + ' 已用';
+    $('libStats').innerHTML = '<span><b>' + (flash.files || 0) + '</b> 段</span>' +
+      '<span><b>' + formatBytes(flash.used) + '</b> 已用</span>' +
+      '<span><b>' + formatBytes(flash.free) + '</b> 剩余</span>';
+    $('audioSub').textContent = '外置 ' + (flash.type || 'Flash') + ' 实读目录 · ' +
+      (flash.writing ? '正在写入' : '空闲');
+
+    $('diagState').textContent = STATE_LABEL[state] || state;
+    $('diagUptime').textContent = formatUptime(s.uptime_s);
+    $('diagAp').textContent = (wifi.ap_ssid || '—') + ' · 192.168.4.1:8080';
+    $('diagIp').textContent = wifi.ip || '—';
+    $('diagWrite').textContent = flash.writing ? '写入中' : '空闲';
+    var hub = s.hub || {};
+    $('diagHub').textContent = (hub.status || '—') + (hub.job_running ? ' · 运行中' : '');
+
+    renderHub(hub);
+    renderAudio();
+    $('chatBtn').disabled = !!s.maintenance;
+    $('stateText').textContent = s.maintenance ? '音频维护中' : (STATE_LABEL[state] || state);
+    renderDeveloper();
+  }
+
+  function renderAudio() {
+    var rows = $('audioRows');
+    var filtered = audioFiles.filter(function (f) {
+      if (filter !== 'all' && f.category !== filter) return false;
+      if (query && f.name.toLowerCase().indexOf(query.toLowerCase()) < 0) return false;
+      return true;
+    });
+    if (!filtered.length) {
+      rows.innerHTML = '<div class="empty">' + (audioFiles.length ? '没有匹配的音频' : '目录为空') + '</div>';
+      return;
+    }
+    var playing = statusData && statusData.audio ? statusData.audio : {};
+    rows.innerHTML = filtered.map(function (f) {
+      var isPlaying = playing.playing && (Number.isInteger(playing.index)
+        ? playing.index === f.index : playing.current === f.name);
+      var pct = isPlaying && playing.duration_ms
+        ? Math.min(100, (playing.elapsed_ms / playing.duration_ms) * 100) : 0;
+      return '<div class="row' + (isPlaying ? ' playing' : '') + '">' +
+        '<button class="play" data-play="' + escapeAttr(f.name) + '" data-index="' + f.index + '" aria-label="试听 ' + escapeAttr(f.name) + '">' +
+        (isPlaying ? '■' : '▶') + '</button>' +
+        '<div class="row-main"><div class="row-name">' + escapeHtml(f.name) + '</div>' +
+        '<div class="row-meta"><span>' + (f.paired ? '调校配套 · 优先展示' : f.category === 'animal' ? '动物音' : '环境音') + '</span>' +
+        '<span>' + formatMs(f.duration_ms) + '</span><span>' + formatBytes(f.size) + '</span></div>' +
+        '<div class="progress"><i style="width:' + pct + '%"></i></div></div>' +
+        '<span class="tag ' + (f.category === 'ambient' ? 'ambient' : '') + '">' +
+        (f.paired ? '配套' : f.category === 'ambient' ? '环境' : '动物') + '</span></div>';
+    }).join('');
+    rows.querySelectorAll('[data-play]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        togglePlay(button.getAttribute('data-play'), Number(button.getAttribute('data-index')));
+      });
+    });
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+  function escapeAttr(text) { return escapeHtml(text); }
+
+  async function togglePlay(name, index) {
+    var playing = statusData && statusData.audio ? statusData.audio : {};
+    if (playing.playing && (Number.isInteger(index) && Number.isInteger(playing.index)
+      ? playing.index === index : playing.current === name)) {
+      await postJson('/api/audio/stop');
+      toast('已停止试听');
+    } else {
+      try {
+        await postJson('/api/audio/play', Number.isInteger(index) ? { index: index } : { name: name });
+        toast('正在试听 · ' + name);
+      } catch (e) {
+        toast(e.message === 'busy_or_conversation' ? '对话或写入进行中，暂不能试听' : '试听失败：' + e.message);
+        return;
+      }
+    }
+    setTimeout(refreshStatus, 350);
+  }
+
+  function renderHub(hub) {
+    var h = hub || {};
+    var dot = $('hubDot');
+    var stateText = $('hubState');
+    if (h.job_running) {
+      dot.className = 'dot warn';
+      stateText.textContent = '任务进行中';
+    } else if (h.status === 'waiting_activation') {
+      dot.className = 'dot warn';
+      stateText.textContent = '等待绑定';
+    } else if (h.status === 'error') {
+      dot.className = 'dot off';
+      stateText.textContent = '检查失败';
+    } else if (h.has_diff) {
+      dot.className = 'dot ok';
+      stateText.textContent = '已检查 · 未写入';
+    } else if (h.activated) {
+      dot.className = 'dot ok';
+      stateText.textContent = '仅手动 · 已绑定';
+    } else {
+      dot.className = 'dot off';
+      stateText.textContent = h.available === false ? '不可用' : '仅手动 · 未绑定';
+    }
+    var bound = '设备 ID <code>' + escapeHtml(h.device_id || '—') + '</code> · ';
+    if (h.activated) {
+      bound += '已绑定 · 本机目录 <code>' + escapeHtml(h.revision || '尚未同步') + '</code>';
+    } else if (h.activation_code) {
+      bound += '未绑定 · 激活码 <code>' + escapeHtml(h.activation_code) + '</code>（在 Audio Hub 平台输入后再次检查）';
+    } else {
+      bound += '未绑定 · 点击检查生成激活码';
+    }
+    $('hubBound').innerHTML = bound;
+    $('hubCheck').disabled = !!h.job_running || !!(statusData && statusData.maintenance);
+    $('hubCheck').textContent = h.job_running ? '任务进行中…' : '连接并检查';
+
+    var job = $('hubJob');
+    $('hubBar').classList.toggle('working', !!h.job_running);
+    if (h.job_running || (h.job_message && h.job_message !== '—' && !h.has_diff)) {
+      job.classList.add('on');
+      $('hubMessage').textContent = h.job_message || '正在执行…';
+      $('hubBar').style.width = h.job_running ? '35%' : '100%';
+      $('hubBar').style.background = h.job_ok || h.job_running ? 'var(--accent)' : 'var(--danger)';
+    } else if (h.job_message) {
+      job.classList.add('on');
+      $('hubMessage').textContent = h.job_message;
+      $('hubBar').style.width = h.job_ok ? '100%' : '100%';
+      $('hubBar').style.background = h.job_ok ? 'var(--accent)' : 'var(--danger)';
+    } else {
+      job.classList.remove('on');
+    }
+    renderDiff();
+  }
+
+  function renderDiff() {
+    var ready = diffData && diffData.ready && diffData.items;
+    var chips = $('hubChips');
+    var list = $('hubDiff');
+    var actions = $('hubUpdateActions');
+    if (!ready) {
+      chips.hidden = true;
+      list.hidden = true;
+      actions.hidden = true;
+      return;
+    }
+    var counts = { new: 0, changed: 0, same: 0, local: 0 };
+    diffData.items.forEach(function (item) { if (counts[item.state] !== undefined) counts[item.state]++; });
+    chips.innerHTML = '<span class="chip new"><b>' + counts.new + '</b> 新增</span>' +
+      '<span class="chip changed"><b>' + counts.changed + '</b> 变化</span>' +
+      '<span class="chip"><b>' + counts.same + '</b> 相同</span>' +
+      '<span class="chip"><b>' + counts.local + '</b> 本地独有</span>' +
+      '<span class="chip"><b>' + escapeHtml(diffData.revision || '—') + '</b> 远端版本</span>';
+    chips.hidden = false;
+    var label = { new: '新增', changed: '变化', same: '相同', local: '本地独有' };
+    list.innerHTML = diffData.items.map(function (item, index) {
+      var selectable = item.state === 'new' || item.state === 'changed';
+      var busy = !!(statusData && (statusData.maintenance || (statusData.hub && statusData.hub.job_running)));
+      return '<div class="diff-row">' +
+        '<input type="checkbox" data-diff="' + index + '"' + (selectable && !busy ? '' : ' disabled') +
+        (selectable && selected.has(item.name) ? ' checked' : '') + ' aria-label="选择 ' + escapeAttr(item.name) + '">' +
+        '<div class="diff-name"><b>' + escapeHtml(item.name) + '</b><span>本机 ' +
+        (item.local ? formatBytes(item.local) : '—') + ' · 远端 ' +
+        (item.remote ? formatBytes(item.remote) : '—') + '</span></div>' +
+        '<span class="badge ' + item.state + '">' + label[item.state] + '</span></div>';
+    }).join('');
+    list.hidden = false;
+    actions.hidden = false;
+    list.querySelectorAll('[data-diff]').forEach(function (box) {
+      box.addEventListener('change', function () {
+        var item = diffData.items[Number(box.getAttribute('data-diff'))];
+        if (!item) return;
+        if (box.checked) selected.add(item.name); else selected.delete(item.name);
+        updateSelectionLabel();
+      });
+    });
+    updateSelectionLabel();
+  }
+
+  function updateSelectionLabel() {
+    var button = $('hubUpdate');
+    button.textContent = selected.size ? '更新所选 (' + selected.size + ')' : '更新所选';
+    button.disabled = selected.size === 0 || !!(statusData && (statusData.maintenance || (statusData.hub && statusData.hub.job_running)));
+  }
+
+  async function loadDiff() {
+    try {
+      diffData = await getJson('/api/hub/diff');
+      if (diffData.ready && diffData.items) {
+        selected.clear();
+        diffData.items.forEach(function (item) {
+          if (item.state === 'new' || item.state === 'changed') selected.add(item.name);
+        });
+      }
+      renderDiff();
+    } catch (e) { /* keep the previous view */ }
+  }
+
+  async function checkHub() {
+    $('hubCheck').disabled = true;
+    try {
+      await postJson('/api/hub/check');
+      $('hubState').textContent = '检查中';
+      $('hubDot').className = 'dot warn';
+      $('hubJob').classList.add('on');
+      $('hubMessage').textContent = '正在连接 Audio Hub…';
+      $('hubBar').classList.add('working');
+      startHubPoll("check");
+    } catch (e) {
+      $('hubCheck').disabled = false;
+      toast(e.message === 'job_running_or_unavailable' ? '任务已在运行' : '检查失败：' + e.message);
+    }
+  }
+
+  function startHubPoll(kind) {
+    hubOperation = kind;
+    if (hubPoll) clearInterval(hubPoll);
+    hubPoll = setInterval(async function () {
+      try {
+        var hub = await getJson('/api/hub/status');
+        if (hub.job_running) {
+          $('hubMessage').textContent = hub.job_message || '正在执行…';
+          $('hubBar').classList.add('working');
+          return;
+        }
+        clearInterval(hubPoll);
+        hubPoll = null;
+        $('hubBar').classList.remove('working');
+        await refreshStatus();
+        await loadDiff();
+        await refreshAudio();
+        if (hub.status === 'waiting_activation') {
+          toast('等待平台绑定，激活码：' + (hub.activation_code || '—'));
+        } else if (!hub.job_ok || hub.status === 'error') {
+          toast((hubOperation === 'update' ? '更新失败：' : '检查失败：') + (hub.job_message || '未知错误'));
+        } else {
+          toast(hubOperation === 'update' ? '所选音频更新完成' : '检查完成，未写入 Flash');
+        }
+      } catch (e) {
+        clearInterval(hubPoll);
+        hubPoll = null;
+        toast('无法读取 Hub 状态');
+      }
+    }, 900);
+  }
+
+  async function updateHub() {
+    if (!selected.size) return;
+    $('hubUpdate').disabled = true;
+    try {
+      await postJson('/api/hub/update', { names: Array.from(selected) });
+      $('hubState').textContent = '更新中';
+      $('hubDot').className = 'dot warn';
+      $('hubJob').classList.add('on');
+      $('hubMessage').textContent = '正在写入所选文件…';
+      $('hubBar').classList.add('working');
+      startHubPoll("update");
+      setTimeout(refreshAudio, 1200);
+    } catch (e) {
+      $('hubUpdate').disabled = false;
+      toast(e.message === 'job_running_or_unavailable' ? '任务已在运行' : '更新失败：' + e.message);
+    }
+  }
+
+  async function refreshStatus() {
+    try {
+      statusData = await getJson('/api/status');
+      renderStatus();
+      if (developerToken) await refreshDeveloper();
+    } catch (e) {
+      setNet('设备连接中断，正在重试…', 'off');
+      $('batteryVoltage').textContent = '— V';
+      $('batteryVoltage').title = '设备连接中断';
+      $('batterySampling').textContent = '连接中断';
+      $('touchState').textContent = '连接中断';
+      $('touchDot').className = 'dot warn';
+      $('touchVoltage').textContent = '输入电压 — mV';
+      $('touchCode').textContent = '稳定编码 —';
+      for (var channel = 1; channel <= 4; channel++) {
+        var tile = $('touchSW' + channel);
+        tile.className = 'touch-channel unknown';
+        tile.querySelector('span').textContent = '—';
+      }
+    }
+  }
+
+  async function refreshAudio() {
+    try {
+      var data = await getJson('/api/audio');
+      audioFiles = (data.paired || []).concat(data.files || []);
+      renderAudio();
+    } catch (e) {
+      $('audioRows').innerHTML = '<div class="empty">读取目录失败</div>';
+    }
+  }
+
+  $('chatBtn').addEventListener('click', async function () {
+    try {
+      await postJson('/api/chat/toggle');
+      toast(statusData && statusData.state !== 'idle' ? '正在退出对话…' : '正在进入对话…');
+      setTimeout(refreshStatus, 600);
+    } catch (e) { toast('操作失败：' + e.message); }
+  });
+  $('audioRefresh').addEventListener('click', async function () { await refreshAudio(); toast('目录已刷新'); });
+  $('audioStop').addEventListener('click', async function () {
+    try { await postJson('/api/audio/stop'); toast('已停止试听'); setTimeout(refreshStatus, 300); }
+    catch (e) { toast('停止失败'); }
+  });
+  $('hubCheck').addEventListener('click', checkHub);
+  $('hubRefresh').addEventListener('click', async function () {
+    await refreshStatus();
+    await loadDiff();
+    toast('状态已刷新（未访问 Hub）');
+  });
+  $('hubUpdate').addEventListener('click', updateHub);
+  $('hubClear').addEventListener('click', function () {
+    selected.clear();
+    renderDiff();
+  });
+  $('search').addEventListener('input', function (event) {
+    query = event.target.value.trim();
+    renderAudio();
+  });
+  document.querySelectorAll('.filter').forEach(function (button) {
+    button.addEventListener('click', function () {
+      filter = button.getAttribute('data-filter');
+      document.querySelectorAll('.filter').forEach(function (other) {
+        other.setAttribute('aria-pressed', String(other === button));
+      });
+      renderAudio();
+    });
+  });
+
+
+  function lockDeveloper() {
+    developerToken = '';
+    developerData = null;
+    volumeDirty = false;
+    $('developerPanel').hidden = true;
+    $('developerApi').hidden = true;
+    $('developerOpen').textContent = '开发者模式';
+    if ($('eraseDialog').open) $('eraseDialog').close();
+  }
+
+  function developerRequest(path, payload) {
+    return getJson('/api/developer/' + path, {
+      method: payload === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Developer-Token': developerToken },
+      body: payload === undefined ? undefined : JSON.stringify(payload)
+    });
+  }
+
+  var eraseWasRunning = false;
+  function renderDeveloper() {
+    if (!developerToken || !developerData) return;
+    var d = developerData, audio = d.audio || {};
+    var running = !!(d.erase && d.erase.running);
+    if (!volumeDirty && document.activeElement !== $('devVolume') && audio.volume !== undefined) {
+      $('devVolume').value = audio.volume;
+      $('devVolumeValue').textContent = audio.volume + '%';
+    }
+    var level = Math.max(0, Math.min(1, Number(audio.level) || 0));
+    $('devLevel').style.width = (level * 100) + '%';
+    $('devVoice').textContent = level > .01 ? '跟随真实音频 · 重音与停顿驱动动作' : '安静等待 · 默认姿态归中';
+    $('devMemory').textContent = '可用内存 ' + formatBytes(d.heap_free) + ' · 内部内存 ' + formatBytes(d.heap_internal) + ' · 构建 ' + (d.compiled_time || '—');
+    $('devPlayback').textContent = '播放缓冲 ' + (audio.buffered_ms || 0) + ' ms · 待解码 ' +
+      (audio.decode_packets || 0) + ' 包 · PCM ' + (audio.pcm_frames || 0) + ' 帧 · 补帧等待 ' +
+      (audio.rebuffer_count || 0) + ' 次 · 解码队列满 ' + (audio.queue_full_count || 0) + ' 次';
+    $('devJob').textContent = (running ? '维护进行中 · ' : '') + ((d.erase && d.erase.message) || '尚未执行擦除');
+    var busy = running || d.state !== 'idle' || !!(d.flash && d.flash.writing);
+    var hubBusy = !!(d.hub && d.hub.job_running);
+    $('devErase').disabled = busy || hubBusy || !(d.flash && d.flash.capacity);
+    $('devDemo').disabled = busy || hubBusy || !!audio.playing || !audioFiles.length || !!d.servo_faults;
+    $('devCenter').disabled = busy || !!d.servo_faults;
+    $('devVolumeSave').disabled = running;
+    $('devVolume').disabled = running;
+    if (eraseWasRunning && !running) {
+      refreshAudio();
+      loadDiff();
+      toast(d.erase.ok ? '音频 Flash 已清空，等待重新导入' : '擦除未完成：' + d.erase.message);
+    }
+    eraseWasRunning = running;
+  }
+
+  async function refreshDeveloper() {
+    if (!developerToken) return;
+    try {
+      developerData = await developerRequest('status');
+      renderDeveloper();
+    } catch (e) {
+      if (e.message === 'developer_locked') toast('开发者会话已过期，请重新输入密码');
+    }
+  }
+
+  $('developerOpen').addEventListener('click', function () {
+    if (developerToken) {
+      $('developerPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    $('developerError').textContent = '';
+    $('developerPassword').value = '';
+    $('developerDialog').showModal();
+    $('developerPassword').focus();
+  });
+  $('developerCancel').addEventListener('click', function () { $('developerDialog').close(); });
+  $('developerLoginForm').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    $('developerLogin').disabled = true;
+    try {
+      var result = await postJson('/api/developer/login', { password: $('developerPassword').value });
+      developerToken = result.token;
+      $('developerPassword').value = '';
+      $('developerDialog').close();
+      $('developerPanel').hidden = false;
+      $('developerApi').hidden = false;
+      $('developerOpen').textContent = '开发工作台';
+      await refreshDeveloper();
+      $('developerPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      toast('已进入开发者模式，有效期 30 分钟');
+    } catch (e) {
+      $('developerError').textContent = e.message === 'invalid_password' ? '密码不正确，请重试。' : '暂时无法进入：' + e.message;
+      $('developerPassword').value = '';
+      $('developerPassword').focus();
+    } finally { $('developerLogin').disabled = false; }
+  });
+  $('developerClose').addEventListener('click', async function () {
+    try { await developerRequest('logout', {}); } catch (e) { /* local lock still applies */ }
+    lockDeveloper();
+    toast('已退出开发者模式；已开始的维护任务继续执行');
+  });
+  $('devVolume').addEventListener('input', function () {
+    volumeDirty = true;
+    $('devVolumeValue').textContent = $('devVolume').value + '%';
+  });
+  $('devVolumeSave').addEventListener('click', async function () {
+    try {
+      await developerRequest('volume', { volume: Number($('devVolume').value) });
+      volumeDirty = false;
+      toast('音量调整已提交');
+      setTimeout(refreshDeveloper, 300);
+    } catch (e) { toast('音量调整失败：' + e.message); }
+  });
+  $('devCenter').addEventListener('click', async function () {
+    try { await developerRequest('center', {}); toast('已提交停止与归中请求'); }
+    catch (e) { toast('设备正忙，暂时无法归中'); }
+  });
+  $('devDemo').addEventListener('click', async function () {
+    try { await developerRequest('demo', {}); toast('已提交音画展示请求'); setTimeout(refreshStatus, 400); }
+    catch (e) { toast('暂时无法展示：' + e.message); }
+  });
+  $('devExport').addEventListener('click', async function () {
+    try {
+      var result = await Promise.all([developerRequest('status'), getJson('/api/audio')]);
+      var blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), device: result[0], library: result[1] }, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob), link = document.createElement('a');
+      link.href = url;
+      link.download = (result[0].build || 'pet') + '-diagnostics.json';
+      link.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      toast('诊断和音频目录已导出');
+    } catch (e) { toast('导出失败：' + e.message); }
+  });
+  $('devErase').addEventListener('click', function () {
+    $('eraseConfirm').value = '';
+    $('eraseSubmit').disabled = true;
+    $('eraseError').textContent = '';
+    $('eraseDetail').textContent = '将清空当前 ' + ((statusData && statusData.flash && statusData.flash.files) || 0) + ' 段外置 Flash 音效及其数据。预置调校配套保留。此操作无法撤销。';
+    $('eraseDialog').showModal();
+    $('eraseConfirm').focus();
+  });
+  $('eraseConfirm').addEventListener('input', function () { $('eraseSubmit').disabled = $('eraseConfirm').value !== 'ERASE'; });
+  $('eraseCancel').addEventListener('click', function () { $('eraseDialog').close(); });
+  $('eraseForm').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if ($('eraseConfirm').value !== 'ERASE') return;
+    $('eraseSubmit').disabled = true;
+    try {
+      await developerRequest('flash/erase', { confirm: $('eraseConfirm').value });
+      $('eraseDialog').close();
+      eraseWasRunning = true;
+      toast('擦除请求已接受，请保持设备供电');
+      await refreshStatus();
+    } catch (e) {
+      $('eraseError').textContent = '未开始擦除：' + e.message;
+      $('eraseSubmit').disabled = false;
+    }
+  });
+
+  async function boot() {
+    await refreshStatus();
+    await refreshAudio();
+    await loadDiff();
+    statusPoll = setInterval(refreshStatus, 2000);
+  }
+  boot();
+})();
+</script>
+</body>
+</html>

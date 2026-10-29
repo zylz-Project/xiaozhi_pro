@@ -3,14 +3,14 @@
  */
 
 #include "wifi_manager.h"
-#include "wifi_station.h"
 #include "wifi_configuration_ap.h"
+#include "wifi_station.h"
 
-#include <esp_log.h>
-#include <esp_wifi.h>
-#include <esp_netif.h>
 #include <esp_event.h>
+#include <esp_log.h>
 #include <esp_mac.h>
+#include <esp_netif.h>
+#include <esp_wifi.h>
 #include <nvs_flash.h>
 
 #define TAG "WifiManager"
@@ -49,7 +49,7 @@ void WifiManager::NotifyEvent(WifiEvent event, const std::string& data) {
 
 bool WifiManager::Initialize(const WifiManagerConfig& config) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (initialized_) {
         ESP_LOGW(TAG, "Already initialized");
         return true;
@@ -140,18 +140,13 @@ void WifiManager::StartStation() {
     station_->SetHostname(config_.station_hostname);
 
     // Setup callbacks
-    station_->OnScanBegin([this]() {
-        NotifyEvent(WifiEvent::Scanning);
-    });
-    station_->OnConnect([this](const std::string& ssid) {
-        NotifyEvent(WifiEvent::Connecting, ssid);
-    });
-    station_->OnConnected([this](const std::string& ssid) {
-        NotifyEvent(WifiEvent::Connected, ssid);
-    });
-    station_->OnDisconnected([this](int reason) {
-        NotifyEvent(WifiEvent::Disconnected, std::to_string(reason));
-    });
+    station_->OnScanBegin([this]() { NotifyEvent(WifiEvent::Scanning); });
+    station_->OnConnect(
+        [this](const std::string& ssid) { NotifyEvent(WifiEvent::Connecting, ssid); });
+    station_->OnConnected(
+        [this](const std::string& ssid) { NotifyEvent(WifiEvent::Connected, ssid); });
+    station_->OnDisconnected(
+        [this](int reason) { NotifyEvent(WifiEvent::Disconnected, std::to_string(reason)); });
 
     station_->Start();
     station_active_ = true;
@@ -181,25 +176,29 @@ bool WifiManager::IsConnected() const {
 
 std::string WifiManager::GetSsid() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!station_active_ || !station_) return "";
+    if (!station_active_ || !station_)
+        return "";
     return station_->GetSsid();
 }
 
 std::string WifiManager::GetIpAddress() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!station_active_ || !station_) return "";
+    if (!station_active_ || !station_)
+        return "";
     return station_->GetIpAddress();
 }
 
 int WifiManager::GetRssi() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!station_active_ || !station_ || !station_->IsConnected()) return 0;
+    if (!station_active_ || !station_ || !station_->IsConnected())
+        return 0;
     return station_->GetRssi();
 }
 
 int WifiManager::GetChannel() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!station_active_ || !station_ || !station_->IsConnected()) return 0;
+    if (!station_active_ || !station_ || !station_->IsConnected())
+        return 0;
     return station_->GetChannel();
 }
 
@@ -212,8 +211,8 @@ std::string WifiManager::GetMacAddress() const {
     uint8_t mac[6];
     if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
         char buf[18];
-        snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X",
-                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3],
+                 mac[4], mac[5]);
         mac_address_ = buf;
     }
     return mac_address_;
@@ -242,6 +241,15 @@ void WifiManager::StartConfigAp() {
         NotifyEvent(WifiEvent::Disconnected);
         lock.lock();
     }
+
+    // Release the manager lock while the board tears down its console AP:
+    // httpd_stop waits for in-flight handlers, and a status handler may query
+    // WifiManager (which would otherwise deadlock on this mutex).
+    lock.unlock();
+    if (before_config_ap_) {
+        before_config_ap_();
+    }
+    lock.lock();
 
     ESP_LOGI(TAG, "Starting config AP");
 
@@ -287,13 +295,15 @@ bool WifiManager::IsConfigMode() const {
 
 std::string WifiManager::GetApSsid() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!config_mode_active_ || !config_ap_) return "";
+    if (!config_mode_active_ || !config_ap_)
+        return "";
     return config_ap_->GetSsid();
 }
 
 std::string WifiManager::GetApWebUrl() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!config_mode_active_ || !config_ap_) return "";
+    if (!config_mode_active_ || !config_ap_)
+        return "";
     return config_ap_->GetWebServerUrl();
 }
 
@@ -312,4 +322,9 @@ void WifiManager::SetPowerSaveLevel(WifiPowerSaveLevel level) {
 void WifiManager::SetEventCallback(std::function<void(WifiEvent, const std::string&)> callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     event_callback_ = std::move(callback);
+}
+
+void WifiManager::SetBeforeConfigApHook(std::function<void()> hook) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    before_config_ap_ = std::move(hook);
 }

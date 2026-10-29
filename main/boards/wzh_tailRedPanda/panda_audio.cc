@@ -17,8 +17,7 @@ bool Contains(const char* text, const char* token) {
 
 bool PandaAudio::Initialize() {
     if (!store_.Init()) {
-        ESP_LOGW(TAG, "外部音频 Flash 不可用，离线声音停用（动作不受影响）");
-        return false;
+        ESP_LOGW(TAG, "外部音频 Flash 暂不可用；预置调校音画配套仍可使用");
     }
     if (!wzh::AudioPlayer::Start(&store_)) {
         return false;
@@ -49,7 +48,7 @@ int PandaAudio::SelectFile(PandaAction action) const {
     int matches = 0;
     for (size_t i = 0; i < snapshot.size(); ++i) {
         const auto& file = snapshot[i];
-        if (std::strcmp(file.category, "ambient") == 0) {
+        if (std::strcmp(file.category, "ambient") == 0 && action != PandaAction::kListen) {
             continue;
         }
         bool match = false;
@@ -64,11 +63,10 @@ int PandaAudio::SelectFile(PandaAction action) const {
                 break;
             case PandaAction::kSleepy:
                 match = Contains(file.name, "入睡") || Contains(file.name, "sleep") ||
-                        Contains(file.name, "撒娇");
+                        Contains(file.name, "困") || Contains(file.name, "睡觉");
                 break;
             case PandaAction::kStartled:
-                match = Contains(file.name, "叫声") || Contains(file.name, "call") ||
-                        Contains(file.name, "roar");
+                match = Contains(file.name, "喷嚏") || Contains(file.name, "startle");
                 break;
             case PandaAction::kHappy:
                 match = Contains(file.name, "嘤嘤") || Contains(file.name, "宝宝") ||
@@ -96,8 +94,7 @@ int PandaAudio::SelectFile(PandaAction action) const {
     }
     // 没有动作专属声音时，从非 ambient 文件中随机回退一个，保证兼容旧音频包。
     for (size_t i = 0; i < snapshot.size(); ++i) {
-        if (std::strcmp(snapshot[i].category, "ambient") != 0 &&
-            (esp_random() % ++matches) == 0) {
+        if (std::strcmp(snapshot[i].category, "ambient") != 0 && (esp_random() % ++matches) == 0) {
             selected = static_cast<int>(i);
         }
     }

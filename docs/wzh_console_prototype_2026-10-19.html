@@ -1,0 +1,926 @@
+<title>ZYLZ 设备台</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Design plan: warm paper + deep bamboo-ink; product accent switches per toy.
+     Type: serif display for product identity, system sans for UI, mono for data.
+     Layout: fleet rail → status hero → audio library + manual Hub update. */
+  :root {
+    --bg: #f4f2ea;
+    --surface: #fdfbf5;
+    --surface-2: #eae7dc;
+    --fg: #1d2a23;
+    --muted: #68766d;
+    --line: #d6d2c4;
+    --line-strong: #b9b5a7;
+    --accent: #2f6b4f;
+    --accent-strong: #1e4c37;
+    --accent-soft: #deede3;
+    --ok: #2f7a52;
+    --warn: #a26a20;
+    --danger: #a33a32;
+    --info: #3c667f;
+    --shadow: 0 1px 2px rgb(29 42 35 / 0.05), 0 8px 24px rgb(29 42 35 / 0.05);
+    --radius: 14px;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    --display: "Noto Serif CJK SC", "Songti SC", "STSong", Georgia, serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111814;
+      --surface: #18221b;
+      --surface-2: #202c24;
+      --fg: #e7eee8;
+      --muted: #9aa89f;
+      --line: #2f3c34;
+      --line-strong: #435247;
+      --accent: #82c9a1;
+      --accent-strong: #a8dcbd;
+      --accent-soft: #1e3528;
+      --ok: #82c9a1;
+      --warn: #e0ad60;
+      --danger: #e08479;
+      --info: #82b3cf;
+      --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111814;
+    --surface: #18221b;
+    --surface-2: #202c24;
+    --fg: #e7eee8;
+    --muted: #9aa89f;
+    --line: #2f3c34;
+    --line-strong: #435247;
+    --accent: #82c9a1;
+    --accent-strong: #a8dcbd;
+    --accent-soft: #1e3528;
+    --ok: #82c9a1;
+    --warn: #e0ad60;
+    --danger: #e08479;
+    --info: #82b3cf;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 40px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .shell { max-width: 1180px; margin: 0 auto; }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap; padding-block: 22px 18px;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand-mark { font-family: var(--mono); font-size: 13px; letter-spacing: 0.18em; color: var(--accent); font-weight: 700; }
+  .brand-name { font-family: var(--display); font-size: 25px; letter-spacing: 0.03em; font-weight: 600; }
+  .proto-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--muted);
+    border: 1px dashed var(--line-strong); border-radius: 999px; padding: 4px 11px;
+  }
+  .proto-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+
+  /* ---------- fleet rail ---------- */
+  .fleet { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .fleet-btn {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 9px 14px 9px 10px; min-width: 0;
+    transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+  }
+  .fleet-btn:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+  .fleet-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .monogram {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    color: #fff; font-size: 14px; font-weight: 700; background: var(--chip, var(--accent));
+    flex: none;
+  }
+  .fleet-txt { display: flex; flex-direction: column; line-height: 1.2; text-align: left; }
+  .fleet-txt b { font-size: 14px; font-weight: 600; }
+  .fleet-txt span { font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.02em; }
+
+  /* ---------- status hero ---------- */
+  .hero {
+    display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+    gap: 18px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+  }
+  .hero-main { padding: 26px 28px 24px; min-width: 0; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+  .product-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 4px; }
+  .product-name { font-family: var(--display); font-size: clamp(28px, 4vw, 38px); font-weight: 600; letter-spacing: 0.02em; line-height: 1.1; margin: 0; }
+  .state-pill {
+    display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px;
+    border-radius: 999px; font-size: 12.5px; font-weight: 600;
+    background: var(--accent-soft); color: var(--accent-strong); border: 1px solid transparent;
+  }
+  .state-pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .state-pill.busy { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+  .state-pill.off { background: var(--surface-2); color: var(--muted); }
+  .product-sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  .product-sub code { font-family: var(--mono); font-size: 12px; }
+  .hint {
+    display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--muted);
+    border-top: 1px solid var(--line); padding-top: 15px; margin-top: 20px; flex-wrap: wrap;
+  }
+  .keycap {
+    font-family: var(--mono); font-size: 11px; border: 1px solid var(--line-strong);
+    border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; color: var(--fg);
+    background: var(--surface);
+  }
+  .state-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+  .strip-cell {
+    background: var(--surface-2); border-radius: 10px; padding: 10px 11px; min-width: 0;
+  }
+  .strip-cell .k { font-size: 11px; color: var(--muted); display: block; margin-bottom: 3px; }
+  .strip-cell .v { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.off { background: var(--line-strong); }
+
+  .metrics {
+    border-left: 1px solid var(--line); background:
+      linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%);
+    padding: 24px 24px 20px; display: flex; flex-direction: column; gap: 16px; min-width: 0;
+  }
+  .battery-row { display: flex; align-items: center; gap: 16px; }
+  .battery-ring { position: relative; width: 92px; height: 92px; flex: none; }
+  .battery-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .battery-ring .track { fill: none; stroke: var(--line); stroke-width: 7; }
+  .battery-ring .fill { fill: none; stroke: var(--accent); stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset 500ms ease; }
+  .battery-ring .pct {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-family: var(--mono); font-size: 21px; font-weight: 700;
+  }
+  .battery-ring .pct small { font-size: 10px; font-weight: 500; color: var(--muted); margin-left: 1px; }
+  .battery-copy { min-width: 0; }
+  .battery-copy .big { font-size: 15px; font-weight: 600; }
+  .battery-copy .small { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .metric { min-width: 0; }
+  .metric .k { font-size: 11px; color: var(--muted); display: block; }
+  .metric .v { font-family: var(--mono); font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+  .metric .v small { font-family: var(--sans); font-weight: 400; color: var(--muted); font-size: 11px; }
+
+  /* ---------- columns ---------- */
+  .columns { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr); gap: 18px; margin-top: 18px; align-items: start; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); min-width: 0;
+  }
+  .card-head { padding: 18px 20px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .card-title { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: 0.01em; }
+  .card-sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+  .card-body { padding: 16px 20px 20px; }
+
+  /* ---------- audio library ---------- */
+  .lib-stats { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .lib-stats b { color: var(--fg); font-weight: 600; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .filter {
+    border: 1px solid var(--line); background: transparent; border-radius: 999px;
+    padding: 5px 12px; font-size: 12.5px; color: var(--muted);
+  }
+  .filter[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .search {
+    flex: 1 1 160px; min-width: 0; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface); padding: 6px 13px; font-size: 13px;
+  }
+  .search::placeholder { color: var(--muted); }
+  .audio-list { display: flex; flex-direction: column; gap: 2px; }
+  .audio-row {
+    display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px;
+    align-items: center; padding: 9px 8px; border-radius: 9px; min-width: 0;
+  }
+  .audio-row:hover { background: var(--surface-2); }
+  .audio-row.playing { background: var(--accent-soft); }
+  .play-btn {
+    width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-strong);
+    background: var(--surface); display: grid; place-items: center; font-size: 12px;
+    color: var(--accent-strong); flex: none;
+  }
+  .play-btn:hover { border-color: var(--accent); }
+  .audio-main { min-width: 0; }
+  .audio-name { font-size: 13.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .audio-meta { font-family: var(--mono); font-size: 10.5px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag {
+    font-size: 10.5px; border-radius: 5px; padding: 1px 6px; background: var(--surface-2);
+    color: var(--muted); white-space: nowrap;
+  }
+  .tag.manual { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  .wave {
+    display: none; height: 18px; align-items: flex-end; gap: 2px; margin-top: 5px;
+  }
+  .audio-row.playing .wave { display: flex; }
+  .wave span {
+    width: 3px; border-radius: 1px; background: var(--accent); height: calc(var(--h) * 1%);
+    transform-origin: bottom; animation: pulse 900ms ease-in-out infinite alternate;
+    animation-delay: calc(var(--i) * 45ms);
+  }
+  @keyframes pulse { from { transform: scaleY(0.45); opacity: 0.55; } to { transform: scaleY(1); opacity: 1; } }
+  .row-progress { height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 4px; display: none; }
+  .audio-row.playing .row-progress { display: block; }
+  .row-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 250ms linear; }
+  .empty { color: var(--muted); font-size: 13px; padding: 18px 8px; text-align: center; }
+  .lib-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+  .lib-foot .note { font-size: 11.5px; color: var(--muted); max-width: 46ch; }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    border: 1px solid var(--line-strong); background: var(--surface); border-radius: 9px;
+    padding: 7px 13px; font-size: 13px; font-weight: 550; display: inline-flex; align-items: center; gap: 7px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--accent-strong); padding-inline: 8px; }
+  .btn.ghost:hover { background: var(--accent-soft); }
+
+  /* ---------- hub ---------- */
+  .hub-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+  .hub-status b { color: var(--fg); }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; }
+  .field label { font-size: 11.5px; color: var(--muted); }
+  .field input {
+    width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); padding: 7px 10px; font-family: var(--mono); font-size: 12px;
+  }
+  .hub-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .diff-summary { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; }
+  .chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted);
+  }
+  .chip b { color: var(--fg); }
+  .chip.new b { color: var(--accent-strong); }
+  .chip.changed b { color: var(--warn); }
+  .diff-list { margin-top: 10px; border-top: 1px solid var(--line); }
+  .diff-row {
+    display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 9px;
+    align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line); min-width: 0;
+  }
+  .diff-row:last-child { border-bottom: 0; }
+  .diff-row input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+  .diff-name { min-width: 0; }
+  .diff-name b { display: block; font-size: 12.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .diff-name span { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .badge { font-size: 10px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; font-weight: 600; }
+  .badge.new { color: var(--accent-strong); background: var(--accent-soft); }
+  .badge.changed { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); }
+  .badge.same { color: var(--muted); background: var(--surface-2); }
+  .badge.local { color: var(--info); background: color-mix(in srgb, var(--info) 13%, transparent); }
+  .hub-progress { margin-top: 12px; display: none; }
+  .hub-progress.on { display: block; }
+  .bar { height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 300ms ease; }
+  .hub-progress p { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin: 6px 0 0; min-height: 1.4em; }
+  .bound-note {
+    font-size: 11.5px; color: var(--muted); background: var(--surface-2); border-radius: 8px;
+    padding: 8px 10px; margin-top: 12px;
+  }
+  .bound-note code { font-family: var(--mono); color: var(--fg); }
+
+  /* ---------- api ---------- */
+  .api { margin-top: 18px; }
+  .api-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 18px; }
+  .api-grid > * { min-width: 0; }
+  .endpoint > div { min-width: 0; }
+  .endpoint { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; align-items: baseline; }
+  .endpoint:last-child { border-bottom: 0; }
+  .method { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
+  .method.get { color: var(--info); }
+  .method.post { color: var(--accent-strong); }
+  .endpoint code { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+  .endpoint span { color: var(--muted); font-size: 11.5px; display: block; }
+  .codeblock {
+    position: relative; background: var(--surface-2); border-radius: 10px; padding: 13px 14px;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.7; overflow-x: auto; white-space: pre;
+    border: 1px solid var(--line); min-width: 0; max-width: 100%;
+  }
+  .codeblock .copy { position: absolute; top: 7px; right: 7px; font-size: 10.5px; padding: 3px 8px; }
+  .api-note { font-size: 11.5px; color: var(--muted); margin-top: 9px; }
+  kbd { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+
+  /* ---------- diagnostics ---------- */
+  .diag { margin-top: 18px; }
+  .diag summary {
+    list-style: none; cursor: pointer; padding: 15px 20px; font-size: 13.5px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .diag summary::-webkit-details-marker { display: none; }
+  .diag summary::before { content: "+"; font-family: var(--mono); color: var(--accent); font-weight: 700; }
+  .diag[open] summary::before { content: "−"; }
+  .diag-body { padding: 0 20px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .kv { border-top: 1px solid var(--line); padding-top: 8px; min-width: 0; }
+  .kv .k { font-size: 10.5px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .kv .v { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+
+  .foot { margin-top: 22px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+  .foot code { font-family: var(--mono); }
+
+  /* ---------- toast ---------- */
+  .toast {
+    position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
+    background: var(--fg); color: var(--bg); border-radius: 9px; padding: 8px 14px;
+    font-size: 12.5px; box-shadow: var(--shadow); transition: opacity 180ms ease, transform 180ms ease;
+    max-width: calc(100vw - 32px); z-index: 20;
+  }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  }
+
+  @media (max-width: 880px) {
+    .hero { grid-template-columns: 1fr; }
+    .metrics { border-left: 0; border-top: 1px solid var(--line); }
+    .columns { grid-template-columns: 1fr; }
+    .api-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 520px) {
+    .state-strip { grid-template-columns: 1fr 1fr; }
+    .hero-main { padding: 20px 18px; }
+    .metrics { padding: 18px; }
+    .card-head, .card-body { padding-inline: 15px; }
+    .audio-row { grid-template-columns: 32px minmax(0, 1fr); }
+    .audio-row .tag { grid-column: 2; justify-self: start; }
+    .hint span:last-child { margin-left: 0 !important; flex-basis: 100%; }
+  }
+</style>
+
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">ZYLZ</span>
+      <span class="brand-name">设备台</span>
+    </div>
+    <span class="proto-pill"><i></i>原型 · 示例数据 · 未连接实机</span>
+  </header>
+
+  <nav class="fleet" aria-label="产品切换">
+    <button class="fleet-btn" data-product="panda" aria-pressed="true" style="--chip:#2f6b4f">
+      <span class="monogram">爬</span>
+      <span class="fleet-txt"><b>爬爬熊猫</b><span>wzh-crawlpanda</span></span>
+    </button>
+    <button class="fleet-btn" data-product="redpanda" aria-pressed="false" style="--chip:#a84f3c">
+      <span class="monogram">尾</span>
+      <span class="fleet-txt"><b>摇尾小熊猫</b><span>wzh-tailredpanda</span></span>
+    </button>
+    <button class="fleet-btn" data-product="dino" aria-pressed="false" style="--chip:#b87526">
+      <span class="monogram">恐</span>
+      <span class="fleet-txt"><b>恐龙</b><span>wzh-dinosaur</span></span>
+    </button>
+  </nav>
+
+  <section class="hero" aria-live="polite">
+    <div class="hero-main">
+      <span class="eyebrow">本地管理页 · 同一 Wi-Fi</span>
+      <div class="product-line">
+        <h1 class="product-name" id="productName">爬爬熊猫</h1>
+        <span class="state-pill" id="statePill"><i></i><span id="stateText">待机</span></span>
+      </div>
+      <p class="product-sub"><code id="buildName">wzh-crawlpanda</code> · 固件 <span id="fwVersion">2.4.1</span> · ESP-IDF 6.0.1 · <span id="uptime">已运行 2 小时 18 分</span></p>
+      <div class="state-strip">
+        <div class="strip-cell"><span class="k">小智会话</span><span class="v"><i class="dot ok" id="dotSession"></i><span id="vSession">未建立</span></span></div>
+        <div class="strip-cell"><span class="k">麦克风</span><span class="v"><i class="dot off" id="dotMic"></i><span id="vMic">未开启</span></span></div>
+        <div class="strip-cell"><span class="k">扬声器</span><span class="v"><i class="dot off" id="dotSpk"></i><span id="vSpk">空闲</span></span></div>
+        <div class="strip-cell"><span class="k">舵机</span><span class="v"><i class="dot off" id="dotServo"></i><span id="vServo">已断电</span></span></div>
+      </div>
+      <div class="hint">
+        <span class="keycap">双击</span> 电源键或 BOOT 键进入 / 退出小智对话
+        <span style="margin-left:auto">单击不启动对话</span>
+      </div>
+    </div>
+    <aside class="metrics">
+      <div class="battery-row">
+        <div class="battery-ring">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <circle class="track" cx="50" cy="50" r="43"></circle>
+            <circle class="fill" id="batteryArc" cx="50" cy="50" r="43" stroke-dasharray="270.18" stroke-dashoffset="59.44"></circle>
+          </svg>
+          <div class="pct"><span id="batteryPct">78</span><small>%</small></div>
+        </div>
+        <div class="battery-copy">
+          <div class="big">电量充足</div>
+          <div class="small"><span id="batteryMv">3.98 V</span> · 无充电检测</div>
+        </div>
+      </div>
+      <div class="metric-grid">
+        <div class="metric"><span class="k">Wi-Fi</span><span class="v"><span id="wifiSsid">ZYLZ-Home</span><br><small id="wifiDetail">192.168.1.23 · -55 dBm</small></span></div>
+        <div class="metric"><span class="k">温度</span><span class="v" id="temp">41.2 °C</span></div>
+        <div class="metric"><span class="k">Flash</span><span class="v" id="flashType">W25N01GV <small>v3</small></span></div>
+        <div class="metric"><span class="k">音频占用</span><span class="v" id="flashUse">18 段 · 46 MB 已用</span></div>
+      </div>
+    </aside>
+  </section>
+
+  <div class="columns">
+    <section class="card" aria-labelledby="audioTitle">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title" id="audioTitle">Flash 音频库</h2>
+          <p class="card-sub" id="audioSub">外置 NAND 实读目录 · 点击试听会占用扬声器</p>
+        </div>
+        <div class="lib-stats" id="libStats"><span><b>18</b> 段</span><span><b>46.2</b> MB 已用</span><span><b>81.8</b> MB 剩余</span></div>
+      </div>
+      <div class="card-body">
+        <div class="controls">
+          <button class="filter" data-filter="all" aria-pressed="true">全部</button>
+          <button class="filter" data-filter="animal" aria-pressed="false">动物音</button>
+          <button class="filter" data-filter="ambient" aria-pressed="false">环境音</button>
+          <input class="search" id="audioSearch" type="search" placeholder="搜索名称…" aria-label="搜索音频">
+        </div>
+        <div class="audio-list" id="audioList"></div>
+        <div class="lib-foot">
+          <span class="note" id="audioNote">目录来自设备端 AudioStore::Snapshot；试听遵守对话与写入互斥。</span>
+          <span style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn ghost" id="copyAudioJson">复制目录 JSON</button>
+            <button class="btn ghost" id="mockUpload">上传 OGG…</button>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="hubTitle">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title" id="hubTitle">Audio Hub · 手动更新</h2>
+          <p class="card-sub">不自动联网；只有点击检查后才访问服务器</p>
+        </div>
+        <span class="hub-status"><i class="dot off" id="hubDot"></i><b id="hubState">仅手动</b></span>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <label for="hubServer">服务器地址</label>
+          <input id="hubServer" value="http://192.168.1.7:5000" spellcheck="false">
+        </div>
+        <div class="hub-actions">
+          <button class="btn primary" id="hubCheck">连接并检查</button>
+          <button class="btn" id="hubReset">刷新状态</button>
+        </div>
+        <div class="bound-note" id="hubBound">设备 ID <code>ZYLZ-A1B2C3D4E5F6</code> · 已绑定 · 本机目录 <code>2026-10-18.3</code></div>
+        <div class="diff-summary" id="diffSummary" hidden></div>
+        <div class="diff-list" id="diffList" hidden></div>
+        <div class="hub-actions" id="updateActions" hidden>
+          <button class="btn primary" id="hubUpdate">更新所选</button>
+          <button class="btn" id="hubClear">清空选择</button>
+        </div>
+        <div class="hub-progress" id="hubProgress">
+          <div class="bar"><i id="hubBar"></i></div>
+          <p id="hubLog">等待检查…</p>
+        </div>
+        <p class="card-sub" style="margin-top:12px">检查只读清单，不写 Flash。更新只处理勾选项；本地独有录音默认保留，不随远端清单删除。</p>
+      </div>
+    </section>
+  </div>
+
+  <section class="card api">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title">本地接口</h2>
+        <p class="card-sub">设备同一 Wi-Fi 下访问 · 端口 8080 · 可选 mDNS <code>wzh-crawlpanda.local</code></p>
+      </div>
+    </div>
+    <div class="card-body api-grid">
+      <div>
+        <div class="endpoint"><span class="method get">GET</span><div><code>/api/status</code><span>状态快照，不访问 Hub</span></div></div>
+        <div class="endpoint"><span class="method get">GET</span><div><code>/api/audio</code><span>Flash 实读目录与动作配对</span></div></div>
+        <div class="endpoint"><span class="method post">POST</span><div><code>/api/audio/play</code><span>按名称或稳定 ID 试听</span></div></div>
+        <div class="endpoint"><span class="method post">POST</span><div><code>/api/audio/stop</code><span>停止本次试听</span></div></div>
+        <div class="endpoint"><span class="method post">POST</span><div><code>/api/hub/check</code><span>手动检查，返回任务 ID，不写 Flash</span></div></div>
+        <div class="endpoint"><span class="method get">GET</span><div><code>/api/hub/diff</code><span>读取已完成的差异结果</span></div></div>
+        <div class="endpoint"><span class="method post">POST</span><div><code>/api/hub/update</code><span>仅更新勾选文件，绑定 revision</span></div></div>
+        <div class="endpoint"><span class="method get">GET</span><div><code>/api/jobs/{id}</code><span>任务进度与结果</span></div></div>
+      </div>
+      <div>
+        <div class="codeblock" id="curlBlock">curl http://wzh-crawlpanda.local:8080/api/audio
+
+curl -X POST http://wzh-crawlpanda.local:8080/api/audio/play \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"熊猫撒娇声音"}'
+
+curl -X POST http://wzh-crawlpanda.local:8080/api/hub/check
+<button class="btn copy" id="copyCurl">复制</button></div>
+        <p class="api-note">页面与 MCP 共用同一份设备目录。Claude 可在你的电脑上直接调用这些接口列出、试听和更新音频；不需要浏览器麦克风，也不会另建一套对话协议。</p>
+      </div>
+    </div>
+  </section>
+
+  <details class="card diag">
+    <summary>诊断 · 双击识别、首包、上行与 Flash 写入</summary>
+    <div class="diag-body">
+      <div class="kv"><div class="k">最近双击</div><div class="v">2.4 秒前 · 已识别</div></div>
+      <div class="kv"><div class="k">会话代次</div><div class="v">gen 41 · 无旧回调</div></div>
+      <div class="kv"><div class="k">上行 / 下行</div><div class="v">0 / 0 包 · 麦克风关闭</div></div>
+      <div class="kv"><div class="k">TTS 首包</div><div class="v">暂存上限 8 包 · 等待中</div></div>
+      <div class="kv"><div class="k">最近停止延迟</div><div class="v">软件排队 0 ms · I2S 待实测</div></div>
+      <div class="kv"><div class="k">Flash 写入</div><div class="v">空闲 · 上次 CRC 通过</div></div>
+      <div class="kv"><div class="k">堆 / PSRAM</div><div class="v">182 KB / 5.9 MB</div></div>
+      <div class="kv"><div class="k">电源键采样</div><div class="v">灰区 1000–1200 mV 已过滤</div></div>
+    </div>
+  </details>
+
+  <footer class="foot">
+    <span>原型不代表实机数据。接入后由 <code>/api/status</code> 与 <code>/api/audio</code> 实读。</span>
+    <span>三款产品共用页面 · 按板型切换关节与容量 · 无外部字体/CDN</span>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+  const PRODUCTS = {
+    panda: {
+      name: '爬爬熊猫', build: 'wzh-crawlpanda', accent: '#2f6b4f', accentStrong: '#1e4c37', accentSoft: '#deede3',
+      chip: '#2f6b4f', state: '待机', stateTone: 'ok',
+      battery: 78, mv: '3.98 V', temp: '41.2 °C', ssid: 'ZYLZ-Home',
+      wifi: '192.168.1.23 · -55 dBm', uptime: '已运行 2 小时 18 分',
+      flash: 'W25N01GV', layout: 'v3', count: 18, used: '46.2 MB', free: '81.8 MB',
+      session: '未建立', mic: '未开启', spk: '空闲', servo: '已断电',
+      audio: [
+        { name: '熊猫撒娇声音', cat: 'animal', dur: '1.5 秒', size: '21 KB', tag: '自动' },
+        { name: '哼唧_萌丫头', cat: 'animal', dur: '3.5 秒', size: '52 KB', tag: '自动' },
+        { name: '摸头_欢快的“嗯”声_萌丫头', cat: 'animal', dur: '2.1 秒', size: '31 KB', tag: '自动' },
+        { name: 'Cute_baby_panda_voca', cat: 'animal', dur: '2.0 秒', size: '29 KB', tag: '自动' },
+        { name: '熊猫宝宝嘤嘤叫声音效', cat: 'animal', dur: '26.5 秒', size: '386 KB', tag: '自动' },
+        { name: '爬行脚步声', cat: 'animal', dur: '6.0 秒', size: '88 KB', tag: '自动' },
+        { name: '虫鸣鸟叫下雨流水声 (大自然的声音)', cat: 'ambient', dur: '158.1 秒', size: '2.3 MB', tag: '仅手动' }
+      ],
+      hub: {
+        bound: true, revision: '2026-10-18.3', device: 'ZYLZ-A1B2C3D4E5F6',
+        diff: [
+          { name: '哼唧_萌丫头', state: 'changed', local: '3.4 秒 · 52 KB', remote: '3.5 秒 · 53 KB' },
+          { name: '笑声_萌丫头', state: 'new', local: '—', remote: '0.7 秒 · 11 KB' },
+          { name: '类似熊猫声音', state: 'new', local: '—', remote: '3.7 秒 · 55 KB' },
+          { name: '熊猫撒娇声音', state: 'same', local: '1.5 秒 · 21 KB', remote: '1.5 秒 · 21 KB' },
+          { name: '我的旧录音_0821', state: 'local', local: '2.8 秒 · 42 KB', remote: '—' }
+        ]
+      }
+    },
+    redpanda: {
+      name: '摇尾小熊猫', build: 'wzh-tailredpanda', accent: '#a84f3c', accentStrong: '#7e3627', accentSoft: '#f1e0d9',
+      chip: '#a84f3c', state: '待机', stateTone: 'ok',
+      battery: 64, mv: '3.86 V', temp: '39.8 °C', ssid: 'ZYLZ-Home',
+      wifi: '192.168.1.31 · -61 dBm', uptime: '已运行 5 小时 02 分',
+      flash: 'W25N01GV', layout: 'v3', count: 18, used: '46.2 MB', free: '81.8 MB',
+      session: '未建立', mic: '未开启', spk: '空闲', servo: '已断电',
+      audio: [
+        { name: '熊猫撒娇声音', cat: 'animal', dur: '1.5 秒', size: '21 KB', tag: '自动' },
+        { name: '摸头_回头找人_萌丫头', cat: 'animal', dur: '0.4 秒', size: '7 KB', tag: '自动' },
+        { name: '挠痒痒笑声_萌丫头', cat: 'animal', dur: '1.7 秒', size: '26 KB', tag: '自动' },
+        { name: '唤醒_类似伸懒腰状态_萌丫头', cat: 'animal', dur: '3.8 秒', size: '57 KB', tag: '自动' },
+        { name: '熊猫_咀嚼', cat: 'animal', dur: '4.0 秒', size: '60 KB', tag: '自动' },
+        { name: '睡觉呼吸', cat: 'animal', dur: '5.0 秒', size: '73 KB', tag: '自动' },
+        { name: '虫鸣鸟叫下雨流水声 (大自然的声音)', cat: 'ambient', dur: '158.1 秒', size: '2.3 MB', tag: '仅手动' }
+      ],
+      hub: {
+        bound: true, revision: '2026-10-18.3', device: 'ZYLZ-B2C3D4E5F6A7',
+        diff: [
+          { name: '挠痒痒笑声_萌丫头', state: 'changed', local: '1.6 秒 · 25 KB', remote: '1.7 秒 · 26 KB' },
+          { name: '熊猫喷嚏_2', state: 'new', local: '—', remote: '2.0 秒 · 33 KB' },
+          { name: '睡觉呼吸', state: 'same', local: '5.0 秒 · 73 KB', remote: '5.0 秒 · 73 KB' },
+          { name: '展会用_尾巴测试', state: 'local', local: '1.2 秒 · 18 KB', remote: '—' }
+        ]
+      }
+    },
+    dino: {
+      name: '恐龙', build: 'wzh-dinosaur', accent: '#b87526', accentStrong: '#835015', accentSoft: '#f3e6d2',
+      chip: '#b87526', state: '待机', stateTone: 'ok',
+      battery: 52, mv: '3.79 V', temp: '43.6 °C', ssid: 'ZYLZ-Home',
+      wifi: '192.168.1.44 · -58 dBm', uptime: '已运行 48 分',
+      flash: 'W25N01GV', layout: 'v3', count: 27, used: '72.4 MB', free: '55.6 MB',
+      session: '未建立', mic: '未开启', spk: '空闲', servo: '已断电',
+      audio: [
+        { name: '叫声音效合集 (121)', cat: 'animal', dur: '4.8 秒', size: '74 KB', tag: '自动' },
+        { name: '叫声音效合集 (13)', cat: 'animal', dur: '2.2 秒', size: '35 KB', tag: '自动' },
+        { name: '叫声音效合集 (79)', cat: 'animal', dur: '1.0 秒', size: '18 KB', tag: '自动' },
+        { name: '咀嚼音效合集 (12)', cat: 'animal', dur: '3.1 秒', size: '48 KB', tag: '自动' },
+        { name: '脚步音效合集 (19)', cat: 'animal', dur: '1.8 秒', size: '29 KB', tag: '自动' },
+        { name: '环境音效合集 (12)', cat: 'ambient', dur: '48.0 秒', size: '702 KB', tag: '12 秒' },
+        { name: '环境音效合集 (42)', cat: 'ambient', dur: '12.0 秒', size: '176 KB', tag: '12 秒' }
+      ],
+      hub: {
+        bound: true, revision: '2026-10-18.3', device: 'ZYLZ-C3D4E5F6A7B8',
+        diff: [
+          { name: '叫声音效合集 (121)', state: 'changed', local: '4.7 秒 · 73 KB', remote: '4.8 秒 · 74 KB' },
+          { name: '环境音效合集 (42)', state: 'new', local: '—', remote: '12.0 秒 · 176 KB' },
+          { name: '叫声音效合集 (83)', state: 'new', local: '—', remote: '4.8 秒 · 75 KB' },
+          { name: '咀嚼音效合集 (23)', state: 'same', local: '12.0 秒 · 186 KB', remote: '12.0 秒 · 186 KB' },
+          { name: '我的旧录音_0821', state: 'local', local: '2.8 秒 · 42 KB', remote: '—' }
+        ]
+      }
+    }
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const app = document.documentElement;
+  let current = 'panda';
+  let filter = 'all';
+  let query = '';
+  let playing = null;
+  let playTimer = null;
+  let checked = new Set();
+  let hubDiffReady = false;
+  let updateTimer = null;
+
+  function product() { return PRODUCTS[current]; }
+
+  function applyAccent(p) {
+    app.style.setProperty('--accent', p.accent);
+    app.style.setProperty('--accent-strong', p.accentStrong);
+    app.style.setProperty('--accent-soft', p.accentSoft);
+    document.querySelectorAll('.fleet-btn').forEach((b) => {
+      b.style.setProperty('--chip', PRODUCTS[b.dataset.product].chip);
+    });
+  }
+
+  function renderProduct() {
+    const p = product();
+    applyAccent(p);
+    $('productName').textContent = p.name;
+    $('buildName').textContent = p.build;
+    $('uptime').textContent = p.uptime;
+    $('stateText').textContent = p.state;
+    $('statePill').className = 'state-pill ' + (p.stateTone === 'ok' ? '' : 'busy');
+    $('dotSession').className = 'dot ' + (p.session === '未建立' ? 'off' : 'ok');
+    $('vSession').textContent = p.session;
+    $('dotMic').className = 'dot ' + (p.mic === '未开启' ? 'off' : 'ok');
+    $('vMic').textContent = p.mic;
+    $('dotSpk').className = 'dot ' + (p.spk === '空闲' ? 'off' : 'ok');
+    $('vSpk').textContent = p.spk;
+    $('dotServo').className = 'dot ' + (p.servo === '已断电' ? 'off' : 'ok');
+    $('vServo').textContent = p.servo;
+    $('batteryPct').textContent = p.battery;
+    $('batteryMv').textContent = p.mv;
+    const circumference = 2 * Math.PI * 43;
+    $('batteryArc').setAttribute('stroke-dasharray', circumference.toFixed(2));
+    $('batteryArc').setAttribute('stroke-dashoffset', (circumference * (1 - p.battery / 100)).toFixed(2));
+    $('wifiSsid').textContent = p.ssid;
+    $('wifiDetail').textContent = p.wifi;
+    $('temp').textContent = p.temp;
+    $('flashType').innerHTML = p.flash + ' <small>' + p.layout + '</small>';
+    $('flashUse').textContent = p.count + ' 段 · ' + p.used + ' 已用';
+    $('libStats').innerHTML = '<span><b>' + p.count + '</b> 段</span><span><b>' + p.used + '</b> 已用</span><span><b>' + p.free + '</b> 剩余</span>';
+    $('hubServer').value = 'http://192.168.1.7:5000';
+    $('hubBound').innerHTML = '设备 ID <code>' + p.hub.device + '</code> · 已绑定 · 本机目录 <code>' + p.hub.revision + '</code>';
+    $('hubDot').className = 'dot off';
+    $('hubState').textContent = '仅手动';
+    renderAudio();
+    resetHub();
+    if (playing) stopPlayback();
+  }
+
+  function audioMatches(a) {
+    if (filter !== 'all' && a.cat !== filter) return false;
+    if (query && !a.name.toLowerCase().includes(query.toLowerCase())) return false;
+    return true;
+  }
+
+  function renderAudio() {
+    const p = product();
+    const list = $('audioList');
+    const rows = p.audio.filter(audioMatches);
+    list.innerHTML = '';
+    if (!rows.length) {
+      list.innerHTML = '<div class="empty">没有匹配的音频</div>';
+      return;
+    }
+    rows.forEach((a, idx) => {
+      const row = document.createElement('div');
+      row.className = 'audio-row' + (playing && playing.name === a.name ? ' playing' : '');
+      row.dataset.name = a.name;
+      const bars = Array.from({ length: 16 }, (_, i) => {
+        const h = 24 + ((a.name.charCodeAt(i % a.name.length) * 7 + i * 13) % 70);
+        return '<span style="--h:' + h + ';--i:' + i + '"></span>';
+      }).join('');
+      row.innerHTML =
+        '<button class="play-btn" data-play="' + a.name + '" aria-label="试听 ' + a.name + '">' +
+        (playing && playing.name === a.name ? '■' : '▶') + '</button>' +
+        '<div class="audio-main"><div class="audio-name">' + a.name + '</div>' +
+        '<div class="audio-meta"><span>' + (a.cat === 'animal' ? '动物音' : '环境音') + '</span><span>' + a.dur + '</span><span>' + a.size + '</span></div>' +
+        '<div class="wave">' + bars + '</div><div class="row-progress"><i></i></div></div>' +
+        '<span class="tag ' + (a.tag === '仅手动' ? 'manual' : '') + '">' + a.tag + '</span>';
+      list.appendChild(row);
+    });
+    list.querySelectorAll('[data-play]').forEach((btn) => {
+      btn.addEventListener('click', () => togglePlay(btn.dataset.play));
+    });
+    if (playing) updatePlayProgress();
+  }
+
+  function togglePlay(name) {
+    if (playing && playing.name === name) { stopPlayback(); return; }
+    const p = product();
+    const a = p.audio.find((x) => x.name === name);
+    if (!a) return;
+    if (p.session === '进行中') { toast('对话进行中，先退出再试听'); return; }
+    stopPlayback();
+    const seconds = parseFloat(a.dur) || 3;
+    playing = { name, seconds, elapsed: 0 };
+    renderAudio();
+    playTimer = setInterval(() => {
+      playing.elapsed += 0.25;
+      updatePlayProgress();
+      if (playing.elapsed >= playing.seconds) stopPlayback();
+    }, 250);
+    toast('正在试听 · ' + name);
+  }
+
+  function updatePlayProgress() {
+    const row = document.querySelector('.audio-row.playing');
+    if (!row || !playing) return;
+    const bar = row.querySelector('.row-progress i');
+    if (bar) bar.style.width = Math.min(100, (playing.elapsed / playing.seconds) * 100) + '%';
+  }
+
+  function stopPlayback() {
+    if (playTimer) clearInterval(playTimer);
+    playTimer = null;
+    playing = null;
+    renderAudio();
+  }
+
+  function resetHub() {
+    hubDiffReady = false;
+    checked = new Set();
+    $('diffSummary').hidden = true;
+    $('diffList').hidden = true;
+    $('updateActions').hidden = true;
+    $('hubProgress').classList.remove('on');
+    $('hubBar').style.width = '0%';
+    $('hubLog').textContent = '等待检查…';
+    $('hubState').textContent = '仅手动';
+    $('hubDot').className = 'dot off';
+  }
+
+  function localFor(name) {
+    return product().audio.find((a) => a.name === name);
+  }
+
+  function renderDiff() {
+    const p = product();
+    const diff = p.hub.diff;
+    const counts = { new: 0, changed: 0, same: 0, local: 0 };
+    diff.forEach((d) => counts[d.state]++);
+    $('diffSummary').innerHTML =
+      '<span class="chip new"><b>' + counts.new + '</b> 新增</span>' +
+      '<span class="chip changed"><b>' + counts.changed + '</b> 变化</span>' +
+      '<span class="chip"><b>' + counts.same + '</b> 相同</span>' +
+      '<span class="chip"><b>' + counts.local + '</b> 本地独有</span>' +
+      '<span class="chip"><b>' + p.hub.revision + '</b> 远端版本</span>';
+    $('diffList').innerHTML = diff.map((d, i) => {
+      const selectable = d.state === 'new' || d.state === 'changed';
+      const label = { new: '新增', changed: '变化', same: '相同', local: '本地独有' }[d.state];
+      return '<div class="diff-row">' +
+        '<input type="checkbox" data-diff="' + i + '"' + (selectable ? '' : ' disabled') +
+        (selectable && checked.has(i) ? ' checked' : '') + ' aria-label="选择 ' + d.name + '">' +
+        '<div class="diff-name"><b>' + d.name + '</b><span>本机 ' + d.local + ' · 远端 ' + d.remote + '</span></div>' +
+        '<span class="badge ' + d.state + '">' + label + '</span></div>';
+    }).join('');
+    $('diffList').querySelectorAll('[data-diff]').forEach((box) => {
+      box.addEventListener('change', () => {
+        const i = Number(box.dataset.diff);
+        if (box.checked) checked.add(i); else checked.delete(i);
+        updateSelectedLabel();
+      });
+    });
+    $('diffSummary').hidden = false;
+    $('diffList').hidden = false;
+    $('updateActions').hidden = false;
+    updateSelectedLabel();
+  }
+
+  function updateSelectedLabel() {
+    const count = checked.size;
+    $('hubUpdate').textContent = count ? '更新所选 (' + count + ')' : '更新所选';
+    $('hubUpdate').disabled = count === 0;
+  }
+
+  function runHubCheck() {
+    resetHub();
+    $('hubState').textContent = '正在检查';
+    $('hubDot').className = 'dot warn';
+    $('hubProgress').classList.add('on');
+    $('hubBar').style.width = '12%';
+    $('hubLog').textContent = '连接 Audio Hub · 读取清单…';
+    $('hubCheck').disabled = true;
+    setTimeout(() => { $('hubBar').style.width = '58%'; $('hubLog').textContent = '比较本机目录与远端 revision…'; }, 650);
+    setTimeout(() => {
+      $('hubBar').style.width = '100%';
+      $('hubLog').textContent = '检查完成 · 未写入 Flash';
+      $('hubCheck').disabled = false;
+      $('hubState').textContent = '已检查 · 未写入';
+      $('hubDot').className = 'dot ok';
+      hubDiffReady = true;
+      const p = product();
+      p.hub.diff.forEach((d, i) => { if (d.state === 'new' || d.state === 'changed') checked.add(i); });
+      renderDiff();
+      toast('检查完成：' + checked.size + ' 项可更新');
+    }, 1500);
+  }
+
+  function runHubUpdate() {
+    if (!hubDiffReady || !checked.size) return;
+    const total = checked.size;
+    let done = 0;
+    $('hubUpdate').disabled = true;
+    $('hubCheck').disabled = true;
+    $('hubProgress').classList.add('on');
+    $('hubBar').style.width = '0%';
+    $('hubLog').textContent = '冻结目录版本 · 准备写入 ' + total + ' 项…';
+    $('hubState').textContent = '正在更新';
+    $('hubDot').className = 'dot warn';
+    updateTimer = setInterval(() => {
+      done = Math.min(total, done + 1);
+      $('hubBar').style.width = Math.round((done / total) * 100) + '%';
+      $('hubLog').textContent = '写入 ' + done + ' / ' + total + ' · 追加数据后提交目录 · CRC 校验通过';
+      if (done >= total) {
+        clearInterval(updateTimer);
+        updateTimer = null;
+        $('hubState').textContent = '更新完成';
+        $('hubDot').className = 'dot ok';
+        $('hubUpdate').disabled = true;
+        $('hubCheck').disabled = false;
+        $('hubLog').textContent = '完成 · 已重新读取 Flash 目录 · 本地独有录音保留';
+        toast('已更新 ' + total + ' 个文件');
+      }
+    }, 550);
+  }
+
+  function toast(message) {
+    const el = $('toast');
+    el.textContent = message;
+    el.classList.add('on');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('on'), 2200);
+  }
+
+  async function copyText(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('已复制');
+      return;
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); toast('已复制'); }
+      catch (err) { toast('复制失败，请手动选择'); }
+      ta.remove();
+    }
+  }
+
+  document.querySelectorAll('.fleet-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      current = btn.dataset.product;
+      document.querySelectorAll('.fleet-btn').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      renderProduct();
+    });
+  });
+
+  document.querySelectorAll('.filter').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      filter = btn.dataset.filter;
+      document.querySelectorAll('.filter').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      renderAudio();
+    });
+  });
+
+  $('audioSearch').addEventListener('input', (e) => { query = e.target.value.trim(); renderAudio(); });
+  $('hubCheck').addEventListener('click', runHubCheck);
+  $('hubReset').addEventListener('click', () => { resetHub(); toast('状态已刷新（未访问 Hub）'); });
+  $('hubUpdate').addEventListener('click', runHubUpdate);
+  $('hubClear').addEventListener('click', () => { checked.clear(); renderDiff(); });
+  $('copyCurl').addEventListener('click', () => copyText($('curlBlock').textContent.replace('复制', '').trim(), $('copyCurl')));
+  $('copyAudioJson').addEventListener('click', () => {
+    copyText(JSON.stringify(product().audio, null, 2), $('copyAudioJson'));
+  });
+  $('mockUpload').addEventListener('click', () => toast('原型：实机将打开 OGG 上传，校验后写入 Flash'));
+  $('hubServer').addEventListener('change', () => toast('服务器地址已保存（原型）'));
+
+  renderProduct();
+</script>

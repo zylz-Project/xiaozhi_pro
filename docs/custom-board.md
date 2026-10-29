@@ -111,6 +111,7 @@ Example (from `lichuang-c3-dev`):
 - `type`: compatibility-sensitive board family reported by the firmware. Keep it stable after release.
 - `target`: target chip, must match the real hardware (`esp32`, `esp32s3`, `esp32c3`, `esp32c6`, `esp32p4`, ...).
 - `name`: compatibility-sensitive firmware variant name reported by release builds; typically matches `type`.
+- `default_wake_word`: optional ESP-SR model name (for example `wn9_xiaolongxiaolong_tts`) or `disabled` for a product-specific default. `--wake-word` overrides it. The build script selects the engine, clears inherited default models, and checks that Kconfig accepted the model. Keep `CONFIG_SR_WN_*` assignments out of `sdkconfig_append`.
 - `sdkconfig_append`: extra sdkconfig lines merged into the defaults.
 
 Both `type` and `name` must contain only lowercase letters, digits, periods

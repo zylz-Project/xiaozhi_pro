@@ -895,6 +895,7 @@ if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_
     )
     list(APPEND SOURCES ${WZH_COMMON_SOURCES})
     list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh)
+    set(WZH_CONSOLE_FILES "assets/wzh_console.html")
 endif()
 
 # Select one audio engine for each chip family
@@ -1077,7 +1078,7 @@ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
     )
 endif()
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
+                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${WZH_CONSOLE_FILES}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES

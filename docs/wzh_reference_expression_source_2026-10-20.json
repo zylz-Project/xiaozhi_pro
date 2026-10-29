@@ -1,0 +1,183 @@
+{
+  "source": "/home/wzh/program/ESP32/zylz_project/final/newWebServer_Project/dinosaur/main/auto_run_data.cc",
+  "source_sha256": "8083517db6e675497b29a2d5ea69339ef145ae966f0a79a051895a9889473c43",
+  "reference_runtime": "/home/wzh/program/ESP32/zylz_project/final/newWebServer_Project/dinosaur/main/auto_run.cc",
+  "coordinate_conversion": "Only tail_ud=max(55,180-legacy_tail_ud); kKeep preserved; other axes unchanged",
+  "clips": [
+    {
+      "name": "kDiscoverFrames",
+      "source_frames": 7,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kDiscoverPeekFrames",
+      "source_frames": 7,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kDiscoverSkyFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kAffectionFrames",
+      "source_frames": 6,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kAffectionCuddleFrames",
+      "source_frames": 6,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kAffectionNuzzleFrames",
+      "source_frames": 6,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kAffectionShyFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kHappyFrames",
+      "source_frames": 5,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kHappyDanceFrames",
+      "source_frames": 5,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kHappyOrbitFrames",
+      "source_frames": 9,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kHappyChaseFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kProudCallFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kProudSweepFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kProudOrbitFrames",
+      "source_frames": 12,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kProudEchoFrames",
+      "source_frames": 9,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kEatFrames",
+      "source_frames": 9,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kEatSniffFrames",
+      "source_frames": 10,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kEatLookUpFrames",
+      "source_frames": 10,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kEatGrazeFrames",
+      "source_frames": 9,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kListenFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kListenTrackFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kListenDoubleCheckFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kListenOverheadFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kStartledFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kStartledJumpFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kStartledDuckFrames",
+      "source_frames": 8,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kSleepyFrames",
+      "source_frames": 6,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kSleepyNodFrames",
+      "source_frames": 7,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    },
+    {
+      "name": "kSleepyWrapFrames",
+      "source_frames": 7,
+      "physical_targets_and_durations_match": true,
+      "added_neutral_frame_ms": 800
+    }
+  ],
+  "build_status": "Source update only; no firmware build or flash in this round"
+}

@@ -586,14 +586,14 @@ choice BOARD_TYPE
     config BOARD_TYPE_WDMOMO_CGC_144
         bool "WDMomo ESP32-CGC-144"
         depends on IDF_TARGET_ESP32
+    config BOARD_TYPE_WZH_CRAWLPANDA
+        bool "WZH Crawl Panda"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_WZH_DINOSAUR
         bool "WZH Dinosaur"
         depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_WZH_TAILREDPANDA
         bool "WZH Tail Red Panda"
-        depends on IDF_TARGET_ESP32S3
-    config BOARD_TYPE_WZH_CRAWLPANDA
-        bool "WZH Crawl Panda"
         depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_XMINI_C3
         bool "Xmini C3"
@@ -874,6 +874,24 @@ choice WAKE_WORD_TYPE
 
 endchoice
 
+config WZH_OFFLINE_COMMANDS
+    bool "WZH local motion keywords"
+    depends on (BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA) && (USE_CUSTOM_WAKE_WORD || USE_AFE_WAKE_WORD)
+    default y
+    help
+        Package local motion commands with the Chinese MultiNet model.
+        Commands share the AFE output with WakeNet or a custom wake phrase.
+        The board handles them locally, without opening a network session.
+
+config WZH_OFFLINE_COMMAND_THRESHOLD
+    int "WZH local keyword threshold (%)"
+    depends on WZH_OFFLINE_COMMANDS
+    default 50
+    range 1 99
+    help
+        Recognition threshold for local commands when WakeNet handles wake-up.
+        A higher value reduces false triggers; it does not change WakeNet sensitivity.
+
 config CUSTOM_WAKE_WORD
     string "Custom Wake Word"
     default "xiao tu dou"
@@ -1104,10 +1122,11 @@ menu "WZH Product Configuration"
 
     config WZH_AUDIO_SYNC_ENABLE
         bool "Enable Audio Hub background sync"
-        default y
+        default n
         help
-            后台向 Audio Hub 注册设备并增量同步本地声音。
-            关闭后设备仍可完整离线运行（对话与本地声音不受影响）。
+            默认关闭：设备开机和运行期间不主动连接 Audio Hub。
+            后续可由设备网页控制台按需检查清单、选择并更新音频；
+            关闭时设备完整离线运行（对话与本地声音不受影响）。
 
     config WZH_AUDIO_SYNC_SERVER
         string "Audio Hub server base URL"

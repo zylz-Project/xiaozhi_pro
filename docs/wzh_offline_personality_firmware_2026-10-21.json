@@ -1,0 +1,365 @@
+{
+  "date": "2026-10-21",
+  "timezone": "Asia/Shanghai",
+  "revision": "offline-personality-tail-led-continuous-wag",
+  "sdk": "ESP-IDF v6.0.1",
+  "sdk_reason": "Installed SDK; 6.0.2 not installed",
+  "firmware_version": "2.4.1",
+  "flashed": false,
+  "hardware_validated": false,
+  "host_tests_passed": 189,
+  "host_test_log": "/tmp/wzh-offline-host-final.log",
+  "distinct_audio_motion_trajectories_replayed": 3744,
+  "comparison": "docs/wzh_offline_personality_comparison_2026-10-21.json",
+  "previous_release_backup": "/tmp/wzh-offline-personality-20261021-baseline",
+  "compiled_snapshots": "/tmp/wzh-offline-compiled-20261021",
+  "source_revision": {
+    "main/boards/common/wzh/wzh_tail_phrase.h": "1ce6c08a17b252e2816ad56ecad78998842dc69cf0a7deb4f185d55ea3a91bf6",
+    "main/boards/common/wzh/wzh_sound_score.h": "c2f014916779376519f66c3e1222a44171900cc0794e58698f1b2d9d1c4d8c9c",
+    "main/boards/common/wzh/wzh_sound_expression.h": "b717c231c1882f570fc95ee0ed7ac0127813f65d37de45b24fc78b25064c7fda",
+    "main/boards/common/wzh/wzh_user_pair_motion.h": "0b94e37e715833f41fc537e5ead54af9671eb0978fdec1a94db90a1ef6dcf5cd",
+    "main/boards/common/wzh/wzh_sound_choreography.h": "4edb7bcee6cafcc3844deaa2b29b5c15fa363a36312667d6a1934d31558b0c54",
+    "main/boards/common/wzh/wzh_motion_profile.h": "a87dd69a08009a1f8459578b7628ca9a7aa30769917c180918160c6406669d8f",
+    "main/boards/wzh_crawlPanda/panda_controller.cc": "917e96fce7a380215eb81b2cdf0171e3fc24932084f381c0c654af18127412ef",
+    "main/boards/wzh_tailRedPanda/panda_controller.cc": "dd6f3cd92bf40c5220459cf083e77057c0a2ed538cfd2f2f99d4e140878af348",
+    "main/boards/wzh_tailRedPanda/panda_controller.h": "121f45a9fef699899a54e6fa54cc14e9b9a65a7c3ce7aeb20765bf28ca2ecdfe",
+    "main/boards/wzh_tailRedPanda/panda_story_motion.h": "af86e3305d6342698f35bdef9804ae3eb47b0e3225917a642c4d1581389bed92",
+    "main/boards/wzh_dinosaur/dinosaur_controller.cc": "4cbabf1884482855c7d859dfdc922df34f888e083bb9198b391d4028889b190f",
+    "scripts/tests/test_wzh_offline_personality.py": "e31db24630ab749e565fa01ae2011cd4216a9aeff88f47ce11714ecb9726c448",
+    "scripts/audio/audit_wzh_vitality.py": "cd97bd8d4df876b9fb17a74b4501808058895cb49bf5bcb9b08529194338adce",
+    "main/boards/wzh_crawlPanda/panda_controller.h": "3f91576e300ee109738a62081beec1a8c82ffa061aaa0960b82b69440f373c2b",
+    "main/boards/wzh_crawlPanda/panda_story_motion.h": "165118e478b79f696446300561c44f365883ae11916198603c7cf283a695c48d",
+    "main/boards/wzh_dinosaur/dinosaur_story_motion.h": "ebff5951742213388eb9d020516b6c9bf7ca68a5d36caa5f3f05709a6a6306c5",
+    "scripts/tests/test_wzh_event_driven.py": "ac145740653f77c8e468160d34b4c648aeef6d5370bf4540f7affcab33fbaaea"
+  },
+  "final_build_directory_board": "wzh-crawlpanda",
+  "motion_limits": {
+    "panda_head_deg": [
+      30,
+      150
+    ],
+    "tail_lr_deg": [
+      6,
+      174
+    ],
+    "tail_ud_deg": [
+      10,
+      178
+    ],
+    "tail_rest_ud_deg": 150,
+    "dinosaur_tail_ud_deg": [
+      55,
+      180
+    ],
+    "final_command_speed_limit_dps": 400
+  },
+  "changes": {
+    "tail_spatial_patterns": 8,
+    "variants_per_source": 32,
+    "tail_new_library_stories": 8,
+    "tail_short_interactions_with_changed_head": 15,
+    "tail_long_flash_score_threshold_ms": 3200,
+    "tail_pattern_period_budget_ms": 3000,
+    "tail_max_pattern_cycles": 8,
+    "tail_min_pair_entry_ms": 750,
+    "crawl_gaits_in_random_play": [
+      "alternate",
+      "together"
+    ],
+    "crawl_footstep_flash_uses_actual_gaits": true,
+    "crawl_revised_library_stories": 4,
+    "dinosaur_revised_library_stories": 4,
+    "original_pair_catalogs_and_audio_preserved": true
+  },
+  "boards": [
+    {
+      "board": "wzh_crawlPanda",
+      "variant": "wzh-crawlpanda",
+      "target": "esp32s3",
+      "archive": "releases/v2.4.1_wzh-crawlpanda.zip",
+      "archive_sha256": "65b254f0f2ffc64da778c281190fbb6c34cb0371217c20f1aabf595321543d18",
+      "archive_bytes": 4689452,
+      "app_bytes": 2778704,
+      "app_partition_bytes": 4128768,
+      "assets_bytes": 3907534,
+      "merged_bytes": 12296142,
+      "offline_phrases": 76,
+      "project_version": "2.4.1",
+      "project": "xiaozhi",
+      "compile_time": "22:21:13",
+      "compile_date": "Oct 21 2026",
+      "idf_version": "v6.0.1",
+      "hardware_validated": false,
+      "files": {
+        "xiaozhi.bin": {
+          "bytes": 2778704,
+          "sha256": "9b2da85e6ba08671c9aad9fb1f478570442f3c123baacfc65f56e9a5261b257b"
+        },
+        "xiaozhi.elf": {
+          "bytes": 39521200,
+          "sha256": "dd2a4c05a249d7528946d283c945c610b0537abe35c4f4c2c6f6557d9d7bd482"
+        },
+        "generated_assets.bin": {
+          "bytes": 3907534,
+          "sha256": "ceec409e274c519ea0abda062368eca8974bb1aec184f6f6bf8cd6428baeabc0"
+        },
+        "merged-binary.bin": {
+          "bytes": 12296142,
+          "sha256": "9b76db665f87868a5c0561670382f0a5cc8ae5830bbdebb00727bd70d3aac950"
+        },
+        "flash_args": {
+          "bytes": 203,
+          "sha256": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db"
+        },
+        "flasher_args.json": {
+          "bytes": 1190,
+          "sha256": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc"
+        },
+        "project_description.json": {
+          "bytes": 485050,
+          "sha256": "3799027e55fbccb5beb8713b0bc5dc15835f0a3db94f81a301f3e2e0e7b3c68b"
+        },
+        "partition_table/partition-table.bin": {
+          "bytes": 3072,
+          "sha256": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5"
+        },
+        "bootloader/bootloader.bin": {
+          "bytes": 16640,
+          "sha256": "39e0ac179b4e7c3f415f3e4215af5b9f057834dbeb559560812ef124b6b212fe"
+        },
+        "ota_data_initial.bin": {
+          "bytes": 8192,
+          "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"
+        }
+      },
+      "board_factory_count": 1,
+      "assets_unchanged_from_previous_release": true,
+      "build_log": "/tmp/wzh-offline-build-crawlpanda.log"
+    },
+    {
+      "board": "wzh_tailRedPanda",
+      "variant": "wzh-tailredpanda",
+      "target": "esp32s3",
+      "archive": "releases/v2.4.1_wzh-tailredpanda.zip",
+      "archive_sha256": "fe652e85b90703a9cbab62e8c8413945d9943fc8c6dd7a606522731180582247",
+      "archive_bytes": 4747397,
+      "app_bytes": 2834208,
+      "app_partition_bytes": 4128768,
+      "assets_bytes": 3909851,
+      "merged_bytes": 12298459,
+      "offline_phrases": 81,
+      "project_version": "2.4.1",
+      "project": "xiaozhi",
+      "compile_time": "22:15:25",
+      "compile_date": "Oct 21 2026",
+      "idf_version": "v6.0.1",
+      "hardware_validated": false,
+      "files": {
+        "xiaozhi.bin": {
+          "bytes": 2834208,
+          "sha256": "185ed25382c50df39aa91f193750e41892168c9ad03528f552df0d3ed8f5daac"
+        },
+        "xiaozhi.elf": {
+          "bytes": 39621772,
+          "sha256": "cb474599cc0486321f015050a0b267dd7eab375ca0ca4b26ff9357631ad91247"
+        },
+        "generated_assets.bin": {
+          "bytes": 3909851,
+          "sha256": "40f55ad4df8ab47524ba23abb2f0371aab2c9972151fda1dd0ffaa75f3094005"
+        },
+        "merged-binary.bin": {
+          "bytes": 12298459,
+          "sha256": "097334efc343455db7e7506745112ae9120b12a4565b1f50a2b61b7dfd3585a2"
+        },
+        "flash_args": {
+          "bytes": 203,
+          "sha256": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db"
+        },
+        "flasher_args.json": {
+          "bytes": 1190,
+          "sha256": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc"
+        },
+        "project_description.json": {
+          "bytes": 485062,
+          "sha256": "817f8dcc0a91bdb378827e49ce9684310595ea86483575eae86d242d29f4d211"
+        },
+        "partition_table/partition-table.bin": {
+          "bytes": 3072,
+          "sha256": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5"
+        },
+        "bootloader/bootloader.bin": {
+          "bytes": 16640,
+          "sha256": "39e0ac179b4e7c3f415f3e4215af5b9f057834dbeb559560812ef124b6b212fe"
+        },
+        "ota_data_initial.bin": {
+          "bytes": 8192,
+          "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"
+        }
+      },
+      "board_factory_count": 1,
+      "assets_unchanged_from_previous_release": true,
+      "build_log": "/tmp/wzh-offline-build-tailredpanda-final.log"
+    },
+    {
+      "board": "wzh_dinosaur",
+      "variant": "wzh-dinosaur",
+      "target": "esp32s3",
+      "archive": "releases/v2.4.1_wzh-dinosaur.zip",
+      "archive_sha256": "da0b3e10924290806c605c30b8de0960160d2fa159f07d8696e35f865c1a36ef",
+      "archive_bytes": 5089468,
+      "app_bytes": 3207808,
+      "app_partition_bytes": 4128768,
+      "assets_bytes": 3911149,
+      "merged_bytes": 12299757,
+      "offline_phrases": 100,
+      "project_version": "2.4.1",
+      "project": "xiaozhi",
+      "compile_time": "22:19:30",
+      "compile_date": "Oct 21 2026",
+      "idf_version": "v6.0.1",
+      "hardware_validated": false,
+      "files": {
+        "xiaozhi.bin": {
+          "bytes": 3207808,
+          "sha256": "e984c841014b75e04c774b5b9284b69c25da6172a61005ea494caa330db173ba"
+        },
+        "xiaozhi.elf": {
+          "bytes": 40462252,
+          "sha256": "5e27e1a29f370154651e183f5fd37842ff5c82022a72cbffc2a40e3611ec19f7"
+        },
+        "generated_assets.bin": {
+          "bytes": 3911149,
+          "sha256": "8832c57cbd2c7506eea87a43a54818b03a97858b411d631f66eeb2f66d8c28b0"
+        },
+        "merged-binary.bin": {
+          "bytes": 12299757,
+          "sha256": "0fdd3d6b64956db361cbab2761bced63154186dad8c38c5b602e16111018edee"
+        },
+        "flash_args": {
+          "bytes": 203,
+          "sha256": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db"
+        },
+        "flasher_args.json": {
+          "bytes": 1190,
+          "sha256": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc"
+        },
+        "project_description.json": {
+          "bytes": 485047,
+          "sha256": "4851356cc72449fa4f9f3ed5ec621668d0bfd7a8351d9377d954d56ff2c44b8a"
+        },
+        "partition_table/partition-table.bin": {
+          "bytes": 3072,
+          "sha256": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5"
+        },
+        "bootloader/bootloader.bin": {
+          "bytes": 16640,
+          "sha256": "39e0ac179b4e7c3f415f3e4215af5b9f057834dbeb559560812ef124b6b212fe"
+        },
+        "ota_data_initial.bin": {
+          "bytes": 8192,
+          "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"
+        }
+      },
+      "board_factory_count": 1,
+      "assets_unchanged_from_previous_release": true,
+      "build_log": "/tmp/wzh-offline-build-dinosaur.log"
+    }
+  ],
+  "source_sha256": {
+    "main/assets/wzh_console.html": "2c88c9916b02056732f49d80f147b3dc30fbb40c82b84fbda8b3da3fd054b3c9",
+    "main/audio/audio_playout_buffer.h": "534373c90686b2daad11108bfa1265b45e96c15e9bda1fe296451b593773ec45",
+    "main/audio/audio_service.cc": "548d14a292b105260ca0bf4c0298b33035909f2c0e108227d319fd0fbf6378ec",
+    "main/audio/audio_service.h": "3f7c5c8fdfd408986faf828f39be6531fa362753f02043b45e23acfa82115721",
+    "main/boards/common/wzh/w25n01gv.h": "87f08c76acf0e895b4f823fe6eb9ffc1002eb4d190e456c7bbbfa1fda03d6393",
+    "main/boards/common/wzh/w25q256.h": "554cf33c663ca9abd83ac93e2ca72fdf5bbd662d15c28d862ddd8a8b2ee449ed",
+    "main/boards/common/wzh/wzh_audio_hub.cc": "8b6debdcf0a4d6c6b23a9cba6f6cdf1e6a57527d8780258ad23791437c4d6b39",
+    "main/boards/common/wzh/wzh_audio_hub.h": "9e9ed6be08bb6b9041aa77d23b77ffab81a5ceee5b42c32bf5d27271a5a6a6c8",
+    "main/boards/common/wzh/wzh_audio_player.cc": "9b44a6c8b23541bf07083ed8ee4650da07602c62bc5b4e2072e63e9d911d7806",
+    "main/boards/common/wzh/wzh_audio_player.h": "91b962104493da081ee40148189ee5f65d2b174c1a6cd22af61b7b5da989f924",
+    "main/boards/common/wzh/wzh_audio_store.cc": "ea26b807161c925e40852d8773ab17c55c9dafa10d496fa62bdcc86140a7cb24",
+    "main/boards/common/wzh/wzh_audio_store.h": "80bef956ae4913b935a8189a470cd258899a94031df8ccdc61c73392d7b88b88",
+    "main/boards/common/wzh/wzh_battery_voltage.h": "7c8dbc3c28e42ef38fe6241fea6e13b46b486859a59ef440eac96936cb61043e",
+    "main/boards/common/wzh/wzh_body_commands.h": "30a207f1f61726fe4625d6b0e684a3efeac3b3b1e2c455a5eda513bedb82b111",
+    "main/boards/common/wzh/wzh_body_phrases.inc": "6435eca9518abe641951476b8c9922a38564689b9b6b204df898b1f91a2f5a8f",
+    "main/boards/common/wzh/wzh_developer_session.h": "03c98d316a9cb6f9fcd9f7d6cf178e1c50bcb30c280b01ce43f12bf28ea96cdd",
+    "main/boards/common/wzh/wzh_flash.h": "2e537acb58c4b0ed3a03e2b235e8cb677cae540396ba10f3571feaed6273417f",
+    "main/boards/common/wzh/wzh_flash_internal.h": "eaf3b80e9dd9ec681c22992130b87fb9b02a1bf32aa764fed87f4356129b9930",
+    "main/boards/common/wzh/wzh_interaction.h": "5799329f7803f5e99464a539eed4258f11e7217c63b9b0224925146ba6d1d409",
+    "main/boards/common/wzh/wzh_interaction_sound.h": "98a750f6874c7a95b4517ebf8d9a56acddc6c234cc0f246d896b530494867105",
+    "main/boards/common/wzh/wzh_mcp_tools.cc": "29284c664423962274a6fb6caea3ee35e8d7b5c9813b1bc4e6463ae0713f4b0f",
+    "main/boards/common/wzh/wzh_mcp_tools.h": "773340e59cbe4a47fae922e6800c0a650e1785b7df2034da26430819ee7f16a5",
+    "main/boards/common/wzh/wzh_motion_profile.h": "a87dd69a08009a1f8459578b7628ca9a7aa30769917c180918160c6406669d8f",
+    "main/boards/common/wzh/wzh_pet_behavior.h": "62b722fb8728a2cd6d42a6ba4719a964b95084c6055bb37ffcf249048b0ce57a",
+    "main/boards/common/wzh/wzh_pet_feedback.h": "1502f794a75c4aee47cc332c8c694633075b76bf899053a00f82341643dc6efb",
+    "main/boards/common/wzh/wzh_posture_input.h": "319f8fa34ebf3ae2f7e97de0dcf7abb1e877b284438e76b79fd64914c6c5e4a6",
+    "main/boards/common/wzh/wzh_power_startup.h": "c52f9d38017485b088c1d39b5a76b10e95a3e60135d44907bd2f68263ecc41a2",
+    "main/boards/common/wzh/wzh_power_telemetry.h": "40a0ac87c8ba13a0bc19f35a26ba6fc53d523080c54845aa0c9a38c21624999d",
+    "main/boards/common/wzh/wzh_product.h": "780ead40e12dbab404059720a07e27b329a92c05493ef0642250da252467c5ca",
+    "main/boards/common/wzh/wzh_protection.h": "598c4c893f44f29889856b57b0eab51aef373533b457dd106fc1d3c359e03a11",
+    "main/boards/common/wzh/wzh_quiet_center.h": "a125bfdb1cde057fd9e338a4153aabc193b76d0a2bea9bc9725547715f42b640",
+    "main/boards/common/wzh/wzh_sensors.cc": "264d53408c95bd83bf5908ac96a87b701bfda94dec7c448e0953fa08b07a4f84",
+    "main/boards/common/wzh/wzh_sensors.h": "c1cef0058f153555d8337050af86a23e643b4a10286fc454298b07f10b3dae5f",
+    "main/boards/common/wzh/wzh_servo_output.cc": "f2dc2c9e3200182ba1058c722e287cb07c4ed7ab87338fe3cc9c695160c47911",
+    "main/boards/common/wzh/wzh_servo_output.h": "1b28de72674078cee8c74ada92c71493af1b6fe5667a7b2ae6fb9771bb14aaa0",
+    "main/boards/common/wzh/wzh_sound_choreography.h": "4edb7bcee6cafcc3844deaa2b29b5c15fa363a36312667d6a1934d31558b0c54",
+    "main/boards/common/wzh/wzh_sound_coverage.h": "8806b97cc147b1556a00b0824fbc5143b3a9279402d796907c318d9e2ae4a163",
+    "main/boards/common/wzh/wzh_sound_expression.h": "b717c231c1882f570fc95ee0ed7ac0127813f65d37de45b24fc78b25064c7fda",
+    "main/boards/common/wzh/wzh_sound_score.h": "c2f014916779376519f66c3e1222a44171900cc0794e58698f1b2d9d1c4d8c9c",
+    "main/boards/common/wzh/wzh_sound_scores.inc": "ba5f2be8143635ac3f21cfa7395e6a27720bdaf71b86fdc6faf999efa9a99edb",
+    "main/boards/common/wzh/wzh_sound_variants.h": "7ae16a26489a48dccc97f8367002c644e9e01eb8a4458a86937be1d527e3c463",
+    "main/boards/common/wzh/wzh_speech_intent.h": "e444e051a13367bad7a86e9f0a0c4e736b96b7f9956c82f658c70fc3cc972f24",
+    "main/boards/common/wzh/wzh_tail_phrase.h": "1ce6c08a17b252e2816ad56ecad78998842dc69cf0a7deb4f185d55ea3a91bf6",
+    "main/boards/common/wzh/wzh_touch_input.h": "6333fe43471224c651683d85add368f988bcd8613fcc4a7ff6ca136dd0ec8331",
+    "main/boards/common/wzh/wzh_user_pair_motion.h": "0b94e37e715833f41fc537e5ead54af9671eb0978fdec1a94db90a1ef6dcf5cd",
+    "main/boards/common/wzh/wzh_user_pairs.h": "cd20760537ca2e38321e1141622c6076019b3373e23ba47d3510e060ba68b4a5",
+    "main/boards/common/wzh/wzh_voice_motion.h": "418f7e5b434e607f1a96461e0ad024fe82fad9b311e4776ee009fca7e8d359ed",
+    "main/boards/common/wzh/wzh_web_console.cc": "19a3dc8d9ea81f2644955e480563ae6ce22539bc6ad6ad9157d2c15976b96e2b",
+    "main/boards/common/wzh/wzh_web_console.h": "75e7c338d14807c9e1ef8b6bc6fb288983df684770a285f374442c32d047e268",
+    "main/boards/wzh_crawlPanda/config.h": "df45a88cf0698d8ee2f9eb7c09a49d8965ff95173d60c6fffc4980792a520988",
+    "main/boards/wzh_crawlPanda/config.json": "6e047c2802d9d772a812193c4dfcf1e408e02fc2cea0e0a596ad1cf6aad8fc28",
+    "main/boards/wzh_crawlPanda/panda_audio.cc": "6b83c3a18783e82cde64c4b351ca42d2e00c7e49c53eb836c0c6b2ce405460d2",
+    "main/boards/wzh_crawlPanda/panda_audio.h": "1db98bf0960a30face39762caaacb7bc13d104cbcfac8cd331169b5ac38b6f09",
+    "main/boards/wzh_crawlPanda/panda_controller.cc": "917e96fce7a380215eb81b2cdf0171e3fc24932084f381c0c654af18127412ef",
+    "main/boards/wzh_crawlPanda/panda_controller.h": "3f91576e300ee109738a62081beec1a8c82ffa061aaa0960b82b69440f373c2b",
+    "main/boards/wzh_crawlPanda/panda_motion_style.h": "4b3a4d487f0e4d260c6178ef0ff10ff1edfdd679f158658a67fa4a7080c0d62b",
+    "main/boards/wzh_crawlPanda/panda_power.cc": "6c7763e5e01eeb5d0a8c86b6dd508e9b88b9c9e1d10019722d7e32e7e31429e7",
+    "main/boards/wzh_crawlPanda/panda_power.h": "a0f5cb5fc8a1da94efc8033019e673c2dbc231921907d3ed7456b6b127fd46e9",
+    "main/boards/wzh_crawlPanda/panda_reference_motion.h": "79c540c3f43b077e737fb8d50e1fbf1f6c58efed9687b3942058e4bcee2b1954",
+    "main/boards/wzh_crawlPanda/panda_story_motion.h": "165118e478b79f696446300561c44f365883ae11916198603c7cf283a695c48d",
+    "main/boards/wzh_crawlPanda/wzh_crawlPanda.cc": "0e2d049cead02c112c5f5be21d19ca57fb220754231c02c850f309a157f94c0e",
+    "main/boards/wzh_crawlPanda/wzh_product.cc": "e436e4687aee4eb82dd0284d8979c9e47e28362f3ca55968ebdff77f5c6cfd16",
+    "main/boards/wzh_crawlPanda/wzh_user_pairs_catalog.inc": "5908174b75bb729ccfb07b195dbd93b918662fe8a13148cbba80ccda1918f256",
+    "main/boards/wzh_dinosaur/config.h": "9cc747d1811d3993cea00bba11ac2967ecb1b7dafe6ac834df836a2f73e181a5",
+    "main/boards/wzh_dinosaur/config.json": "4e802eea2f91d0f717bbbba8ff8e7e6c67a638b29b98d12627b43701209e48a0",
+    "main/boards/wzh_dinosaur/dinosaur_audio.cc": "65343798f10dbae78f76cf337c980ec93554f4adcb09fd0f2dc4072bb179fcba",
+    "main/boards/wzh_dinosaur/dinosaur_audio.h": "11d154f0cda45a2b82daf142dc369e76cb1b3357e9fc86b86ffd7368e74bd6e5",
+    "main/boards/wzh_dinosaur/dinosaur_controller.cc": "4cbabf1884482855c7d859dfdc922df34f888e083bb9198b391d4028889b190f",
+    "main/boards/wzh_dinosaur/dinosaur_controller.h": "40302e1743a79d4991fd4a0a8b44d19ffa1b87192138d20a3c3b4de087b71461",
+    "main/boards/wzh_dinosaur/dinosaur_power.cc": "2d629f6680ea21cf243521359b096285d0ac6481dc9e929d3a478d68a95a63ab",
+    "main/boards/wzh_dinosaur/dinosaur_power.h": "5c6e146300957b242784ad7ae700b9116222900fcfb4fdb66cf8451ad5dbca17",
+    "main/boards/wzh_dinosaur/dinosaur_reference_motion.h": "5ff33bd383ae8fa39879f47cf50f2da5cb5c57c8c89d88085a07b0beb23b5c5c",
+    "main/boards/wzh_dinosaur/dinosaur_story_motion.h": "ebff5951742213388eb9d020516b6c9bf7ca68a5d36caa5f3f05709a6a6306c5",
+    "main/boards/wzh_dinosaur/wzh_dinosaur.cc": "60a3e8c6942112ebbcb1290f58635d07f03b879e163ddebadea49e0182bec507",
+    "main/boards/wzh_dinosaur/wzh_product.cc": "0e6856e26dc5fd974ca2882ba0850b5939f2b61c134ba6ad4f49ed223e9849e1",
+    "main/boards/wzh_dinosaur/wzh_user_pairs_catalog.inc": "53ddf5079676d70d4d255426fe977f1e6df7d2bb0ebe68315a8b300da0fc4a33",
+    "main/boards/wzh_tailRedPanda/config.h": "c8c8a31fe62c2566c46f3a95e642de8c85b355f2b4da881b41668ee7e0fcf986",
+    "main/boards/wzh_tailRedPanda/config.json": "51d82fa02d18627a5bca2061f5be9a2b2bbc6d75663b598660992e2ae187128e",
+    "main/boards/wzh_tailRedPanda/panda_audio.cc": "6b83c3a18783e82cde64c4b351ca42d2e00c7e49c53eb836c0c6b2ce405460d2",
+    "main/boards/wzh_tailRedPanda/panda_audio.h": "a44e3dfd4b3fdc79e86453705df57d50cc061770ddffa9088307130ff73b3ec9",
+    "main/boards/wzh_tailRedPanda/panda_controller.cc": "dd6f3cd92bf40c5220459cf083e77057c0a2ed538cfd2f2f99d4e140878af348",
+    "main/boards/wzh_tailRedPanda/panda_controller.h": "121f45a9fef699899a54e6fa54cc14e9b9a65a7c3ce7aeb20765bf28ca2ecdfe",
+    "main/boards/wzh_tailRedPanda/panda_power.cc": "6c7763e5e01eeb5d0a8c86b6dd508e9b88b9c9e1d10019722d7e32e7e31429e7",
+    "main/boards/wzh_tailRedPanda/panda_power.h": "33ba7588d269cfd144129cdeb26106c7f975659a7bf4f1789689b92087ce2351",
+    "main/boards/wzh_tailRedPanda/panda_reference_motion.h": "1156a277d923b4bd543a761d5f08973ba892c2b493d7996828c7afa23fa3bbed",
+    "main/boards/wzh_tailRedPanda/panda_story_motion.h": "af86e3305d6342698f35bdef9804ae3eb47b0e3225917a642c4d1581389bed92",
+    "main/boards/wzh_tailRedPanda/wzh_product.cc": "cecf16e7ab1a766aa0e804955c8d847712ab4983ce9e3d7506dfffb6248412e2",
+    "main/boards/wzh_tailRedPanda/wzh_tailRedPanda.cc": "afee08f68fc0acaa1a6d1d72c5d787744fa3c0029dcceb9e7c3c1b74dde06171",
+    "main/boards/wzh_tailRedPanda/wzh_user_pairs_catalog.inc": "309138bcdb1ce58457b56a4c2698acccfcc602f1aa5826afb5ad0d5eb99bfa53",
+    "scripts/audio/audit_wzh_vitality.py": "cd97bd8d4df876b9fb17a74b4501808058895cb49bf5bcb9b08529194338adce",
+    "scripts/tests/test_wzh_event_driven.py": "ac145740653f77c8e468160d34b4c648aeef6d5370bf4540f7affcab33fbaaea",
+    "scripts/tests/test_wzh_offline_personality.py": "e31db24630ab749e565fa01ae2011cd4216a9aeff88f47ce11714ecb9726c448"
+  },
+  "build_warnings": {
+    "wzh-tailredpanda": "Initial full build reports pre-existing unused smoothstep; final incremental build has no compiler warnings."
+  }
+}

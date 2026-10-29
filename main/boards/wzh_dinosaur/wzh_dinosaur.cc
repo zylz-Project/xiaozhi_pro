@@ -1,5 +1,7 @@
 #include <driver/i2c_master.h>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include <cstring>
 #include <utility>
@@ -13,8 +15,13 @@
 #include "dinosaur_power.h"
 #include "display/display.h"
 #include "wifi_board.h"
+#include "wifi_manager.h"
 #include "wzh_audio_hub.h"
 #include "wzh_mcp_tools.h"
+#include "wzh_power_telemetry.h"
+#include "wzh_sensors.h"
+#include "wzh_user_pairs_catalog.inc"
+#include "wzh_web_console.h"
 
 #define TAG "WzhDinosaur"
 
@@ -35,6 +42,8 @@ public:
         NoDisplay::SetChatMessage(role, content);
         if (role != nullptr && std::strcmp(role, "user") == 0 && content != nullptr) {
             controller_.HandleUserSpeechEmotion(content);
+        } else if (role != nullptr && std::strcmp(role, "assistant") == 0 && content != nullptr) {
+            controller_.HandleAssistantSpeech(content);
         }
     }
 
@@ -51,28 +60,69 @@ public:
         // 初始化顺序有依赖：ES8311 需要 I2C；动作控制器需要先拿到本地
         // 音频对象；MCP 工具最后注册，确保回调触发时控制器已经可用。
         InitializeI2c();
-        power_.Initialize();
+        if (!power_.Initialize()) {
+            ESP_LOGE(TAG, "Power initialization failed; startup cancelled");
+            gpio_set_level(POWER_CTRL_GPIO, 0);
+            while (true)
+                vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+        wzh::RegisterUserPairs(wzh_user_assets::kPairs, std::size(wzh_user_assets::kPairs));
         local_audio_.Initialize();
         controller_.Initialize(&local_audio_);
+        power_.RegisterServoOutput(&controller_.servo_output());
+        InitializeTouch();
+        InitializeSensors();
         // 关机序列：断电前把舵机放回默认安全姿态。
         power_.RegisterShutdownHook([this]() {
             // 先停本地声音，再把舵机放回默认安全姿态。
             local_audio_.StopPlayback();
             controller_.SetDefaultPose();
         });
-        // 在线 TTS 的真实响度 → 本地音频模块 → 动作引擎，让说话随音频舞动。
+        // 扬声器实际输出的 PCM 响度同时送给音频状态和动作引擎：在线
+        // TTS、本地 Flash 声音及系统提示音都能同步驱动恐龙肢体语言。
         Application::GetInstance().GetAudioService().SetOutputAudioLevelListener(
-            [this](float level, float attack) { local_audio_.FeedTtsLevel(level, attack); });
+            [this](float level, float attack) {
+                local_audio_.FeedTtsLevel(level, attack);
+                controller_.FeedOutputAudioLevel(level, attack);
+            });
         controller_.RegisterMcpTools();
         // 音频管理工具（列表/试听/删除/擦除/状态），Web 控制台取消后的入口。
         wzh::RegisterAudioMcpTools("dinosaur", &local_audio_.audio_store(), &local_audio_);
-        // 云端音频同步：后台静默运行，不阻塞联网与对话。
-        audio_hub_.Start(&local_audio_.audio_store());
+        // 云端音频按需访问：不自动联网，管理页点击后才检查/更新。
+        audio_hub_.StartManual(&local_audio_.audio_store(), [this]() {
+            return controller_.IsMaintenanceBusy() || local_audio_.LocalCommandEchoRisk();
+        });
         wzh::RegisterHubMcpTools("dinosaur", &audio_hub_);
+        // 本地管理页：设备热点 192.168.4.1:8080，STA 保持联网。
+        wzh::WebConsole::Options console;
+        console.store = &local_audio_.audio_store();
+        console.player = &local_audio_;
+        console.hub = &audio_hub_;
+        console.product_name = "恐龙";
+        console.build_name = "wzh-dinosaur";
+        console.ap_prefix = PANDA_AP_PREFIX;
+        console.maintenance = [this](bool enabled) {
+            const auto state = Application::GetInstance().GetDeviceState();
+            const bool system = state == kDeviceStateStarting || state == kDeviceStateUpgrading ||
+                                state == kDeviceStateFatalError ||
+                                state == kDeviceStateAudioTesting;
+            controller_.SetMaintenance(enabled || system || web_console_.maintenance_active());
+        };
+        console.center = [this]() { return controller_.RequestCenter(); };
+        console.status_extra = [this](cJSON* root) {
+            wzh::AddPowerTelemetry(root, power_.battery_voltage_mv(), power_.touch_valid(),
+                                   power_.touch_code(), power_.touch_voltage_mv());
+            wzh::AddBatterySamplingTelemetry(root, power_.battery_sampling());
+            cJSON_AddBoolToObject(root, "conversation", controller_.IsConversationActive());
+            cJSON_AddBoolToObject(root, "servo_powered", controller_.servo_output().powered());
+            cJSON_AddNumberToObject(root, "servo_faults",
+                                    static_cast<double>(controller_.servo_output().faults()));
+        };
+        web_console_.Configure(std::move(console));
+        WifiManager::GetInstance().SetBeforeConfigApHook([this]() { web_console_.Stop(); });
         InitializeConversationMode();
         InitializeButton();
     }
-
 
     AudioCodec* GetAudioCodec() override {
         // 延迟构造 codec，保证 codec_i2c_bus_ 已由构造函数创建。
@@ -80,11 +130,56 @@ public:
         static Es8311AudioCodec codec(
             codec_i2c_bus_, I2C_NUM_0, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT,
-            AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR, false);
+            AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR, false, false,
+            AUDIO_CODEC_PA_VOLTAGE);
         return &codec;
     }
 
+    bool SupportsLocalInteraction() const override { return true; }
+
+    bool IsAudioMaintenanceActive() override {
+        return web_console_.maintenance_active() || local_audio_.audio_store().IsWriting();
+    }
+
+    // Local commands remain available during provisioning and cloud initialization.
+    bool HandleLocalVoiceCommand(const std::string& command) override {
+        constexpr const char* prefix = "local:";
+        if (command.compare(0, std::strlen(prefix), prefix) != 0) {
+            // An ordinary wake phrase is an explicit invitation to resume companionship.
+            local_audio_.StopPlayback();
+            controller_.HandlePetControl(wzh::PetControl::kWake, false);
+            return false;
+        }
+        const std::string name = command.substr(std::strlen(prefix));
+        const auto control = wzh::ParsePetControl(name);
+        const bool stop = control == wzh::PetControl::kStop || control == wzh::PetControl::kRest ||
+                          control == wzh::PetControl::kQuiet;
+        if (!stop && local_audio_.LocalCommandEchoRisk()) {
+            ESP_LOGD(TAG, "Local command ignored during speaker output: %s", name.c_str());
+            return true;
+        }
+        ESP_LOGI(TAG, "Input=local_voice %s", name.c_str());
+        if (controller_.HandlePetControl(control)) {
+            return true;
+        }
+        if (controller_.IsConversationActive()) {
+            ESP_LOGD(TAG, "Cloud conversation owns joint commands via MCP");
+            return true;
+        }
+        if (controller_.HandleBodyCommand(name)) {
+            return true;
+        } else if (name == "happy" || name == "affection" || name == "eat") {
+            const DinoAction action = name == "happy"       ? DinoAction::kHappy
+                                      : name == "affection" ? DinoAction::kAffection
+                                                            : DinoAction::kEat;
+            controller_.TriggerAction(action, !controller_.IsConversationActive());
+        }
+        return true;
+    }
+
     Display* GetDisplay() override { return &display_; }
+
+    bool GetTemperature(float& celsius) override { return power_.GetTemperature(celsius); }
 
     bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
         level = power_.battery_level();
@@ -99,6 +194,11 @@ public:
         // 防止语音通道关闭回调尚未到达时继续保留在线状态。
         WifiBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
                                                NetworkEvent event, const std::string& data) {
+            if (event == NetworkEvent::Connected) {
+                web_console_.Start();
+            } else if (event == NetworkEvent::WifiConfigModeEnter) {
+                web_console_.Stop();
+            }
             if (event == NetworkEvent::Disconnected || event == NetworkEvent::WifiConfigModeEnter) {
                 controller_.SetConversationActive(false);
             }
@@ -114,23 +214,37 @@ private:
     DinosaurPower power_;
     DinosaurAudio local_audio_;
     wzh::AudioHub audio_hub_;
+    wzh::WebConsole web_console_;
+    wzh::Sensors sensors_;
     DinosaurController controller_;
     DinosaurDisplay display_;
 
+    void InitializeSensors() {
+        sensors_.Initialize(HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
+                            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
+                                return controller_.HandleSensorEvent(static_cast<int>(event));
+                            });
+        sensors_.RegisterMcpTools("dinosaur");
+    }
+
+    void InitializeTouch() {
+        power_.RegisterTouchHook(
+            [this](uint8_t code, uint8_t, uint8_t) { controller_.HandleTouch(code); });
+    }
+
     void InitializeConversationMode() {
-        // Wi-Fi 连着但没有说话时也属于离线自主模式。只有建立会话、收音
+        // Wi-Fi 连着但没有说话时也属于本地互动等待。只有建立会话、收音
         // 或播放服务端回复期间，才暂停本地声音并进入在线情绪模式。
         // speaking 状态单独上报，让 TTS 播放期间恐龙能随语音摆尾。
         Application::GetInstance().AddDeviceStateChangeListener(
-            [this](DeviceState, DeviceState new_state) {
-                if (new_state == kDeviceStateWifiConfiguring || new_state == kDeviceStateUpgrading ||
-                    new_state == kDeviceStateActivating) {
-                    // 配网/升级/激活期间保持安静姿态：暂停自主行为和本地
-                    // 声音，只保留一次性的注意动作。
-                    controller_.SetConversationActive(true);
-                    controller_.SetSpeaking(false);
-                    return;
+            [this](DeviceState old_state, DeviceState new_state) {
+                if (old_state == kDeviceStateIdle && new_state == kDeviceStateConnecting) {
+                    controller_.HandlePetControl(wzh::PetControl::kWake, false);
                 }
+                const bool maintenance =
+                    new_state == kDeviceStateUpgrading || new_state == kDeviceStateStarting ||
+                    new_state == kDeviceStateFatalError || new_state == kDeviceStateAudioTesting;
+                controller_.SetMaintenance(maintenance || web_console_.maintenance_active());
                 const bool active =
                     new_state == kDeviceStateConnecting || new_state == kDeviceStateListening ||
                     new_state == kDeviceStateSpeaking || new_state == kDeviceStateAudioTesting;
@@ -155,20 +269,17 @@ private:
     void InitializeButton() {
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
-            // 启动/配网阶段进入我们自己的配网门户，其余状态沿用按键对话行为。
+            // 单击仅在启动/配网阶段打开门户；正常对话统一使用双击。
             if (app.GetDeviceState() == kDeviceStateStarting ||
                 app.GetDeviceState() == kDeviceStateWifiConfiguring) {
                 EnterWifiConfigMode();
                 return;
             }
-            app.ToggleChatState();
         });
-        boot_button_.OnDoubleClick([this]() {
-            // 在线时只做动作，避免本地声音与服务端 TTS 同时播放。
-            controller_.TriggerAction(DinoAction::kHappy, !controller_.IsConversationActive());
-        });
-        ESP_LOGI(TAG, "Boot key: click to talk/configure, double click for a happy action; "
-                      "power key double click toggles chat");
+        boot_button_.OnDoubleClick([]() { Application::GetInstance().ToggleConversation(); });
+        ESP_LOGI(TAG,
+                 "Boot/power key: double click enters/exits conversation; single click only "
+                 "configures Wi-Fi");
     }
 };
 

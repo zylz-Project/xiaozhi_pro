@@ -1,0 +1,337 @@
+{
+  "review_date": "2026-10-15",
+  "base_commit": "8032fa64e108d3e1944654581355559794d10af3",
+  "dirty_worktree": true,
+  "schematic": {
+    "file": "V4-2.2小熊猫-改.pdf",
+    "sha256": "8524f8abcf929897cc4104a1645b688b7a437ac00da02710a6e0b5ca0916df45",
+    "pages": 6,
+    "all_pages_visually_reviewed": true
+  },
+  "scope": "Static GPIO/ADC/console/factory/PA-supply checks plus manual schematic review; not electrical or mechanical validation.",
+  "boards": [
+    {
+      "board": "wzh_dinosaur",
+      "checked_macros": 35,
+      "result": "passed",
+      "assigned_runtime_gpios": {
+        "AUDIO_I2S_GPIO_WS": 13,
+        "AUDIO_I2S_GPIO_BCLK": 48,
+        "AUDIO_I2S_GPIO_DOUT": 46,
+        "AUDIO_I2S_GPIO_DIN": 14,
+        "AUDIO_CODEC_I2C_SDA_PIN": 2,
+        "AUDIO_CODEC_I2C_SCL_PIN": 38,
+        "BOOT_BUTTON_GPIO": 0,
+        "POWER_CTRL_GPIO": 7,
+        "POWER_BUTTON_GPIO": 6,
+        "HUMAN_SENSOR_GPIO": 41,
+        "POSTURE_I2C_SDA_GPIO": 43,
+        "POSTURE_I2C_SCL_GPIO": 44,
+        "TOUCH_GPIO": 5,
+        "SERVO_POWER_GPIO": 4,
+        "SERVO_HEAD_TURN_GPIO": 15,
+        "SERVO_NECK_LEAN_GPIO": 16,
+        "SERVO_NECK_TILT_GPIO": 17,
+        "SERVO_TAIL_LR_GPIO": 18,
+        "SERVO_TAIL_UD_GPIO": 8,
+        "DINO_FLASH_CS_PIN": 10,
+        "DINO_FLASH_CLK_PIN": 9,
+        "DINO_FLASH_MOSI_PIN": 47,
+        "DINO_FLASH_MISO_PIN": 21,
+        "BATTERY_ADC_GPIO_FROM_S3_CHANNEL_2": 3
+      },
+      "checked_values": {
+        "AUDIO_I2S_GPIO_MCLK": "GPIO_NUM_NC",
+        "AUDIO_I2S_GPIO_WS": "GPIO_NUM_13",
+        "AUDIO_I2S_GPIO_BCLK": "GPIO_NUM_48",
+        "AUDIO_I2S_GPIO_DOUT": "GPIO_NUM_46",
+        "AUDIO_I2S_GPIO_DIN": "GPIO_NUM_14",
+        "AUDIO_CODEC_I2C_SDA_PIN": "GPIO_NUM_2",
+        "AUDIO_CODEC_I2C_SCL_PIN": "GPIO_NUM_38",
+        "AUDIO_CODEC_PA_PIN": "GPIO_NUM_NC",
+        "AUDIO_CODEC_PA_VOLTAGE": "3.3f",
+        "AUDIO_CODEC_ES8311_ADDR": "ES8311_CODEC_DEFAULT_ADDR",
+        "BOOT_BUTTON_GPIO": "GPIO_NUM_0",
+        "POWER_CTRL_GPIO": "GPIO_NUM_7",
+        "POWER_BUTTON_GPIO": "GPIO_NUM_6",
+        "POWER_BUTTON_ADC_CHANNEL": "ADC_CHANNEL_5",
+        "BATTERY_ADC_CHANNEL": "ADC_CHANNEL_2",
+        "BATTERY_DIVIDER_RATIO": "2",
+        "HUMAN_SENSOR_GPIO": "GPIO_NUM_41",
+        "POSTURE_I2C_SDA_GPIO": "GPIO_NUM_43",
+        "POSTURE_I2C_SCL_GPIO": "GPIO_NUM_44",
+        "TOUCH_GPIO": "GPIO_NUM_5",
+        "TOUCH_ADC_CHANNEL": "ADC_CHANNEL_4",
+        "SERVO_POWER_GPIO": "GPIO_NUM_4",
+        "SERVO_FREQ_HZ": "50",
+        "SERVO_DUTY_RES": "LEDC_TIMER_13_BIT",
+        "AUDIO_INPUT_SAMPLE_RATE": "24000",
+        "AUDIO_OUTPUT_SAMPLE_RATE": "24000",
+        "SERVO_HEAD_TURN_GPIO": "GPIO_NUM_15",
+        "SERVO_NECK_LEAN_GPIO": "GPIO_NUM_16",
+        "SERVO_NECK_TILT_GPIO": "GPIO_NUM_17",
+        "SERVO_TAIL_LR_GPIO": "GPIO_NUM_18",
+        "SERVO_TAIL_UD_GPIO": "GPIO_NUM_8",
+        "DINO_FLASH_CS_PIN": "GPIO_NUM_10",
+        "DINO_FLASH_CLK_PIN": "GPIO_NUM_9",
+        "DINO_FLASH_MOSI_PIN": "GPIO_NUM_47",
+        "DINO_FLASH_MISO_PIN": "GPIO_NUM_21"
+      },
+      "source_sha256": {
+        "main/boards/wzh_dinosaur/config.h": "390c9187f7e25be41fd8bac0cac1b9c4bffa89d28312375a38c9afa90ae531f2",
+        "main/boards/wzh_dinosaur/wzh_dinosaur.cc": "7e5245ba44d73bc70fe0b8f8506a4a80ded8e64b540169e7443ff6983a59ec7e",
+        "main/boards/wzh_dinosaur/config.json": "64d9186138bea2020442993b8adb2e4975996b287d73f8da471d13cc75f5e789"
+      }
+    },
+    {
+      "board": "wzh_crawlPanda",
+      "checked_macros": 33,
+      "result": "passed",
+      "assigned_runtime_gpios": {
+        "AUDIO_I2S_GPIO_WS": 13,
+        "AUDIO_I2S_GPIO_BCLK": 48,
+        "AUDIO_I2S_GPIO_DOUT": 46,
+        "AUDIO_I2S_GPIO_DIN": 14,
+        "AUDIO_CODEC_I2C_SDA_PIN": 2,
+        "AUDIO_CODEC_I2C_SCL_PIN": 38,
+        "BOOT_BUTTON_GPIO": 0,
+        "POWER_CTRL_GPIO": 7,
+        "POWER_BUTTON_GPIO": 6,
+        "HUMAN_SENSOR_GPIO": 41,
+        "POSTURE_I2C_SDA_GPIO": 43,
+        "POSTURE_I2C_SCL_GPIO": 44,
+        "TOUCH_GPIO": 5,
+        "SERVO_POWER_GPIO": 4,
+        "SERVO_HEAD_GPIO": 17,
+        "SERVO_LEFT_ARM_GPIO": 15,
+        "SERVO_RIGHT_ARM_GPIO": 16,
+        "PANDA_FLASH_CS_PIN": 10,
+        "PANDA_FLASH_CLK_PIN": 9,
+        "PANDA_FLASH_MOSI_PIN": 47,
+        "PANDA_FLASH_MISO_PIN": 21,
+        "BATTERY_ADC_GPIO_FROM_S3_CHANNEL_2": 3
+      },
+      "checked_values": {
+        "AUDIO_I2S_GPIO_MCLK": "GPIO_NUM_NC",
+        "AUDIO_I2S_GPIO_WS": "GPIO_NUM_13",
+        "AUDIO_I2S_GPIO_BCLK": "GPIO_NUM_48",
+        "AUDIO_I2S_GPIO_DOUT": "GPIO_NUM_46",
+        "AUDIO_I2S_GPIO_DIN": "GPIO_NUM_14",
+        "AUDIO_CODEC_I2C_SDA_PIN": "GPIO_NUM_2",
+        "AUDIO_CODEC_I2C_SCL_PIN": "GPIO_NUM_38",
+        "AUDIO_CODEC_PA_PIN": "GPIO_NUM_NC",
+        "AUDIO_CODEC_PA_VOLTAGE": "3.3f",
+        "AUDIO_CODEC_ES8311_ADDR": "ES8311_CODEC_DEFAULT_ADDR",
+        "BOOT_BUTTON_GPIO": "GPIO_NUM_0",
+        "POWER_CTRL_GPIO": "GPIO_NUM_7",
+        "POWER_BUTTON_GPIO": "GPIO_NUM_6",
+        "POWER_BUTTON_ADC_CHANNEL": "ADC_CHANNEL_5",
+        "BATTERY_ADC_CHANNEL": "ADC_CHANNEL_2",
+        "BATTERY_DIVIDER_RATIO": "2",
+        "HUMAN_SENSOR_GPIO": "GPIO_NUM_41",
+        "POSTURE_I2C_SDA_GPIO": "GPIO_NUM_43",
+        "POSTURE_I2C_SCL_GPIO": "GPIO_NUM_44",
+        "TOUCH_GPIO": "GPIO_NUM_5",
+        "TOUCH_ADC_CHANNEL": "ADC_CHANNEL_4",
+        "SERVO_POWER_GPIO": "GPIO_NUM_4",
+        "SERVO_FREQ_HZ": "50",
+        "SERVO_DUTY_RES": "LEDC_TIMER_13_BIT",
+        "AUDIO_INPUT_SAMPLE_RATE": "24000",
+        "AUDIO_OUTPUT_SAMPLE_RATE": "24000",
+        "SERVO_HEAD_GPIO": "GPIO_NUM_17",
+        "SERVO_LEFT_ARM_GPIO": "GPIO_NUM_15",
+        "SERVO_RIGHT_ARM_GPIO": "GPIO_NUM_16",
+        "PANDA_FLASH_CS_PIN": "GPIO_NUM_10",
+        "PANDA_FLASH_CLK_PIN": "GPIO_NUM_9",
+        "PANDA_FLASH_MOSI_PIN": "GPIO_NUM_47",
+        "PANDA_FLASH_MISO_PIN": "GPIO_NUM_21"
+      },
+      "source_sha256": {
+        "main/boards/wzh_crawlPanda/config.h": "87e95411d974485664b795d9dec93288b2ae89ca6c36bc42c0c5cbed82ec622b",
+        "main/boards/wzh_crawlPanda/wzh_crawlPanda.cc": "c0fccdbdab10e6f36bd5315de7af855223f26376f8fc993310564f11253a6cf7",
+        "main/boards/wzh_crawlPanda/config.json": "93845d1f6018b26d59293e24a1fedec6db4f1fc30a7547e2e830d07fc805188b"
+      }
+    },
+    {
+      "board": "wzh_tailRedPanda",
+      "checked_macros": 33,
+      "result": "passed",
+      "assigned_runtime_gpios": {
+        "AUDIO_I2S_GPIO_WS": 13,
+        "AUDIO_I2S_GPIO_BCLK": 48,
+        "AUDIO_I2S_GPIO_DOUT": 46,
+        "AUDIO_I2S_GPIO_DIN": 14,
+        "AUDIO_CODEC_I2C_SDA_PIN": 2,
+        "AUDIO_CODEC_I2C_SCL_PIN": 38,
+        "BOOT_BUTTON_GPIO": 0,
+        "POWER_CTRL_GPIO": 7,
+        "POWER_BUTTON_GPIO": 6,
+        "HUMAN_SENSOR_GPIO": 41,
+        "POSTURE_I2C_SDA_GPIO": 43,
+        "POSTURE_I2C_SCL_GPIO": 44,
+        "TOUCH_GPIO": 5,
+        "SERVO_POWER_GPIO": 4,
+        "SERVO_HEAD_GPIO": 18,
+        "SERVO_TAIL_LR_GPIO": 15,
+        "SERVO_TAIL_UD_GPIO": 16,
+        "PANDA_FLASH_CS_PIN": 10,
+        "PANDA_FLASH_CLK_PIN": 9,
+        "PANDA_FLASH_MOSI_PIN": 47,
+        "PANDA_FLASH_MISO_PIN": 21,
+        "BATTERY_ADC_GPIO_FROM_S3_CHANNEL_2": 3
+      },
+      "checked_values": {
+        "AUDIO_I2S_GPIO_MCLK": "GPIO_NUM_NC",
+        "AUDIO_I2S_GPIO_WS": "GPIO_NUM_13",
+        "AUDIO_I2S_GPIO_BCLK": "GPIO_NUM_48",
+        "AUDIO_I2S_GPIO_DOUT": "GPIO_NUM_46",
+        "AUDIO_I2S_GPIO_DIN": "GPIO_NUM_14",
+        "AUDIO_CODEC_I2C_SDA_PIN": "GPIO_NUM_2",
+        "AUDIO_CODEC_I2C_SCL_PIN": "GPIO_NUM_38",
+        "AUDIO_CODEC_PA_PIN": "GPIO_NUM_NC",
+        "AUDIO_CODEC_PA_VOLTAGE": "3.3f",
+        "AUDIO_CODEC_ES8311_ADDR": "ES8311_CODEC_DEFAULT_ADDR",
+        "BOOT_BUTTON_GPIO": "GPIO_NUM_0",
+        "POWER_CTRL_GPIO": "GPIO_NUM_7",
+        "POWER_BUTTON_GPIO": "GPIO_NUM_6",
+        "POWER_BUTTON_ADC_CHANNEL": "ADC_CHANNEL_5",
+        "BATTERY_ADC_CHANNEL": "ADC_CHANNEL_2",
+        "BATTERY_DIVIDER_RATIO": "2",
+        "HUMAN_SENSOR_GPIO": "GPIO_NUM_41",
+        "POSTURE_I2C_SDA_GPIO": "GPIO_NUM_43",
+        "POSTURE_I2C_SCL_GPIO": "GPIO_NUM_44",
+        "TOUCH_GPIO": "GPIO_NUM_5",
+        "TOUCH_ADC_CHANNEL": "ADC_CHANNEL_4",
+        "SERVO_POWER_GPIO": "GPIO_NUM_4",
+        "SERVO_FREQ_HZ": "50",
+        "SERVO_DUTY_RES": "LEDC_TIMER_13_BIT",
+        "AUDIO_INPUT_SAMPLE_RATE": "24000",
+        "AUDIO_OUTPUT_SAMPLE_RATE": "24000",
+        "SERVO_HEAD_GPIO": "GPIO_NUM_18",
+        "SERVO_TAIL_LR_GPIO": "GPIO_NUM_15",
+        "SERVO_TAIL_UD_GPIO": "GPIO_NUM_16",
+        "PANDA_FLASH_CS_PIN": "GPIO_NUM_10",
+        "PANDA_FLASH_CLK_PIN": "GPIO_NUM_9",
+        "PANDA_FLASH_MOSI_PIN": "GPIO_NUM_47",
+        "PANDA_FLASH_MISO_PIN": "GPIO_NUM_21"
+      },
+      "source_sha256": {
+        "main/boards/wzh_tailRedPanda/config.h": "8693f85814381f4e22c759c3f2be34858ecfb3d90bfb6c5a04bd996e0f7c0106",
+        "main/boards/wzh_tailRedPanda/wzh_tailRedPanda.cc": "a839e62330aa58f946f88b6569f98082eaa78ecafa07c6e16f39c9ac1cda9477",
+        "main/boards/wzh_tailRedPanda/config.json": "9c69287f11aac1ebf9352bd2f7206895460cb9b8b9199a94b07d74bd4b9e37dc"
+      }
+    }
+  ],
+  "reference_human": {
+    "gpio": 41,
+    "mode": "digital_input",
+    "pull": "down",
+    "active_level": "high",
+    "model_identified": false,
+    "source_sha256": {
+      "board.h": "876a555e0e0464e73510ca62b09d03a7d5cd8eb7d4741f0b808cf8a904504d51",
+      "board.c": "6ebabab24316f3ef6e1047b9c9b00cb2bc68e1188a7679abde46b88781970194",
+      "audio_config.h": "6cae2b7a02e0cdbc7cb8b882179eb1e3e159a16ff7cb1eb3f51c1f9625bed254",
+      "sc7a20h.c": "bf3fe0e21214cf9631f3c9c351c5bcd4ba896cacdaf3bd51ddb4fcabc1bfcdee"
+    }
+  },
+  "manual_resolved_checks": {
+    "GND_DGND": "direct connection at page 3 bottom",
+    "flash_hold": "tied to 3.3V at page 3",
+    "codec_clock": "BCLK-derived, use_mclk=false",
+    "touch_mode": "TTP224B-BSBN direct CMOS active-high multi-key; no 16s hold cutoff"
+  },
+  "firmware_change": "WZH PA supply gain parameter corrected from 5.0V to 3.3V; default for other boards remains 5.0V.",
+  "hardware_tested": false,
+  "flashed": false,
+  "validation": {
+    "sdk": "ESP-IDF v6.0.1",
+    "preferred_sdk": "v6.0.2 (not installed)",
+    "host_tests": {
+      "count": 70,
+      "result": "passed",
+      "log": "host-tests.log"
+    },
+    "builds": [
+      {
+        "board": "kevin/c3",
+        "variant": "kevin-c3",
+        "result": "passed",
+        "app_size_bytes": 1987616,
+        "app_partition_free_percent": 52
+      },
+      {
+        "board": "wzh_dinosaur",
+        "variant": "wzh-dinosaur",
+        "result": "passed",
+        "app_size_bytes": 2400032,
+        "app_partition_free_percent": 42
+      },
+      {
+        "board": "wzh_crawlPanda",
+        "variant": "wzh-crawlpanda",
+        "result": "passed",
+        "app_size_bytes": 2384336,
+        "app_partition_free_percent": 42
+      },
+      {
+        "board": "wzh_tailRedPanda",
+        "variant": "wzh-tailredpanda",
+        "result": "passed",
+        "app_size_bytes": 2385168,
+        "app_partition_free_percent": 42
+      }
+    ],
+    "format": "passed, clang-format 23.1.3",
+    "git_diff_check": "passed",
+    "build_manifest": "../../dist/wzh-hardware-20261015/validation.json",
+    "hardware_tested": false,
+    "flashed": false
+  },
+  "current_turn_source_delta": {
+    "main/audio/codecs/es8311_audio_codec.cc": {
+      "before_sha256": "bc127ecbfff19c3f77c1bc5ae2d7971429dcb34629fe45002b7e68736e3618e0",
+      "after_sha256": "9bebb0eadf88da125a3cc12dd881b205ea50b9c190d61e6ccacb81569d774494"
+    },
+    "main/audio/codecs/es8311_audio_codec.h": {
+      "before_sha256": "56b607824cda48004b0f7aa5b37e0a9b359bd16f80521bb9df4dcdd3aa43a212",
+      "after_sha256": "aee36fb95279bae0306ca57654739462572120e24161f98f2c0199d0c1ecbc6a"
+    },
+    "main/boards/wzh_crawlPanda/README.md": {
+      "before_sha256": "f103706218a4ba3a3c4ff3655114c043240c1df1b18eeafad2c504ecc3f424c3",
+      "after_sha256": "dfd65a4be29b85a07093b33d173b1bbd7fb87ad62afbf64548ed3cea27c2d4fa"
+    },
+    "main/boards/wzh_crawlPanda/config.h": {
+      "before_sha256": "1154133aed050d626188a3863b8b1164bc2cf29c2347824bb09a68839e4f8221",
+      "after_sha256": "87e95411d974485664b795d9dec93288b2ae89ca6c36bc42c0c5cbed82ec622b"
+    },
+    "main/boards/wzh_crawlPanda/wzh_crawlPanda.cc": {
+      "before_sha256": "a6d238207193c48f7495fef30c7c5ada8341dc5a9305a23da18088bc40b05432",
+      "after_sha256": "c0fccdbdab10e6f36bd5315de7af855223f26376f8fc993310564f11253a6cf7"
+    },
+    "main/boards/wzh_dinosaur/README.md": {
+      "before_sha256": "092d5c930f458072a3f784c217439e6425c92c443175e1c51d2a7ed795c22c2e",
+      "after_sha256": "59f12ed9f7201995b1bf226b4a58efaf77d0a632515fb859bcdf96aead50374d"
+    },
+    "main/boards/wzh_dinosaur/config.h": {
+      "before_sha256": "45653ffaff10457836f71a50c048375f69de0b26cdc6c80492d29b9ee7f29e22",
+      "after_sha256": "390c9187f7e25be41fd8bac0cac1b9c4bffa89d28312375a38c9afa90ae531f2"
+    },
+    "main/boards/wzh_dinosaur/wzh_dinosaur.cc": {
+      "before_sha256": "94e80d3d6012da3008ded2618ecfb7a987b5b5d43a1b99958596a021747cffb4",
+      "after_sha256": "7e5245ba44d73bc70fe0b8f8506a4a80ded8e64b540169e7443ff6983a59ec7e"
+    },
+    "main/boards/wzh_tailRedPanda/README.md": {
+      "before_sha256": "b0a65020cb8a4512ea8a7c9421196d0aa87bc85e10d6c910df75957dfadd42dd",
+      "after_sha256": "66e5b3db0221e05aed081521f62f7e26da1ad18186480e9740fd24cac8fe1159"
+    },
+    "main/boards/wzh_tailRedPanda/config.h": {
+      "before_sha256": "1051330b5424452c48ff8d57f773ae3815004212e58b879ead0870bd38105e1a",
+      "after_sha256": "8693f85814381f4e22c759c3f2be34858ecfb3d90bfb6c5a04bd996e0f7c0106"
+    },
+    "main/boards/wzh_tailRedPanda/wzh_tailRedPanda.cc": {
+      "before_sha256": "72d6197ddbdd3265fcf3904af574f4da299daaf9035a087bc7fc0b3ea25f177b",
+      "after_sha256": "a839e62330aa58f946f88b6569f98082eaa78ecafa07c6e16f39c9ac1cda9477"
+    }
+  }
+}

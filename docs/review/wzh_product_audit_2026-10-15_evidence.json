@@ -1,0 +1,65 @@
+{
+  "review_date": "2026-10-15",
+  "timezone": "Asia/Shanghai",
+  "scope": "current dirty worktree, three WZH products; local Audio Hub contract and tests sampled; deployed conversation backend not inspected",
+  "head": "8032fa64e108d3e1944654581355559794d10af3",
+  "firmware_host_tests": {
+    "passed": 56,
+    "log": "/tmp/wzh_audit_20261015_tests.log"
+  },
+  "local_audio_hub_tests": {
+    "passed": 25,
+    "log": "/tmp/wzh_audit_20261015_hub_tests.log"
+  },
+  "reproductions": [
+    {
+      "case": "A02_speaking_local_event_disables_detection",
+      "observed": "state=speaking, enabled_before=true, enabled_after=false"
+    },
+    {
+      "case": "A03_boot_presence_event_is_lost",
+      "observed": "PIR=HIGH for 20s, dispatched_events=0"
+    },
+    {
+      "case": "A04_power_budget_is_not_motion_heartbeat",
+      "observed": "no further motion writes: allow_at_1000ms=true, allow_at_59999ms=true, allow_at_60000ms=false"
+    },
+    {
+      "case": "A04_short_release_resets_continuous_budget",
+      "observed": "30 cycles of 20s powered +1ms release: all_allowed=true"
+    },
+    {
+      "case": "PASS_current_battery_thresholds",
+      "observed": "3300mV lock, 3399mV stays locked, three 3400mV samples recover: PASS"
+    }
+  ],
+  "audio_hub_contract": {
+    "first_registration_status": 201,
+    "retry_registration_status": 200,
+    "claim_compatibility_fields_are_strings": true,
+    "firmware_accepts_only_http_status": 200,
+    "tokens_printed": false,
+    "database": "temporary, removed on exit"
+  },
+  "source_sha256": {
+    "main/application.cc": "4b81637766d684ece8e715fa566b1874e24f94e8438cd24e5e071288c328dc9f",
+    "main/boards/common/wifi_board.cc": "9cd2ad3ae8c8e78247f674b3d827a82177c502437768d84ad26a1370d2114dec",
+    "main/boards/common/wzh/wzh_protection.h": "f8c1e368d69fd1f21002de2068d1ef6e22553dc5263b7efc3d228774378db27f",
+    "main/boards/common/wzh/wzh_servo_output.cc": "b3201c057ae6d9e241a7671337ad212cb39d636aca08304b3d9750bdb48e34c0",
+    "main/boards/common/wzh/wzh_sensors.cc": "3e83f2e032860a95890a396d1c007e0d3272fdad954bc3d6d8994374938bbb98",
+    "main/boards/common/wzh/wzh_mcp_tools.cc": "bf51ac2105a3f032571208ae076cba4494282ee91e0eaa2cf1a39f2b19bf9413",
+    "main/boards/common/wzh/wzh_audio_hub.cc": "0e06c35acaf404341c3101bd375a8bdba81284a6a26511330408800e555f5ad1",
+    "main/boards/wzh_dinosaur/wzh_dinosaur.cc": "2725010cb3af8c86a33fc751a530880737ca4963e3d0107023929146d1d5f1e0",
+    "main/boards/wzh_dinosaur/dinosaur_controller.cc": "2e219503980d15c410f026aecc0023b272a50fe97a6615514974246bb36e12fc",
+    "main/boards/wzh_dinosaur/dinosaur_power.cc": "14c117b631ed751cc1a87f199f5dc6f0b0aa9244b0dfcc7989e782524d316d53",
+    "main/audio/engines/afe_audio_engine.cc": "c9c899d5cfbbc44f6cf8c859cb52fe46ab53283e5fb6281dcfe3c26cecf4ff52",
+    "main/audio/codecs/es8311_audio_codec.cc": "bc127ecbfff19c3f77c1bc5ae2d7971429dcb34629fe45002b7e68736e3618e0",
+    "main/audio/audio_codec.cc": "2dafab53ce88f6aa66ff0cc51eb23da73dac8f034276636c3cf491e304443072",
+    "main/ota.cc": "7b046477f51deace32169f177c69c368cb6a94294305910f62078410f43893cf",
+    "scripts/build_default_assets.py": "fe133a790e14e0c2047f9591755f53ee8c364cadff9d4a5fb981e6dcd3369123"
+  },
+  "acceptance_cases": 41,
+  "hardware_tests_performed": false,
+  "firmware_builds_performed_this_review": false,
+  "production_code_changes_this_review": false
+}

@@ -2,19 +2,19 @@
 #define CUSTOM_WAKE_WORD_H
 
 #include <esp_attr.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <esp_mn_iface.h>
 #include <esp_mn_models.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <model_path.h>
 
+#include <atomic>
+#include <condition_variable>
 #include <deque>
-#include <string>
-#include <vector>
 #include <functional>
 #include <mutex>
-#include <condition_variable>
-#include <atomic>
+#include <string>
+#include <vector>
 
 #include "audio_codec.h"
 #include "wake_word.h"
@@ -25,7 +25,10 @@ public:
     CustomWakeWord();
     ~CustomWakeWord();
 
-    bool Initialize(AudioCodec* codec, srmodel_list_t* models_list);
+    bool Initialize(AudioCodec* codec, srmodel_list_t* models_list) override {
+        return Initialize(codec, models_list, false);
+    }
+    bool Initialize(AudioCodec* codec, srmodel_list_t* models_list, bool local_commands_only);
     void Feed(const std::vector<int16_t>& data);
     void FeedMono(const int16_t* data, size_t samples);
     void OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback);
@@ -46,18 +49,20 @@ private:
     // multinet 相关成员变量
     esp_mn_iface_t* multinet_ = nullptr;
     model_iface_data_t* multinet_model_data_ = nullptr;
-    srmodel_list_t *models_ = nullptr;
+    srmodel_list_t* models_ = nullptr;
     bool owns_models_ = false;
     char* mn_name_ = nullptr;
     std::string language_ = "cn";
     int duration_ = 3000;
     float threshold_ = 0.2;
     std::deque<Command> commands_;
- 
+
     std::function<void(const std::string& wake_word)> wake_word_detected_callback_;
     AudioCodec* codec_ = nullptr;
     std::string last_detected_wake_word_;
     std::atomic<bool> running_ = false;
+    std::atomic<bool> reset_pending_{true};
+    bool local_commands_only_ = false;
     std::vector<int16_t> input_buffer_;
     std::mutex input_buffer_mutex_;
 

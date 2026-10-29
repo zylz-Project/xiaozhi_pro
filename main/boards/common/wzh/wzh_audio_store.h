@@ -47,7 +47,10 @@ public:
     // 无声运行，动作引擎不受影响）。
     bool Init();
 
-    int file_count() const { return static_cast<int>(files_.size()); }
+    int file_count() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return static_cast<int>(files_.size());
+    }
     // 在互斥锁内拷贝条目，避免同步任务改写目录时读到半新半旧的数据。
     bool GetFile(int index, AudioFileInfo* out) const;
     // 返回目录内部条目指针（不拷贝）。底层存储在 Init 时一次性预留、
@@ -64,12 +67,17 @@ public:
     uint64_t capacity() const { return capacity_; }
     uint64_t used_bytes() const;
     uint64_t free_bytes() const;
-    Layout layout() const { return layout_; }
+    Layout layout() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return layout_;
+    }
     bool IsWriting() const { return writing_.load(); }
 
     // 流式写入一个文件。reader 逐次填充缓冲并返回实际字节数：0 表示
     // 正常结束，SIZE_MAX 表示失败中止。任何失败都不会提交目录（数据
     // 成为无害孤儿，下次写操作覆盖）。成功后立即刷新目录。
+    // 同名文件以追加新数据、提交时替换条目的方式更新，失败保留旧条目。
+    // 网络读取期间不持有目录锁，查询/触摸无需等待整次下载。
     // 头部会校验 OggS + OpusHead 标记，拒绝非 OGG/Opus 内容。
     bool WriteFile(const std::string& name, uint32_t size, uint32_t sample_rate,
                    uint32_t duration_ms, const std::string& category,
@@ -101,8 +109,7 @@ private:
     bool ReadFlash(uint32_t addr, void* data, size_t size);
     uint64_t UsedBytesLocked() const;
     // 解析一个 4KB TOC 槽；成功时填充条目并返回 seq。
-    bool TryParseV3(const uint8_t* slot, uint32_t* seq,
-                    std::vector<AudioFileInfo>* out) const;
+    bool TryParseV3(const uint8_t* slot, uint32_t* seq, std::vector<AudioFileInfo>* out) const;
     bool TryParseLegacy(const uint8_t* slot, std::vector<AudioFileInfo>* out) const;
     bool LoadToc();
     // 用 entries 的内容重写目录（v3 双槽/单槽提交）。成功后更新 files_。

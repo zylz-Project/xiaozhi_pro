@@ -6,6 +6,7 @@
 #include <freertos/event_groups.h>
 #include <freertos/task.h>
 
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -33,6 +34,7 @@
 #define MAIN_EVENT_STOP_LISTENING (1 << 11)
 #define MAIN_EVENT_STATE_CHANGED (1 << 12)
 #define MAIN_EVENT_PLAYBACK_DRAINED (1 << 13)
+#define MAIN_EVENT_TOGGLE_CONVERSATION (1 << 14)
 
 enum AecMode {
     kAecOff,
@@ -93,6 +95,12 @@ public:
     void DismissAlert();
 
     void AbortSpeaking(AbortReason reason);
+    // Safe from board callbacks: cancel speech/listening on the application task.
+    void StopInteraction(bool play_exit_sound = false);
+
+    // Complete session toggle: also exits while connecting or speaking.
+    // Unlike ToggleChatState(), it never starts provisioning audio tests.
+    void ToggleConversation();
 
     /**
      * Toggle chat state (event-based, thread-safe)
@@ -150,17 +158,31 @@ private:
 
     bool has_server_time_ = false;
     bool aborted_ = false;
+    std::atomic<bool> local_assets_applied_{false};
+    std::atomic<bool> interaction_stopped_{false};
+    std::atomic<uint32_t> interaction_generation_{0};
+    // A TTS start arrives before its first audio packets, but the state change
+    // runs on the main task. Keep a bounded prefix so the first syllable is
+    // not dropped while the start transition is pending.
+    static constexpr size_t kMaxEarlyAudioPackets = 8;
+    std::mutex early_audio_mutex_;
+    std::deque<std::unique_ptr<AudioStreamPacket>> early_audio_;
+    std::atomic<bool> tts_start_pending_{false};
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ =
         false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ =
         false;  // Waiting for playback to drain before starting listening (auto mode)
+    // Double-click entry only: play the ready prompt before opening the mic.
+    // Wake-word and other original XiaoZhi entry paths keep their behavior.
+    bool entry_prompt_before_listening_ = false;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
     // Event handlers
     void HandleStateChangedEvent();
     void HandleToggleChatEvent();
+    void HandleToggleConversationEvent();
     void HandleStartListeningEvent();
     void HandleStopListeningEvent();
     void HandleNetworkConnectedEvent();
@@ -171,6 +193,8 @@ private:
     void BeginWakeWordInvoke(const std::string& wake_word);
     void ContinueWakeWordInvoke(const std::string& wake_word);
     void StartListeningAudio();
+    void FlushEarlyAudio();
+    void ClearEarlyAudio();
     void ConfigureWakeWordForListening();
 
     // Activation task (runs in background)

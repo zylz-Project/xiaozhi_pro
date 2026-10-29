@@ -1,0 +1,2597 @@
+{
+  "date": "2026-10-21",
+  "status": "built_not_flashed",
+  "panda_head": {
+    "center": 90,
+    "min": 30,
+    "max": 150
+  },
+  "products": [
+    {
+      "product": "crawl",
+      "board": "wzh_crawlPanda",
+      "name": "大熊猫",
+      "body_action_count": 22,
+      "offline_phrase_count": 76,
+      "actions": [
+        {
+          "action": "shake_head",
+          "phrases": [
+            {
+              "text": "摇摇头",
+              "pinyin": "yao yao tou"
+            },
+            {
+              "text": "摇头",
+              "pinyin": "yao tou"
+            },
+            {
+              "text": "晃晃头",
+              "pinyin": "huang huang tou"
+            },
+            {
+              "text": "甩甩头",
+              "pinyin": "shuai shuai tou"
+            }
+          ]
+        },
+        {
+          "action": "look_left",
+          "phrases": [
+            {
+              "text": "向左看",
+              "pinyin": "xiang zuo kan"
+            },
+            {
+              "text": "头向左转",
+              "pinyin": "tou xiang zuo zhuan"
+            },
+            {
+              "text": "看左边",
+              "pinyin": "kan zuo bian"
+            },
+            {
+              "text": "向左转头",
+              "pinyin": "xiang zuo zhuan tou"
+            }
+          ]
+        },
+        {
+          "action": "look_right",
+          "phrases": [
+            {
+              "text": "向右看",
+              "pinyin": "xiang you kan"
+            },
+            {
+              "text": "头向右转",
+              "pinyin": "tou xiang you zhuan"
+            },
+            {
+              "text": "看右边",
+              "pinyin": "kan you bian"
+            },
+            {
+              "text": "向右转头",
+              "pinyin": "xiang you zhuan tou"
+            }
+          ]
+        },
+        {
+          "action": "wave_left",
+          "phrases": [
+            {
+              "text": "挥挥左爪",
+              "pinyin": "hui hui zuo zhua"
+            },
+            {
+              "text": "挥左手",
+              "pinyin": "hui zuo shou"
+            },
+            {
+              "text": "左爪打招呼",
+              "pinyin": "zuo zhua da zhao hu"
+            }
+          ]
+        },
+        {
+          "action": "wave_right",
+          "phrases": [
+            {
+              "text": "挥挥右爪",
+              "pinyin": "hui hui you zhua"
+            },
+            {
+              "text": "挥右手",
+              "pinyin": "hui you shou"
+            },
+            {
+              "text": "右爪打招呼",
+              "pinyin": "you zhua da zhao hu"
+            }
+          ]
+        },
+        {
+          "action": "raise_arms",
+          "phrases": [
+            {
+              "text": "举起双爪",
+              "pinyin": "ju qi shuang zhua"
+            },
+            {
+              "text": "抬起前爪",
+              "pinyin": "tai qi qian zhua"
+            },
+            {
+              "text": "双手举起来",
+              "pinyin": "shuang shou ju qi lai"
+            }
+          ]
+        },
+        {
+          "action": "crawl",
+          "phrases": [
+            {
+              "text": "爬一爬",
+              "pinyin": "pa yi pa"
+            },
+            {
+              "text": "向前爬",
+              "pinyin": "xiang qian pa"
+            },
+            {
+              "text": "爬过来",
+              "pinyin": "pa guo lai"
+            },
+            {
+              "text": "开始爬行",
+              "pinyin": "kai shi pa xing"
+            }
+          ]
+        },
+        {
+          "action": "crawl_both",
+          "phrases": [
+            {
+              "text": "双爪一起爬",
+              "pinyin": "shuang zhua yi qi pa"
+            },
+            {
+              "text": "双手一起爬",
+              "pinyin": "shuang shou yi qi pa"
+            },
+            {
+              "text": "同步爬行",
+              "pinyin": "tong bu pa xing"
+            },
+            {
+              "text": "双臂爬",
+              "pinyin": "shuang bi pa"
+            }
+          ]
+        },
+        {
+          "action": "head_center",
+          "phrases": [
+            {
+              "text": "头部回正",
+              "pinyin": "tou bu hui zheng"
+            },
+            {
+              "text": "头回正",
+              "pinyin": "tou hui zheng"
+            },
+            {
+              "text": "头看前面",
+              "pinyin": "tou kan qian mian"
+            }
+          ]
+        },
+        {
+          "action": "head_sway_left",
+          "phrases": [
+            {
+              "text": "头向左摇",
+              "pinyin": "tou xiang zuo yao"
+            },
+            {
+              "text": "向左摇头",
+              "pinyin": "xiang zuo yao tou"
+            },
+            {
+              "text": "头往左摆",
+              "pinyin": "tou wang zuo bai"
+            }
+          ]
+        },
+        {
+          "action": "head_sway_right",
+          "phrases": [
+            {
+              "text": "头向右摇",
+              "pinyin": "tou xiang you yao"
+            },
+            {
+              "text": "向右摇头",
+              "pinyin": "xiang you yao tou"
+            },
+            {
+              "text": "头往右摆",
+              "pinyin": "tou wang you bai"
+            }
+          ]
+        },
+        {
+          "action": "head_scan",
+          "phrases": [
+            {
+              "text": "左右巡视",
+              "pinyin": "zuo you xun shi"
+            },
+            {
+              "text": "左右看看",
+              "pinyin": "zuo you kan kan"
+            },
+            {
+              "text": "转头看看",
+              "pinyin": "zhuan tou kan kan"
+            }
+          ]
+        },
+        {
+          "action": "center",
+          "phrases": [
+            {
+              "text": "身体归中",
+              "pinyin": "shen ti gui zhong"
+            },
+            {
+              "text": "动作归中",
+              "pinyin": "dong zuo gui zhong"
+            },
+            {
+              "text": "恢复默认姿势",
+              "pinyin": "hui fu mo ren zi shi"
+            },
+            {
+              "text": "回到中间",
+              "pinyin": "hui dao zhong jian"
+            }
+          ]
+        },
+        {
+          "action": "raise_left",
+          "phrases": [
+            {
+              "text": "抬起左爪",
+              "pinyin": "tai qi zuo zhua"
+            },
+            {
+              "text": "举起左手",
+              "pinyin": "ju qi zuo shou"
+            }
+          ]
+        },
+        {
+          "action": "raise_right",
+          "phrases": [
+            {
+              "text": "抬起右爪",
+              "pinyin": "tai qi you zhua"
+            },
+            {
+              "text": "举起右手",
+              "pinyin": "ju qi you shou"
+            }
+          ]
+        },
+        {
+          "action": "lower_left",
+          "phrases": [
+            {
+              "text": "放下左爪",
+              "pinyin": "fang xia zuo zhua"
+            },
+            {
+              "text": "放下左手",
+              "pinyin": "fang xia zuo shou"
+            }
+          ]
+        },
+        {
+          "action": "lower_right",
+          "phrases": [
+            {
+              "text": "放下右爪",
+              "pinyin": "fang xia you zhua"
+            },
+            {
+              "text": "放下右手",
+              "pinyin": "fang xia you shou"
+            }
+          ]
+        },
+        {
+          "action": "lower_arms",
+          "phrases": [
+            {
+              "text": "放下双爪",
+              "pinyin": "fang xia shuang zhua"
+            },
+            {
+              "text": "放下双手",
+              "pinyin": "fang xia shuang shou"
+            }
+          ]
+        },
+        {
+          "action": "wave_both",
+          "phrases": [
+            {
+              "text": "挥挥双爪",
+              "pinyin": "hui hui shuang zhua"
+            },
+            {
+              "text": "两只手挥一挥",
+              "pinyin": "liang zhi shou hui yi hui"
+            }
+          ]
+        },
+        {
+          "action": "paw_alternate",
+          "phrases": [
+            {
+              "text": "交替动爪",
+              "pinyin": "jiao ti dong zhua"
+            },
+            {
+              "text": "两只爪子轮流动",
+              "pinyin": "liang zhi zhua zi lun liu dong"
+            }
+          ]
+        },
+        {
+          "action": "paw_stretch",
+          "phrases": [
+            {
+              "text": "伸伸前爪",
+              "pinyin": "shen shen qian zhua"
+            },
+            {
+              "text": "前爪伸展",
+              "pinyin": "qian zhua shen zhan"
+            }
+          ]
+        },
+        {
+          "action": "hug",
+          "phrases": [
+            {
+              "text": "张开双爪抱抱",
+              "pinyin": "zhang kai shuang zhua bao bao"
+            },
+            {
+              "text": "张开双手",
+              "pinyin": "zhang kai shuang shou"
+            }
+          ]
+        }
+      ],
+      "offline_commands": [
+        {
+          "command": "kai xin",
+          "text": "local:happy",
+          "action": "wake"
+        },
+        {
+          "command": "sa jiao",
+          "text": "local:affection",
+          "action": "wake"
+        },
+        {
+          "command": "chi dong xi",
+          "text": "local:eat",
+          "action": "wake"
+        },
+        {
+          "command": "shui jiao",
+          "text": "local:sleepy",
+          "action": "wake"
+        },
+        {
+          "command": "ting xia",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bie dong",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "an jing",
+          "text": "local:quiet",
+          "action": "wake"
+        },
+        {
+          "command": "wan an",
+          "text": "local:rest",
+          "action": "wake"
+        },
+        {
+          "command": "xing xing",
+          "text": "local:wake",
+          "action": "wake"
+        },
+        {
+          "command": "ting zhi dong zuo",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bu yao yao wei ba",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bie yao tou",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bu yao dong",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "yao yao tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "yao tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "huang huang tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "shuai shuai tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo kan",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang zuo zhuan",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "kan zuo bian",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo zhuan tou",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you kan",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang you zhuan",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "kan you bian",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you zhuan tou",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "hui hui zuo zhua",
+          "text": "local:wave_left",
+          "action": "wake"
+        },
+        {
+          "command": "hui zuo shou",
+          "text": "local:wave_left",
+          "action": "wake"
+        },
+        {
+          "command": "zuo zhua da zhao hu",
+          "text": "local:wave_left",
+          "action": "wake"
+        },
+        {
+          "command": "hui hui you zhua",
+          "text": "local:wave_right",
+          "action": "wake"
+        },
+        {
+          "command": "hui you shou",
+          "text": "local:wave_right",
+          "action": "wake"
+        },
+        {
+          "command": "you zhua da zhao hu",
+          "text": "local:wave_right",
+          "action": "wake"
+        },
+        {
+          "command": "ju qi shuang zhua",
+          "text": "local:raise_arms",
+          "action": "wake"
+        },
+        {
+          "command": "tai qi qian zhua",
+          "text": "local:raise_arms",
+          "action": "wake"
+        },
+        {
+          "command": "shuang shou ju qi lai",
+          "text": "local:raise_arms",
+          "action": "wake"
+        },
+        {
+          "command": "pa yi pa",
+          "text": "local:crawl",
+          "action": "wake"
+        },
+        {
+          "command": "xiang qian pa",
+          "text": "local:crawl",
+          "action": "wake"
+        },
+        {
+          "command": "pa guo lai",
+          "text": "local:crawl",
+          "action": "wake"
+        },
+        {
+          "command": "kai shi pa xing",
+          "text": "local:crawl",
+          "action": "wake"
+        },
+        {
+          "command": "shuang zhua yi qi pa",
+          "text": "local:crawl_both",
+          "action": "wake"
+        },
+        {
+          "command": "shuang shou yi qi pa",
+          "text": "local:crawl_both",
+          "action": "wake"
+        },
+        {
+          "command": "tong bu pa xing",
+          "text": "local:crawl_both",
+          "action": "wake"
+        },
+        {
+          "command": "shuang bi pa",
+          "text": "local:crawl_both",
+          "action": "wake"
+        },
+        {
+          "command": "tou bu hui zheng",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou hui zheng",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou kan qian mian",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang zuo yao",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo yao tou",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou wang zuo bai",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang you yao",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you yao tou",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "tou wang you bai",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "zuo you xun shi",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "zuo you kan kan",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "zhuan tou kan kan",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "shen ti gui zhong",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "dong zuo gui zhong",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "hui fu mo ren zi shi",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "hui dao zhong jian",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "tai qi zuo zhua",
+          "text": "local:raise_left",
+          "action": "wake"
+        },
+        {
+          "command": "ju qi zuo shou",
+          "text": "local:raise_left",
+          "action": "wake"
+        },
+        {
+          "command": "tai qi you zhua",
+          "text": "local:raise_right",
+          "action": "wake"
+        },
+        {
+          "command": "ju qi you shou",
+          "text": "local:raise_right",
+          "action": "wake"
+        },
+        {
+          "command": "fang xia zuo zhua",
+          "text": "local:lower_left",
+          "action": "wake"
+        },
+        {
+          "command": "fang xia zuo shou",
+          "text": "local:lower_left",
+          "action": "wake"
+        },
+        {
+          "command": "fang xia you zhua",
+          "text": "local:lower_right",
+          "action": "wake"
+        },
+        {
+          "command": "fang xia you shou",
+          "text": "local:lower_right",
+          "action": "wake"
+        },
+        {
+          "command": "fang xia shuang zhua",
+          "text": "local:lower_arms",
+          "action": "wake"
+        },
+        {
+          "command": "fang xia shuang shou",
+          "text": "local:lower_arms",
+          "action": "wake"
+        },
+        {
+          "command": "hui hui shuang zhua",
+          "text": "local:wave_both",
+          "action": "wake"
+        },
+        {
+          "command": "liang zhi shou hui yi hui",
+          "text": "local:wave_both",
+          "action": "wake"
+        },
+        {
+          "command": "jiao ti dong zhua",
+          "text": "local:paw_alternate",
+          "action": "wake"
+        },
+        {
+          "command": "liang zhi zhua zi lun liu dong",
+          "text": "local:paw_alternate",
+          "action": "wake"
+        },
+        {
+          "command": "shen shen qian zhua",
+          "text": "local:paw_stretch",
+          "action": "wake"
+        },
+        {
+          "command": "qian zhua shen zhan",
+          "text": "local:paw_stretch",
+          "action": "wake"
+        },
+        {
+          "command": "zhang kai shuang zhua bao bao",
+          "text": "local:hug",
+          "action": "wake"
+        },
+        {
+          "command": "zhang kai shuang shou",
+          "text": "local:hug",
+          "action": "wake"
+        }
+      ]
+    },
+    {
+      "product": "tail",
+      "board": "wzh_tailRedPanda",
+      "name": "小熊猫",
+      "body_action_count": 24,
+      "offline_phrase_count": 81,
+      "actions": [
+        {
+          "action": "shake_head",
+          "phrases": [
+            {
+              "text": "摇摇头",
+              "pinyin": "yao yao tou"
+            },
+            {
+              "text": "摇头",
+              "pinyin": "yao tou"
+            },
+            {
+              "text": "晃晃头",
+              "pinyin": "huang huang tou"
+            },
+            {
+              "text": "甩甩头",
+              "pinyin": "shuai shuai tou"
+            }
+          ]
+        },
+        {
+          "action": "look_left",
+          "phrases": [
+            {
+              "text": "向左看",
+              "pinyin": "xiang zuo kan"
+            },
+            {
+              "text": "头向左转",
+              "pinyin": "tou xiang zuo zhuan"
+            },
+            {
+              "text": "看左边",
+              "pinyin": "kan zuo bian"
+            },
+            {
+              "text": "向左转头",
+              "pinyin": "xiang zuo zhuan tou"
+            }
+          ]
+        },
+        {
+          "action": "look_right",
+          "phrases": [
+            {
+              "text": "向右看",
+              "pinyin": "xiang you kan"
+            },
+            {
+              "text": "头向右转",
+              "pinyin": "tou xiang you zhuan"
+            },
+            {
+              "text": "看右边",
+              "pinyin": "kan you bian"
+            },
+            {
+              "text": "向右转头",
+              "pinyin": "xiang you zhuan tou"
+            }
+          ]
+        },
+        {
+          "action": "head_center",
+          "phrases": [
+            {
+              "text": "头部回正",
+              "pinyin": "tou bu hui zheng"
+            },
+            {
+              "text": "头回正",
+              "pinyin": "tou hui zheng"
+            },
+            {
+              "text": "头看前面",
+              "pinyin": "tou kan qian mian"
+            }
+          ]
+        },
+        {
+          "action": "head_sway_left",
+          "phrases": [
+            {
+              "text": "头向左摇",
+              "pinyin": "tou xiang zuo yao"
+            },
+            {
+              "text": "向左摇头",
+              "pinyin": "xiang zuo yao tou"
+            },
+            {
+              "text": "头往左摆",
+              "pinyin": "tou wang zuo bai"
+            }
+          ]
+        },
+        {
+          "action": "head_sway_right",
+          "phrases": [
+            {
+              "text": "头向右摇",
+              "pinyin": "tou xiang you yao"
+            },
+            {
+              "text": "向右摇头",
+              "pinyin": "xiang you yao tou"
+            },
+            {
+              "text": "头往右摆",
+              "pinyin": "tou wang you bai"
+            }
+          ]
+        },
+        {
+          "action": "head_scan",
+          "phrases": [
+            {
+              "text": "左右巡视",
+              "pinyin": "zuo you xun shi"
+            },
+            {
+              "text": "左右看看",
+              "pinyin": "zuo you kan kan"
+            },
+            {
+              "text": "转头看看",
+              "pinyin": "zhuan tou kan kan"
+            }
+          ]
+        },
+        {
+          "action": "center",
+          "phrases": [
+            {
+              "text": "身体归中",
+              "pinyin": "shen ti gui zhong"
+            },
+            {
+              "text": "动作归中",
+              "pinyin": "dong zuo gui zhong"
+            },
+            {
+              "text": "恢复默认姿势",
+              "pinyin": "hui fu mo ren zi shi"
+            },
+            {
+              "text": "回到中间",
+              "pinyin": "hui dao zhong jian"
+            }
+          ]
+        },
+        {
+          "action": "wag_tail",
+          "phrases": [
+            {
+              "text": "摇摇尾巴",
+              "pinyin": "yao yao wei ba"
+            },
+            {
+              "text": "摇尾巴",
+              "pinyin": "yao wei ba"
+            },
+            {
+              "text": "尾巴摇晃",
+              "pinyin": "wei ba yao huang"
+            },
+            {
+              "text": "摆摆尾巴",
+              "pinyin": "bai bai wei ba"
+            }
+          ]
+        },
+        {
+          "action": "twist_neck",
+          "phrases": [
+            {
+              "text": "扭扭脖子",
+              "pinyin": "niu niu bo zi"
+            },
+            {
+              "text": "扭脖子",
+              "pinyin": "niu bo zi"
+            },
+            {
+              "text": "转转脖子",
+              "pinyin": "zhuan zhuan bo zi"
+            }
+          ]
+        },
+        {
+          "action": "tail_up",
+          "phrases": [
+            {
+              "text": "尾巴上翘",
+              "pinyin": "wei ba shang qiao"
+            },
+            {
+              "text": "抬起尾巴",
+              "pinyin": "tai qi wei ba"
+            },
+            {
+              "text": "尾巴翘起来",
+              "pinyin": "wei ba qiao qi lai"
+            },
+            {
+              "text": "尾巴抬起来",
+              "pinyin": "wei ba tai qi lai"
+            }
+          ]
+        },
+        {
+          "action": "tail_down",
+          "phrases": [
+            {
+              "text": "尾巴下垂",
+              "pinyin": "wei ba xia chui"
+            },
+            {
+              "text": "放下尾巴",
+              "pinyin": "fang xia wei ba"
+            },
+            {
+              "text": "尾巴放下来",
+              "pinyin": "wei ba fang xia lai"
+            }
+          ]
+        },
+        {
+          "action": "tail_left",
+          "phrases": [
+            {
+              "text": "尾巴向左",
+              "pinyin": "wei ba xiang zuo"
+            },
+            {
+              "text": "尾巴往左摆",
+              "pinyin": "wei ba wang zuo bai"
+            },
+            {
+              "text": "尾巴摆到左边",
+              "pinyin": "wei ba bai dao zuo bian"
+            }
+          ]
+        },
+        {
+          "action": "tail_right",
+          "phrases": [
+            {
+              "text": "尾巴向右",
+              "pinyin": "wei ba xiang you"
+            },
+            {
+              "text": "尾巴往右摆",
+              "pinyin": "wei ba wang you bai"
+            },
+            {
+              "text": "尾巴摆到右边",
+              "pinyin": "wei ba bai dao you bian"
+            }
+          ]
+        },
+        {
+          "action": "tail_center",
+          "phrases": [
+            {
+              "text": "尾巴归中",
+              "pinyin": "wei ba gui zhong"
+            },
+            {
+              "text": "尾巴回正",
+              "pinyin": "wei ba hui zheng"
+            }
+          ]
+        },
+        {
+          "action": "tail_level",
+          "phrases": [
+            {
+              "text": "尾巴放平",
+              "pinyin": "wei ba fang ping"
+            },
+            {
+              "text": "尾巴伸平",
+              "pinyin": "wei ba shen ping"
+            }
+          ]
+        },
+        {
+          "action": "tail_sway_left",
+          "phrases": [
+            {
+              "text": "尾巴向左摇",
+              "pinyin": "wei ba xiang zuo yao"
+            },
+            {
+              "text": "向左摇尾巴",
+              "pinyin": "xiang zuo yao wei ba"
+            }
+          ]
+        },
+        {
+          "action": "tail_sway_right",
+          "phrases": [
+            {
+              "text": "尾巴向右摇",
+              "pinyin": "wei ba xiang you yao"
+            },
+            {
+              "text": "向右摇尾巴",
+              "pinyin": "xiang you yao wei ba"
+            }
+          ]
+        },
+        {
+          "action": "tail_circle",
+          "phrases": [
+            {
+              "text": "尾巴画圈",
+              "pinyin": "wei ba hua quan"
+            },
+            {
+              "text": "尾巴转圈",
+              "pinyin": "wei ba zhuan quan"
+            }
+          ]
+        },
+        {
+          "action": "tail_eight",
+          "phrases": [
+            {
+              "text": "尾巴画八字",
+              "pinyin": "wei ba hua ba zi"
+            },
+            {
+              "text": "尾巴绕八字",
+              "pinyin": "wei ba rao ba zi"
+            }
+          ]
+        },
+        {
+          "action": "tail_curl",
+          "phrases": [
+            {
+              "text": "卷起尾巴",
+              "pinyin": "juan qi wei ba"
+            },
+            {
+              "text": "尾巴卷起来",
+              "pinyin": "wei ba juan qi lai"
+            }
+          ]
+        },
+        {
+          "action": "wag_tail_slow",
+          "phrases": [
+            {
+              "text": "慢慢摇尾巴",
+              "pinyin": "man man yao wei ba"
+            },
+            {
+              "text": "尾巴慢慢摆",
+              "pinyin": "wei ba man man bai"
+            }
+          ]
+        },
+        {
+          "action": "tail_fan",
+          "phrases": [
+            {
+              "text": "高高摇尾巴",
+              "pinyin": "gao gao yao wei ba"
+            },
+            {
+              "text": "翘着尾巴摇",
+              "pinyin": "qiao zhe wei ba yao"
+            }
+          ]
+        },
+        {
+          "action": "tail_bounce",
+          "phrases": [
+            {
+              "text": "尾巴上下摆",
+              "pinyin": "wei ba shang xia bai"
+            },
+            {
+              "text": "尾巴上下摇",
+              "pinyin": "wei ba shang xia yao"
+            }
+          ]
+        }
+      ],
+      "offline_commands": [
+        {
+          "command": "kai xin",
+          "text": "local:happy",
+          "action": "wake"
+        },
+        {
+          "command": "sa jiao",
+          "text": "local:affection",
+          "action": "wake"
+        },
+        {
+          "command": "chi dong xi",
+          "text": "local:eat",
+          "action": "wake"
+        },
+        {
+          "command": "shui jiao",
+          "text": "local:sleepy",
+          "action": "wake"
+        },
+        {
+          "command": "ting xia",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bie dong",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "an jing",
+          "text": "local:quiet",
+          "action": "wake"
+        },
+        {
+          "command": "wan an",
+          "text": "local:rest",
+          "action": "wake"
+        },
+        {
+          "command": "xing xing",
+          "text": "local:wake",
+          "action": "wake"
+        },
+        {
+          "command": "ting zhi dong zuo",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bu yao yao wei ba",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bie yao tou",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bu yao dong",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "yao yao tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "yao tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "huang huang tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "shuai shuai tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo kan",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang zuo zhuan",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "kan zuo bian",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo zhuan tou",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you kan",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang you zhuan",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "kan you bian",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you zhuan tou",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "tou bu hui zheng",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou hui zheng",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou kan qian mian",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang zuo yao",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo yao tou",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou wang zuo bai",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang you yao",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you yao tou",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "tou wang you bai",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "zuo you xun shi",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "zuo you kan kan",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "zhuan tou kan kan",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "shen ti gui zhong",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "dong zuo gui zhong",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "hui fu mo ren zi shi",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "hui dao zhong jian",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "yao yao wei ba",
+          "text": "local:wag_tail",
+          "action": "wake"
+        },
+        {
+          "command": "yao wei ba",
+          "text": "local:wag_tail",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba yao huang",
+          "text": "local:wag_tail",
+          "action": "wake"
+        },
+        {
+          "command": "bai bai wei ba",
+          "text": "local:wag_tail",
+          "action": "wake"
+        },
+        {
+          "command": "niu niu bo zi",
+          "text": "local:twist_neck",
+          "action": "wake"
+        },
+        {
+          "command": "niu bo zi",
+          "text": "local:twist_neck",
+          "action": "wake"
+        },
+        {
+          "command": "zhuan zhuan bo zi",
+          "text": "local:twist_neck",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba shang qiao",
+          "text": "local:tail_up",
+          "action": "wake"
+        },
+        {
+          "command": "tai qi wei ba",
+          "text": "local:tail_up",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba qiao qi lai",
+          "text": "local:tail_up",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba tai qi lai",
+          "text": "local:tail_up",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xia chui",
+          "text": "local:tail_down",
+          "action": "wake"
+        },
+        {
+          "command": "fang xia wei ba",
+          "text": "local:tail_down",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba fang xia lai",
+          "text": "local:tail_down",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xiang zuo",
+          "text": "local:tail_left",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba wang zuo bai",
+          "text": "local:tail_left",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba bai dao zuo bian",
+          "text": "local:tail_left",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xiang you",
+          "text": "local:tail_right",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba wang you bai",
+          "text": "local:tail_right",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba bai dao you bian",
+          "text": "local:tail_right",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba gui zhong",
+          "text": "local:tail_center",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba hui zheng",
+          "text": "local:tail_center",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba fang ping",
+          "text": "local:tail_level",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba shen ping",
+          "text": "local:tail_level",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xiang zuo yao",
+          "text": "local:tail_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo yao wei ba",
+          "text": "local:tail_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xiang you yao",
+          "text": "local:tail_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you yao wei ba",
+          "text": "local:tail_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba hua quan",
+          "text": "local:tail_circle",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba zhuan quan",
+          "text": "local:tail_circle",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba hua ba zi",
+          "text": "local:tail_eight",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba rao ba zi",
+          "text": "local:tail_eight",
+          "action": "wake"
+        },
+        {
+          "command": "juan qi wei ba",
+          "text": "local:tail_curl",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba juan qi lai",
+          "text": "local:tail_curl",
+          "action": "wake"
+        },
+        {
+          "command": "man man yao wei ba",
+          "text": "local:wag_tail_slow",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba man man bai",
+          "text": "local:wag_tail_slow",
+          "action": "wake"
+        },
+        {
+          "command": "gao gao yao wei ba",
+          "text": "local:tail_fan",
+          "action": "wake"
+        },
+        {
+          "command": "qiao zhe wei ba yao",
+          "text": "local:tail_fan",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba shang xia bai",
+          "text": "local:tail_bounce",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba shang xia yao",
+          "text": "local:tail_bounce",
+          "action": "wake"
+        }
+      ]
+    },
+    {
+      "product": "dinosaur",
+      "board": "wzh_dinosaur",
+      "name": "恐龙",
+      "body_action_count": 33,
+      "offline_phrase_count": 100,
+      "actions": [
+        {
+          "action": "shake_head",
+          "phrases": [
+            {
+              "text": "摇摇头",
+              "pinyin": "yao yao tou"
+            },
+            {
+              "text": "摇头",
+              "pinyin": "yao tou"
+            },
+            {
+              "text": "晃晃头",
+              "pinyin": "huang huang tou"
+            },
+            {
+              "text": "甩甩头",
+              "pinyin": "shuai shuai tou"
+            }
+          ]
+        },
+        {
+          "action": "look_left",
+          "phrases": [
+            {
+              "text": "向左看",
+              "pinyin": "xiang zuo kan"
+            },
+            {
+              "text": "头向左转",
+              "pinyin": "tou xiang zuo zhuan"
+            },
+            {
+              "text": "看左边",
+              "pinyin": "kan zuo bian"
+            },
+            {
+              "text": "向左转头",
+              "pinyin": "xiang zuo zhuan tou"
+            }
+          ]
+        },
+        {
+          "action": "look_right",
+          "phrases": [
+            {
+              "text": "向右看",
+              "pinyin": "xiang you kan"
+            },
+            {
+              "text": "头向右转",
+              "pinyin": "tou xiang you zhuan"
+            },
+            {
+              "text": "看右边",
+              "pinyin": "kan you bian"
+            },
+            {
+              "text": "向右转头",
+              "pinyin": "xiang you zhuan tou"
+            }
+          ]
+        },
+        {
+          "action": "head_center",
+          "phrases": [
+            {
+              "text": "头部回正",
+              "pinyin": "tou bu hui zheng"
+            },
+            {
+              "text": "头回正",
+              "pinyin": "tou hui zheng"
+            },
+            {
+              "text": "头看前面",
+              "pinyin": "tou kan qian mian"
+            }
+          ]
+        },
+        {
+          "action": "head_sway_left",
+          "phrases": [
+            {
+              "text": "头向左摇",
+              "pinyin": "tou xiang zuo yao"
+            },
+            {
+              "text": "向左摇头",
+              "pinyin": "xiang zuo yao tou"
+            },
+            {
+              "text": "头往左摆",
+              "pinyin": "tou wang zuo bai"
+            }
+          ]
+        },
+        {
+          "action": "head_sway_right",
+          "phrases": [
+            {
+              "text": "头向右摇",
+              "pinyin": "tou xiang you yao"
+            },
+            {
+              "text": "向右摇头",
+              "pinyin": "xiang you yao tou"
+            },
+            {
+              "text": "头往右摆",
+              "pinyin": "tou wang you bai"
+            }
+          ]
+        },
+        {
+          "action": "head_scan",
+          "phrases": [
+            {
+              "text": "左右巡视",
+              "pinyin": "zuo you xun shi"
+            },
+            {
+              "text": "左右看看",
+              "pinyin": "zuo you kan kan"
+            },
+            {
+              "text": "转头看看",
+              "pinyin": "zhuan tou kan kan"
+            }
+          ]
+        },
+        {
+          "action": "center",
+          "phrases": [
+            {
+              "text": "身体归中",
+              "pinyin": "shen ti gui zhong"
+            },
+            {
+              "text": "动作归中",
+              "pinyin": "dong zuo gui zhong"
+            },
+            {
+              "text": "恢复默认姿势",
+              "pinyin": "hui fu mo ren zi shi"
+            },
+            {
+              "text": "回到中间",
+              "pinyin": "hui dao zhong jian"
+            }
+          ]
+        },
+        {
+          "action": "wag_tail",
+          "phrases": [
+            {
+              "text": "摇摇尾巴",
+              "pinyin": "yao yao wei ba"
+            },
+            {
+              "text": "摇尾巴",
+              "pinyin": "yao wei ba"
+            },
+            {
+              "text": "尾巴摇晃",
+              "pinyin": "wei ba yao huang"
+            },
+            {
+              "text": "摆摆尾巴",
+              "pinyin": "bai bai wei ba"
+            }
+          ]
+        },
+        {
+          "action": "twist_neck",
+          "phrases": [
+            {
+              "text": "扭扭脖子",
+              "pinyin": "niu niu bo zi"
+            },
+            {
+              "text": "扭脖子",
+              "pinyin": "niu bo zi"
+            },
+            {
+              "text": "转转脖子",
+              "pinyin": "zhuan zhuan bo zi"
+            }
+          ]
+        },
+        {
+          "action": "tail_up",
+          "phrases": [
+            {
+              "text": "尾巴上翘",
+              "pinyin": "wei ba shang qiao"
+            },
+            {
+              "text": "抬起尾巴",
+              "pinyin": "tai qi wei ba"
+            },
+            {
+              "text": "尾巴翘起来",
+              "pinyin": "wei ba qiao qi lai"
+            },
+            {
+              "text": "尾巴抬起来",
+              "pinyin": "wei ba tai qi lai"
+            }
+          ]
+        },
+        {
+          "action": "tail_down",
+          "phrases": [
+            {
+              "text": "尾巴下垂",
+              "pinyin": "wei ba xia chui"
+            },
+            {
+              "text": "放下尾巴",
+              "pinyin": "fang xia wei ba"
+            },
+            {
+              "text": "尾巴放下来",
+              "pinyin": "wei ba fang xia lai"
+            }
+          ]
+        },
+        {
+          "action": "tail_left",
+          "phrases": [
+            {
+              "text": "尾巴向左",
+              "pinyin": "wei ba xiang zuo"
+            },
+            {
+              "text": "尾巴往左摆",
+              "pinyin": "wei ba wang zuo bai"
+            },
+            {
+              "text": "尾巴摆到左边",
+              "pinyin": "wei ba bai dao zuo bian"
+            }
+          ]
+        },
+        {
+          "action": "tail_right",
+          "phrases": [
+            {
+              "text": "尾巴向右",
+              "pinyin": "wei ba xiang you"
+            },
+            {
+              "text": "尾巴往右摆",
+              "pinyin": "wei ba wang you bai"
+            },
+            {
+              "text": "尾巴摆到右边",
+              "pinyin": "wei ba bai dao you bian"
+            }
+          ]
+        },
+        {
+          "action": "tail_center",
+          "phrases": [
+            {
+              "text": "尾巴归中",
+              "pinyin": "wei ba gui zhong"
+            },
+            {
+              "text": "尾巴回正",
+              "pinyin": "wei ba hui zheng"
+            }
+          ]
+        },
+        {
+          "action": "tail_level",
+          "phrases": [
+            {
+              "text": "尾巴放平",
+              "pinyin": "wei ba fang ping"
+            },
+            {
+              "text": "尾巴伸平",
+              "pinyin": "wei ba shen ping"
+            }
+          ]
+        },
+        {
+          "action": "tail_sway_left",
+          "phrases": [
+            {
+              "text": "尾巴向左摇",
+              "pinyin": "wei ba xiang zuo yao"
+            },
+            {
+              "text": "向左摇尾巴",
+              "pinyin": "xiang zuo yao wei ba"
+            }
+          ]
+        },
+        {
+          "action": "tail_sway_right",
+          "phrases": [
+            {
+              "text": "尾巴向右摇",
+              "pinyin": "wei ba xiang you yao"
+            },
+            {
+              "text": "向右摇尾巴",
+              "pinyin": "xiang you yao wei ba"
+            }
+          ]
+        },
+        {
+          "action": "tail_circle",
+          "phrases": [
+            {
+              "text": "尾巴画圈",
+              "pinyin": "wei ba hua quan"
+            },
+            {
+              "text": "尾巴转圈",
+              "pinyin": "wei ba zhuan quan"
+            }
+          ]
+        },
+        {
+          "action": "tail_eight",
+          "phrases": [
+            {
+              "text": "尾巴画八字",
+              "pinyin": "wei ba hua ba zi"
+            },
+            {
+              "text": "尾巴绕八字",
+              "pinyin": "wei ba rao ba zi"
+            }
+          ]
+        },
+        {
+          "action": "tail_curl",
+          "phrases": [
+            {
+              "text": "卷起尾巴",
+              "pinyin": "juan qi wei ba"
+            },
+            {
+              "text": "尾巴卷起来",
+              "pinyin": "wei ba juan qi lai"
+            }
+          ]
+        },
+        {
+          "action": "wag_tail_slow",
+          "phrases": [
+            {
+              "text": "慢慢摇尾巴",
+              "pinyin": "man man yao wei ba"
+            },
+            {
+              "text": "尾巴慢慢摆",
+              "pinyin": "wei ba man man bai"
+            }
+          ]
+        },
+        {
+          "action": "tail_fan",
+          "phrases": [
+            {
+              "text": "高高摇尾巴",
+              "pinyin": "gao gao yao wei ba"
+            },
+            {
+              "text": "翘着尾巴摇",
+              "pinyin": "qiao zhe wei ba yao"
+            }
+          ]
+        },
+        {
+          "action": "tail_bounce",
+          "phrases": [
+            {
+              "text": "尾巴上下摆",
+              "pinyin": "wei ba shang xia bai"
+            },
+            {
+              "text": "尾巴上下摇",
+              "pinyin": "wei ba shang xia yao"
+            }
+          ]
+        },
+        {
+          "action": "look_up",
+          "phrases": [
+            {
+              "text": "抬头",
+              "pinyin": "tai tou"
+            },
+            {
+              "text": "向上看",
+              "pinyin": "xiang shang kan"
+            },
+            {
+              "text": "仰头",
+              "pinyin": "yang tou"
+            }
+          ]
+        },
+        {
+          "action": "look_down",
+          "phrases": [
+            {
+              "text": "低头",
+              "pinyin": "di tou"
+            },
+            {
+              "text": "向下看",
+              "pinyin": "xiang xia kan"
+            }
+          ]
+        },
+        {
+          "action": "neck_left",
+          "phrases": [
+            {
+              "text": "脖子向左倾",
+              "pinyin": "bo zi xiang zuo qing"
+            },
+            {
+              "text": "脖子左倾",
+              "pinyin": "bo zi zuo qing"
+            }
+          ]
+        },
+        {
+          "action": "neck_right",
+          "phrases": [
+            {
+              "text": "脖子向右倾",
+              "pinyin": "bo zi xiang you qing"
+            },
+            {
+              "text": "脖子右倾",
+              "pinyin": "bo zi you qing"
+            }
+          ]
+        },
+        {
+          "action": "neck_center",
+          "phrases": [
+            {
+              "text": "脖子回正",
+              "pinyin": "bo zi hui zheng"
+            },
+            {
+              "text": "脖子归中",
+              "pinyin": "bo zi gui zhong"
+            }
+          ]
+        },
+        {
+          "action": "neck_circle",
+          "phrases": [
+            {
+              "text": "脖子画圈",
+              "pinyin": "bo zi hua quan"
+            },
+            {
+              "text": "脖子绕圈",
+              "pinyin": "bo zi rao quan"
+            }
+          ]
+        },
+        {
+          "action": "neck_reach",
+          "phrases": [
+            {
+              "text": "脖子向前探",
+              "pinyin": "bo zi xiang qian tan"
+            },
+            {
+              "text": "脖子往前伸",
+              "pinyin": "bo zi wang qian shen"
+            }
+          ]
+        },
+        {
+          "action": "neck_stretch",
+          "phrases": [
+            {
+              "text": "伸长脖子",
+              "pinyin": "shen chang bo zi"
+            },
+            {
+              "text": "伸伸脖子",
+              "pinyin": "shen shen bo zi"
+            }
+          ]
+        },
+        {
+          "action": "nod_head",
+          "phrases": [
+            {
+              "text": "点点头",
+              "pinyin": "dian dian tou"
+            },
+            {
+              "text": "点头",
+              "pinyin": "dian tou"
+            }
+          ]
+        }
+      ],
+      "offline_commands": [
+        {
+          "command": "kai xin",
+          "text": "local:happy",
+          "action": "wake"
+        },
+        {
+          "command": "sa jiao",
+          "text": "local:affection",
+          "action": "wake"
+        },
+        {
+          "command": "chi dong xi",
+          "text": "local:eat",
+          "action": "wake"
+        },
+        {
+          "command": "shui jiao",
+          "text": "local:sleepy",
+          "action": "wake"
+        },
+        {
+          "command": "ting xia",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bie dong",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "an jing",
+          "text": "local:quiet",
+          "action": "wake"
+        },
+        {
+          "command": "wan an",
+          "text": "local:rest",
+          "action": "wake"
+        },
+        {
+          "command": "xing xing",
+          "text": "local:wake",
+          "action": "wake"
+        },
+        {
+          "command": "ting zhi dong zuo",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bu yao yao wei ba",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bie yao tou",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "bu yao dong",
+          "text": "local:stop",
+          "action": "wake"
+        },
+        {
+          "command": "yao yao tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "yao tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "huang huang tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "shuai shuai tou",
+          "text": "local:shake_head",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo kan",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang zuo zhuan",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "kan zuo bian",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo zhuan tou",
+          "text": "local:look_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you kan",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang you zhuan",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "kan you bian",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you zhuan tou",
+          "text": "local:look_right",
+          "action": "wake"
+        },
+        {
+          "command": "tou bu hui zheng",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou hui zheng",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou kan qian mian",
+          "text": "local:head_center",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang zuo yao",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo yao tou",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou wang zuo bai",
+          "text": "local:head_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "tou xiang you yao",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you yao tou",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "tou wang you bai",
+          "text": "local:head_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "zuo you xun shi",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "zuo you kan kan",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "zhuan tou kan kan",
+          "text": "local:head_scan",
+          "action": "wake"
+        },
+        {
+          "command": "shen ti gui zhong",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "dong zuo gui zhong",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "hui fu mo ren zi shi",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "hui dao zhong jian",
+          "text": "local:center",
+          "action": "wake"
+        },
+        {
+          "command": "yao yao wei ba",
+          "text": "local:wag_tail",
+          "action": "wake"
+        },
+        {
+          "command": "yao wei ba",
+          "text": "local:wag_tail",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba yao huang",
+          "text": "local:wag_tail",
+          "action": "wake"
+        },
+        {
+          "command": "bai bai wei ba",
+          "text": "local:wag_tail",
+          "action": "wake"
+        },
+        {
+          "command": "niu niu bo zi",
+          "text": "local:twist_neck",
+          "action": "wake"
+        },
+        {
+          "command": "niu bo zi",
+          "text": "local:twist_neck",
+          "action": "wake"
+        },
+        {
+          "command": "zhuan zhuan bo zi",
+          "text": "local:twist_neck",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba shang qiao",
+          "text": "local:tail_up",
+          "action": "wake"
+        },
+        {
+          "command": "tai qi wei ba",
+          "text": "local:tail_up",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba qiao qi lai",
+          "text": "local:tail_up",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba tai qi lai",
+          "text": "local:tail_up",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xia chui",
+          "text": "local:tail_down",
+          "action": "wake"
+        },
+        {
+          "command": "fang xia wei ba",
+          "text": "local:tail_down",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba fang xia lai",
+          "text": "local:tail_down",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xiang zuo",
+          "text": "local:tail_left",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba wang zuo bai",
+          "text": "local:tail_left",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba bai dao zuo bian",
+          "text": "local:tail_left",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xiang you",
+          "text": "local:tail_right",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba wang you bai",
+          "text": "local:tail_right",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba bai dao you bian",
+          "text": "local:tail_right",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba gui zhong",
+          "text": "local:tail_center",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba hui zheng",
+          "text": "local:tail_center",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba fang ping",
+          "text": "local:tail_level",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba shen ping",
+          "text": "local:tail_level",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xiang zuo yao",
+          "text": "local:tail_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "xiang zuo yao wei ba",
+          "text": "local:tail_sway_left",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba xiang you yao",
+          "text": "local:tail_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "xiang you yao wei ba",
+          "text": "local:tail_sway_right",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba hua quan",
+          "text": "local:tail_circle",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba zhuan quan",
+          "text": "local:tail_circle",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba hua ba zi",
+          "text": "local:tail_eight",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba rao ba zi",
+          "text": "local:tail_eight",
+          "action": "wake"
+        },
+        {
+          "command": "juan qi wei ba",
+          "text": "local:tail_curl",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba juan qi lai",
+          "text": "local:tail_curl",
+          "action": "wake"
+        },
+        {
+          "command": "man man yao wei ba",
+          "text": "local:wag_tail_slow",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba man man bai",
+          "text": "local:wag_tail_slow",
+          "action": "wake"
+        },
+        {
+          "command": "gao gao yao wei ba",
+          "text": "local:tail_fan",
+          "action": "wake"
+        },
+        {
+          "command": "qiao zhe wei ba yao",
+          "text": "local:tail_fan",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba shang xia bai",
+          "text": "local:tail_bounce",
+          "action": "wake"
+        },
+        {
+          "command": "wei ba shang xia yao",
+          "text": "local:tail_bounce",
+          "action": "wake"
+        },
+        {
+          "command": "tai tou",
+          "text": "local:look_up",
+          "action": "wake"
+        },
+        {
+          "command": "xiang shang kan",
+          "text": "local:look_up",
+          "action": "wake"
+        },
+        {
+          "command": "yang tou",
+          "text": "local:look_up",
+          "action": "wake"
+        },
+        {
+          "command": "di tou",
+          "text": "local:look_down",
+          "action": "wake"
+        },
+        {
+          "command": "xiang xia kan",
+          "text": "local:look_down",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi xiang zuo qing",
+          "text": "local:neck_left",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi zuo qing",
+          "text": "local:neck_left",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi xiang you qing",
+          "text": "local:neck_right",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi you qing",
+          "text": "local:neck_right",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi hui zheng",
+          "text": "local:neck_center",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi gui zhong",
+          "text": "local:neck_center",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi hua quan",
+          "text": "local:neck_circle",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi rao quan",
+          "text": "local:neck_circle",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi xiang qian tan",
+          "text": "local:neck_reach",
+          "action": "wake"
+        },
+        {
+          "command": "bo zi wang qian shen",
+          "text": "local:neck_reach",
+          "action": "wake"
+        },
+        {
+          "command": "shen chang bo zi",
+          "text": "local:neck_stretch",
+          "action": "wake"
+        },
+        {
+          "command": "shen shen bo zi",
+          "text": "local:neck_stretch",
+          "action": "wake"
+        },
+        {
+          "command": "dian dian tou",
+          "text": "local:nod_head",
+          "action": "wake"
+        },
+        {
+          "command": "dian tou",
+          "text": "local:nod_head",
+          "action": "wake"
+        }
+      ]
+    }
+  ],
+  "firmware_manifest": "wzh_build_2026-10-21.json"
+}

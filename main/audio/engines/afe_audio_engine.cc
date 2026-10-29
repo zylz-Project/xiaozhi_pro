@@ -20,9 +20,23 @@ static constexpr bool kUseAfeForVoiceProcessing = true;
 static constexpr bool kUseAfeForVoiceProcessing = false;
 #endif
 
-AfeAudioEngine::AfeAudioEngine() {
-    event_group_ = xEventGroupCreate();
-}
+#if CONFIG_USE_AFE_WAKE_WORD
+static constexpr bool kUseWakeNet = true;
+#else
+static constexpr bool kUseWakeNet = false;
+#endif
+#if CONFIG_USE_CUSTOM_WAKE_WORD
+static constexpr bool kUseMultiNetWakeWord = true;
+#else
+static constexpr bool kUseMultiNetWakeWord = false;
+#endif
+#if CONFIG_WZH_OFFLINE_COMMANDS
+static constexpr bool kUseLocalCommands = true;
+#else
+static constexpr bool kUseLocalCommands = false;
+#endif
+
+AfeAudioEngine::AfeAudioEngine() { event_group_ = xEventGroupCreate(); }
 
 AfeAudioEngine::~AfeAudioEngine() {
     custom_wake_word_.reset();
@@ -43,8 +57,10 @@ AfeAudioEngine::~AfeAudioEngine() {
     }
 }
 
-bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmodel_list_t* models_list) {
-    if (afe_data_ != nullptr || (codec_ != nullptr && !kUseAfeForVoiceProcessing && wake_detector_ == WakeDetector::kNone)) {
+bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
+                                srmodel_list_t* models_list) {
+    if (afe_data_ != nullptr || (codec_ != nullptr && !kUseAfeForVoiceProcessing &&
+                                 wake_detector_ == WakeDetector::kNone)) {
         return true;
     }
     if (codec == nullptr) {
@@ -73,38 +89,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
         }
     }
 
-    if (multinet_model_name != nullptr) {
-        wake_detector_ = WakeDetector::kMultiNet;
-        custom_wake_word_ = std::make_unique<CustomWakeWord>();
-        custom_wake_word_->OnWakeWordDetected([this](const std::string& wake_word) {
-            last_detected_wake_word_ = wake_word;
-            xEventGroupClearBits(event_group_, kWakeWordEnabled);
-            UpdateActiveState();
-            if (wake_word_detected_callback_) {
-                wake_word_detected_callback_(wake_word);
-            }
-        });
-        if (!custom_wake_word_->Initialize(codec_, models_)) {
-            ESP_LOGE(TAG, "Failed to initialize MultiNet wake-word detector");
-            custom_wake_word_.reset();
-            wake_detector_ = WakeDetector::kNone;
-            return false;
-        }
-    } else if (wakenet_model_name != nullptr) {
-        wake_detector_ = WakeDetector::kWakeNet;
-        auto words = esp_srmodel_get_wake_words(models_, wakenet_model_name);
-        if (words != nullptr) {
-            std::stringstream stream(words);
-            std::string word;
-            while (std::getline(stream, word, ';')) {
-                wake_words_.push_back(word);
-            }
-        }
-#if CONFIG_SEND_WAKE_WORD_DATA
-        if (!wake_word_audio_cache_.Initialize(16000 * 2)) {
-            ESP_LOGW(TAG, "Wake-word audio upload disabled: PSRAM cache allocation failed");
-        }
-#endif
+    if (!InitializeWakeWordDetectors(wakenet_model_name, multinet_model_name)) {
+        return false;
     }
 
     const bool needs_afe = kUseAfeForVoiceProcessing || wake_detector_ != WakeDetector::kNone;
@@ -122,11 +108,10 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
         input_format.push_back('R');
     }
 
-    char* vad_model_name = models_ == nullptr
-        ? nullptr
-        : esp_srmodel_filter(models_, ESP_VADN_PREFIX, nullptr);
-    afe_config_t* afe_config = afe_config_init(
-        input_format.c_str(), models_, AFE_TYPE_VC, AFE_MODE_HIGH_PERF);
+    char* vad_model_name =
+        models_ == nullptr ? nullptr : esp_srmodel_filter(models_, ESP_VADN_PREFIX, nullptr);
+    afe_config_t* afe_config =
+        afe_config_init(input_format.c_str(), models_, AFE_TYPE_VC, AFE_MODE_HIGH_PERF);
     if (afe_config == nullptr) {
         ESP_LOGE(TAG, "Failed to create AFE configuration");
         return false;
@@ -143,9 +128,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
         afe_config->vad_model_name = vad_model_name;
     }
     afe_config->wakenet_init = wake_detector_ == WakeDetector::kWakeNet;
-    afe_config->wakenet_model_name = wake_detector_ == WakeDetector::kWakeNet
-        ? wakenet_model_name
-        : nullptr;
+    afe_config->wakenet_model_name =
+        wake_detector_ == WakeDetector::kWakeNet ? wakenet_model_name : nullptr;
     afe_config->agc_init = false;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
 
@@ -170,11 +154,13 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
     }
     afe_iface_->print_pipeline(afe_data_);
 
-    BaseType_t task_created = xTaskCreate([](void* arg) {
-        auto* engine = static_cast<AfeAudioEngine*>(arg);
-        engine->ProcessingTask();
-        vTaskDelete(nullptr);
-    }, "audio_afe", 4096, this, 3, &processing_task_);
+    BaseType_t task_created = xTaskCreate(
+        [](void* arg) {
+            auto* engine = static_cast<AfeAudioEngine*>(arg);
+            engine->ProcessingTask();
+            vTaskDelete(nullptr);
+        },
+        "audio_afe", 4096, this, 3, &processing_task_);
     if (task_created != pdPASS) {
         ESP_LOGE(TAG, "Failed to create AFE processing task");
         afe_iface_->destroy(afe_data_);
@@ -184,10 +170,63 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
     }
 
     const char* detector = wake_detector_ == WakeDetector::kWakeNet
-        ? "WakeNet"
-        : (wake_detector_ == WakeDetector::kMultiNet ? "MultiNet" : "none");
-    ESP_LOGI(TAG, "Initialized FD AFE, detector: %s, NS: off, feed: %d, fetch: %d",
-        detector, afe_iface_->get_feed_chunksize(afe_data_), afe_iface_->get_fetch_chunksize(afe_data_));
+                               ? "WakeNet"
+                               : (wake_detector_ == WakeDetector::kMultiNet ? "MultiNet" : "none");
+    ESP_LOGI(TAG, "Initialized FD AFE, detector: %s, NS: off, feed: %d, fetch: %d", detector,
+             afe_iface_->get_feed_chunksize(afe_data_), afe_iface_->get_fetch_chunksize(afe_data_));
+    return true;
+}
+
+bool AfeAudioEngine::InitializeWakeWordDetectors(char* wakenet_model_name,
+                                                 char* multinet_model_name) {
+    // Select the primary detector from Kconfig, rather than whichever model is
+    // found first. Local MultiNet commands may coexist with WakeNet assets.
+    if (kUseWakeNet) {
+        if (wakenet_model_name == nullptr) {
+            ESP_LOGE(TAG, "Configured WakeNet model is missing from assets");
+            return false;
+        }
+        auto words = esp_srmodel_get_wake_words(models_, wakenet_model_name);
+        if (words != nullptr) {
+            std::stringstream stream(words);
+            std::string word;
+            while (std::getline(stream, word, ';')) {
+                if (!word.empty()) {
+                    wake_words_.push_back(word);
+                }
+            }
+        }
+        if (wake_words_.empty()) {
+            ESP_LOGE(TAG, "WakeNet model has no wake words");
+            return false;
+        }
+        wake_detector_ = WakeDetector::kWakeNet;
+#if CONFIG_SEND_WAKE_WORD_DATA
+        if (!wake_word_audio_cache_.Initialize(16000 * 2)) {
+            ESP_LOGW(TAG, "Wake-word audio upload disabled: PSRAM cache allocation failed");
+        }
+#endif
+    } else if (kUseMultiNetWakeWord) {
+        wake_detector_ = WakeDetector::kMultiNet;
+    }
+
+    if (kUseMultiNetWakeWord || (kUseWakeNet && kUseLocalCommands)) {
+        if (multinet_model_name == nullptr) {
+            ESP_LOGE(TAG, "Configured MultiNet model is missing from assets");
+            return false;
+        }
+        custom_wake_word_ = std::make_unique<CustomWakeWord>();
+        custom_wake_word_->OnWakeWordDetected(
+            [this](const std::string& wake_word) { HandleDetectedWakeWord(wake_word); });
+        if (!custom_wake_word_->Initialize(codec_, models_, kUseWakeNet)) {
+            ESP_LOGE(TAG, "Failed to initialize MultiNet commands");
+            custom_wake_word_.reset();
+            wake_detector_ = WakeDetector::kNone;
+            return false;
+        }
+        ESP_LOGI(TAG, "MultiNet mode: %s",
+                 kUseWakeNet ? "local commands only" : "custom wake word");
+    }
     return true;
 }
 
@@ -220,13 +259,13 @@ void AfeAudioEngine::EnableWakeWordDetection(bool enable) {
     // WakeNet enable/disable on the AFE instance is applied by ProcessingTask
     // (see ApplyAfeControls), driven by the kWakeWordEnabled bit.
     if (enable) {
-        if (wake_detector_ == WakeDetector::kMultiNet) {
+        if (custom_wake_word_ != nullptr) {
             custom_wake_word_->Start();
         }
         xEventGroupSetBits(event_group_, kWakeWordEnabled);
     } else {
         xEventGroupClearBits(event_group_, kWakeWordEnabled);
-        if (wake_detector_ == WakeDetector::kMultiNet) {
+        if (custom_wake_word_ != nullptr) {
             custom_wake_word_->Stop();
         }
     }
@@ -251,23 +290,23 @@ void AfeAudioEngine::EnableDeviceAec(bool enable) {
     UpdateAecState();
 }
 
-bool AfeAudioEngine::HasWakeWord() const {
-    return wake_detector_ != WakeDetector::kNone;
-}
+bool AfeAudioEngine::HasWakeWord() const { return wake_detector_ != WakeDetector::kNone; }
 
 bool AfeAudioEngine::IsWakeWordDetectionEnabled() const {
     return event_group_ != nullptr && (xEventGroupGetBits(event_group_) & kWakeWordEnabled) != 0;
 }
 
 bool AfeAudioEngine::IsVoiceProcessingEnabled() const {
-    return event_group_ != nullptr && (xEventGroupGetBits(event_group_) & kVoiceProcessingEnabled) != 0;
+    return event_group_ != nullptr &&
+           (xEventGroupGetBits(event_group_) & kVoiceProcessingEnabled) != 0;
 }
 
 size_t AfeAudioEngine::GetFeedSize() const {
     return afe_data_ == nullptr ? frame_samples_ : afe_iface_->get_feed_chunksize(afe_data_);
 }
 
-void AfeAudioEngine::OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback) {
+void AfeAudioEngine::OnWakeWordDetected(
+    std::function<void(const std::string& wake_word)> callback) {
     wake_word_detected_callback_ = std::move(callback);
 }
 
@@ -281,9 +320,9 @@ void AfeAudioEngine::OnVadStateChange(std::function<void(bool speaking)> callbac
 
 void AfeAudioEngine::UpdateActiveState() {
     EventBits_t bits = xEventGroupGetBits(event_group_);
-    const bool afe_active = afe_data_ != nullptr &&
-        ((bits & kWakeWordEnabled) ||
-         (kUseAfeForVoiceProcessing && (bits & kVoiceProcessingEnabled)));
+    const bool afe_active =
+        afe_data_ != nullptr && ((bits & kWakeWordEnabled) ||
+                                 (kUseAfeForVoiceProcessing && (bits & kVoiceProcessingEnabled)));
     if (afe_active) {
         xEventGroupSetBits(event_group_, kAfeActive);
     } else {
@@ -325,7 +364,7 @@ void AfeAudioEngine::ApplyAfeControls() {
     }
     if (codec_->input_reference()) {
         const bool enable_aec = (bits & kWakeWordEnabled) ||
-            (device_aec_enabled_.load() && (bits & kVoiceProcessingEnabled));
+                                (device_aec_enabled_.load() && (bits & kVoiceProcessingEnabled));
         if (enable_aec) {
             afe_iface_->enable_aec(afe_data_);
         } else {
@@ -385,8 +424,7 @@ void AfeAudioEngine::ProcessingTask() {
 
 void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
     if (wake_detector_ == WakeDetector::kMultiNet) {
-        custom_wake_word_->FeedMono(
-            result->data, result->data_size / sizeof(int16_t));
+        custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t));
         return;
     }
 
@@ -394,6 +432,9 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
     wake_word_audio_cache_.Store(result->data, result->data_size / sizeof(int16_t));
 #endif
     if (result->wakeup_state != WAKENET_DETECTED) {
+        if (custom_wake_word_ != nullptr) {
+            custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t));
+        }
         return;
     }
 
@@ -403,7 +444,16 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
         return;
     }
 
-    last_detected_wake_word_ = wake_words_[model_index];
+    // A WakeNet event wins over a local command in the same frame. Clear any
+    // partial MultiNet phrase before the application re-arms detection.
+    if (custom_wake_word_ != nullptr) {
+        custom_wake_word_->Stop();
+    }
+    HandleDetectedWakeWord(wake_words_[model_index]);
+}
+
+void AfeAudioEngine::HandleDetectedWakeWord(const std::string& wake_word) {
+    last_detected_wake_word_ = wake_word;
     xEventGroupClearBits(event_group_, kWakeWordEnabled);
     // UpdateActiveState marks the AFE controls dirty; the next loop iteration
     // of ProcessingTask disables WakeNet via ApplyAfeControls.
@@ -438,8 +488,8 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result) {
             output_buffer_.clear();
             output_buffer_.reserve(frame_samples_);
         } else {
-            output_callback_(std::vector<int16_t>(
-                output_buffer_.begin(), output_buffer_.begin() + frame_samples_));
+            output_callback_(std::vector<int16_t>(output_buffer_.begin(),
+                                                  output_buffer_.begin() + frame_samples_));
             output_buffer_.erase(output_buffer_.begin(), output_buffer_.begin() + frame_samples_);
         }
     }
@@ -461,8 +511,8 @@ void AfeAudioEngine::OutputRawAudio(const std::vector<int16_t>& data) {
         }
     }
     while (output_buffer_.size() >= static_cast<size_t>(frame_samples_)) {
-        output_callback_(std::vector<int16_t>(
-            output_buffer_.begin(), output_buffer_.begin() + frame_samples_));
+        output_callback_(
+            std::vector<int16_t>(output_buffer_.begin(), output_buffer_.begin() + frame_samples_));
         output_buffer_.erase(output_buffer_.begin(), output_buffer_.begin() + frame_samples_);
     }
 }
@@ -479,81 +529,83 @@ void AfeAudioEngine::EncodeWakeWordData() {
     const size_t stack_size = 4096 * 6;
     wake_word_opus_.clear();
     if (wake_word_encode_task_stack_ == nullptr) {
-        wake_word_encode_task_stack_ = static_cast<StackType_t*>(
-            heap_caps_malloc(stack_size, MALLOC_CAP_SPIRAM));
+        wake_word_encode_task_stack_ =
+            static_cast<StackType_t*>(heap_caps_malloc(stack_size, MALLOC_CAP_SPIRAM));
         assert(wake_word_encode_task_stack_ != nullptr);
     }
     if (wake_word_encode_task_buffer_ == nullptr) {
-        wake_word_encode_task_buffer_ = static_cast<StaticTask_t*>(
-            heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL));
+        wake_word_encode_task_buffer_ =
+            static_cast<StaticTask_t*>(heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL));
         assert(wake_word_encode_task_buffer_ != nullptr);
     }
 
-    wake_word_encode_task_ = xTaskCreateStatic([](void* arg) {
-        auto* engine = static_cast<AfeAudioEngine*>(arg);
-        auto start_time = esp_timer_get_time();
-        esp_opus_enc_config_t opus_enc_cfg = AS_OPUS_ENC_CONFIG();
-        void* encoder_handle = nullptr;
-        auto ret = esp_opus_enc_open(&opus_enc_cfg, sizeof(esp_opus_enc_config_t), &encoder_handle);
-        if (encoder_handle == nullptr) {
-            ESP_LOGE(TAG, "Failed to create wake-word encoder: %d", ret);
+    wake_word_encode_task_ = xTaskCreateStatic(
+        [](void* arg) {
+            auto* engine = static_cast<AfeAudioEngine*>(arg);
+            auto start_time = esp_timer_get_time();
+            esp_opus_enc_config_t opus_enc_cfg = AS_OPUS_ENC_CONFIG();
+            void* encoder_handle = nullptr;
+            auto ret =
+                esp_opus_enc_open(&opus_enc_cfg, sizeof(esp_opus_enc_config_t), &encoder_handle);
+            if (encoder_handle == nullptr) {
+                ESP_LOGE(TAG, "Failed to create wake-word encoder: %d", ret);
+                engine->wake_word_audio_cache_.Clear();
+                {
+                    std::lock_guard<std::mutex> lock(engine->wake_word_mutex_);
+                    engine->wake_word_opus_.emplace_back();
+                    engine->wake_word_cv_.notify_all();
+                }
+                vTaskDelete(nullptr);
+                return;
+            }
+
+            int frame_size = 0;
+            int outbuf_size = 0;
+            esp_opus_enc_get_frame_size(encoder_handle, &frame_size, &outbuf_size);
+            frame_size /= sizeof(int16_t);
+            int packets = 0;
+            std::vector<int16_t> input(frame_size);
+            esp_audio_enc_in_frame_t in = {};
+            esp_audio_enc_out_frame_t out = {};
+
+            const size_t cached_samples = engine->wake_word_audio_cache_.Size();
+            for (size_t offset = 0; offset + static_cast<size_t>(frame_size) <= cached_samples;
+                 offset += frame_size) {
+                if (engine->wake_word_audio_cache_.Read(offset, input.data(), frame_size) !=
+                    static_cast<size_t>(frame_size)) {
+                    break;
+                }
+                std::vector<uint8_t> opus_buf(outbuf_size);
+                in.buffer = reinterpret_cast<uint8_t*>(input.data());
+                in.len = frame_size * sizeof(int16_t);
+                out.buffer = opus_buf.data();
+                out.len = outbuf_size;
+                out.encoded_bytes = 0;
+                ret = esp_opus_enc_process(encoder_handle, &in, &out);
+                if (ret == ESP_AUDIO_ERR_OK) {
+                    std::lock_guard<std::mutex> lock(engine->wake_word_mutex_);
+                    engine->wake_word_opus_.emplace_back(opus_buf.data(),
+                                                         opus_buf.data() + out.encoded_bytes);
+                    engine->wake_word_cv_.notify_all();
+                    ++packets;
+                } else {
+                    ESP_LOGE(TAG, "Failed to encode wake-word audio: %d", ret);
+                }
+            }
+
             engine->wake_word_audio_cache_.Clear();
+            esp_opus_enc_close(encoder_handle);
+            ESP_LOGI(TAG, "Encoded wake word into %d packets in %ld ms", packets,
+                     static_cast<long>((esp_timer_get_time() - start_time) / 1000));
             {
                 std::lock_guard<std::mutex> lock(engine->wake_word_mutex_);
                 engine->wake_word_opus_.emplace_back();
                 engine->wake_word_cv_.notify_all();
             }
             vTaskDelete(nullptr);
-            return;
-        }
-
-        int frame_size = 0;
-        int outbuf_size = 0;
-        esp_opus_enc_get_frame_size(encoder_handle, &frame_size, &outbuf_size);
-        frame_size /= sizeof(int16_t);
-        int packets = 0;
-        std::vector<int16_t> input(frame_size);
-        esp_audio_enc_in_frame_t in = {};
-        esp_audio_enc_out_frame_t out = {};
-
-        const size_t cached_samples = engine->wake_word_audio_cache_.Size();
-        for (size_t offset = 0;
-             offset + static_cast<size_t>(frame_size) <= cached_samples;
-             offset += frame_size) {
-            if (engine->wake_word_audio_cache_.Read(
-                    offset, input.data(), frame_size) != static_cast<size_t>(frame_size)) {
-                break;
-            }
-            std::vector<uint8_t> opus_buf(outbuf_size);
-            in.buffer = reinterpret_cast<uint8_t*>(input.data());
-            in.len = frame_size * sizeof(int16_t);
-            out.buffer = opus_buf.data();
-            out.len = outbuf_size;
-            out.encoded_bytes = 0;
-            ret = esp_opus_enc_process(encoder_handle, &in, &out);
-            if (ret == ESP_AUDIO_ERR_OK) {
-                std::lock_guard<std::mutex> lock(engine->wake_word_mutex_);
-                engine->wake_word_opus_.emplace_back(
-                    opus_buf.data(), opus_buf.data() + out.encoded_bytes);
-                engine->wake_word_cv_.notify_all();
-                ++packets;
-            } else {
-                ESP_LOGE(TAG, "Failed to encode wake-word audio: %d", ret);
-            }
-        }
-
-        engine->wake_word_audio_cache_.Clear();
-        esp_opus_enc_close(encoder_handle);
-        ESP_LOGI(TAG, "Encoded wake word into %d packets in %ld ms", packets,
-            static_cast<long>((esp_timer_get_time() - start_time) / 1000));
-        {
-            std::lock_guard<std::mutex> lock(engine->wake_word_mutex_);
-            engine->wake_word_opus_.emplace_back();
-            engine->wake_word_cv_.notify_all();
-        }
-        vTaskDelete(nullptr);
-    }, "encode_wake_word", stack_size, this, 2,
-        wake_word_encode_task_stack_, wake_word_encode_task_buffer_);
+        },
+        "encode_wake_word", stack_size, this, 2, wake_word_encode_task_stack_,
+        wake_word_encode_task_buffer_);
 }
 
 bool AfeAudioEngine::GetWakeWordOpus(std::vector<uint8_t>& opus) {

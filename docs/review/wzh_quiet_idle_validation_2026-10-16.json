@@ -1,0 +1,156 @@
+{
+  "date": "2026-10-16",
+  "sdk": "ESP-IDF v6.0.1",
+  "host_tests": {
+    "count": 105,
+    "result": "passed",
+    "log": "host-tests.log"
+  },
+  "builds": [
+    {
+      "board": "wzh_dinosaur",
+      "variant": "wzh-dinosaur",
+      "exit_code": 0,
+      "seconds": 43.3,
+      "log": "build-logs/wzh-dinosaur.log",
+      "app_bytes": 2410640,
+      "synthetic_interaction_audio_embedded": false,
+      "artifact_sha256": {
+        "bootloader/bootloader.bin": "0b922d69bdb9e8c004128e571c4f0beeb00ebccd9746a31cafd0acffbcaf3a71",
+        "flash_args": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db",
+        "flasher_args.json": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc",
+        "generated_assets.bin": "cad0de15dd40f7f3691f1143603664f9c5282b1846cda99f331c29965ab85bc2",
+        "merged-binary.bin": "3e9b8c58ad027f515a45a24d704c706a4fbf347d9bf723bb49549cfdd7abb72c",
+        "ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+        "partition_table/partition-table.bin": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5",
+        "sdkconfig.snapshot": "c660ac4f5d385dc78b90c1bca8cb0b69602561b5af56686f8b908d1e5d2d7ea6",
+        "speech-models.json": "d7476913a76f6970aceb1d7d51751cbc17ff557d8d2c9b6cafcb13c67fa3181e",
+        "xiaozhi.bin": "ae6d7792aece1abf2554c059fbb38f0b0fdd3e20cef4c0d16ccfbd5f1de6e9cb"
+      },
+      "wake_word": "小龙小龙",
+      "speech_models": [
+        "mn7_cn",
+        "wn9_xiaolongxiaolong_tts",
+        "fst"
+      ],
+      "local_commands": 12,
+      "assets_checksum_verified": true,
+      "merged_offsets_verified": true
+    },
+    {
+      "board": "wzh_tailRedPanda",
+      "variant": "wzh-tailredpanda",
+      "exit_code": 0,
+      "seconds": 68.7,
+      "log": "build-logs/wzh-tailredpanda.log",
+      "app_bytes": 2393968,
+      "synthetic_interaction_audio_embedded": false,
+      "artifact_sha256": {
+        "bootloader/bootloader.bin": "0b922d69bdb9e8c004128e571c4f0beeb00ebccd9746a31cafd0acffbcaf3a71",
+        "flash_args": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db",
+        "flasher_args.json": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc",
+        "generated_assets.bin": "89a6d4d2199cb338649ffd1eb67818e7e44a764767ddebcb3d86eee1fcc2943a",
+        "merged-binary.bin": "f14c9f499831f8228baaedcb3377333edadeff635e5b7f0f019d71745a13907b",
+        "ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+        "partition_table/partition-table.bin": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5",
+        "sdkconfig.snapshot": "913762adde8c2f121576465a232e2896a4adf02fbdb0886463af1a31f7404b96",
+        "speech-models.json": "f9132c6fb1ee22f549eea07ec543bb41d16053dc50cca0983e48939c3e4c786d",
+        "xiaozhi.bin": "0b575b4b4658c78b84b9bc2cb5239183660028bee28daa830ae58c3ceab06eba"
+      },
+      "wake_word": "你好星宝",
+      "speech_models": [
+        "mn7_cn",
+        "wn9l_ni3hao3xing1bao3_tts3",
+        "fst"
+      ],
+      "local_commands": 12,
+      "assets_checksum_verified": true,
+      "merged_offsets_verified": true
+    },
+    {
+      "board": "wzh_crawlPanda",
+      "variant": "wzh-crawlpanda",
+      "exit_code": 0,
+      "seconds": 71.1,
+      "log": "build-logs/wzh-crawlpanda.log",
+      "app_bytes": 2393856,
+      "synthetic_interaction_audio_embedded": false,
+      "artifact_sha256": {
+        "bootloader/bootloader.bin": "0b922d69bdb9e8c004128e571c4f0beeb00ebccd9746a31cafd0acffbcaf3a71",
+        "flash_args": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db",
+        "flasher_args.json": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc",
+        "generated_assets.bin": "32392a73768dbf0a2576b7472af21d1ecbdf7580109a5e4a7e5d0b50785d9b5f",
+        "merged-binary.bin": "5645fee2544ca8b44d3209326702bc5cdf4534fa098053868cdcdee5c614c572",
+        "ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+        "partition_table/partition-table.bin": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5",
+        "sdkconfig.snapshot": "94dc178a04f2be82c6f18d3b202da2d35f06bfbe5881fe360cea9c6cf9973106",
+        "speech-models.json": "07215e57a80d9689dbc5dfa86ae0da73276c33ffa7c542024881e4785b54c357",
+        "xiaozhi.bin": "1c498632675054bc43ce5dfd6e3f62b02ea6b373f961028576602143691731c0"
+      },
+      "wake_word": "你好小安",
+      "speech_models": [
+        "mn7_cn",
+        "wn9_nihaoxiaoan_tts2",
+        "fst"
+      ],
+      "local_commands": 12,
+      "assets_checksum_verified": true,
+      "merged_offsets_verified": true
+    }
+  ],
+  "format_check": {
+    "result": "passed",
+    "files": 12,
+    "clang_format": "23.1.3"
+  },
+  "hardware_tested": false,
+  "final_local_board": "wzh-crawlpanda",
+  "quiet_idle_validation": {
+    "fresh_presence_only": true,
+    "presence_warmup_ms": 10000,
+    "absence_before_arrival_ms": 3000,
+    "presence_stable_samples": 10,
+    "stale_presence_ttl_ms": 1000,
+    "busy_and_cooldown_edges_discarded": true,
+    "powered_motion_and_settling_gestures_suppressed": true,
+    "settling_mute_ms": 600,
+    "quiet_baseline_samples": 15,
+    "posture_sample_period_ms": 20,
+    "placement_requires_separate_new_movement": true,
+    "same_shake_tail_never_counts_as_placement": true,
+    "protection_recovery_drops_old_posture": true,
+    "startup_touch_requires_release": true,
+    "failed_adc_cancels_contact_without_release_gesture": true,
+    "touch_recovery_requires_release": true,
+    "local_action_echo_guard": true,
+    "recent_pcm_echo_guard_us": 350000,
+    "pending_decoder_and_pcm_tail_covered": true,
+    "stop_quiet_rest_available_during_output": true,
+    "primary_wakenet_flow_preserved": true,
+    "event_input_source_logs": true,
+    "virtual_static_input_hours": 24,
+    "virtual_controller_idle_hours": 24,
+    "new_real_touch_pickup_shake_flip_placement_commands_verified": true,
+    "tested": "production helpers, sensor task, each power sampling branch and each local voice route with hardware and clock substitutes",
+    "hardware_tested": false
+  },
+  "retained_motion_library": {
+    "catalogue": "motion-catalogue.json",
+    "source": "rich-motion-v7",
+    "interaction_events": 11,
+    "variants_per_event": 3,
+    "interaction_clips_per_product": 33,
+    "autonomous_idle_shows": false,
+    "software_max_servo_speed_deg_s": 160,
+    "physical_position_feedback": false
+  },
+  "hardware_limits": [
+    "No flashing or serial session performed",
+    "A high/low digital presence input cannot prove a real arrival",
+    "Electrical noise matching a valid stable touch code can still be treated as touch",
+    "Normal WakeNet interruption is preserved; no acoustic echo algorithm changes",
+    "Acceleration estimates movement, not height, contact or actual placement",
+    "Mechanical travel, supply load and real sensor/audio performance still require each physical product"
+  ],
+  "full_record": "../../dist/wzh-quiet-idle-20261016/validation.json"
+}

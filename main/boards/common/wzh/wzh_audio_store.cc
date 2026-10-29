@@ -20,8 +20,7 @@ constexpr size_t kLegacyHeaderSize = 12;
 constexpr size_t kReadChunk = 4096;
 
 // 容器标记校验：OGG 页 + OpusHead 头。
-bool LooksLikeOggOpus(const uint8_t* data, size_t size)
-{
+bool LooksLikeOggOpus(const uint8_t* data, size_t size) {
     if (size < 4 || std::memcmp(data, "OggS", 4) != 0) {
         return false;
     }
@@ -34,13 +33,11 @@ bool LooksLikeOggOpus(const uint8_t* data, size_t size)
     return false;
 }
 
-uint32_t AlignUp(uint32_t value, uint32_t alignment)
-{
+uint32_t AlignUp(uint32_t value, uint32_t alignment) {
     return (value + alignment - 1) / alignment * alignment;
 }
 
-void CopyEntry(AudioFileInfo& file, const uint8_t* entry, bool has_category)
-{
+void CopyEntry(AudioFileInfo& file, const uint8_t* entry, bool has_category) {
     std::memcpy(file.name, entry, sizeof(file.name));
     file.name[sizeof(file.name) - 1] = '\0';
     std::memcpy(&file.offset, entry + 64, sizeof(file.offset));
@@ -56,15 +53,13 @@ void CopyEntry(AudioFileInfo& file, const uint8_t* entry, bool has_category)
     }
 }
 
-bool EntryValid(const AudioFileInfo& file, uint32_t data_start, uint64_t capacity)
-{
+bool EntryValid(const AudioFileInfo& file, uint32_t data_start, uint64_t capacity) {
     const uint64_t address = static_cast<uint64_t>(data_start) + file.offset;
     return file.name[0] != '\0' && file.size > 0 && file.offset != 0xFFFFFFFF &&
            address < capacity && file.size <= capacity - address;
 }
 
-void SerializeEntry(uint8_t* out, const AudioFileInfo& file)
-{
+void SerializeEntry(uint8_t* out, const AudioFileInfo& file) {
     std::memset(out, 0, sizeof(AudioFileInfo));  // 96 字节，与 TOC 条目一致
     std::memcpy(out, file.name, strnlen(file.name, sizeof(file.name)));
     std::memcpy(out + 64, &file.offset, sizeof(file.offset));
@@ -86,8 +81,7 @@ struct AsyncEraseArgs {
 
 }  // namespace
 
-bool AudioStore::Init()
-{
+bool AudioStore::Init() {
     const ProductConfig& product = Product();
     wzh_flash_pins_t pins = {};
     pins.host = product.flash_host;
@@ -121,14 +115,12 @@ bool AudioStore::Init()
     return LoadToc();
 }
 
-bool AudioStore::ReadFlash(uint32_t addr, void* data, size_t size)
-{
+bool AudioStore::ReadFlash(uint32_t addr, void* data, size_t size) {
     return wzh_flash_read(addr, data, size) == ESP_OK;
 }
 
 bool AudioStore::TryParseV3(const uint8_t* slot, uint32_t* seq,
-                            std::vector<AudioFileInfo>* out) const
-{
+                            std::vector<AudioFileInfo>* out) const {
     TocHeaderV3 header = {};
     std::memcpy(&header, slot, sizeof(header));
     if (header.magic != kTocV3Magic || header.version != 3 || header.count > kMaxFiles) {
@@ -157,8 +149,7 @@ bool AudioStore::TryParseV3(const uint8_t* slot, uint32_t* seq,
     return true;
 }
 
-bool AudioStore::TryParseLegacy(const uint8_t* slot, std::vector<AudioFileInfo>* out) const
-{
+bool AudioStore::TryParseLegacy(const uint8_t* slot, std::vector<AudioFileInfo>* out) const {
     uint32_t magic = 0;
     uint32_t version = 0;
     uint32_t count = 0;
@@ -189,8 +180,7 @@ bool AudioStore::TryParseLegacy(const uint8_t* slot, std::vector<AudioFileInfo>*
     return valid > 0;
 }
 
-bool AudioStore::LoadToc()
-{
+bool AudioStore::LoadToc() {
     std::lock_guard<std::mutex> lock(mutex_);
     files_.clear();
 
@@ -216,9 +206,8 @@ bool AudioStore::LoadToc()
         layout_ = Layout::kV3;
         current_slot_ = best_slot;
         toc_seq_ = best_seq;
-        ESP_LOGI(TAG, "TOC v3: %u 个声音（槽 %ld, seq %lu）",
-                 static_cast<unsigned>(files_.size()), static_cast<long>(best_slot),
-                 static_cast<unsigned long>(best_seq));
+        ESP_LOGI(TAG, "TOC v3: %u 个声音（槽 %ld, seq %lu）", static_cast<unsigned>(files_.size()),
+                 static_cast<long>(best_slot), static_cast<unsigned long>(best_seq));
         return true;
     }
 
@@ -242,8 +231,7 @@ bool AudioStore::LoadToc()
     return false;
 }
 
-bool AudioStore::SlotIsVirgin(uint32_t slot_index)
-{
+bool AudioStore::SlotIsVirgin(uint32_t slot_index) {
     uint8_t header[kTocV3HeaderSize];
     if (!ReadFlash(slot_index * kTocSlotSize, header, sizeof(header))) {
         return false;
@@ -256,8 +244,7 @@ bool AudioStore::SlotIsVirgin(uint32_t slot_index)
     return true;
 }
 
-bool AudioStore::ProgramWithVerify(uint32_t addr, const uint8_t* data, size_t size)
-{
+bool AudioStore::ProgramWithVerify(uint32_t addr, const uint8_t* data, size_t size) {
     std::vector<uint8_t> readback(kReadChunk);
     size_t done = 0;
     while (done < size) {
@@ -275,8 +262,7 @@ bool AudioStore::ProgramWithVerify(uint32_t addr, const uint8_t* data, size_t si
     return true;
 }
 
-bool AudioStore::CommitToc(const std::vector<AudioFileInfo>& entries)
-{
+bool AudioStore::CommitToc(const std::vector<AudioFileInfo>& entries) {
     if (entries.size() > static_cast<size_t>(kMaxFiles)) {
         return false;
     }
@@ -329,14 +315,12 @@ bool AudioStore::CommitToc(const std::vector<AudioFileInfo>& entries)
     files_ = entries;
     layout_ = Layout::kV3;
     current_slot_ = static_cast<int32_t>(target);
-    ESP_LOGI(TAG, "TOC 提交: %u 个声音（槽 %lu, seq %lu）",
-             static_cast<unsigned>(files_.size()), static_cast<unsigned long>(target),
-             static_cast<unsigned long>(header.seq));
+    ESP_LOGI(TAG, "TOC 提交: %u 个声音（槽 %lu, seq %lu）", static_cast<unsigned>(files_.size()),
+             static_cast<unsigned long>(target), static_cast<unsigned long>(header.seq));
     return true;
 }
 
-bool AudioStore::GetFile(int index, AudioFileInfo* out) const
-{
+bool AudioStore::GetFile(int index, AudioFileInfo* out) const {
     if (out == nullptr) {
         return false;
     }
@@ -348,14 +332,12 @@ bool AudioStore::GetFile(int index, AudioFileInfo* out) const
     return true;
 }
 
-std::vector<AudioFileInfo> AudioStore::Snapshot() const
-{
+std::vector<AudioFileInfo> AudioStore::Snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return files_;
 }
 
-const AudioFileInfo* AudioStore::PeekFile(int index) const
-{
+const AudioFileInfo* AudioStore::PeekFile(int index) const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (index < 0 || index >= static_cast<int>(files_.size())) {
         return nullptr;
@@ -363,8 +345,7 @@ const AudioFileInfo* AudioStore::PeekFile(int index) const
     return &files_[index];
 }
 
-int AudioStore::FindByName(const std::string& name) const
-{
+int AudioStore::FindByName(const std::string& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
     for (size_t i = 0; i < files_.size(); ++i) {
         if (name == files_[i].name) {
@@ -374,8 +355,7 @@ int AudioStore::FindByName(const std::string& name) const
     return -1;
 }
 
-int AudioStore::RandomInCategory(const std::string& category) const
-{
+int AudioStore::RandomInCategory(const std::string& category) const {
     std::lock_guard<std::mutex> lock(mutex_);
     int selected = -1;
     int matches = 0;
@@ -387,8 +367,7 @@ int AudioStore::RandomInCategory(const std::string& category) const
     return selected;
 }
 
-int AudioStore::CountInCategory(const std::string& category) const
-{
+int AudioStore::CountInCategory(const std::string& category) const {
     std::lock_guard<std::mutex> lock(mutex_);
     int count = 0;
     for (const auto& file : files_) {
@@ -399,8 +378,7 @@ int AudioStore::CountInCategory(const std::string& category) const
     return count;
 }
 
-uint64_t AudioStore::UsedBytesLocked() const
-{
+uint64_t AudioStore::UsedBytesLocked() const {
     uint32_t end = 0;
     for (const auto& file : files_) {
         end = std::max(end, file.offset + file.size);
@@ -408,14 +386,12 @@ uint64_t AudioStore::UsedBytesLocked() const
     return end;
 }
 
-uint64_t AudioStore::used_bytes() const
-{
+uint64_t AudioStore::used_bytes() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return UsedBytesLocked();
 }
 
-uint64_t AudioStore::free_bytes() const
-{
+uint64_t AudioStore::free_bytes() const {
     std::lock_guard<std::mutex> lock(mutex_);
     const uint64_t used = AlignUp(UsedBytesLocked(), erase_size_);
     return used >= capacity_ ? 0 : capacity_ - used;
@@ -424,8 +400,7 @@ uint64_t AudioStore::free_bytes() const
 bool AudioStore::WriteFile(const std::string& name, uint32_t size, uint32_t sample_rate,
                            uint32_t duration_ms, const std::string& category,
                            const std::function<size_t(uint8_t*, size_t)>& reader,
-                           std::string* error)
-{
+                           std::string* error) {
     auto fail = [error, &name](const char* message) {
         if (error != nullptr) {
             *error = message;
@@ -447,20 +422,33 @@ bool AudioStore::WriteFile(const std::string& name, uint32_t size, uint32_t samp
     if (cat.size() >= sizeof(AudioFileInfo::category)) {
         return fail("分类长度非法");
     }
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (files_.size() >= static_cast<size_t>(kMaxFiles)) {
-        return fail("目录已满（32 个文件）");
-    }
-    for (const auto& file : files_) {
-        if (name == file.name) {
-            return fail("同名文件已存在");
+    // Serialize writers with writing_, but never hold the catalogue mutex
+    // across network reads. Touch/actions and status queries must stay responsive.
+    std::vector<AudioFileInfo> entries;
+    size_t replace_index = 0;
+    uint32_t offset = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        entries = files_;
+        replace_index = entries.size();
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (name == entries[i].name) {
+                replace_index = i;
+                break;
+            }
         }
+        if (replace_index == entries.size() && entries.size() >= static_cast<size_t>(kMaxFiles)) {
+            return fail("目录已满（32 个文件）");
+        }
+        // Include the old file in the allocation: it remains readable until commit.
+        offset = AlignUp(UsedBytesLocked(), erase_size_);
     }
 
     // 先读头部做 OGG/Opus 校验，避免把垃圾数据写进 Flash。
     std::vector<uint8_t> first(kReadChunk);
     size_t first_len = reader(first.data(), std::min<size_t>(first.size(), size));
-    if (first_len == 0 || first_len == static_cast<size_t>(-1)) {
+    if (first_len == 0 || first_len == static_cast<size_t>(-1) ||
+        first_len > std::min<size_t>(first.size(), size)) {
         return fail("数据源读取失败");
     }
     if (!LooksLikeOggOpus(first.data(), first_len)) {
@@ -468,7 +456,6 @@ bool AudioStore::WriteFile(const std::string& name, uint32_t size, uint32_t samp
     }
 
     // 追加到目录末尾，按擦除粒度对齐；NAND 逐单元跳过坏块。
-    uint32_t offset = AlignUp(UsedBytesLocked(), erase_size_);
     auto range_ok = [&](uint64_t start, uint64_t bytes) {
         for (uint64_t a = start; a < start + bytes; a += erase_size_) {
             bool ok = false;
@@ -527,7 +514,7 @@ bool AudioStore::WriteFile(const std::string& name, uint32_t size, uint32_t samp
     while (written < size) {
         const size_t want = std::min<size_t>(page.size() - page_fill, size - written);
         const size_t got = reader(page.data() + page_fill, want);
-        if (got == static_cast<size_t>(-1)) {
+        if (got == static_cast<size_t>(-1) || got > want) {
             return fail("数据源读取失败");
         }
         if (got == 0) {
@@ -554,18 +541,22 @@ bool AudioStore::WriteFile(const std::string& name, uint32_t size, uint32_t samp
     file.duration_ms = duration_ms;
     std::strncpy(file.category, cat.c_str(), sizeof(file.category) - 1);
 
-    std::vector<AudioFileInfo> entries = files_;
-    entries.push_back(file);
-    if (!CommitToc(entries)) {
-        return fail("目录提交失败");
+    if (replace_index < entries.size())
+        entries[replace_index] = file;
+    else
+        entries.push_back(file);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!CommitToc(entries)) {
+            return fail("目录提交失败");
+        }
     }
     ESP_LOGI(TAG, "写入完成: %s（%lu 字节 -> offset %lu）", name.c_str(),
              static_cast<unsigned long>(written), static_cast<unsigned long>(offset));
     return true;
 }
 
-bool AudioStore::DeleteFile(const std::string& name, std::string* error)
-{
+bool AudioStore::DeleteFile(const std::string& name, std::string* error) {
     auto fail = [error](const char* message) {
         if (error != nullptr) {
             *error = message;
@@ -598,21 +589,29 @@ bool AudioStore::DeleteFile(const std::string& name, std::string* error)
     return true;
 }
 
-bool AudioStore::EraseAll(std::string* error)
-{
+bool AudioStore::EraseAll(std::string* error) {
     auto fail = [error](const char* message) {
         if (error != nullptr) {
             *error = message;
         }
         return false;
     };
+    if (capacity_ == 0 || erase_size_ == 0) {
+        return fail("外部音频 Flash 未就绪");
+    }
     if (writing_.exchange(true)) {
         return fail("另一个写入正在进行");
     }
     WritingGuard guard{writing_};
     // NAND 逐块擦除（驱动跳过坏块）、NOR 整片擦除；两者都覆盖 TOC 区。
     if (wzh_flash_erase_all() != ESP_OK) {
-        return fail("数据区擦除失败");
+        // An incomplete erase cannot leave old in-RAM entries playable.
+        std::lock_guard<std::mutex> lock(mutex_);
+        files_.clear();
+        layout_ = Layout::kEmpty;
+        current_slot_ = -1;
+        toc_seq_ = 0;
+        return fail("擦除未完成，音频库已停用，请重试擦除后重新导入");
     }
     std::lock_guard<std::mutex> lock(mutex_);
     files_.clear();
@@ -623,8 +622,7 @@ bool AudioStore::EraseAll(std::string* error)
     return true;
 }
 
-bool AudioStore::EraseAllAsync(std::function<void(bool)> on_done)
-{
+bool AudioStore::EraseAllAsync(std::function<void(bool)> on_done) {
     auto* args = new AsyncEraseArgs{this, std::move(on_done)};
     auto trampoline = [](void* arg) {
         std::unique_ptr<AsyncEraseArgs> ctx(static_cast<AsyncEraseArgs*>(arg));

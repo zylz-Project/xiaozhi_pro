@@ -18,6 +18,8 @@
 #define AUDIO_CODEC_I2C_SDA_PIN GPIO_NUM_2
 #define AUDIO_CODEC_I2C_SCL_PIN GPIO_NUM_38
 #define AUDIO_CODEC_PA_PIN GPIO_NUM_NC
+// V4-2.2: NS4150 VCC is supplied from +3.3V through R36 (2 ohms).
+#define AUDIO_CODEC_PA_VOLTAGE 3.3f
 #define AUDIO_CODEC_ES8311_ADDR ES8311_CODEC_DEFAULT_ADDR
 
 #define BOOT_BUTTON_GPIO GPIO_NUM_0
@@ -27,18 +29,51 @@
 #define POWER_CTRL_GPIO GPIO_NUM_7
 #define POWER_BUTTON_GPIO GPIO_NUM_6
 #define POWER_BUTTON_ADC_CHANNEL ADC_CHANNEL_5
-#define POWER_BUTTON_ADC_THRESHOLD 1241
+#define POWER_BUTTON_PRESS_MV 1000
+#define POWER_BUTTON_RELEASE_MV 1200  // 释放 IO6 实测约 1224~1299 mV
+#define POWER_MAX_SAMPLE_GAP_MS 250   // 超过此间隔视为接触状态未知
 #define POWER_LONG_PRESS_MS 1500
 #define POWER_DEBOUNCE_MS 50
 #define POWER_POLL_MS 20
 #define BATTERY_ADC_CHANNEL ADC_CHANNEL_2
 #define BATTERY_DIVIDER_RATIO 2
-#define BATTERY_READ_TICKS 250  // 每 5s（250 * 20ms）采样一次
+#define BATTERY_READ_INTERVAL_MS 1000  // 按时间戳采样，不随轮询耗时漂移
+// 演示模式开关：1 = 续航优先，低于 3.10V 才停止舵机，3.25V 恢复，
+// 2.90V 紧急断电；0 = 常规保护（3.30V / 3.40V / 3.00V）。
+// 演示值低于电芯截止电压会加速老化并有掉电风险，量产前改回 0。
+#define BATTERY_DEMO_MODE 0
+#if BATTERY_DEMO_MODE
+#define BATTERY_LOW_MV 3100
+#define BATTERY_RECOVER_MV 3250
+#define BATTERY_CRITICAL_MV 2900
+#else
+#define BATTERY_LOW_MV 3300
+#define BATTERY_RECOVER_MV 3400
+#define BATTERY_CRITICAL_MV 3000
+#endif
 #define BATTERY_EMPTY_VOLTAGE_MV 3200
 #define BATTERY_FULL_VOLTAGE_MV 4200
 
-// 五路恐龙舵机。下面的默认角度只代表软件中位，不保证适合所有装配方向；
-// 尤其是尾巴上下轴，先用较小范围完成真机限位校准。
+// 原理图 V4-2.2：人体感应数字输入、SC7A20H 独立 I2C1（I2C0 留给 ES8311）。
+#define HUMAN_SENSOR_GPIO GPIO_NUM_41
+#define POSTURE_I2C_SDA_GPIO GPIO_NUM_43
+#define POSTURE_I2C_SCL_GPIO GPIO_NUM_44
+
+// 四路触摸电极经 4-bit R-2R 网络汇入 IO5（ADC1_CH4）。编码 bit0..bit3
+// 分别对应 SW1..SW4；连续 5 个 20ms 样本相同后才确认状态变化。
+#define TOUCH_GPIO GPIO_NUM_5
+#define TOUCH_ADC_CHANNEL ADC_CHANNEL_4
+#define TOUCH_STABLE_SAMPLES 5
+
+// 五路恐龙舵机方向：用户于 2026-09-13 确认实机映射，与旧工程输出链一致。
+// 动作直接使用下列物理角度，不交换引脚、不反转颈俯仰：
+//   IO15 head_turn: 0°=最右，90°=中位，180°=最左
+//   IO16 neck_lean: 0°=最右，90°=中位，180°=最左
+//   IO17 neck_tilt: 0°=最高/仰，70°=默认，180°=最低/俯
+//   IO18 tail_lr:   0°=最左，90°=中位，180°=最右
+//   IO8  tail_ud:   55°=最低安全位，90°=默认，180°=最高
+// 注意：尾左右的 0/180 物理方向与头、颈左右相反；旧工程动作表的
+// tail_ud 还使用 0=上、125=下的内部坐标，输出前才做 180-angle。
 #define SERVO_POWER_GPIO GPIO_NUM_4
 #define SERVO_HEAD_TURN_GPIO GPIO_NUM_15
 #define SERVO_NECK_LEAN_GPIO GPIO_NUM_16

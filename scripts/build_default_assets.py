@@ -25,6 +25,88 @@ from datetime import datetime
 # Pack model functions (from pack_model.py)
 # =============================================================================
 
+def wzh_offline_commands(product=None):
+    """Pack the same per-product body vocabulary used by firmware/MCP aliases."""
+    phrases = [
+        ('kai xin', 'happy'), ('sa jiao', 'affection'),
+        ('chi dong xi', 'eat'), ('shui jiao', 'sleepy'),
+        ('ting xia', 'stop'), ('bie dong', 'stop'),
+        ('an jing', 'quiet'), ('wan an', 'rest'), ('xing xing', 'wake'),
+        ('ting zhi dong zuo', 'stop'), ('bu yao yao wei ba', 'stop'),
+        ('bie yao tou', 'stop'), ('bu yao dong', 'stop'),
+    ]
+    masks = {'crawl': 1, 'tail': 2, 'dinosaur': 4, None: 7}
+    if product not in masks:
+        raise ValueError(f'Unknown WZH local-command product: {product}')
+    catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           'main', 'boards', 'common', 'wzh', 'wzh_body_phrases.inc')
+    pattern = re.compile(r'WZH_BODY_PHRASE\((\d+), "([a-z_]+)", "([^"]+)", "([a-z ]+)"\)')
+    with open(catalog, encoding='utf-8') as source:
+        for line in source:
+            if not line.strip() or line.lstrip().startswith('//'):
+                continue
+            row = pattern.fullmatch(line.strip())
+            if not row:
+                raise ValueError(f'Invalid WZH phrase row: {line.strip()}')
+            mask, action, _, pinyin = row.groups()
+            if int(mask) & masks[product]:
+                phrases.append((pinyin, action))
+    commands = {}
+    for phrase, action in phrases:
+        if len(phrase.encode('ascii')) > 63:
+            raise ValueError(f'MultiNet phrase too long: {phrase}')
+        token = 'local:' + action
+        if phrase in commands and commands[phrase]['text'] != token:
+            raise ValueError(f'Ambiguous MultiNet phrase: {phrase}')
+        commands[phrase] = dict(command=phrase, text=token, action='wake')
+    return list(commands.values())
+
+
+def read_local_command_config(sdkconfig_path):
+    """Read the optional local-command recognizer, independently of wake type."""
+    values = {}
+    with open(sdkconfig_path, encoding='utf-8') as config_file:
+        for line in config_file:
+            key, separator, value = line.strip().partition('=')
+            if separator and not key.startswith('#'):
+                values[key] = value
+    if values.get('CONFIG_WZH_OFFLINE_COMMANDS') != 'y':
+        return None
+    threshold = int(values.get('CONFIG_WZH_OFFLINE_COMMAND_THRESHOLD', '50'))
+    if not 1 <= threshold <= 99:
+        raise ValueError('WZH offline command threshold must be between 1 and 99')
+    products = [('CONFIG_BOARD_TYPE_WZH_CRAWLPANDA', 'crawl'),
+                ('CONFIG_BOARD_TYPE_WZH_TAILREDPANDA', 'tail'),
+                ('CONFIG_BOARD_TYPE_WZH_DINOSAUR', 'dinosaur')]
+    selected = [product for selector, product in products if values.get(selector) == 'y']
+    if len(selected) > 1:
+        raise ValueError('Local motion commands require exactly one WZH product')
+    return {'threshold': threshold / 100.0, 'product': selected[0] if selected else None}
+
+
+def make_multinet_model_info(model_names, custom_config, local_config):
+    """WakeNet builds contain local tokens only; custom wake builds retain their phrase."""
+    commands = []
+    if custom_config:
+        commands.append(dict(command=custom_config['wake_word'],
+                             text=custom_config['display'], action='wake'))
+    if local_config:
+        if get_language_from_multinet_models(model_names) != 'cn':
+            raise ValueError('WZH offline commands require a Chinese MultiNet model')
+        commands.extend(wzh_offline_commands(local_config.get('product')))
+    if not commands:
+        return None
+    # ESP-SR's installed MultiNet interface permits at most 400 phrases.
+    if len(commands) > 400:
+        raise ValueError('MultiNet vocabulary exceeds the 400-phrase limit')
+    return {
+        'language': get_language_from_multinet_models(model_names),
+        'duration': 3000,
+        'threshold': (custom_config or local_config)['threshold'],
+        'commands': commands,
+    }
+
+
 def struct_pack_string(string, max_len=None):
     """
     pack string to binary data. 
@@ -835,6 +917,10 @@ def main():
     
     # Read wake word type configuration from sdkconfig
     wake_word_config = read_wake_word_type_from_sdkconfig(args.sdkconfig)
+    local_command_config = read_local_command_config(args.sdkconfig)
+    if local_command_config and not (wake_word_config['use_afe_wake_word'] or
+                                     wake_word_config['use_custom_wake_word']):
+        raise ValueError('WZH offline commands require AFE WakeNet or custom MultiNet wake-up')
     
     # Read SR models from sdkconfig
     wakenet_model_names = read_wakenet_from_sdkconfig(args.sdkconfig)
@@ -850,17 +936,21 @@ def main():
     elif wakenet_model_names:
         print(f"  Note: Found wakenet models {wakenet_model_names} but wake word type is not ESP/AFE, skipping")
     
-    # 2. Error check: if USE_CUSTOM_WAKE_WORD=y but no multinet models selected, report error
-    if wake_word_config['use_custom_wake_word'] and not multinet_model_names:
-        print("Error: USE_CUSTOM_WAKE_WORD is enabled but no multinet models are selected in sdkconfig")
-        print("Please select appropriate CONFIG_SR_MN_* options in menuconfig, or disable USE_CUSTOM_WAKE_WORD")
+    needs_multinet = wake_word_config['use_custom_wake_word'] or local_command_config is not None
+    if needs_multinet and not multinet_model_names:
+        print("Error: MultiNet wake-up/local commands enabled without a MultiNet model")
         sys.exit(1)
     
-    # 3. Only package multinet models if USE_CUSTOM_WAKE_WORD=y
-    if wake_word_config['use_custom_wake_word']:
+    # Local commands coexist with AFE WakeNet and need their own MultiNet model.
+    if needs_multinet:
         multinet_model_paths = get_multinet_model_paths(multinet_model_names, args.esp_sr_model_path)
+        if len(multinet_model_paths) != len(multinet_model_names):
+            raise ValueError('A required MultiNet model directory is missing')
     elif multinet_model_names:
-        print(f"  Note: Found multinet models {multinet_model_names} but USE_CUSTOM_WAKE_WORD is disabled, skipping")
+        print(f"  Note: Found multinet models {multinet_model_names} but no MultiNet feature is enabled, skipping")
+    if wake_word_config['use_esp_wake_word'] or wake_word_config['use_afe_wake_word']:
+        if not wakenet_model_paths or len(wakenet_model_paths) != len(wakenet_model_names):
+            raise ValueError('A required WakeNet model is missing')
     
     # Print model information (only for models that will actually be packaged)
     if wakenet_model_paths:
@@ -889,28 +979,15 @@ def main():
     
     # Read custom wake word configuration
     custom_wake_word_config = read_custom_wake_word_from_sdkconfig(args.sdkconfig)
-    multinet_model_info = None
-    
-    if custom_wake_word_config and multinet_model_paths:
-        # Determine language from multinet models
-        language = get_language_from_multinet_models(multinet_model_names)
-        
-        # Build multinet_model info structure
-        multinet_model_info = {
-            "language": language,
-            "duration": 3000,  # Default duration in ms
-            "threshold": custom_wake_word_config['threshold'],
-            "commands": [
-                {
-                    "command": custom_wake_word_config['wake_word'],
-                    "text": custom_wake_word_config['display'],
-                    "action": "wake"
-                }
-            ]
-        }
+    multinet_model_info = make_multinet_model_info(
+        multinet_model_names, custom_wake_word_config, local_command_config,
+    ) if multinet_model_paths else None
+
+    if custom_wake_word_config:
         print(f"  custom wake word: {custom_wake_word_config['wake_word']} ({custom_wake_word_config['display']})")
-        print(f"  wake word language: {language}")
-        print(f"  wake word threshold: {custom_wake_word_config['threshold']}")
+    if multinet_model_info:
+        print(f"  MultiNet language: {multinet_model_info['language']}")
+        print(f"  MultiNet threshold: {multinet_model_info['threshold']}")
     
     # Check if we have anything to build
     if not wakenet_model_paths and not multinet_model_paths and not text_font_path and not emoji_collection_path and not extra_files_path and not multinet_model_info:

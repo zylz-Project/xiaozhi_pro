@@ -98,6 +98,8 @@ private:
     std::condition_variable wake_word_cv_;
 
     void ProcessingTask();
+    bool InitializeWakeWordDetectors(char* wakenet_model_name, char* multinet_model_name);
+    void HandleDetectedWakeWord(const std::string& wake_word);
     void UpdateActiveState();
     void UpdateAecState();
     void ApplyAfeControls();
