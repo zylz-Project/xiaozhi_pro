@@ -181,3 +181,28 @@ a new session. Audio already handed to hardware retains its physical DMA tail.
 Host waveform tests cover 8/16/24/48 kHz, fragmented processing and cancellation;
 actual loudness, timbre, latency, power integrity and applicable AEC require a
 physical device.
+
+## Opt-in local voice interruption (2026-11-02)
+
+`USE_VOICE_BARGE_IN` is enabled only by the `wzh-tailredpanda-barge-in` test
+variant. ES8311 captures interleaved ADCL microphone / DACR reference through
+its existing I2S connection. The shared codec opens both physical slots, while
+`Write()` explicitly duplicates logical mono PCM into them. A single FD AFE
+provides local AEC, VAD, WakeNet and local MultiNet; ordinary builds keep their
+existing capture format and AFE mode.
+
+During TTS the AFE remains active, and up to 12 compressed post-AEC packets
+(720 ms) are retained locally. A reference-presence check, 240 ms settling guard,
+VAD and 180 ms sustained energy confirm one interruption per reply. Capture and
+reply generations reject stale work. Only the main task cancels playback and
+sends abort/listen commands; it stops locally before sending over the network.
+The clean prefix is committed before subsequent microphone packets without
+restarting capture. No extra decoder or speaker writer is created.
+
+The reply gate requires the server's next nonempty STT before accepting new TTS,
+using the existing auto protocol on both transports. Current-frame VAD reaches
+the detector before PCM; only VAD edges reach the UI. Normal TTS completion drops
+the monitoring prefix and returns to ordinary listening. Wake-word/manual exit,
+maintenance, no-reference and feature-disabled paths remain available.
+See `docs/wzh_tailredpanda_voice_barge_in_2026-11-02.md` for test scope, protocol
+ordering requirements and physical-device acceptance checks.

@@ -87,6 +87,12 @@ void Application::Initialize() {
     callbacks.on_playback_drained = [this]() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_PLAYBACK_DRAINED);
     };
+#if CONFIG_USE_VOICE_BARGE_IN
+    callbacks.on_voice_interruption = [this](uint32_t token) {
+        pending_voice_interruption_.store(token);
+        xEventGroupSetBits(event_group_, MAIN_EVENT_VOICE_INTERRUPTION);
+    };
+#endif
     audio_service_.SetCallbacks(callbacks);
 
     // Add state change listeners
@@ -188,7 +194,8 @@ void Application::Run() {
         MAIN_EVENT_VAD_CHANGE | MAIN_EVENT_CLOCK_TICK | MAIN_EVENT_ERROR |
         MAIN_EVENT_NETWORK_CONNECTED | MAIN_EVENT_NETWORK_DISCONNECTED | MAIN_EVENT_TOGGLE_CHAT |
         MAIN_EVENT_START_LISTENING | MAIN_EVENT_STOP_LISTENING | MAIN_EVENT_ACTIVATION_DONE |
-        MAIN_EVENT_STATE_CHANGED | MAIN_EVENT_PLAYBACK_DRAINED | MAIN_EVENT_TOGGLE_CONVERSATION;
+        MAIN_EVENT_STATE_CHANGED | MAIN_EVENT_PLAYBACK_DRAINED | MAIN_EVENT_TOGGLE_CONVERSATION |
+        MAIN_EVENT_VOICE_INTERRUPTION;
 
     while (true) {
         auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
@@ -241,6 +248,11 @@ void Application::Run() {
             HandleStopListeningEvent();
         }
 
+#if CONFIG_USE_VOICE_BARGE_IN
+        if ((bits & MAIN_EVENT_VOICE_INTERRUPTION) && !(bits & MAIN_EVENT_WAKE_WORD_DETECTED)) {
+            HandleVoiceInterruptionEvent();
+        }
+#endif
         if (bits & MAIN_EVENT_SEND_AUDIO) {
             while (auto packet = audio_service_.PopPacketFromSendQueue()) {
                 // A pending stop must not leak uplink frames produced before
@@ -553,6 +565,11 @@ void Application::InitializeProtocol() {
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
         if (interaction_stopped_.load())
             return;
+#if CONFIG_USE_VOICE_BARGE_IN
+        if (barge_in_reply_gate_.blocked()) {
+            return;
+        }
+#endif
         const uint32_t generation = audio_service_.GetPlaybackGeneration();
         std::lock_guard<std::mutex> lock(early_audio_mutex_);
         if (GetDeviceState() == kDeviceStateSpeaking) {
@@ -596,6 +613,11 @@ void Application::InitializeProtocol() {
             return;
         }
         if (strcmp(type->valuestring, "tts") == 0) {
+#if CONFIG_USE_VOICE_BARGE_IN
+            if (barge_in_reply_gate_.blocked()) {
+                return;
+            }
+#endif
             const auto generation = interaction_generation_.load();
             if (interaction_stopped_.load()) {
                 return;
@@ -607,9 +629,10 @@ void Application::InitializeProtocol() {
             if (strcmp(state->valuestring, "start") == 0) {
                 tts_start_pending_.store(true);
                 Schedule([this, generation]() {
-                    if (interaction_stopped_.load() ||
-                        generation != interaction_generation_.load() ||
-                        GetDeviceState() == kDeviceStateIdle) {
+                    if (generation != interaction_generation_.load()) {
+                        return;
+                    }
+                    if (interaction_stopped_.load() || GetDeviceState() == kDeviceStateIdle) {
                         ClearEarlyAudio();
                         return;
                     }
@@ -656,6 +679,11 @@ void Application::InitializeProtocol() {
             const auto generation = interaction_generation_.load();
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
+#if CONFIG_USE_VOICE_BARGE_IN
+                if (text->valuestring[0] != '\0') {
+                    barge_in_reply_gate_.OnTranscript();
+                }
+#endif
                 std::vector<TextGlyph> glyphs;
                 uint8_t bpp = 0;
                 if (!TextGlyphPayload::Parse(root, glyphs, bpp)) {
@@ -671,6 +699,11 @@ void Application::InitializeProtocol() {
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
+#if CONFIG_USE_VOICE_BARGE_IN
+            if (barge_in_reply_gate_.blocked()) {
+                return;
+            }
+#endif
             if (interaction_stopped_.load())
                 return;
             const auto generation = interaction_generation_.load();
@@ -981,6 +1014,13 @@ void Application::HandleWakeWordDetectedEvent() {
         audio_service_.EnableWakeWordDetection(true);
         return;
     }
+#if CONFIG_USE_VOICE_BARGE_IN
+    barge_in_reply_gate_.Cancel();
+    if (audio_service_.IsVoiceInterruptionMonitoring()) {
+        audio_service_.EnableVoiceProcessing(false);
+        audio_service_.ResetDecoder();
+    }
+#endif
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
 
     if (state == kDeviceStateIdle) {
@@ -1100,6 +1140,9 @@ void Application::HandleStateChangedEvent() {
     switch (new_state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
+#if CONFIG_USE_VOICE_BARGE_IN
+            barge_in_reply_gate_.Cancel();
+#endif
             display->SetStatus(Lang::Strings::STANDBY);
             display->ClearChatMessages();    // Clear messages first
             display->SetEmotion("neutral");  // Then set emotion (wechat mode checks child count)
@@ -1115,6 +1158,16 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+#if CONFIG_USE_VOICE_BARGE_IN
+            if (audio_service_.IsVoiceInterruptionMonitoring()) {
+                if (!audio_service_.IsPlaybackIdle()) {
+                    // Keep detecting speech through the actual buffered TTS tail.
+                    pending_listening_start_ = true;
+                    break;
+                }
+                audio_service_.EnableVoiceProcessing(false);
+            }
+#endif
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
@@ -1147,6 +1200,13 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
             entry_prompt_before_listening_ = false;
+#if CONFIG_USE_VOICE_BARGE_IN
+            if (listening_mode_ == kListeningModeAutoStop &&
+                audio_service_.BeginVoiceInterruption()) {
+                audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
+                break;
+            }
+#endif
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
@@ -1181,6 +1241,11 @@ void Application::StartListeningAudio() {
         return;
     }
 
+#if CONFIG_USE_VOICE_BARGE_IN
+    if (audio_service_.IsVoiceInterruptionMonitoring()) {
+        audio_service_.EnableVoiceProcessing(false);
+    }
+#endif
     // Send the start listening command
     protocol_->SendStartListening(listening_mode_);
     audio_service_.EnableVoiceProcessing(true);
@@ -1200,6 +1265,13 @@ void Application::FlushEarlyAudio() {
     if (GetDeviceState() != kDeviceStateSpeaking)
         audio_service_.ResetDecoder();
     aborted_ = false;
+#if CONFIG_USE_VOICE_BARGE_IN
+    if (listening_mode_ == kListeningModeAutoStop) {
+        // Arm before publishing Speaking: a short TTS may start and stop in
+        // the same main-task batch, before HandleStateChangedEvent can run.
+        audio_service_.BeginVoiceInterruption();
+    }
+#endif
     SetDeviceState(kDeviceStateSpeaking);
     while (!early_audio_.empty()) {
         auto packet = std::move(early_audio_.front());
@@ -1246,6 +1318,11 @@ void Application::AbortSpeaking(AbortReason reason) {
 
 void Application::StopInteraction(bool play_exit_sound) {
     interaction_stopped_.store(true);
+#if CONFIG_USE_VOICE_BARGE_IN
+    // A rapid exit/re-entry can coalesce the Idle state notification.
+    // Clear the reply barrier immediately, behind the stopped-input gate.
+    barge_in_reply_gate_.Cancel();
+#endif
     // Drop frames already produced; the SEND_AUDIO gate also rejects frames
     // that finish encoding after this point.
     while (audio_service_.PopPacketFromSendQueue()) {
@@ -1454,3 +1531,33 @@ void Application::ResetProtocol() {
         protocol_.reset();
     });
 }
+
+#if CONFIG_USE_VOICE_BARGE_IN
+void Application::HandleVoiceInterruptionEvent() {
+    const auto state = GetDeviceState();
+    const auto token = pending_voice_interruption_.load();
+    if (interaction_stopped_.load() || !protocol_ || !protocol_->IsAudioChannelOpened() ||
+        (state != kDeviceStateSpeaking &&
+         !(state == kDeviceStateListening && pending_listening_start_)) ||
+        !audio_service_.IsVoiceInterruptionPending(token)) {
+        return;
+    }
+    // Fence receive callbacks before aborting. Old starts/stops, binary audio
+    // and emotions remain rejected until a new, nonempty STT transcript.
+    barge_in_reply_gate_.Begin();
+    interaction_generation_.fetch_add(1);
+    ClearEarlyAudio();
+    audio_service_.ResetDecoder();
+    pending_listening_start_ = play_popup_on_listening_ = entry_prompt_before_listening_ = false;
+    SetDeviceState(kDeviceStateListening);
+    // Stop locally before a potentially blocking transport send.
+    AbortSpeaking(kAbortReasonNone);
+    protocol_->SendStartListening(listening_mode_);
+    if (!audio_service_.CommitVoiceInterruption(token)) {
+        // A stop or wake word superseded the detection; never resurrect it.
+        return;
+    }
+    ConfigureWakeWordForListening();
+    ESP_LOGI(TAG, "Voice interruption: reply cancelled, post-AEC prefix retained");
+}
+#endif

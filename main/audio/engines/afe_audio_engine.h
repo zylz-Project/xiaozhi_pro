@@ -68,7 +68,7 @@ private:
     StackType_t* processing_task_stack_ = nullptr;
     StaticTask_t* processing_task_buffer_ = nullptr;
     int frame_samples_ = 0;
-    bool is_speaking_ = false;
+    std::atomic<bool> is_speaking_{false};
     std::atomic<bool> device_aec_enabled_{false};
     // Deferred AFE buffer reset, performed by ProcessingTask (see UpdateActiveState)
     std::atomic<bool> reset_pending_{false};

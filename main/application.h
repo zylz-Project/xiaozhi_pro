@@ -35,6 +35,7 @@
 #define MAIN_EVENT_STATE_CHANGED (1 << 12)
 #define MAIN_EVENT_PLAYBACK_DRAINED (1 << 13)
 #define MAIN_EVENT_TOGGLE_CONVERSATION (1 << 14)
+#define MAIN_EVENT_VOICE_INTERRUPTION (1 << 15)
 
 enum AecMode {
     kAecOff,
@@ -161,6 +162,11 @@ private:
     std::atomic<bool> local_assets_applied_{false};
     std::atomic<bool> interaction_stopped_{false};
     std::atomic<uint32_t> interaction_generation_{0};
+#if CONFIG_USE_VOICE_BARGE_IN
+    std::atomic<uint32_t> pending_voice_interruption_{0};
+    BargeInReplyGate barge_in_reply_gate_;
+    void HandleVoiceInterruptionEvent();
+#endif
     // A TTS start arrives before its first audio packets, but the state change
     // runs on the main task. Keep a bounded prefix so the first syllable is
     // not dropped while the start transition is pending.

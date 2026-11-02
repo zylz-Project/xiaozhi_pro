@@ -3,6 +3,8 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <algorithm>
+#include <array>
 
 #define TAG "Es8311AudioCodec"
 
@@ -10,10 +12,10 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
                                    int input_sample_rate, int output_sample_rate, gpio_num_t mclk,
                                    gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din,
                                    gpio_num_t pa_pin, uint8_t es8311_addr, bool use_mclk,
-                                   bool pa_inverted, float pa_voltage) {
-    duplex_ = true;            // 是否双工
-    input_reference_ = false;  // 是否使用参考输入，实现回声消除
-    input_channels_ = 1;       // 输入通道数
+                                   bool pa_inverted, float pa_voltage, bool dac_reference) {
+    duplex_ = true;  // 是否双工
+    input_reference_ = dac_reference;
+    input_channels_ = dac_reference ? 2 : 1;  // ADCL microphone, DACR digital reference.
     input_sample_rate_ = input_sample_rate;
     output_sample_rate_ = output_sample_rate;
     pa_pin_ = pa_pin;
@@ -54,6 +56,7 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     es8311_cfg.hw_gain.pa_voltage = pa_voltage;
     es8311_cfg.hw_gain.codec_dac_voltage = 3.3;
     es8311_cfg.pa_reverted = pa_inverted_;
+    es8311_cfg.no_dac_ref = false;
     codec_if_ = es8311_codec_new(&es8311_cfg);
 
     if (codec_if_ == nullptr) {
@@ -95,7 +98,7 @@ void Es8311AudioCodec::UpdateDeviceState() {
 
         esp_codec_dev_sample_info_t fs = {
             .bits_per_sample = 16,
-            .channel = 1,
+            .channel = static_cast<uint8_t>(input_channels_),
             .channel_mask = 0,
             .sample_rate = (uint32_t)input_sample_rate_,
             .mclk_multiple = 0,
@@ -200,14 +203,38 @@ void Es8311AudioCodec::EnableOutput(bool enable) {
 
 int Es8311AudioCodec::Read(int16_t* dest, int samples) {
     if (input_enabled_) {
-        ESP_ERROR_CHECK_WITHOUT_ABORT(
-            esp_codec_dev_read(dev_, (void*)dest, samples * sizeof(int16_t)));
+        const int result = esp_codec_dev_read(dev_, dest, samples * sizeof(int16_t));
+        if (result == ESP_CODEC_DEV_OK) {
+            return samples;
+        }
+        ESP_LOGW(TAG, "Codec capture failed: %d", result);
     }
-    return samples;
+    return 0;
 }
 
 int Es8311AudioCodec::Write(const int16_t* data, int samples) {
     if (output_enabled_) {
+        if (input_reference_) {
+            // The shared IN_OUT codec is opened as stereo to capture ADCL/DACR.
+            // Keep logical playback mono and duplicate each sample explicitly:
+            // writing unexpanded mono here halves the duration and changes pitch.
+            std::array<int16_t, 480> stereo;
+            int written = 0;
+            while (written < samples) {
+                const int frames = std::min(samples - written, 240);
+                for (int i = 0; i < frames; ++i) {
+                    stereo[i * 2] = stereo[i * 2 + 1] = data[written + i];
+                }
+                const int result =
+                    esp_codec_dev_write(dev_, stereo.data(), frames * 2 * sizeof(int16_t));
+                if (result != ESP_CODEC_DEV_OK) {
+                    ESP_LOGW(TAG, "Codec playback failed: %d", result);
+                    return written;
+                }
+                written += frames;
+            }
+            return written;
+        }
         ESP_ERROR_CHECK_WITHOUT_ABORT(
             esp_codec_dev_write(dev_, (void*)data, samples * sizeof(int16_t)));
     }

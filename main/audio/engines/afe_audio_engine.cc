@@ -116,8 +116,13 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
 
     char* vad_model_name =
         models_ == nullptr ? nullptr : esp_srmodel_filter(models_, ESP_VADN_PREFIX, nullptr);
+#if CONFIG_USE_VOICE_BARGE_IN
+    afe_config_t* afe_config =
+        afe_config_init(input_format.c_str(), models_, AFE_TYPE_FD, AFE_MODE_LOW_COST);
+#else
     afe_config_t* afe_config =
         afe_config_init(input_format.c_str(), models_, AFE_TYPE_VC, AFE_MODE_HIGH_PERF);
+#endif
     if (afe_config == nullptr) {
         ESP_LOGE(TAG, "Failed to create AFE configuration");
         return false;
@@ -126,9 +131,18 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     afe_config->aec_init = codec_->input_reference();
     afe_config->aec_mode = AEC_MODE_VOIP_HIGH_PERF;
     afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
+#if CONFIG_USE_VOICE_BARGE_IN
+    afe_config->aec_mode = AEC_MODE_FD_LOW_COST;
+    afe_config->aec_nlp_level = AEC_NLP_LEVEL_AGGR;
+    afe_config->vad_min_speech_ms = 64;
+    afe_config->vad_delay_ms = 128;
+#endif
     afe_config->ns_init = false;
     afe_config->vad_init = kUseAfeForVoiceProcessing;
     afe_config->vad_mode = VAD_MODE_0;
+#if CONFIG_USE_VOICE_BARGE_IN
+    afe_config->vad_mode = VAD_MODE_3;
+#endif
     afe_config->vad_min_noise_ms = 100;
     if (vad_model_name != nullptr) {
         afe_config->vad_model_name = vad_model_name;
@@ -498,6 +512,12 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result) {
         output_buffer_.clear();
     }
     if (vad_state_change_callback_) {
+#if CONFIG_USE_VOICE_BARGE_IN
+        // Publish the authoritative frame state before its PCM. AudioService
+        // forwards only edges to the UI; monitor decisions cannot inherit an
+        // old session's VAD latch after capture is disabled/re-enabled.
+        vad_state_change_callback_(result->vad_state == VAD_SPEECH);
+#else
         if (result->vad_state == VAD_SPEECH && !is_speaking_) {
             is_speaking_ = true;
             vad_state_change_callback_(true);
@@ -505,6 +525,7 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result) {
             is_speaking_ = false;
             vad_state_change_callback_(false);
         }
+#endif
     }
     if (!output_callback_) {
         return;

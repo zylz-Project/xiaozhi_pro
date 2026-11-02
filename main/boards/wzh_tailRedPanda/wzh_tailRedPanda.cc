@@ -121,13 +121,18 @@ public:
     }
 
     AudioCodec* GetAudioCodec() override {
+#if CONFIG_USE_VOICE_BARGE_IN
+        constexpr bool kDacReference = true;
+#else
+        constexpr bool kDacReference = false;
+#endif
         // 延迟构造 codec，保证 codec_i2c_bus_ 已由构造函数创建。
         // 在线录音、TTS 和离线声音都复用这个唯一实例。
         static Es8311AudioCodec codec(
             codec_i2c_bus_, I2C_NUM_0, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT,
             AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR, false, false,
-            AUDIO_CODEC_PA_VOLTAGE);
+            AUDIO_CODEC_PA_VOLTAGE, kDacReference);
         return &codec;
     }
 

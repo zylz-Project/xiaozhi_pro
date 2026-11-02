@@ -961,6 +961,16 @@ config USE_SERVER_AEC
     help
         To work perperly, server-side AEC requires server support
 
+config USE_VOICE_BARGE_IN
+    bool "Experimental local voice interruption with playback reference"
+    default n
+    depends on USE_AUDIO_PROCESSOR && USE_AFE_WAKE_WORD && !USE_SERVER_AEC
+    help
+        Detect sustained post-AEC speech during a reply and interrupt locally.
+        Requires a codec providing microphone plus playback-reference channels.
+        Uses auto listening and the server's standard STT-before-TTS ordering.
+        Enabled only in the dedicated WZH tail-red-panda test build by default.
+
 config USE_AUDIO_DEBUGGER
     bool "Enable Audio Debugger"
     default n

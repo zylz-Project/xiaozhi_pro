@@ -27,6 +27,9 @@
 #include "fixed_queue.h"
 #include "ogg_demuxer.h"
 #include "protocol.h"
+#if CONFIG_USE_VOICE_BARGE_IN
+#include "voice_barge_in.h"
+#endif
 
 /*
  * There are two types of audio data flow:
@@ -89,6 +92,9 @@ struct AudioServiceCallbacks {
     std::function<void(void)> on_audio_testing_queue_full;
     // Fired when the decode/playback queues and their in-flight work are drained.
     std::function<void(void)> on_playback_drained;
+#if CONFIG_USE_VOICE_BARGE_IN
+    std::function<void(uint32_t)> on_voice_interruption;
+#endif
 };
 
 enum AudioTaskType {
@@ -102,6 +108,9 @@ struct AudioTask {
     std::vector<int16_t> pcm;
     uint32_t timestamp = 0;
     uint32_t playback_generation = 0;
+#if CONFIG_USE_VOICE_BARGE_IN
+    uint32_t capture_generation = 0;
+#endif
 };
 
 struct DebugStatistics {
@@ -128,7 +137,13 @@ public:
     void EncodeWakeWord();
     std::unique_ptr<AudioStreamPacket> PopWakeWordPacket();
     const std::string& GetLastWakeWord() const;
-    bool IsVoiceDetected() const { return voice_detected_; }
+    bool IsVoiceDetected() const { return voice_detected_.load(); }
+#if CONFIG_USE_VOICE_BARGE_IN
+    bool BeginVoiceInterruption();
+    bool IsVoiceInterruptionMonitoring();
+    bool IsVoiceInterruptionPending(uint32_t token);
+    bool CommitVoiceInterruption(uint32_t token);
+#endif
     bool IsIdle();
     bool IsPlaybackIdle();
     PlaybackBufferStatus GetPlaybackBufferStatus();
@@ -226,7 +241,18 @@ private:
     FixedQueue<uint32_t, MAX_TIMESTAMPS_IN_QUEUE> timestamp_queue_;
 
     bool audio_engine_initialized_ = false;
-    bool voice_detected_ = false;
+    std::atomic<bool> voice_detected_{false};
+#if CONFIG_USE_VOICE_BARGE_IN
+    VoiceBargeIn voice_barge_in_;
+    static constexpr size_t kBargePrerollPackets = 12;  // 720 ms, compressed post-AEC audio.
+    FixedQueue<std::unique_ptr<AudioStreamPacket>, kBargePrerollPackets> barge_preroll_;
+    uint32_t capture_generation_ = 0;
+    bool capture_enabled_ = false;
+    void QueueVoicePacket(std::unique_ptr<AudioStreamPacket> packet, uint32_t generation);
+    bool barge_reference_seen_ = false;
+    std::atomic<float> reference_rms_{0.0f};
+    uint32_t reference_log_frames_ = 0;
+#endif
 #if CONFIG_USE_DEVICE_AEC
     bool device_aec_enabled_ = true;
 #else

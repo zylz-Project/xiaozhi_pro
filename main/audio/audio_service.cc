@@ -1,6 +1,7 @@
 #include "audio_service.h"
 #include <esp_log.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <utility>
 
@@ -49,6 +50,10 @@ AudioService::~AudioService() {
 
 void AudioService::Initialize(AudioCodec* codec) {
     codec_ = codec;
+#if CONFIG_USE_VOICE_BARGE_IN
+    // Local interruption uses AEC without changing the server's auto-listen mode.
+    device_aec_enabled_ = codec_->input_reference();
+#endif
     // Optional board capability: robots need downlink headroom while motion
     // and local recognition run. Other boards retain their original budget.
     buffered_playback_ = Board::GetInstance().SupportsLocalInteraction();
@@ -106,8 +111,8 @@ void AudioService::Initialize(AudioCodec* codec) {
         PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
     });
     audio_engine_->OnVadStateChange([this](bool speaking) {
-        voice_detected_ = speaking;
-        if (callbacks_.on_vad_change) {
+        const bool changed = voice_detected_.exchange(speaking) != speaking;
+        if (changed && callbacks_.on_vad_change) {
             callbacks_.on_vad_change(speaking);
         }
     });
@@ -198,6 +203,13 @@ void AudioService::Stop() {
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         ++playback_generation_;
+#if CONFIG_USE_VOICE_BARGE_IN
+        capture_enabled_ = false;
+        ++capture_generation_;
+        voice_barge_in_.Cancel();
+        barge_preroll_.clear();
+        audio_send_queue_.clear();
+#endif
         audio_encode_queue_.clear();
         audio_decode_queue_.clear();
         audio_playback_queue_.clear();
@@ -242,6 +254,24 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         }
     }
 
+#if CONFIG_USE_VOICE_BARGE_IN
+    if (codec_->input_reference() && codec_->input_channels() == 2 && data.size() >= 2) {
+        uint64_t mic_square = 0, ref_square = 0;
+        const size_t frames = data.size() / 2;
+        for (size_t i = 0; i < frames; ++i) {
+            const int64_t mic = data[i * 2], ref = data[i * 2 + 1];
+            mic_square += mic * mic;
+            ref_square += ref * ref;
+        }
+        const float ref_rms = std::sqrt(static_cast<float>(ref_square) / frames);
+        reference_rms_.store(ref_rms);
+        if (++reference_log_frames_ % 200 == 0) {
+            ESP_LOGI(TAG, "MR capture: mic RMS=%d, DAC reference RMS=%d",
+                     static_cast<int>(std::sqrt(static_cast<float>(mic_square) / frames)),
+                     static_cast<int>(ref_rms));
+        }
+    }
+#endif
     /* Update the last input time */
     last_input_time_ = std::chrono::steady_clock::now();
     debug_statistics_.input_count++;
@@ -574,11 +604,12 @@ void AudioService::OpusCodecTask() {
                     packet->payload.resize(out.encoded_bytes);
 
                     if (task.type == kAudioTaskTypeEncodeToSendQueue) {
+#if CONFIG_USE_VOICE_BARGE_IN
+                        QueueVoicePacket(std::move(packet), task.capture_generation);
+#else
                         {
                             std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
-                            /* Never let a full send queue stall encoding: stale realtime
-                             * audio is useless to the server, so drop the oldest packet. */
-                            if (audio_send_queue_.size() >= MAX_SEND_PACKETS_IN_QUEUE) {
+                            if (audio_send_queue_.full()) {
                                 audio_send_queue_.pop_front();
                             }
                             audio_send_queue_.push_back(std::move(packet));
@@ -586,6 +617,7 @@ void AudioService::OpusCodecTask() {
                         if (callbacks_.on_send_queue_available) {
                             callbacks_.on_send_queue_available();
                         }
+#endif
                     } else if (task.type == kAudioTaskTypeEncodeToTestingQueue) {
                         std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
                         if (audio_testing_queue_.size() < kTestingPacketCapacity) {
@@ -664,9 +696,27 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
     task.pcm = std::move(pcm);
 
     uint32_t dropped_total = 0;
+#if CONFIG_USE_VOICE_BARGE_IN
+    uint32_t interruption_token = 0;
+    bool interruption = false;
+#endif
     {
         /* Push the task to the encode queue */
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+#if CONFIG_USE_VOICE_BARGE_IN
+        if (type == kAudioTaskTypeEncodeToSendQueue) {
+            if (!capture_enabled_) {
+                return;
+            }
+            task.capture_generation = capture_generation_;
+            barge_reference_seen_ = barge_reference_seen_ || reference_rms_.load() > 8.0f;
+            if (barge_reference_seen_ || codec_->output_volume() == 0) {
+                interruption = voice_barge_in_.Observe(task.pcm.data(), task.pcm.size(),
+                                                       voice_detected_.load());
+            }
+            interruption_token = voice_barge_in_.token();
+        }
+#endif
 
         /* If the task is to send queue, we need to set the timestamp */
         if (type == kAudioTaskTypeEncodeToSendQueue && !timestamp_queue_.empty()) {
@@ -690,6 +740,11 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
         audio_encode_queue_.push_back(std::move(task));
         audio_queue_cv_.notify_all();
     }
+#if CONFIG_USE_VOICE_BARGE_IN
+    if (interruption && callbacks_.on_voice_interruption) {
+        callbacks_.on_voice_interruption(interruption_token);
+    }
+#endif
 
     /* Log outside the lock (UART writes are slow and would starve the codec task),
      * at most once per second. */
@@ -789,6 +844,17 @@ void AudioService::EnableWakeWordDetection(bool enable) {
 
 void AudioService::EnableVoiceProcessing(bool enable) {
     ESP_LOGD(TAG, "%s voice processing", enable ? "Enabling" : "Disabling");
+#if CONFIG_USE_VOICE_BARGE_IN
+    {
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        capture_enabled_ = false;
+        ++capture_generation_;
+        voice_barge_in_.Cancel();
+        barge_preroll_.clear();
+        audio_encode_queue_.clear();
+        audio_send_queue_.clear();
+    }
+#endif
 
     if (enable) {
         if (!InitializeAudioEngine()) {
@@ -803,6 +869,12 @@ void AudioService::EnableVoiceProcessing(bool enable) {
             }
         }
         audio_engine_->EnableVoiceProcessing(true);
+#if CONFIG_USE_VOICE_BARGE_IN
+        {
+            std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+            capture_enabled_ = true;
+        }
+#endif
         xEventGroupSetBits(event_group_, AS_EVENT_AUDIO_PROCESSOR_RUNNING);
     } else {
         if (audio_engine_initialized_) {
@@ -982,3 +1054,82 @@ bool AudioService::InitializeAudioEngine() {
     audio_engine_->EnableDeviceAec(device_aec_enabled_);
     return true;
 }
+
+#if CONFIG_USE_VOICE_BARGE_IN
+bool AudioService::BeginVoiceInterruption() {
+    if (!codec_->input_reference() || !device_aec_enabled_ || !IsAudioProcessorRunning()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    if (!capture_enabled_) {
+        return false;
+    }
+    if (!voice_barge_in_.monitoring()) {
+        ++capture_generation_;
+        audio_encode_queue_.clear();
+        audio_send_queue_.clear();
+        barge_preroll_.clear();
+        voice_barge_in_.Begin();
+        barge_reference_seen_ = false;
+    }
+    return true;
+}
+
+bool AudioService::IsVoiceInterruptionMonitoring() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    return voice_barge_in_.monitoring();
+}
+
+bool AudioService::IsVoiceInterruptionPending(uint32_t token) {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    return capture_enabled_ && voice_barge_in_.pending(token);
+}
+
+bool AudioService::CommitVoiceInterruption(uint32_t token) {
+    {
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        if (!capture_enabled_ || !voice_barge_in_.Commit(token)) {
+            return false;
+        }
+        // The input/AFE pipeline stays running: already encoded prefix packets
+        // precede the current in-flight packet without a reset or warmup gap.
+        audio_send_queue_.clear();
+        while (!barge_preroll_.empty()) {
+            audio_send_queue_.push_back(std::move(barge_preroll_.front()));
+            barge_preroll_.pop_front();
+        }
+    }
+    if (callbacks_.on_send_queue_available) {
+        callbacks_.on_send_queue_available();
+    }
+    return true;
+}
+#endif
+
+#if CONFIG_USE_VOICE_BARGE_IN
+void AudioService::QueueVoicePacket(std::unique_ptr<AudioStreamPacket> packet,
+                                    uint32_t generation) {
+    bool notify = false;
+    {
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        if (!capture_enabled_ || generation != capture_generation_) {
+            return;
+        }
+        if (voice_barge_in_.monitoring()) {
+            if (barge_preroll_.full()) {
+                barge_preroll_.pop_front();
+            }
+            barge_preroll_.push_back(std::move(packet));
+        } else {
+            if (audio_send_queue_.full()) {
+                audio_send_queue_.pop_front();
+            }
+            audio_send_queue_.push_back(std::move(packet));
+            notify = true;
+        }
+    }
+    if (notify && callbacks_.on_send_queue_available) {
+        callbacks_.on_send_queue_available();
+    }
+}
+#endif
