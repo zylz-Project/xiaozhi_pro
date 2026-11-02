@@ -165,15 +165,18 @@ int main() {
         method=queue_function(source,'void AudioCodec::OutputData(')
         motion_tests.WzhFluentMotionTest.run_cpp(self,r'''
 #include <cassert>
+#include <atomic>
 #include <cstdint>
 #include <vector>
 struct SpeakerProtection {
     int process_calls = 0;
+    void Reset() {}
     void Process(std::vector<int16_t>&) { ++process_calls; }
 };
 struct AudioCodec {
     bool speaker_protection_enabled_ = false;
     SpeakerProtection speaker_protection_;
+    std::atomic<bool> output_processing_reset_pending_{true};
     int written = 0;
     void OutputData(std::vector<int16_t>&);
     void Write(const int16_t*, int) { ++written; }
@@ -195,3 +198,66 @@ int main() {
         init=queue_function(source,'void AudioService::Initialize(')
         self.assertIn('EnableSpeakerProtection(true)', init)
         self.assertIn('buffered_playback_', init)
+
+    def test_transients_fragmented_processing_and_reset_at_supported_rates(self):
+        self.run_program(r'''
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <vector>
+int main(){
+ for(int rate:{8000,16000,24000,48000}){
+  std::vector<int16_t> original(rate/2);
+  uint32_t random=23;
+  for(size_t i=0;i<original.size();++i){
+   random=random*1664525U+1013904223U;
+   original[i]=static_cast<int16_t>(random>>16);
+   if(i%23==0){original[i]=32767;}
+   if(i%41==0){original[i]=-32768;}
+  }
+  SpeakerProtection whole,fragmented;
+  whole.Configure(rate);fragmented.Configure(rate);
+  auto expected=original;whole.Process(expected);
+  std::vector<int16_t>actual;
+  for(size_t offset=0;offset<original.size();){
+   size_t count=std::min<size_t>(1+offset%137,original.size()-offset);
+   std::vector<int16_t>chunk(original.begin()+offset,original.begin()+offset+count);
+   fragmented.Process(chunk);actual.insert(actual.end(),chunk.begin(),chunk.end());offset+=count;
+  }
+  assert(actual==expected);
+  for(int sample:actual){assert(sample<=27525&&sample>=-27525);}
+  fragmented.Reset();std::vector<int16_t> silence(1000,0);fragmented.Process(silence);
+  for(int sample:silence){assert(sample==0);}
+ }
+}
+''')
+
+    def run_program(self, program):
+        motion_tests.WzhFluentMotionTest.run_cpp(
+            self, '#include "' + str(HEADER) + '"\n' + program)
+
+    def test_codec_reset_request_is_applied_by_output_writer(self):
+        source = (ROOT/'main/audio/audio_codec.cc').read_text()
+        self.run_program(r'''
+#include <atomic>
+#include <cassert>
+struct AudioCodec{
+ bool speaker_protection_enabled_=true;
+ SpeakerProtection speaker_protection_;
+ std::atomic<bool>output_processing_reset_pending_{true};
+ void OutputData(std::vector<int16_t>&);
+ void ResetOutputProcessing();
+ void Write(const int16_t*,int){}
+};
+''' + queue_function(source, 'void AudioCodec::OutputData(')
+            + queue_function(source, 'void AudioCodec::ResetOutputProcessing(') + r'''
+int main(){
+ AudioCodec codec;codec.speaker_protection_.Configure(24000);
+ std::vector<int16_t>old(1,32767);codec.OutputData(old);
+ // A cancellation request must not let the look-ahead sample enter new playback.
+ codec.ResetOutputProcessing();assert(codec.output_processing_reset_pending_.load());
+ std::vector<int16_t>new_session(100,0);codec.OutputData(new_session);
+ assert(!codec.output_processing_reset_pending_.load());
+ for(auto sample:new_session){assert(sample==0);}
+}
+''')

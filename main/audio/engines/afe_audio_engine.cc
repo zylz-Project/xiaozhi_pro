@@ -43,6 +43,12 @@ AfeAudioEngine::~AfeAudioEngine() {
     if (afe_data_ != nullptr) {
         afe_iface_->destroy(afe_data_);
     }
+    if (processing_task_stack_ != nullptr) {
+        heap_caps_free(processing_task_stack_);
+    }
+    if (processing_task_buffer_ != nullptr) {
+        heap_caps_free(processing_task_buffer_);
+    }
     if (wake_word_encode_task_stack_ != nullptr) {
         heap_caps_free(wake_word_encode_task_stack_);
     }
@@ -154,14 +160,38 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     }
     afe_iface_->print_pipeline(afe_data_);
 
-    BaseType_t task_created = xTaskCreate(
+    if (processing_task_stack_ == nullptr) {
+#if CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY
+        processing_task_stack_ = static_cast<StackType_t*>(
+            heap_caps_malloc(kProcessingTaskStackSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#endif
+        if (processing_task_stack_ == nullptr) {
+            // Keep targets without available PSRAM usable, with the original
+            // internal-memory cost rather than disabling their speech engine.
+            processing_task_stack_ = static_cast<StackType_t*>(
+                heap_caps_malloc(kProcessingTaskStackSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        }
+    }
+    if (processing_task_buffer_ == nullptr) {
+        processing_task_buffer_ = static_cast<StaticTask_t*>(
+            heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    }
+    if (processing_task_stack_ == nullptr || processing_task_buffer_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to allocate AFE processing task memory");
+        afe_iface_->destroy(afe_data_);
+        afe_data_ = nullptr;
+        afe_iface_ = nullptr;
+        return false;
+    }
+    processing_task_ = xTaskCreateStatic(
         [](void* arg) {
             auto* engine = static_cast<AfeAudioEngine*>(arg);
             engine->ProcessingTask();
             vTaskDelete(nullptr);
         },
-        "audio_afe", 4096, this, 3, &processing_task_);
-    if (task_created != pdPASS) {
+        "audio_afe", kProcessingTaskStackSize, this, 3, processing_task_stack_,
+        processing_task_buffer_);
+    if (processing_task_ == nullptr) {
         ESP_LOGE(TAG, "Failed to create AFE processing task");
         afe_iface_->destroy(afe_data_);
         afe_data_ = nullptr;

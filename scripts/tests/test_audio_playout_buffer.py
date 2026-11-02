@@ -62,6 +62,7 @@ constexpr unsigned AUDIO_POWER_CHECK_INTERVAL_MS=1000;
 void esp_timer_stop(void*){}void esp_timer_start_periodic(void*,unsigned){}
 struct AudioTask{uint32_t playback_generation=7,timestamp=0;std::vector<int16_t>pcm=std::vector<int16_t>(960,1000);};
 struct Codec{
+ void ResetOutputProcessing(){}
  int writes=0;bool enabled=false;
  int output_sample_rate(){return 16000;}
  bool output_enabled(){return enabled;}void EnableOutput(bool e){enabled=e;}
@@ -70,7 +71,7 @@ struct Codec{
 struct AudioService{
  Codec codec;Codec*codec_=&codec;void*audio_power_timer_=nullptr;
  std::mutex audio_queue_mutex_;std::condition_variable audio_queue_cv_;
- std::deque<std::unique_ptr<AudioTask>>audio_playback_queue_;
+ std::deque<AudioTask>audio_playback_queue_;
  std::atomic<bool>service_stopped_{false};uint32_t playback_generation_=7;
  std::atomic<bool>waiting{false};AudioPlayoutBuffer playout_buffer_;
  uint32_t BufferedPlaybackMsLocked(){waiting=true;return 60;}
@@ -87,7 +88,7 @@ struct AudioService{
 '''+method+r'''
 int main(){
  AudioService service;service.playout_buffer_.Enable(true);
- service.audio_playback_queue_.push_back(std::make_unique<AudioTask>());
+ service.audio_playback_queue_.push_back(AudioTask{});
  std::thread worker([&]{service.AudioOutputTask();});
  while(!service.waiting.load())std::this_thread::yield();
  {

@@ -39,8 +39,16 @@ private:
     // One-millisecond delay line doubles as the peak-detection window.
     std::vector<float> lookahead_;
     size_t position_ = 0;
+    struct Peak {
+        uint32_t sample;
+        float value;
+    };
+    std::vector<Peak> peaks_;
+    size_t peak_head_ = 0, peak_count_ = 0;
+    uint32_t sample_clock_ = 0;
+    unsigned rms_countdown_ = 0;
+    float loudness_target_ = 1.0f;
     float gain_ = 1.0f;
-    float attack_coeff_ = 1.0f;
     float release_coeff_ = 0.0f;
 
     float mean_square_ = 0.0f;
@@ -69,9 +77,10 @@ inline void SpeakerProtection::Configure(int sample_rate) {
     const size_t lookahead =
         std::max<size_t>(1, static_cast<size_t>(std::lround(sample_rate * 0.001)));
     lookahead_.assign(lookahead, 0.0f);
-    // Attack settles within the look-ahead window; release is slow enough to
-    // avoid pumping on music with a steady beat.
-    attack_coeff_ = static_cast<float>(1.0 - std::exp(-3.0 / static_cast<double>(lookahead)));
+    // Include the delayed output sample as well as the look-ahead samples.
+    // The monotonic ring visits each sample at most twice, with no per-sample
+    // allocation or full-window peak scan.
+    peaks_.resize(lookahead + 1);
     release_coeff_ = static_cast<float>(1.0 - std::exp(-1.0 / (kReleaseSeconds * sample_rate)));
     rms_coeff_ = static_cast<float>(1.0 - std::exp(-1.0 / (kRmsSeconds * sample_rate)));
     loudness_attack_coeff_ =
@@ -86,6 +95,8 @@ inline void SpeakerProtection::Reset() {
     z1_ = z2_ = 0.0f;
     std::fill(lookahead_.begin(), lookahead_.end(), 0.0f);
     position_ = 0;
+    peak_head_ = peak_count_ = sample_clock_ = rms_countdown_ = 0;
+    loudness_target_ = 1.0f;
     gain_ = 1.0f;
     mean_square_ = 0.0f;
     loudness_gain_ = 1.0f;
@@ -105,22 +116,36 @@ inline void SpeakerProtection::Process(std::vector<int16_t>& pcm) {
         lookahead_[position_] = high_passed;
         position_ = (position_ + 1) % lookahead_.size();
 
-        float peak = 0.0f;
-        for (float value : lookahead_) {
-            peak = std::max(peak, std::fabs(value));
+        // Unsigned age subtraction also works across the 32-bit clock wrap.
+        while (peak_count_ && sample_clock_ - peaks_[peak_head_].sample > lookahead_.size()) {
+            peak_head_ = (peak_head_ + 1) % peaks_.size();
+            --peak_count_;
         }
+        const float magnitude = std::fabs(high_passed);
+        while (peak_count_ &&
+               peaks_[(peak_head_ + peak_count_ - 1) % peaks_.size()].value <= magnitude) {
+            --peak_count_;
+        }
+        peaks_[(peak_head_ + peak_count_) % peaks_.size()] = {sample_clock_++, magnitude};
+        ++peak_count_;
+        const float peak = peaks_[peak_head_].value;
         const float target = peak > kPeakThreshold ? kPeakThreshold / peak : 1.0f;
-        gain_ += (target - gain_) * (target < gain_ ? attack_coeff_ : release_coeff_);
+        // Apply attenuation before a transient exits the delay, then release
+        // smoothly. Keeping the delayed sample in the peak ring avoids overshoot.
+        gain_ = std::min(target, gain_ + (1.0f - gain_) * release_coeff_);
 
         mean_square_ += (high_passed * high_passed - mean_square_) * rms_coeff_;
-        float loudness_target = 1.0f;
-        if (mean_square_ > kLoudnessThreshold * kLoudnessThreshold) {
-            loudness_target =
-                std::max(kLoudnessFloor, kLoudnessThreshold / std::sqrt(mean_square_));
+        if (rms_countdown_ == 0) {
+            loudness_target_ =
+                mean_square_ > kLoudnessThreshold * kLoudnessThreshold
+                    ? std::max(kLoudnessFloor, kLoudnessThreshold / std::sqrt(mean_square_))
+                    : 1.0f;
+            rms_countdown_ = 16;
         }
-        loudness_gain_ += (loudness_target - loudness_gain_) *
-                          (loudness_target < loudness_gain_ ? loudness_attack_coeff_
-                                                            : loudness_release_coeff_);
+        --rms_countdown_;
+        loudness_gain_ +=
+            (loudness_target_ - loudness_gain_) *
+            (loudness_target_ < loudness_gain_ ? loudness_attack_coeff_ : loudness_release_coeff_);
 
         const float out = std::clamp(delayed * gain_ * loudness_gain_, -1.0f, 1.0f);
         sample = static_cast<int16_t>(std::lrintf(out * 32767.0f));

@@ -15,10 +15,15 @@ AudioCodec::~AudioCodec() {}
 
 void AudioCodec::OutputData(std::vector<int16_t>& data) {
     if (speaker_protection_enabled_) {
+        if (output_processing_reset_pending_.exchange(false)) {
+            speaker_protection_.Reset();
+        }
         speaker_protection_.Process(data);
     }
     Write(data.data(), data.size());
 }
+
+void AudioCodec::ResetOutputProcessing() { output_processing_reset_pending_.store(true); }
 
 void AudioCodec::EnableSpeakerProtection(bool enable) {
     speaker_protection_enabled_ = enable;
@@ -73,7 +78,7 @@ void AudioCodec::EnableOutput(bool enable) {
     output_enabled_ = enable;
     if (!enable) {
         // Drop the look-ahead tail so a re-enabled DAC cannot replay stale PCM.
-        speaker_protection_.Reset();
+        ResetOutputProcessing();
     }
     ESP_LOGI(TAG, "Set output enable to %s", enable ? "true" : "false");
 }

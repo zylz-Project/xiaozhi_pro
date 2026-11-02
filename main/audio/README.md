@@ -143,3 +143,41 @@ instead of the 1.7-second baseline; the baseline is still used for accent
 measurement. The board motion follower provides its own damping. Other listener
 behavior is unchanged. Actual speech, interruption/reconnect, VAD/AEC and power
 integrity still need a device listening test.
+
+## Fixed-capacity queues and conversion buffers (2026-11-02)
+
+Following upstream `ac6deed`, service queues now use `FixedQueue` storage and hold
+`AudioTask` values directly. Live robot admission remains 96 compressed packets
+and 6 PCM frames, with the existing 120 ms / 80 ms playout policy and generation
+fences. Both recording and decode storage can hold all 166 packets from a
+10-second audio test; transferring that recording does not truncate it to the
+live conversation budget. Capture and network producers retain their bounded
+nonblocking/drop policies. Server-AEC timestamps retain the newest three values.
+
+Opus encodes directly into the outgoing packet payload. Downlink rate conversion
+reuses its decoder-source scratch buffer, and closes a no-longer-needed converter
+when playback returns to the codec's native rate. The existing quality setting
+and 24 kHz WZH hardware rate are unchanged.
+
+Following upstream `7aa9266`, the AFE processing task uses a statically created
+4096-byte stack, preferring PSRAM only when external task stacks are enabled.
+Internal RAM remains the fallback. WakeNet/local-MultiNet routing, AFE/AEC modes,
+model selection and capture priorities are unchanged.
+
+## Speaker processing ownership (2026-11-02)
+
+Peak detection maintains a monotonic ring over the 1 ms look-ahead plus the
+sample currently leaving the delay. It replaces the per-sample window scan and
+attenuates before transients reach the DAC. RMS gain targets update every 16
+samples rather than calculating a square root for every sample. Processing
+performs no heap allocations; the delay and peak rings allocate at initialization.
+The 120 Hz high-pass, -1.5 dBFS peak ceiling, maximum 4 dB RMS attenuation and
+release constants retain the existing small-speaker policy.
+
+DAC-off and conversation-generation changes request a DSP reset atomically. Only
+`AudioOutputTask` applies it, before writing the next PCM, so timer callbacks do
+not mutate the filter while it is processing and old delayed samples cannot enter
+a new session. Audio already handed to hardware retains its physical DMA tail.
+Host waveform tests cover 8/16/24/48 kHz, fragmented processing and cancellation;
+actual loudness, timbre, latency, power integrity and applicable AEC require a
+physical device.

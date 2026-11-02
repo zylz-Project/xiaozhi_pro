@@ -64,6 +64,9 @@ private:
     esp_afe_sr_data_t* afe_data_ = nullptr;
     EventGroupHandle_t event_group_ = nullptr;
     TaskHandle_t processing_task_ = nullptr;
+    static constexpr size_t kProcessingTaskStackSize = 4096;
+    StackType_t* processing_task_stack_ = nullptr;
+    StaticTask_t* processing_task_buffer_ = nullptr;
     int frame_samples_ = 0;
     bool is_speaking_ = false;
     std::atomic<bool> device_aec_enabled_{false};

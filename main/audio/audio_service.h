@@ -4,7 +4,6 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -25,6 +24,7 @@
 #include "audio_debugger.h"
 #include "audio_engine.h"
 #include "audio_playout_buffer.h"
+#include "fixed_queue.h"
 #include "ogg_demuxer.h"
 #include "protocol.h"
 
@@ -201,11 +201,18 @@ private:
     TaskHandle_t opus_codec_task_handle_ = nullptr;
     std::mutex audio_queue_mutex_;
     std::condition_variable audio_queue_cv_;
-    std::deque<std::unique_ptr<AudioStreamPacket>> audio_decode_queue_;
-    std::deque<std::unique_ptr<AudioStreamPacket>> audio_send_queue_;
-    std::deque<std::unique_ptr<AudioStreamPacket>> audio_testing_queue_;
-    std::deque<std::unique_ptr<AudioTask>> audio_encode_queue_;
-    std::deque<std::unique_ptr<AudioTask>> audio_playback_queue_;
+    // Recording playback must hold the entire bounded test queue. Runtime
+    // conversation admission still uses max_decode_packets_ (96 on robots).
+    static constexpr size_t kTestingPacketCapacity =
+        AUDIO_TESTING_MAX_DURATION_MS / OPUS_FRAME_DURATION_MS;
+    static constexpr size_t kDecodePacketCapacity =
+        kTestingPacketCapacity > 96 ? kTestingPacketCapacity : 96;
+    static constexpr size_t kPlaybackTaskCapacity = 6;
+    FixedQueue<std::unique_ptr<AudioStreamPacket>, kDecodePacketCapacity> audio_decode_queue_;
+    FixedQueue<std::unique_ptr<AudioStreamPacket>, MAX_SEND_PACKETS_IN_QUEUE> audio_send_queue_;
+    FixedQueue<std::unique_ptr<AudioStreamPacket>, kDecodePacketCapacity> audio_testing_queue_;
+    FixedQueue<AudioTask, MAX_ENCODE_TASKS_IN_QUEUE> audio_encode_queue_;
+    FixedQueue<AudioTask, kPlaybackTaskCapacity> audio_playback_queue_;
     bool decode_in_flight_ = false;
     bool output_in_flight_ = false;
     bool playback_drained_notified_ = true;
@@ -216,7 +223,7 @@ private:
     size_t max_decode_packets_ = MAX_DECODE_PACKETS_IN_QUEUE;
     uint32_t decode_queue_full_count_ = 0;
     // For server AEC
-    std::deque<uint32_t> timestamp_queue_;
+    FixedQueue<uint32_t, MAX_TIMESTAMPS_IN_QUEUE> timestamp_queue_;
 
     bool audio_engine_initialized_ = false;
     bool voice_detected_ = false;
@@ -237,7 +244,7 @@ private:
     void OpusCodecTask();
     void PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm);
     bool InitializeAudioEngine();
-    void SetDecodeSampleRate(int sample_rate, int frame_duration);
+    bool SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckAndUpdateAudioPowerState();
     bool IsPlaybackDrainedLocked() const;
     bool MarkPlaybackDrainedLocked();
