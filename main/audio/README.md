@@ -72,11 +72,20 @@ flowchart LR
     Codec --> Speaker[Speaker]
 ```
 
+All PCM, including TTS, music and local sounds, leaves through
+`AudioCodec::OutputData`. Robot boards enable `SpeakerProtection` there: a
+120 Hz second-order high-pass drops bass the small driver cannot reproduce, a
+short-term RMS guard trims dense music by up to 4 dB while leaving speech
+untouched, and a 1 ms look-ahead peak limiter holds peaks around -1.5 dBFS
+before the codec DAC. Other boards keep the untouched stream.
+
 ## Tasks and power management
 
 - `AudioInputTask` reads codec input and feeds the selected engine.
 - `AudioOutputTask` drains decoded PCM to the codec output.
 - `OpusCodecTask` encodes uplink PCM and decodes downlink packets.
+- Downlink resampling uses the highest rate-converter quality; the negotiated
+  server rate is logged as `Server audio: ... Hz` on connection.
 - `AfeAudioEngine` has its own AFE fetch task on S3/P4/S31.
 
 The audio power timer still enables and disables codec ADC/DAC channels based on

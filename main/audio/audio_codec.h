@@ -11,6 +11,7 @@
 #include <functional>
 
 #include "board.h"
+#include "speaker_protection.h"
 
 #define AUDIO_CODEC_DMA_DESC_NUM 6
 #define AUDIO_CODEC_DMA_FRAME_NUM 240
@@ -38,6 +39,10 @@ public:
     virtual bool InputData(std::vector<int16_t>& data);
     virtual void Start();
 
+    // Optional board policy: high-pass and peak-limit everything sent to the
+    // speaker. Small toys enable this; desktop boards keep the raw stream.
+    void EnableSpeakerProtection(bool enable);
+
     inline bool duplex() const { return duplex_; }
     inline bool input_reference() const { return input_reference_; }
     inline int input_sample_rate() const { return input_sample_rate_; }
@@ -63,6 +68,8 @@ protected:
     int output_channels_ = 1;
     int output_volume_ = 70;
     float input_gain_ = 0.0;
+    bool speaker_protection_enabled_ = false;
+    SpeakerProtection speaker_protection_;
 
     virtual int Read(int16_t* dest, int samples) = 0;
     virtual int Write(const int16_t* data, int samples) = 0;

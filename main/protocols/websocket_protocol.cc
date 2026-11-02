@@ -244,6 +244,8 @@ void WebsocketProtocol::ParseServerHello(const cJSON* root) {
         if (cJSON_IsNumber(frame_duration)) {
             server_frame_duration_ = frame_duration->valueint;
         }
+        ESP_LOGI(TAG, "Server audio: %d Hz, %d ms frames", server_sample_rate_,
+                 server_frame_duration_);
     }
 
     xEventGroupSetBits(event_group_handle_, WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT);

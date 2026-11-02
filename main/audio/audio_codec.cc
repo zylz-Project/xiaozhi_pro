@@ -13,7 +13,20 @@ AudioCodec::AudioCodec() {}
 
 AudioCodec::~AudioCodec() {}
 
-void AudioCodec::OutputData(std::vector<int16_t>& data) { Write(data.data(), data.size()); }
+void AudioCodec::OutputData(std::vector<int16_t>& data) {
+    if (speaker_protection_enabled_) {
+        speaker_protection_.Process(data);
+    }
+    Write(data.data(), data.size());
+}
+
+void AudioCodec::EnableSpeakerProtection(bool enable) {
+    speaker_protection_enabled_ = enable;
+    if (enable) {
+        speaker_protection_.Configure(output_sample_rate_);
+        ESP_LOGI(TAG, "Speaker protection: 120 Hz high-pass, RMS guard, 1 ms peak limiter");
+    }
+}
 
 bool AudioCodec::InputData(std::vector<int16_t>& data) {
     int samples = Read(data.data(), data.size());
@@ -58,5 +71,9 @@ void AudioCodec::EnableOutput(bool enable) {
         return;
     }
     output_enabled_ = enable;
+    if (!enable) {
+        // Drop the look-ahead tail so a re-enabled DAC cannot replay stale PCM.
+        speaker_protection_.Reset();
+    }
     ESP_LOGI(TAG, "Set output enable to %s", enable ? "true" : "false");
 }

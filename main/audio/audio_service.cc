@@ -4,10 +4,11 @@
 #include <cstring>
 #include <utility>
 
-#define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)                                        \
+#define RATE_CVT_CFG(_src_rate, _dest_rate, _channel, _complexity)                           \
     (esp_ae_rate_cvt_cfg_t) {                                                                \
         .src_rate = (uint32_t)(_src_rate), .dest_rate = (uint32_t)(_dest_rate),              \
-        .channel = (uint8_t)(_channel), .bits_per_sample = ESP_AUDIO_BIT16, .complexity = 2, \
+        .channel = (uint8_t)(_channel), .bits_per_sample = ESP_AUDIO_BIT16,                  \
+        .complexity = (uint8_t)(_complexity),                                                \
         .perf_type = ESP_AE_RATE_CVT_PERF_TYPE_SPEED,                                        \
     }
 
@@ -55,6 +56,11 @@ void AudioService::Initialize(AudioCodec* codec) {
     max_playback_tasks_ = buffered_playback_ ? 6 : MAX_PLAYBACK_TASKS_IN_QUEUE;
     max_decode_packets_ = buffered_playback_ ? 96 : MAX_DECODE_PACKETS_IN_QUEUE;
     playout_buffer_.Enable(buffered_playback_);
+    if (buffered_playback_) {
+        // Robot products drive a small full-range speaker straight from the
+        // codec DAC; trim unplayable sub-bass and cap peaks before the codec.
+        codec->EnableSpeakerProtection(true);
+    }
     if (buffered_playback_)
         ESP_LOGI(
             TAG,
@@ -85,7 +91,7 @@ void AudioService::Initialize(AudioCodec* codec) {
 
     if (codec->input_sample_rate() != 16000) {
         esp_ae_rate_cvt_cfg_t input_resampler_cfg = RATE_CVT_CFG(
-            codec->input_sample_rate(), ESP_AUDIO_SAMPLE_RATE_16K, codec->input_channels());
+            codec->input_sample_rate(), ESP_AUDIO_SAMPLE_RATE_16K, codec->input_channels(), 2);
         auto resampler_ret = esp_ae_rate_cvt_open(&input_resampler_cfg, &input_resampler_);
         if (input_resampler_ == nullptr) {
             ESP_LOGE(TAG, "Failed to create input resampler, error code: %d", resampler_ret);
@@ -616,8 +622,10 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
             esp_ae_rate_cvt_close(output_resampler_);
             output_resampler_ = nullptr;
         }
+        // Highest resampler quality when the server rate differs from the
+        // codec rate; music keeps noticeably more detail than speed mode.
         esp_ae_rate_cvt_cfg_t output_resampler_cfg =
-            RATE_CVT_CFG(decoder_sample_rate_, codec->output_sample_rate(), ESP_AUDIO_MONO);
+            RATE_CVT_CFG(decoder_sample_rate_, codec->output_sample_rate(), ESP_AUDIO_MONO, 3);
         auto resampler_ret = esp_ae_rate_cvt_open(&output_resampler_cfg, &output_resampler_);
         if (output_resampler_ == nullptr) {
             ESP_LOGE(TAG, "Failed to create output resampler, error code: %d", resampler_ret);
