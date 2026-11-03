@@ -9,7 +9,27 @@ import test_wzh_conversation_toggle as conversation_tests
 
 ROOT = Path(__file__).resolve().parents[2]
 AUDIO = ROOT / 'main/audio'
-HEADER = '#include "' + str(AUDIO/'voice_barge_in.h') + '"\n'
+HEADER = '#include "' + str(AUDIO/'voice_barge_in.h') + '"\n' + r'''
+#include <vector>
+#include <cmath>
+inline std::vector<int16_t> BargeWave(int amplitude,bool far=false,size_t samples=960){
+ std::vector<int16_t>pcm(samples);
+ for(size_t i=0;i<samples;++i){
+  const double t=static_cast<double>(i)/16000;
+  pcm[i]=static_cast<int16_t>(amplitude*(0.7*std::sin(6.283185307179586*(far?233:827)*t)
+                  +0.3*std::sin(6.283185307179586*(far?571:1301)*t)));
+ }
+ return pcm;
+}
+inline void FeedBargeReference(VoiceBargeIn&detector,int64_t now,float rms=1000,
+                              bool clipped=false,bool muted=false){
+ detector.UpdateReference(rms,clipped,now,muted);
+ auto reference=BargeWave(static_cast<int>(rms),true);std::vector<int16_t>mr(reference.size()*2);
+ for(size_t i=0;i<reference.size();++i)mr[i*2+1]=reference[i];
+ detector.FeedReference(mr.data(),reference.size());
+}
+'''
+
 
 
 class VoiceBargeInTest(unittest.TestCase):
@@ -20,14 +40,14 @@ class VoiceBargeInTest(unittest.TestCase):
 #include <cassert>
 #include <vector>
 int main(){
- VoiceBargeIn detector;std::vector<int16_t>quiet(960,0),speech(960,1500),low(960,50);
+ VoiceBargeIn detector;std::vector<int16_t>quiet(960,0);auto speech=BargeWave(1500),low=BargeWave(50);
  int64_t now=0;
  auto observe=[&](const std::vector<int16_t>&pcm,bool vad){
-  now+=60000;detector.UpdateReference(1000,false,now);
+  now+=60000;FeedBargeReference(detector,now);
   return detector.Observe(pcm.data(),pcm.size(),vad,now);
  };
  auto old=detector.Begin();
- for(int i=0;i<10;++i)assert(!observe(low,true)); // Calibrate actual playback for 600 ms.
+ for(int i=0;i<10;++i)assert(!observe(low,true)); // Settling plus low energy cannot interrupt.
  assert(!observe(speech,true));
  assert(!observe(quiet,false)); // A brief burst does not interrupt.
  assert(!observe(low,true)); // VAD alone is insufficient.
@@ -99,13 +119,13 @@ int main(){
 int main(){
  VoiceBargeIn detector;detector.Begin();int64_t now=0;
  auto frame=[&](int residual,int reference){
-  now+=60000;detector.UpdateReference(reference,false,now);
-  std::vector<int16_t>pcm(960,residual);
+  now+=60000;FeedBargeReference(detector,now,reference);
+  auto pcm=BargeWave(residual,residual<5000);
   return detector.Observe(pcm.data(),pcm.size(),true,now);
  };
  for(int i=0;i<40;++i)assert(!frame(1500,0)); // TTS start precedes actual PCM by 2.4 s.
  for(int i=0;i<10;++i)assert(!frame(1500,1000)); // Guard starts at actual playback.
- assert(detector.threshold()>=3750);
+ assert(detector.threshold()>=160&&detector.threshold()<=480);
  for(int i=0;i<100;++i)assert(!frame(i%2?1500:3000,1000)); // VAD sees residual TTS.
  assert(!frame(5000,1000));assert(!frame(5000,1000));assert(frame(5000,1000));
 }
@@ -118,7 +138,7 @@ int main(){
 int main(){
  VoiceBargeIn detector;detector.Begin();int64_t now=0;std::vector<int16_t>pcm(960,2000);
  auto frame=[&](int reference,int value=2000){
-  now+=60000;detector.UpdateReference(reference,false,now);pcm.assign(960,value);
+  now+=60000;FeedBargeReference(detector,now,reference);pcm=BargeWave(value);
   return detector.Observe(pcm.data(),pcm.size(),true,now);
  };
  assert(!frame(1000)); // One nonzero reference frame must never arm a reply forever.
@@ -150,7 +170,7 @@ int main(){
   assert(!detector.Observe(pcm.data(),pcm.size(),true,now));
  }
  assert(!detector.pending(token,now));detector.Cancel();token=detector.Begin();
- for(int i=0;i<10;++i){
+ for(int i=0;i<5;++i){
   now+=60000;detector.UpdateReference(0,false,now,true);
   assert(!detector.Observe(pcm.data(),pcm.size(),true,now,true));
  }
@@ -194,6 +214,7 @@ struct AudioService{
  Codec codec;Codec*codec_=&codec;int audio_power_timer_=0;
  void*input_resampler_=this;std::mutex input_resampler_mutex_,audio_queue_mutex_;
  VoiceBargeIn voice_barge_in_;
+ std::atomic<bool>voice_detected_{false};
  uint32_t reference_log_frames_=0,reference_active_frames_=0,reference_clipped_frames_=0;
  float reference_peak_rms_=0,microphone_peak_rms_=0;
  std::chrono::steady_clock::time_point last_input_time_;struct{int input_count=0;}debug_statistics_;
@@ -209,6 +230,95 @@ int main(){
  assert(!service.voice_barge_in_.ReferenceReady(clock_us)&&service.reference_clipped_frames_==1);
  service.codec.fail=true;assert(!service.ReadAudioData(data,16000,160));
  assert(service.debug_statistics_.input_count==2);
+}
+''')
+
+    def test_echo_matching_handles_delay_inversion_dc_fragmentation_and_ring_wrap(self):
+        self.run_cpp(HEADER+r'''
+#include <cassert>
+int main(){
+ EchoReferenceGuard guard;uint32_t random=123456;
+ std::vector<int16_t>mr(20000*2);
+ for(size_t i=0;i<20000;++i){
+  random^=random<<13;random^=random>>17;random^=random<<5;
+  mr[i*2+1]=static_cast<int>(random%12001)-6000;
+ }
+ size_t fed=0;
+ while(fed<20000){size_t n=std::min<size_t>(127,20000-fed);guard.Feed(mr.data()+fed*2,n);fed+=n;}
+ for(int delay:{0,512,2048,4096,7168}){
+  std::vector<int16_t>echo(960);
+  for(size_t i=0;i<echo.size();++i)echo[i]=-mr[(20000-delay-960+i)*2+1]/3+200;
+  assert(guard.Correlation(echo.data(),echo.size())>.99f);
+ }
+ auto near=BargeWave(500);
+ assert(guard.Correlation(near.data(),near.size())>=0&&guard.Correlation(near.data(),near.size())<.55f);
+ for(size_t i=0;i<near.size();++i)near[i]+=mr[(20000-2048-960+i)*2+1]/40;
+ assert(guard.Correlation(near.data(),near.size())<.55f); // Near speech plus a quieter echo.
+ guard.Reset();assert(guard.Correlation(near.data(),near.size())<0);
+ std::vector<int16_t>dc(960*2,1000);guard.Feed(dc.data(),960);
+ assert(guard.Correlation(near.data(),near.size())<0); // DC is not an audio reference.
+}
+''')
+
+    def test_loud_correlated_echo_does_not_raise_gate_above_quiet_independent_speech(self):
+        self.run_cpp(HEADER+r'''
+#include <cassert>
+int main(){
+ VoiceBargeIn detector;detector.Begin();int64_t now=0;
+ auto echo=BargeWave(12000,true),near=BargeWave(500);
+ for(int i=0;i<80;++i){
+  now+=60000;FeedBargeReference(detector,now);
+  assert(!detector.Observe(echo.data(),echo.size(),true,now));
+ }
+ assert(detector.correlation()>=.55f&&detector.threshold()<=480);
+ for(int i=0;i<3;++i){
+  now+=60000;FeedBargeReference(detector,now);
+  assert(detector.Observe(near.data(),near.size(),true,now)==(i==2));
+ }
+ assert(detector.correlation()<.55f&&detector.pending(detector.token(),now));
+}
+''')
+
+    def test_intermittent_clipping_and_phoneme_gaps_do_not_restart_settling_forever(self):
+        self.run_cpp(HEADER+r'''
+#include <cassert>
+int main(){
+ VoiceBargeIn detector;detector.Begin();int64_t now=0;
+ auto echo=BargeWave(8000,true),near=BargeWave(500);
+ for(int i=0;i<90;++i){
+  now+=60000;FeedBargeReference(detector,now,1000,i%9==0);
+  assert(!detector.Observe(echo.data(),echo.size(),true,now));
+ }
+ assert(detector.settling_ms()>=300);
+ // A normal punctuation pause loses instantaneous reference but preserves the completed settling.
+ for(int i=0;i<5;++i){
+  now+=60000;FeedBargeReference(detector,now,0);
+  assert(!detector.Observe(echo.data(),echo.size(),true,now));
+ }
+ assert(detector.settling_ms()>=300);
+ for(int i=0;i<3;++i){
+  now+=60000;FeedBargeReference(detector,now);
+  assert(detector.Observe(near.data(),near.size(),true,now)==(i==2));
+ }
+}
+''')
+
+    def test_one_correlated_phoneme_does_not_erase_near_end_speech_but_sustained_echo_does(self):
+        self.run_cpp(HEADER+r'''
+#include <cassert>
+int main(){
+ VoiceBargeIn detector;detector.Begin();int64_t now=0;
+ auto echo=BargeWave(8000,true),near=BargeWave(500);
+ auto frame=[&](const std::vector<int16_t>&pcm){
+  now+=60000;FeedBargeReference(detector,now);
+  return detector.Observe(pcm.data(),pcm.size(),true,now);
+ };
+ for(int i=0;i<8;++i)assert(!frame(echo));
+ assert(!frame(near));assert(!frame(near));assert(!frame(echo));assert(frame(near));
+ detector.Cancel();detector.Begin();
+ for(int i=0;i<8;++i)assert(!frame(echo));
+ assert(!frame(near));assert(!frame(echo));assert(!frame(echo));
+ assert(!frame(near));assert(!frame(near));assert(frame(near));
 }
 ''')
 
@@ -272,13 +382,13 @@ int main(){
   service.audio_queue_mutex_.unlock();++detections;
  };
  for(int i=0;i<20;++i)service.PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue,
-                                                  std::vector<int16_t>(960,2000));
+                                                  BargeWave(2000));
  assert(detections==0); // Never arm on a missing DAC reference while playback is audible.
- service.voice_barge_in_.UpdateReference(1000,false,esp_timer_get_time());
+ FeedBargeReference(service.voice_barge_in_,esp_timer_get_time());
  for(int i=0;i<10;++i)service.PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue,
                                                  std::vector<int16_t>(960,50));
  for(int i=0;i<3;++i)service.PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue,
-                                                 std::vector<int16_t>(960,2000));
+                                                 BargeWave(2000));
  assert(detections==1);
  assert(service.IsVoiceInterruptionPending(token));
  assert(!service.CommitVoiceInterruption(token+1)&&notifications==0);

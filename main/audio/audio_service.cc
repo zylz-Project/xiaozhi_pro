@@ -253,25 +253,29 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         reference_active_frames_ += ref_rms > 32.0f;
         reference_clipped_frames_ += mic_clipped;
         const auto now = esp_timer_get_time();
-        bool ready;
-        int residual, threshold;
+        bool ready, monitoring;
+        int residual, threshold, correlation, settling;
         {
             std::lock_guard<std::mutex> lock(audio_queue_mutex_);
             const bool muted = codec_->output_volume() == 0;
             voice_barge_in_.UpdateReference(ref_rms, mic_clipped, now, muted);
             ready = voice_barge_in_.ReferenceReady(now, muted);
+            monitoring = voice_barge_in_.monitoring();
             residual = static_cast<int>(voice_barge_in_.residual_rms());
             threshold = static_cast<int>(voice_barge_in_.threshold());
+            correlation = static_cast<int>(voice_barge_in_.correlation() * 100);
+            settling = voice_barge_in_.settling_ms();
         }
         if (++reference_log_frames_ % 200 == 0) {
             ESP_LOGI(TAG,
                      "MR capture: mic=%d peak=%d, ref=%d peak=%d active=%lu/200, "
-                     "clipped=%lu/200, ref_ready=%d, AEC residual=%d gate=%d",
+                     "clipped=%lu/200, monitor=%d ref_ready=%d settle=%dms vad=%d, "
+                     "AEC residual=%d gate=%d echo_corr=%d%%",
                      static_cast<int>(mic_rms), static_cast<int>(microphone_peak_rms_),
                      static_cast<int>(ref_rms), static_cast<int>(reference_peak_rms_),
                      static_cast<unsigned long>(reference_active_frames_),
-                     static_cast<unsigned long>(reference_clipped_frames_), ready, residual,
-                     threshold);
+                     static_cast<unsigned long>(reference_clipped_frames_), monitoring, ready,
+                     settling, voice_detected_.load(), residual, threshold, correlation);
             reference_peak_rms_ = microphone_peak_rms_ = 0.0f;
             reference_active_frames_ = reference_clipped_frames_ = 0;
         }
@@ -292,6 +296,12 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
             data = std::move(resampled);
         }
     }
+#if CONFIG_USE_VOICE_BARGE_IN
+    if (codec_->input_reference() && codec_->input_channels() == 2 && sample_rate == 16000) {
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        voice_barge_in_.FeedReference(data.data(), data.size() / 2);
+    }
+#endif
     /* Update the last input time */
     last_input_time_ = std::chrono::steady_clock::now();
     debug_statistics_.input_count++;

@@ -133,7 +133,9 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
 #if CONFIG_USE_VOICE_BARGE_IN
     afe_config->aec_mode = AEC_MODE_FD_HIGH_PERF;
-    afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
+    afe_config->aec_nlp_level = AEC_NLP_LEVEL_AGGR;
+    // Restore clean speech level after ADC/AEC, rather than overdriving the ADC.
+    afe_config->afe_linear_gain = 4.0f;
     afe_config->vad_min_speech_ms = 64;
     afe_config->vad_delay_ms = 128;
 #endif
@@ -141,7 +143,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     afe_config->vad_init = kUseAfeForVoiceProcessing;
     afe_config->vad_mode = VAD_MODE_0;
 #if CONFIG_USE_VOICE_BARGE_IN
-    afe_config->vad_mode = VAD_MODE_3;
+    afe_config->vad_mode = VAD_MODE_2;
 #endif
     afe_config->vad_min_noise_ms = 100;
     if (vad_model_name != nullptr) {

@@ -193,11 +193,18 @@ existing capture format and AFE mode.
 
 During TTS the AFE remains active, and up to 12 compressed post-AEC packets
 (720 ms) are retained locally. Fresh reference and unclipped ADC input are
-required. A 600 ms residual-echo calibration starts at actual referenced playback;
-VAD and 180 ms of energy above both the noise and residual-echo floors then
-confirm one interruption per reply. The trial uses FD_HIGH_PERF/VERYAGGR AEC and
-24 dB capture gain. Reference loss or a capture stall over 120 ms invalidates
-pending detections and restarts calibration. Capture and reply generations
+required. After 300 ms of referenced, unclipped output, VAD and 180 ms of energy
+above a bounded 160–480 RMS noise floor confirm independent near-end speech.
+One echo-vetoed 60 ms frame can be skipped within that candidate; it never
+counts as voice, and sustained echo clears the candidate.
+A 512 ms reference ring is box-filtered to 2 kHz; normalized correlation over
+possible delays vetoes residual playback at a score of 0.55 or higher. Missing
+or non-audio reference does not count as near-end speech. Matching uses 4 KB
+of fixed history and no per-frame allocation; actual S3 timing needs measurement.
+The trial uses FD_HIGH_PERF/AGGR AEC, VAD_MODE_2, 6 dB ADC gain and 4x AFE output
+gain. Reference gaps and isolated clipping invalidate candidates without
+discarding completed settling. A capture stall over 120 ms restarts settling
+and clears reference history. Capture and reply generations
 reject stale work. Only the main task cancels playback and
 sends abort/listen commands; it stops locally before sending over the network.
 The main task accepts the detection and commits the clean prefix under the
@@ -211,6 +218,6 @@ using the existing auto protocol on both transports. Current-frame VAD reaches
 the detector before PCM; only VAD edges reach the UI. Normal TTS completion drops
 the monitoring prefix and returns to ordinary listening. Wake-word/manual exit,
 maintenance, no-reference and feature-disabled paths remain available.
-See `docs/wzh_tailredpanda_voice_barge_in_2026-11-03.md` for the self-interruption
+See `docs/wzh_tailredpanda_voice_barge_in_2026-11-03-v2.md` for the liveness
 fix and `docs/wzh_tailredpanda_voice_barge_in_2026-11-02.md` for protocol
 ordering requirements and physical-device acceptance checks.

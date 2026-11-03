@@ -22,7 +22,7 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     pa_inverted_ = pa_inverted;
     // Close speaker/microphone placement needs ADC headroom for full duplex;
     // saturated echo cannot be reconstructed by a linear echo canceller.
-    input_gain_ = dac_reference ? 24 : 36;
+    input_gain_ = dac_reference ? 6 : 36;
 
     assert(input_sample_rate_ == output_sample_rate_);
     CreateDuplexChannels(mclk, bclk, ws, dout, din);
@@ -112,12 +112,14 @@ void Es8311AudioCodec::UpdateDeviceState() {
             // Restore the requested mux after every open/resume, rather than
             // depending on the vendor's initialization-only mux write.
             ESP_ERROR_CHECK(esp_codec_dev_write_reg(dev_, 0x44, 0x58));
-            int route = 0, input_format = 0, output_format = 0;
+            int route = 0, input_format = 0, output_format = 0, gain = 0;
             ESP_ERROR_CHECK(esp_codec_dev_read_reg(dev_, 0x44, &route));
             ESP_ERROR_CHECK(esp_codec_dev_read_reg(dev_, 0x09, &input_format));
             ESP_ERROR_CHECK(esp_codec_dev_read_reg(dev_, 0x0a, &output_format));
-            ESP_LOGI(TAG, "MR route: reg44=0x%02x, SDP in=0x%02x out=0x%02x, gain=%d dB", route,
-                     input_format, output_format, static_cast<int>(input_gain_));
+            ESP_ERROR_CHECK(esp_codec_dev_read_reg(dev_, 0x16, &gain));
+            ESP_LOGI(TAG,
+                     "MR route: reg44=0x%02x, SDP in=0x%02x out=0x%02x, gain=%d dB reg16=0x%02x",
+                     route, input_format, output_format, static_cast<int>(input_gain_), gain);
         }
     } else if (!input_enabled_ && !output_enabled_ && dev_ != nullptr) {
         ESP_ERROR_CHECK(esp_codec_dev_close(dev_));

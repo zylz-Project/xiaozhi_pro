@@ -7,9 +7,12 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "echo_reference_guard.h"
+
 // Called under AudioService's queue lock, on post-AEC 16 kHz mono PCM only.
-// VAD and an adaptive energy floor must agree for 180 ms. Calibrate residual
-// echo for 600 ms of actual referenced playback, rather than from TTS start.
+// VAD, a bounded noise floor and a playback-correlation veto must agree for
+// 180 ms, allowing one 60 ms echo-vetoed frame within that candidate. Settle
+// for 300 ms of actual referenced, unclipped playback.
 // Input and post-AEC observations share the audio queue lock.
 class VoiceBargeIn {
 public:
@@ -17,9 +20,11 @@ public:
         ++token_;
         monitoring_ = true;
         confirmed_ = false;
-        elapsed_samples_ = speech_samples_ = 0;
-        noise_rms_ = 80.0f;
-        echo_rms_ = residual_rms_ = 0.0f;
+        elapsed_samples_ = speech_samples_ = speech_gap_samples_ = 0;
+        noise_rms_ = 40.0f;
+        residual_rms_ = 0.0f;
+        correlation_ = -1.0f;
+        echo_reference_.Reset();
         last_input_us_ = last_reference_us_ = last_clipped_us_ = -1;
         return token_;
     }
@@ -31,8 +36,12 @@ public:
         if (!monitoring_) {
             return;
         }
+        if (last_input_us_ >= 0 && now_us - last_input_us_ > 120000) {
+            elapsed_samples_ = 0;
+            echo_reference_.Reset();
+        }
         if (!ReferenceReady(now_us, muted)) {
-            ResetEvidence();
+            ResetCandidate();
         }
         last_input_us_ = now_us;
         if (rms > 32.0f) {
@@ -42,7 +51,12 @@ public:
             last_clipped_us_ = now_us;
         }
         if (!ReferenceReady(now_us, muted)) {
-            ResetEvidence();
+            ResetCandidate();
+        }
+    }
+    void FeedReference(const int16_t* mr, size_t frames) {
+        if (monitoring_) {
+            echo_reference_.Feed(mr, frames);
         }
     }
     bool ReferenceReady(int64_t now_us, bool muted = false) const {
@@ -60,7 +74,7 @@ public:
             return false;
         }
         if (!ReferenceReady(now_us, muted)) {
-            ResetEvidence();
+            ResetCandidate();
             return false;
         }
         if (confirmed_) {
@@ -72,19 +86,33 @@ public:
             square_sum += value * value;
         }
         const float rms = residual_rms_ = std::sqrt(static_cast<float>(square_sum) / samples);
-        if (elapsed_samples_ < 9600) {
+        if (elapsed_samples_ < 4800) {
             elapsed_samples_ += samples;
-            if (!muted) {
-                echo_rms_ = std::max(echo_rms_, rms);
-            }
-            speech_samples_ = 0;
+            speech_samples_ = speech_gap_samples_ = 0;
             return false;
         }
         if (!vad_speech) {
-            noise_rms_ += (std::min(rms, 1000.0f) - noise_rms_) * 0.05f;
+            noise_rms_ += (std::min(rms, 160.0f) - noise_rms_) * 0.05f;
         }
         if (!vad_speech || rms < threshold()) {
-            speech_samples_ = 0;
+            speech_samples_ = speech_gap_samples_ = 0;
+            return false;
+        }
+        correlation_ = muted ? 0.0f : echo_reference_.Correlation(pcm, samples);
+        if (correlation_ < 0.0f) {
+            ResetCandidate();
+            return false;
+        }
+        if (correlation_ >= 0.55f) {
+            // A voiced near-end phoneme can briefly resemble playback. Do not
+            // count that frame, but tolerate one such 60 ms gap. Sustained
+            // correlated playback still discards the candidate completely.
+            if (speech_samples_ != 0) {
+                speech_gap_samples_ += samples;
+                if (speech_gap_samples_ > 960) {
+                    ResetCandidate();
+                }
+            }
             return false;
         }
         speech_samples_ += samples;
@@ -107,23 +135,25 @@ public:
     }
     uint32_t token() const { return token_; }
     float residual_rms() const { return residual_rms_; }
-    float threshold() const { return std::max({260.0f, noise_rms_ * 3.0f, echo_rms_ * 2.5f}); }
+    float threshold() const { return std::clamp(noise_rms_ * 3.0f, 160.0f, 480.0f); }
+    float correlation() const { return correlation_; }
+    int settling_ms() const { return elapsed_samples_ * 1000 / 16000; }
 
 private:
     uint32_t token_ = 0;
     bool monitoring_ = false, confirmed_ = false;
-    size_t elapsed_samples_ = 0, speech_samples_ = 0;
-    float noise_rms_ = 80.0f;
-    float echo_rms_ = 0.0f, residual_rms_ = 0.0f;
+    size_t elapsed_samples_ = 0, speech_samples_ = 0, speech_gap_samples_ = 0;
+    float noise_rms_ = 40.0f;
+    float residual_rms_ = 0.0f, correlation_ = -1.0f;
+    EchoReferenceGuard echo_reference_;
     int64_t last_input_us_ = -1, last_reference_us_ = -1, last_clipped_us_ = -1;
 
-    void ResetEvidence() {
+    void ResetCandidate() {
         if (confirmed_) {
             ++token_;  // Invalidate an already queued main-task event.
         }
         confirmed_ = false;
-        elapsed_samples_ = speech_samples_ = 0;
-        echo_rms_ = 0.0f;
+        speech_samples_ = speech_gap_samples_ = 0;
     }
 };
 
