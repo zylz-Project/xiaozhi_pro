@@ -50,6 +50,9 @@ AudioService::~AudioService() {
 
 void AudioService::Initialize(AudioCodec* codec) {
     codec_ = codec;
+#if CONFIG_USE_AUDIO_DEBUGGER
+    audio_debugger_ = std::make_unique<AudioDebugger>();
+#endif
 #if CONFIG_USE_VOICE_BARGE_IN
     // Local interruption uses AEC without changing the server's auto-listen mode.
     device_aec_enabled_ = codec_->input_reference();
@@ -108,6 +111,15 @@ void AudioService::Initialize(AudioCodec* codec) {
     audio_engine_ = std::make_unique<LiteAudioEngine>();
 #endif
     audio_engine_->OnOutput([this](std::vector<int16_t>&& data) {
+#if CONFIG_USE_AUDIO_DEBUGGER
+#if CONFIG_VOICE_BARGE_IN_SHADOW
+        if (IsVoiceInterruptionMonitoring()) {
+            audio_debugger_->FeedProcessed(data, voice_detected_.load());
+        }
+#else
+        audio_debugger_->FeedProcessed(data, voice_detected_.load());
+#endif
+#endif
         PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
     });
     audio_engine_->OnVadStateChange([this](bool speaking) {
@@ -308,10 +320,13 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
 
 #if CONFIG_USE_AUDIO_DEBUGGER
     // 音频调试：发送原始音频数据
-    if (audio_debugger_ == nullptr) {
-        audio_debugger_ = std::make_unique<AudioDebugger>();
+#if CONFIG_VOICE_BARGE_IN_SHADOW
+    if (IsVoiceInterruptionMonitoring()) {
+        audio_debugger_->Feed(data, sample_rate, codec_->input_channels());
     }
-    audio_debugger_->Feed(data);
+#else
+    audio_debugger_->Feed(data, sample_rate, codec_->input_channels());
+#endif
 #endif
 
     return true;
@@ -770,7 +785,12 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
     }
 #if CONFIG_USE_VOICE_BARGE_IN
     if (interruption && callbacks_.on_voice_interruption) {
+#if CONFIG_VOICE_BARGE_IN_SHADOW
+        ESP_LOGI(TAG, "Shadow interruption candidate %lu: playback retained for diagnostic capture",
+                 static_cast<unsigned long>(interruption_token));
+#else
         callbacks_.on_voice_interruption(interruption_token);
+#endif
     }
 #endif
 

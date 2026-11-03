@@ -18,7 +18,9 @@
                 "CONFIG_SEND_WAKE_WORD_DATA=n",
                 "CONFIG_WZH_OFFLINE_COMMAND_THRESHOLD=50",
                 "CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y",
-                "CONFIG_USE_VOICE_BARGE_IN=n"
+                "CONFIG_USE_VOICE_BARGE_IN=n",
+                "CONFIG_USE_AUDIO_DEBUGGER=n",
+                "CONFIG_VOICE_BARGE_IN_SHADOW=n"
             ],
             "default_wake_word": "wn9l_ni3hao3xing1bao3_tts3"
         },
@@ -39,6 +41,8 @@
                 "CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y",
                 "CONFIG_USE_VOICE_BARGE_IN=y",
                 "CONFIG_USE_SERVER_AEC=n",
+                "CONFIG_USE_AUDIO_DEBUGGER=n",
+                "CONFIG_VOICE_BARGE_IN_SHADOW=n",
                 "CONFIG_ESP_CONSOLE_NONE=n",
                 "CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y"
             ],

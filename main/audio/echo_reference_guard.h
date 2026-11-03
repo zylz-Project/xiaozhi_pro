@@ -10,6 +10,7 @@
 // Called under the capture lock. Keep 512 ms of the actual 16 kHz AFE reference,
 // box-filtered to 2 kHz. Search delay rather than assuming fetch/ADC alignment.
 // Fixed storage and at most 905 * 120 dot-product terms per 60 ms output frame.
+// This is only a heuristic veto: nonlinear/processed echo may be decorrelated.
 class EchoReferenceGuard {
 public:
     void Reset() {

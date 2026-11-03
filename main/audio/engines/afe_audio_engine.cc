@@ -133,9 +133,11 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
 #if CONFIG_USE_VOICE_BARGE_IN
     afe_config->aec_mode = AEC_MODE_FD_HIGH_PERF;
-    afe_config->aec_nlp_level = AEC_NLP_LEVEL_AGGR;
-    // Restore clean speech level after ADC/AEC, rather than overdriving the ADC.
-    afe_config->afe_linear_gain = 4.0f;
+    afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
+    // Do not amplify the remaining far-end echo before the interruption gate.
+    afe_config->afe_linear_gain = 1.0f;
+    // Full-duplex uplink must not switch to a raw microphone after wake-up.
+    afe_config->fixed_first_channel = false;
     afe_config->vad_min_speech_ms = 64;
     afe_config->vad_delay_ms = 128;
 #endif
@@ -154,6 +156,9 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         wake_detector_ == WakeDetector::kWakeNet ? wakenet_model_name : nullptr;
     afe_config->agc_init = false;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
+#if CONFIG_AUDIO_DEBUG_PACKETIZED
+    afe_config_print(afe_config);
+#endif
 
     afe_iface_ = esp_afe_handle_from_config(afe_config);
     if (afe_iface_ != nullptr) {

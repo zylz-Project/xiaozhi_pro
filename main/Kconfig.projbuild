@@ -977,6 +977,30 @@ config USE_AUDIO_DEBUGGER
     help
         Enable audio debugger, send audio data through UDP to the host machine
 
+config AUDIO_DEBUG_PACKETIZED
+    bool "Tag raw and processed audio debug packets"
+    depends on USE_AUDIO_DEBUGGER
+    default n
+    help
+        Send versioned packets with sequence, sample position and format.
+        Includes processed AFE output. Legacy raw-only UDP remains the default.
+
+config AUDIO_DEBUG_DURATION_SECONDS
+    int "Maximum packetized capture duration (seconds)"
+    depends on AUDIO_DEBUG_PACKETIZED
+    range 5 120
+    default 60
+    help
+        Stop sending after this interval from the first successful UDP send.
+
+config VOICE_BARGE_IN_SHADOW
+    bool "Observe voice interruption without aborting playback"
+    depends on USE_VOICE_BARGE_IN && AUDIO_DEBUG_PACKETIZED
+    default n
+    help
+        Diagnostic only: record complete playback and near-end audio without
+        letting an unverified interruption candidate cancel playback.
+
 menu "WiFi Configuration Method"
     help
         WiFi Configuration Method Selection

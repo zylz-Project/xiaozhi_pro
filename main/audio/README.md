@@ -184,6 +184,11 @@ physical device.
 
 ## Opt-in local voice interruption (2026-11-02)
 
+Hardware feedback on 2026-11-03 found both self-interruption and missed speech
+in the experimental builds. The waveform correlation veto is a heuristic;
+decorrelated residual echo can pass it. This feature has not passed hardware
+acceptance. Current AEC/output gain changes are under live diagnostic testing.
+
 `USE_VOICE_BARGE_IN` is enabled only by the `wzh-tailredpanda-barge-in` test
 variant. ES8311 captures interleaved ADCL microphone / DACR reference through
 its existing I2S connection. The shared codec opens both physical slots, while
@@ -201,8 +206,9 @@ A 512 ms reference ring is box-filtered to 2 kHz; normalized correlation over
 possible delays vetoes residual playback at a score of 0.55 or higher. Missing
 or non-audio reference does not count as near-end speech. Matching uses 4 KB
 of fixed history and no per-frame allocation; actual S3 timing needs measurement.
-The trial uses FD_HIGH_PERF/AGGR AEC, VAD_MODE_2, 6 dB ADC gain and 4x AFE output
-gain. Reference gaps and isolated clipping invalidate candidates without
+The previous trial used FD_HIGH_PERF/AGGR AEC, VAD_MODE_2, 6 dB ADC gain and 4x
+AFE output gain. The current diagnostic comparison uses VERYAGGR and unity
+output gain. Reference gaps and isolated clipping invalidate candidates without
 discarding completed settling. A capture stall over 120 ms restarts settling
 and clears reference history. Capture and reply generations
 reject stale work. Only the main task cancels playback and
@@ -221,3 +227,12 @@ maintenance, no-reference and feature-disabled paths remain available.
 See `docs/wzh_tailredpanda_voice_barge_in_2026-11-03-v2.md` for the liveness
 fix and `docs/wzh_tailredpanda_voice_barge_in_2026-11-02.md` for protocol
 ordering requirements and physical-device acceptance checks.
+
+`AUDIO_DEBUG_PACKETIZED` adds a versioned XDBG trace to the existing optional
+UDP debugger. It sends resampled input plus processed mono/VAD, using packets
+of at most 672 bytes and nonblocking sends. Sequence/sample positions expose
+loss; the configured time limit starts at the first successful send. Legacy
+raw UDP remains the default. `VOICE_BARGE_IN_SHADOW` suppresses automatic abort
+and starts trace output only while a reply is being monitored. These diagnostic
+switches default off; a destination address belongs in a local build config.
+Receive locally with `scripts/audio_debug_capture.py`.
