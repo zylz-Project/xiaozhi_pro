@@ -118,7 +118,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         models_ == nullptr ? nullptr : esp_srmodel_filter(models_, ESP_VADN_PREFIX, nullptr);
 #if CONFIG_USE_VOICE_BARGE_IN
     afe_config_t* afe_config =
-        afe_config_init(input_format.c_str(), models_, AFE_TYPE_FD, AFE_MODE_LOW_COST);
+        afe_config_init(input_format.c_str(), models_, AFE_TYPE_FD, AFE_MODE_HIGH_PERF);
 #else
     afe_config_t* afe_config =
         afe_config_init(input_format.c_str(), models_, AFE_TYPE_VC, AFE_MODE_HIGH_PERF);
@@ -132,8 +132,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     afe_config->aec_mode = AEC_MODE_VOIP_HIGH_PERF;
     afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
 #if CONFIG_USE_VOICE_BARGE_IN
-    afe_config->aec_mode = AEC_MODE_FD_LOW_COST;
-    afe_config->aec_nlp_level = AEC_NLP_LEVEL_AGGR;
+    afe_config->aec_mode = AEC_MODE_FD_HIGH_PERF;
+    afe_config->aec_nlp_level = AEC_NLP_LEVEL_VERYAGGR;
     afe_config->vad_min_speech_ms = 64;
     afe_config->vad_delay_ms = 128;
 #endif

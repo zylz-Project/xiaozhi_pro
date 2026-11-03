@@ -1539,9 +1539,13 @@ void Application::HandleVoiceInterruptionEvent() {
     if (interaction_stopped_.load() || !protocol_ || !protocol_->IsAudioChannelOpened() ||
         (state != kDeviceStateSpeaking &&
          !(state == kDeviceStateListening && pending_listening_start_)) ||
-        !audio_service_.IsVoiceInterruptionPending(token)) {
+        !audio_service_.IsVoiceInterruptionPending(token) ||
+        !audio_service_.CommitVoiceInterruption(token)) {
         return;
     }
+    // Accept under the capture lock before stopping the speaker. Reference
+    // expiry must reject a queued event without partially cancelling a reply;
+    // the accepted event must survive the intentional loss of playback reference.
     // Fence receive callbacks before aborting. Old starts/stops, binary audio
     // and emotions remain rejected until a new, nonempty STT transcript.
     barge_in_reply_gate_.Begin();
@@ -1553,10 +1557,6 @@ void Application::HandleVoiceInterruptionEvent() {
     // Stop locally before a potentially blocking transport send.
     AbortSpeaking(kAbortReasonNone);
     protocol_->SendStartListening(listening_mode_);
-    if (!audio_service_.CommitVoiceInterruption(token)) {
-        // A stop or wake word superseded the detection; never resurrect it.
-        return;
-    }
     ConfigureWakeWordForListening();
     ESP_LOGI(TAG, "Voice interruption: reply cancelled, post-AEC prefix retained");
 }

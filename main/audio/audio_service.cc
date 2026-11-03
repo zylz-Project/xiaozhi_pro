@@ -229,11 +229,55 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         codec_->EnableInput(true);
     }
 
-    if (codec_->input_sample_rate() != sample_rate) {
-        data.resize(samples * codec_->input_sample_rate() / sample_rate * codec_->input_channels());
-        if (!codec_->InputData(data)) {
-            return false;
+    data.resize(samples * codec_->input_sample_rate() / sample_rate * codec_->input_channels());
+    if (!codec_->InputData(data)) {
+        return false;
+    }
+
+#if CONFIG_USE_VOICE_BARGE_IN
+    if (codec_->input_reference() && codec_->input_channels() == 2 && data.size() >= 2) {
+        uint64_t mic_square = 0, ref_square = 0;
+        size_t clipped = 0;
+        const size_t frames = data.size() / 2;
+        for (size_t i = 0; i < frames; ++i) {
+            const int64_t mic = data[i * 2], ref = data[i * 2 + 1];
+            mic_square += mic * mic;
+            ref_square += ref * ref;
+            clipped += std::abs(mic) >= 32700;
         }
+        const float ref_rms = std::sqrt(static_cast<float>(ref_square) / frames);
+        const float mic_rms = std::sqrt(static_cast<float>(mic_square) / frames);
+        const bool mic_clipped = clipped * 100 > frames;
+        reference_peak_rms_ = std::max(reference_peak_rms_, ref_rms);
+        microphone_peak_rms_ = std::max(microphone_peak_rms_, mic_rms);
+        reference_active_frames_ += ref_rms > 32.0f;
+        reference_clipped_frames_ += mic_clipped;
+        const auto now = esp_timer_get_time();
+        bool ready;
+        int residual, threshold;
+        {
+            std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+            const bool muted = codec_->output_volume() == 0;
+            voice_barge_in_.UpdateReference(ref_rms, mic_clipped, now, muted);
+            ready = voice_barge_in_.ReferenceReady(now, muted);
+            residual = static_cast<int>(voice_barge_in_.residual_rms());
+            threshold = static_cast<int>(voice_barge_in_.threshold());
+        }
+        if (++reference_log_frames_ % 200 == 0) {
+            ESP_LOGI(TAG,
+                     "MR capture: mic=%d peak=%d, ref=%d peak=%d active=%lu/200, "
+                     "clipped=%lu/200, ref_ready=%d, AEC residual=%d gate=%d",
+                     static_cast<int>(mic_rms), static_cast<int>(microphone_peak_rms_),
+                     static_cast<int>(ref_rms), static_cast<int>(reference_peak_rms_),
+                     static_cast<unsigned long>(reference_active_frames_),
+                     static_cast<unsigned long>(reference_clipped_frames_), ready, residual,
+                     threshold);
+            reference_peak_rms_ = microphone_peak_rms_ = 0.0f;
+            reference_active_frames_ = reference_clipped_frames_ = 0;
+        }
+    }
+#endif
+    if (codec_->input_sample_rate() != sample_rate) {
         if (input_resampler_ != nullptr) {
             std::lock_guard<std::mutex> lock(input_resampler_mutex_);
             uint32_t in_sample_num = data.size() / codec_->input_channels();
@@ -247,31 +291,7 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
             resampled.resize(actual_output * codec_->input_channels());
             data = std::move(resampled);
         }
-    } else {
-        data.resize(samples * codec_->input_channels());
-        if (!codec_->InputData(data)) {
-            return false;
-        }
     }
-
-#if CONFIG_USE_VOICE_BARGE_IN
-    if (codec_->input_reference() && codec_->input_channels() == 2 && data.size() >= 2) {
-        uint64_t mic_square = 0, ref_square = 0;
-        const size_t frames = data.size() / 2;
-        for (size_t i = 0; i < frames; ++i) {
-            const int64_t mic = data[i * 2], ref = data[i * 2 + 1];
-            mic_square += mic * mic;
-            ref_square += ref * ref;
-        }
-        const float ref_rms = std::sqrt(static_cast<float>(ref_square) / frames);
-        reference_rms_.store(ref_rms);
-        if (++reference_log_frames_ % 200 == 0) {
-            ESP_LOGI(TAG, "MR capture: mic RMS=%d, DAC reference RMS=%d",
-                     static_cast<int>(std::sqrt(static_cast<float>(mic_square) / frames)),
-                     static_cast<int>(ref_rms));
-        }
-    }
-#endif
     /* Update the last input time */
     last_input_time_ = std::chrono::steady_clock::now();
     debug_statistics_.input_count++;
@@ -709,11 +729,9 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
                 return;
             }
             task.capture_generation = capture_generation_;
-            barge_reference_seen_ = barge_reference_seen_ || reference_rms_.load() > 8.0f;
-            if (barge_reference_seen_ || codec_->output_volume() == 0) {
-                interruption = voice_barge_in_.Observe(task.pcm.data(), task.pcm.size(),
-                                                       voice_detected_.load());
-            }
+            interruption =
+                voice_barge_in_.Observe(task.pcm.data(), task.pcm.size(), voice_detected_.load(),
+                                        esp_timer_get_time(), codec_->output_volume() == 0);
             interruption_token = voice_barge_in_.token();
         }
 #endif
@@ -1070,7 +1088,6 @@ bool AudioService::BeginVoiceInterruption() {
         audio_send_queue_.clear();
         barge_preroll_.clear();
         voice_barge_in_.Begin();
-        barge_reference_seen_ = false;
     }
     return true;
 }
@@ -1082,13 +1099,15 @@ bool AudioService::IsVoiceInterruptionMonitoring() {
 
 bool AudioService::IsVoiceInterruptionPending(uint32_t token) {
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
-    return capture_enabled_ && voice_barge_in_.pending(token);
+    return capture_enabled_ &&
+           voice_barge_in_.pending(token, esp_timer_get_time(), codec_->output_volume() == 0);
 }
 
 bool AudioService::CommitVoiceInterruption(uint32_t token) {
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
-        if (!capture_enabled_ || !voice_barge_in_.Commit(token)) {
+        if (!capture_enabled_ ||
+            !voice_barge_in_.Commit(token, esp_timer_get_time(), codec_->output_volume() == 0)) {
             return false;
         }
         // The input/AFE pipeline stays running: already encoded prefix packets

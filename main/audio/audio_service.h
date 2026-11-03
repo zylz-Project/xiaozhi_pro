@@ -249,9 +249,9 @@ private:
     uint32_t capture_generation_ = 0;
     bool capture_enabled_ = false;
     void QueueVoicePacket(std::unique_ptr<AudioStreamPacket> packet, uint32_t generation);
-    bool barge_reference_seen_ = false;
-    std::atomic<float> reference_rms_{0.0f};
     uint32_t reference_log_frames_ = 0;
+    uint32_t reference_active_frames_ = 0, reference_clipped_frames_ = 0;
+    float reference_peak_rms_ = 0.0f, microphone_peak_rms_ = 0.0f;
 #endif
 #if CONFIG_USE_DEVICE_AEC
     bool device_aec_enabled_ = true;

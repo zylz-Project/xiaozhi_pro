@@ -21,24 +21,25 @@ class VoiceBargeInTest(unittest.TestCase):
 #include <vector>
 int main(){
  VoiceBargeIn detector;std::vector<int16_t>quiet(960,0),speech(960,1500),low(960,50);
+ int64_t now=0;
+ auto observe=[&](const std::vector<int16_t>&pcm,bool vad){
+  now+=60000;detector.UpdateReference(1000,false,now);
+  return detector.Observe(pcm.data(),pcm.size(),vad,now);
+ };
  auto old=detector.Begin();
- for(int i=0;i<4;++i)assert(!detector.Observe(speech.data(),speech.size(),true));
- assert(!detector.Observe(speech.data(),speech.size(),true));
- assert(!detector.Observe(quiet.data(),quiet.size(),false)); // A brief burst does not interrupt.
- assert(!detector.Observe(low.data(),low.size(),true)); // VAD alone is insufficient.
- for(int i=0;i<10;++i)assert(!detector.Observe(speech.data(),speech.size(),false));
- assert(!detector.Observe(speech.data(),speech.size(),true));
- assert(!detector.Observe(speech.data(),speech.size(),true));
- assert(detector.Observe(speech.data(),speech.size(),true));
- assert(detector.pending(old)&&!detector.Commit(old+1));
- assert(!detector.Observe(speech.data(),speech.size(),true)); // One event per reply.
- assert(detector.Commit(old)&&!detector.monitoring());
+ for(int i=0;i<10;++i)assert(!observe(low,true)); // Calibrate actual playback for 600 ms.
+ assert(!observe(speech,true));
+ assert(!observe(quiet,false)); // A brief burst does not interrupt.
+ assert(!observe(low,true)); // VAD alone is insufficient.
+ for(int i=0;i<10;++i)assert(!observe(speech,false));
+ assert(!observe(speech,true));assert(!observe(speech,true));assert(observe(speech,true));
+ assert(detector.pending(old,now)&&!detector.Commit(old+1,now));
+ assert(!observe(speech,true)); // One event per reply.
+ assert(detector.Commit(old,now)&&!detector.monitoring());
  detector.Begin();detector.Cancel();auto current=detector.Begin();
- assert(current!=old&&!detector.pending(old)&&!detector.Commit(old));
- for(int i=0;i<10000;++i)assert(!detector.Observe(quiet.data(),quiet.size(),false));
- assert(!detector.Observe(speech.data(),speech.size(),true));
- assert(!detector.Observe(speech.data(),speech.size(),true));
- assert(detector.Observe(speech.data(),speech.size(),true));
+ assert(current!=old&&!detector.pending(old,now)&&!detector.Commit(old,now));
+ for(int i=0;i<10000;++i)assert(!observe(quiet,false));
+ assert(!observe(speech,true));assert(!observe(speech,true));assert(observe(speech,true));
  BargeInReplyGate gate;assert(!gate.blocked());gate.Begin();assert(gate.blocked());
  gate.OnTranscript();assert(!gate.blocked());gate.Begin();gate.Cancel();assert(!gate.blocked());
 }
@@ -91,6 +92,126 @@ int main(){
 }
 ''')
 
+    def test_delayed_playback_and_residual_echo_cannot_calibrate_on_silence(self):
+        self.run_cpp(HEADER + r'''
+#include <cassert>
+#include <vector>
+int main(){
+ VoiceBargeIn detector;detector.Begin();int64_t now=0;
+ auto frame=[&](int residual,int reference){
+  now+=60000;detector.UpdateReference(reference,false,now);
+  std::vector<int16_t>pcm(960,residual);
+  return detector.Observe(pcm.data(),pcm.size(),true,now);
+ };
+ for(int i=0;i<40;++i)assert(!frame(1500,0)); // TTS start precedes actual PCM by 2.4 s.
+ for(int i=0;i<10;++i)assert(!frame(1500,1000)); // Guard starts at actual playback.
+ assert(detector.threshold()>=3750);
+ for(int i=0;i<100;++i)assert(!frame(i%2?1500:3000,1000)); // VAD sees residual TTS.
+ assert(!frame(5000,1000));assert(!frame(5000,1000));assert(frame(5000,1000));
+}
+''')
+
+    def test_reference_spike_loss_stalled_input_and_recovery_invalidate_confirmations(self):
+        self.run_cpp(HEADER + r'''
+#include <cassert>
+#include <vector>
+int main(){
+ VoiceBargeIn detector;detector.Begin();int64_t now=0;std::vector<int16_t>pcm(960,2000);
+ auto frame=[&](int reference,int value=2000){
+  now+=60000;detector.UpdateReference(reference,false,now);pcm.assign(960,value);
+  return detector.Observe(pcm.data(),pcm.size(),true,now);
+ };
+ assert(!frame(1000)); // One nonzero reference frame must never arm a reply forever.
+ for(int i=0;i<100;++i)assert(!frame(i%2?0:2)); // User's failing trace: reference 0/2.
+ for(int i=0;i<10;++i)assert(!frame(1000,50));
+ assert(!frame(1000));assert(!frame(1000));assert(frame(1000));
+ auto token=detector.token();assert(detector.pending(token,now));
+ now+=120001;
+ assert(!detector.pending(token,now)&&!detector.Commit(token,now)); // No new input.
+ detector.UpdateReference(1000,false,now);
+ assert(!detector.pending(token,now)&&detector.token()!=token); // Recovery cannot revive it.
+ for(int i=0;i<10;++i)assert(!frame(1000,50));
+ assert(!frame(1000));assert(!frame(1000));assert(frame(1000));
+ token=detector.token();now+=120001;detector.UpdateReference(0,false,now);
+ assert(!detector.pending(token,now)&&!detector.Commit(token,now));
+ assert(detector.monitoring()); // Keep recording; only reject unsafe interruption.
+}
+''')
+
+    def test_clipping_and_muted_playback_require_live_capture(self):
+        self.run_cpp(HEADER + r'''
+#include <cassert>
+#include <vector>
+int main(){
+ VoiceBargeIn detector;auto token=detector.Begin();int64_t now=0;
+ std::vector<int16_t>pcm(960,2000);
+ for(int i=0;i<50;++i){
+  now+=60000;detector.UpdateReference(1000,true,now);
+  assert(!detector.Observe(pcm.data(),pcm.size(),true,now));
+ }
+ assert(!detector.pending(token,now));detector.Cancel();token=detector.Begin();
+ for(int i=0;i<10;++i){
+  now+=60000;detector.UpdateReference(0,false,now,true);
+  assert(!detector.Observe(pcm.data(),pcm.size(),true,now,true));
+ }
+ for(int i=0;i<3;++i){
+  now+=60000;detector.UpdateReference(0,false,now,true);
+  assert(detector.Observe(pcm.data(),pcm.size(),true,now,true)==(i==2));
+ }
+ assert(detector.pending(token,now,true));
+ assert(!detector.pending(token,now+120001,true)); // Muting does not excuse dead capture.
+}
+''')
+
+    def test_capture_detects_adc_clipping_before_rate_conversion(self):
+        source=(AUDIO/'audio_service.cc').read_text()
+        self.run_cpp('#define CONFIG_USE_VOICE_BARGE_IN 1\n'+HEADER+r'''
+#include <cassert>
+#include <chrono>
+#include <mutex>
+#include <vector>
+#define CONFIG_USE_AUDIO_DEBUGGER 0
+constexpr int TAG=0,AUDIO_POWER_CHECK_INTERVAL_MS=1000;
+template<class...T>void Log(T...){ }
+#define ESP_LOGI(...) Log(__VA_ARGS__)
+int64_t clock_us=10000000;int64_t esp_timer_get_time(){return clock_us;}
+void esp_timer_stop(int){}void esp_timer_start_periodic(int,int){}
+using esp_ae_sample_t=int16_t*;
+void esp_ae_rate_cvt_get_max_out_sample_num(void*,uint32_t n,uint32_t*out){*out=n*2/3;}
+void esp_ae_rate_cvt_process(void*,int16_t*,uint32_t,int16_t*out,uint32_t*n){
+ std::fill(out,out+*n*2,0); // A converter can hide full-scale raw ADC samples.
+}
+struct Codec{
+ bool clipped=false,fail=false;bool input_enabled(){return true;}void EnableInput(bool){}
+ int input_sample_rate(){return 24000;}int input_channels(){return 2;}
+ bool input_reference(){return true;}int output_volume(){return 70;}
+ bool InputData(std::vector<int16_t>&data){
+  if(fail)return false;
+  for(size_t i=0;i<data.size();i+=2){data[i]=clipped?32767:500;data[i+1]=1000;}return true;
+ }
+};
+struct AudioService{
+ Codec codec;Codec*codec_=&codec;int audio_power_timer_=0;
+ void*input_resampler_=this;std::mutex input_resampler_mutex_,audio_queue_mutex_;
+ VoiceBargeIn voice_barge_in_;
+ uint32_t reference_log_frames_=0,reference_active_frames_=0,reference_clipped_frames_=0;
+ float reference_peak_rms_=0,microphone_peak_rms_=0;
+ std::chrono::steady_clock::time_point last_input_time_;struct{int input_count=0;}debug_statistics_;
+ bool ReadAudioData(std::vector<int16_t>&,int,int);
+};
+'''+queue_function(source,'bool AudioService::ReadAudioData(')+r'''
+int main(){
+ AudioService service;service.voice_barge_in_.Begin();std::vector<int16_t>data;
+ assert(service.ReadAudioData(data,16000,160)&&data.size()==320);
+ assert(service.voice_barge_in_.ReferenceReady(clock_us));
+ service.codec.clipped=true;clock_us+=10000;
+ assert(service.ReadAudioData(data,16000,160));for(auto sample:data)assert(sample==0);
+ assert(!service.voice_barge_in_.ReferenceReady(clock_us)&&service.reference_clipped_frames_==1);
+ service.codec.fail=true;assert(!service.ReadAudioData(data,16000,160));
+ assert(service.debug_statistics_.input_count==2);
+}
+''')
+
     def test_compressed_preroll_is_bounded_ordered_and_never_uploads_before_commit(self):
         source=(AUDIO/'audio_service.cc').read_text()
         methods='\n'.join(queue_function(source,marker) for marker in (
@@ -117,12 +238,11 @@ struct AudioStreamPacket{int number=0;};
 struct Codec{bool reference=true;bool input_reference(){return reference;}int output_volume(){return 70;}};
 struct AudioService{
  Codec codec;Codec*codec_=&codec;bool device_aec_enabled_=true,capture_enabled_=true,running=true;
- bool barge_reference_seen_=false;
  bool IsAudioProcessorRunning(){return running;}
  std::mutex audio_queue_mutex_;VoiceBargeIn voice_barge_in_;uint32_t capture_generation_=0;
  FixedQueue<AudioTask,2>audio_encode_queue_;
  FixedQueue<uint32_t,3>timestamp_queue_;std::condition_variable audio_queue_cv_;
- std::atomic<bool>voice_detected_{true};std::atomic<float>reference_rms_{0.f};
+ std::atomic<bool>voice_detected_{true};
  struct{uint32_t encode_drop_count=0;}debug_statistics_;int64_t last_encode_drop_log_time_=0;
  void PushTaskToEncodeQueue(AudioTaskType,std::vector<int16_t>&&);
  FixedQueue<std::unique_ptr<AudioStreamPacket>,40>audio_send_queue_;
@@ -154,8 +274,10 @@ int main(){
  for(int i=0;i<20;++i)service.PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue,
                                                   std::vector<int16_t>(960,2000));
  assert(detections==0); // Never arm on a missing DAC reference while playback is audible.
- service.reference_rms_=1000.f;
- for(int i=0;i<7;++i)service.PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue,
+ service.voice_barge_in_.UpdateReference(1000,false,esp_timer_get_time());
+ for(int i=0;i<10;++i)service.PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue,
+                                                 std::vector<int16_t>(960,50));
+ for(int i=0;i<3;++i)service.PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue,
                                                  std::vector<int16_t>(960,2000));
  assert(detections==1);
  assert(service.IsVoiceInterruptionPending(token));
@@ -188,7 +310,7 @@ int main(){
     def application(self):
         program=conversation_tests.WzhConversationToggleTest.application(self)
         program=program.replace('uint32_t generation=0;', '''
-    bool monitoring=false,interruption_pending=false;uint32_t interruption_token=7;
+    bool monitoring=false,interruption_pending=false,commit_allowed=true;uint32_t interruption_token=7;
     bool BeginVoiceInterruption(){
         if(!voice)return false;
         if(!monitoring){monitoring=true;interruption_pending=false;++interruption_token;}
@@ -199,7 +321,7 @@ int main(){
         return monitoring&&interruption_pending&&token==interruption_token;
     }
     bool CommitVoiceInterruption(uint32_t token){
-        if(!IsVoiceInterruptionPending(token))return false;
+        if(!commit_allowed||!IsVoiceInterruptionPending(token))return false;
         monitoring=interruption_pending=false;send_packets=3;events.push_back("commit");return true;
     }
     uint32_t generation=0;''')
@@ -242,7 +364,7 @@ int main(){
  assert(app.state==kDeviceStateListening&&app.aborts==1&&app.barge_in_reply_gate_.blocked());
  assert(app.interaction_generation_==generation+1&&app.audio_service_.voice);
  assert(app.audio_service_.send_packets==3&&!app.play_popup_on_listening_);
- assert(events.size()>=4&&events.front()=="reset"&&events[events.size()-3]=="abort"&&events[events.size()-2]=="listen"&&events.back()=="commit");
+ assert(events.size()>=4&&events.front()=="commit"&&events[1]=="reset"&&events[events.size()-2]=="abort"&&events.back()=="listen");
  int resets=app.audio_service_.resets;
  app.ListeningStateEvent();assert(app.audio_service_.resets==resets); // Preserve first syllables.
  int emotions=Board::GetInstance().display.emotions;
@@ -273,6 +395,11 @@ int main(){
  app.interaction_stopped_=true;app.pending_voice_interruption_=token;
  app.HandleVoiceInterruptionEvent();assert(app.aborts==0);app.interaction_stopped_=false;
  app.protocol.opened=false;app.HandleVoiceInterruptionEvent();assert(app.aborts==0);app.protocol.opened=true;
+ // Reference may expire between precheck and locked acceptance. Nothing should stop in that case.
+ app.audio_service_.commit_allowed=false;int resets=app.audio_service_.resets;
+ app.HandleVoiceInterruptionEvent();
+ assert(app.aborts==0&&app.audio_service_.resets==resets&&!app.barge_in_reply_gate_.blocked());
+ app.audio_service_.commit_allowed=true;
  // A start queued before cancellation must not clear a later reply's early audio.
  app.Tts(R"({"type":"tts","state":"start"})");
  app.HandleVoiceInterruptionEvent();assert(app.aborts==1);
@@ -364,9 +491,13 @@ int esp_codec_dev_set_in_gain(void*,float){return 0;}
 int esp_codec_dev_set_out_vol(void*,int){return 0;}
 int esp_codec_dev_close(void*){++closes;return 0;}
 void esp_codec_dev_delete(void*){++deletes;}
+int mux=0,writes=0;
+int esp_codec_dev_write_reg(void*,int reg,int value){assert(reg==0x44);mux=value;++writes;return 0;}
+int esp_codec_dev_read_reg(void*,int reg,int*value){*value=reg==0x44?mux:0x0c;return 0;}
+#define ESP_LOGI(...) ((void)0)
 void gpio_set_level(int,int){}
 struct Es8311AudioCodec{
- bool input_enabled_=true,output_enabled_=true,pa_inverted_=false;
+ bool input_enabled_=true,output_enabled_=true,pa_inverted_=false,input_reference_=false;
  void*dev_=nullptr;void*codec_if_=this;void*data_if_=this;
  int input_channels_=1,input_sample_rate_=24000,output_volume_=70,pa_pin_=GPIO_NUM_NC;
  float input_gain_=36;
@@ -375,7 +506,7 @@ struct Es8311AudioCodec{
 ''' + queue_function(source,'void Es8311AudioCodec::UpdateDeviceState(') + r'''
 int main(){
  for(int channels:{1,2}){
-  Es8311AudioCodec codec;codec.input_channels_=channels;
+  Es8311AudioCodec codec;codec.input_channels_=channels;codec.input_reference_=channels==2;
   int start=creates;codec.UpdateDeviceState();assert(creates==start+1);
   assert(configured.channel==channels&&configured.bits_per_sample==16&&configured.sample_rate==24000);
   codec.output_enabled_=false;codec.UpdateDeviceState();assert(creates==start+1&&codec.dev_);
@@ -385,6 +516,7 @@ int main(){
   codec.output_enabled_=false;codec.UpdateDeviceState();
  }
  assert(creates==4&&opens==4&&closes==4&&deletes==4);
+ assert(writes==2&&mux==0x58); // Reapply ADCL/DACR on both first open and resume.
 }
 ''')
 

@@ -1,3 +1,6 @@
+2026-11-03：修复测试版播报自行打断的参考锁存和稳定期问题，增加残余回声校准、输入削顶保护，
+调整测试版 AEC 与收音增益。最新参数和复测说明见[自打断修复](../../../docs/wzh_tailredpanda_voice_barge_in_2026-11-03.md)，仍待实机复测。
+
 2026-11-02：新增独立 `wzh-tailredpanda-barge-in` 人声打断测试构建，使用 ES8311 内部 DAC
 参考、本地 FD AEC、持续人声判定和录音前缀。普通 `wzh-tailredpanda` 入口默认关闭。
 实现、自审和装机测试见[本次说明](../../../docs/wzh_tailredpanda_voice_barge_in_2026-11-02.md)；尚未作实机验收。

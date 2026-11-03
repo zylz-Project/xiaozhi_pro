@@ -192,17 +192,25 @@ provides local AEC, VAD, WakeNet and local MultiNet; ordinary builds keep their
 existing capture format and AFE mode.
 
 During TTS the AFE remains active, and up to 12 compressed post-AEC packets
-(720 ms) are retained locally. A reference-presence check, 240 ms settling guard,
-VAD and 180 ms sustained energy confirm one interruption per reply. Capture and
-reply generations reject stale work. Only the main task cancels playback and
+(720 ms) are retained locally. Fresh reference and unclipped ADC input are
+required. A 600 ms residual-echo calibration starts at actual referenced playback;
+VAD and 180 ms of energy above both the noise and residual-echo floors then
+confirm one interruption per reply. The trial uses FD_HIGH_PERF/VERYAGGR AEC and
+24 dB capture gain. Reference loss or a capture stall over 120 ms invalidates
+pending detections and restarts calibration. Capture and reply generations
+reject stale work. Only the main task cancels playback and
 sends abort/listen commands; it stops locally before sending over the network.
-The clean prefix is committed before subsequent microphone packets without
-restarting capture. No extra decoder or speaker writer is created.
+The main task accepts the detection and commits the clean prefix under the
+capture lock before stopping playback, so intentional reference loss during
+abort does not invalidate an accepted detection. The prefix precedes subsequent
+microphone packets without restarting capture. No extra decoder or speaker
+writer is created.
 
 The reply gate requires the server's next nonempty STT before accepting new TTS,
 using the existing auto protocol on both transports. Current-frame VAD reaches
 the detector before PCM; only VAD edges reach the UI. Normal TTS completion drops
 the monitoring prefix and returns to ordinary listening. Wake-word/manual exit,
 maintenance, no-reference and feature-disabled paths remain available.
-See `docs/wzh_tailredpanda_voice_barge_in_2026-11-02.md` for test scope, protocol
+See `docs/wzh_tailredpanda_voice_barge_in_2026-11-03.md` for the self-interruption
+fix and `docs/wzh_tailredpanda_voice_barge_in_2026-11-02.md` for protocol
 ordering requirements and physical-device acceptance checks.
