@@ -28,9 +28,10 @@ clears partial MultiNet input. Local commands are dispatched through the existin
 board-local event path without opening a network session. `CustomWakeWord` filters
 out ordinary wake phrases in this mode, including those in older asset metadata.
 
-The AFE configuration currently uses `AEC_MODE_VOIP_HIGH_PERF` with
-`AEC_NLP_LEVEL_VERYAGGR`. WebRTC/NSNet noise suppression is intentionally
-disabled because the project does not ship an NSNet model.
+The default AFE configuration uses `AEC_MODE_VOIP_HIGH_PERF` with
+`AEC_NLP_LEVEL_VERYAGGR`; the voice-barge-in variant uses `AEC_MODE_FD_HIGH_PERF`.
+AFE-internal noise suppression is disabled. The optional neural uplink runs a
+separate NSNet2 stage after AEC and requires its model in the matching assets.
 
 When wake-word audio upload is enabled, the most recent two seconds of PCM are
 stored in a single 64 KB PSRAM ring buffer. WakeNet and MultiNet share the same
@@ -228,6 +229,13 @@ comparison, not a loudspeaker listening or distortion test. See
 physical acceptance. Voice interruption remains an unaccepted experiment.
 
 ## Opt-in local voice interruption (2026-11-02)
+
+2026-11-04 voice-guard follow-up: in `USE_VOICE_BARGE_IN` builds, WakeNet events
+during Speaking/Listening re-arm detection without cancelling playback, resetting
+capture or clearing the reply gate. Conversation interruption must use confirmed
+near-end speech; standby wake-up and non-barge-in builds keep their previous
+behavior. This closes an alternate cancellation path, not the acoustic acceptance
+gap. See `docs/wzh_tailredpanda_voice_guard_2026-11-04.md`.
 
 2026-11-04: hardware feedback found the NSNet2/VADNet candidate overran its
 32 ms budget, overflowed AFE input and starved CPU 1's idle task. The revised

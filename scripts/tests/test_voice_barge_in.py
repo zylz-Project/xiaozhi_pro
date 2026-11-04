@@ -497,6 +497,86 @@ int main(){
 }
 ''',use_json=True)
 
+    def test_wake_word_cannot_bypass_near_end_checks_or_clear_reply_gate_in_conversation(self):
+        source=(ROOT/'main/application.cc').read_text()
+        program=HEADER+r'''
+#include <cassert>
+#include <memory>
+#include <string>
+#define ESP_LOGI(...) ((void)0)
+enum DeviceState{kDeviceStateIdle,kDeviceStateConnecting,kDeviceStateListening,kDeviceStateSpeaking,
+ kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateActivating};
+constexpr int kAbortReasonWakeWordDetected=1;
+namespace Lang{namespace Sounds{constexpr int OGG_POPUP=1;}}
+struct Audio{
+ bool monitoring=false,voice=true,wake=false;int resets=0,enables=0,send_packets=3;
+ std::string GetLastWakeWord(){return "nihao-xingbao";}
+ bool IsAfeWakeWord(){return true;}
+ bool IsVoiceInterruptionMonitoring(){return monitoring;}
+ void EnableWakeWordDetection(bool value){wake=value;++enables;}
+ void EnableVoiceProcessing(bool value){voice=value;monitoring=value;}
+ void ResetDecoder(){++resets;}
+ std::unique_ptr<int>PopPacketFromSendQueue(){
+  if(send_packets){--send_packets;return std::make_unique<int>(1);}return nullptr;
+ }
+ void PlaySound(int){}
+};
+struct Board{
+ bool maintenance=false,consume_local=false;int local_calls=0;
+ static Board&GetInstance(){static Board b;return b;}
+ bool IsAudioMaintenanceActive(){return maintenance;}
+ bool SupportsLocalInteraction(){return true;}
+ bool HandleLocalVoiceCommand(const std::string&){++local_calls;return consume_local;}
+};
+struct Protocol{int listens=0;void SendStartListening(int){++listens;}};
+struct Application{
+ DeviceState state=kDeviceStateIdle;Audio audio_service_;Protocol transport;Protocol*protocol_=&transport;
+ BargeInReplyGate barge_in_reply_gate_;std::atomic<bool>interaction_stopped_{false},local_assets_applied_{true};
+ std::atomic<uint32_t>interaction_generation_{17};
+ bool entry_prompt_before_listening_=true,play_popup_on_listening_=false,pending_listening_start_=false;
+ int aborts=0,invokes=0,mode_changes=0;
+ DeviceState GetDeviceState(){return state;}void SetDeviceState(DeviceState next){state=next;}
+ void ConfigureWakeWordForListening(){}int GetDefaultListeningMode(){return 0;}
+ void SetListeningMode(int){++mode_changes;}
+ void BeginWakeWordInvoke(const std::string&){++invokes;}
+ void AbortSpeaking(int){++aborts;}
+ void HandleWakeWordDetectedEvent();
+};
+'''+queue_function(source,'void Application::HandleWakeWordDetectedEvent(')+r'''
+int main(){
+ auto&board=Board::GetInstance();
+#if CONFIG_USE_VOICE_BARGE_IN
+ for(auto state:{kDeviceStateSpeaking,kDeviceStateListening})
+  for(bool monitor:{false,true})for(bool pending:{false,true})for(bool available:{false,true}){
+   Application app;app.state=state;app.audio_service_.monitoring=monitor;
+   app.pending_listening_start_=pending;if(!available)app.protocol_=nullptr;
+   app.barge_in_reply_gate_.Begin();board.local_calls=0;
+   app.HandleWakeWordDetectedEvent();
+   assert(app.state==state&&app.aborts==0&&app.mode_changes==0&&app.invokes==0);
+   assert(app.interaction_generation_==17&&app.barge_in_reply_gate_.blocked());
+   assert(app.audio_service_.monitoring==monitor&&app.audio_service_.voice);
+   assert(app.audio_service_.resets==0&&app.audio_service_.send_packets==3);
+   assert(app.audio_service_.wake&&app.audio_service_.enables==1&&board.local_calls==0);
+  }
+#else
+ Application legacy;legacy.state=kDeviceStateSpeaking;legacy.HandleWakeWordDetectedEvent();
+ assert(legacy.aborts==1&&legacy.mode_changes==1&&legacy.audio_service_.send_packets==0);
+#endif
+ Application standby;standby.barge_in_reply_gate_.Begin();board.local_calls=0;
+ standby.HandleWakeWordDetectedEvent();assert(standby.invokes==1&&board.local_calls==1);
+#if CONFIG_USE_VOICE_BARGE_IN
+ assert(!standby.barge_in_reply_gate_.blocked());
+#endif
+ Application local;board.consume_local=true;local.HandleWakeWordDetectedEvent();
+ assert(local.invokes==0&&local.audio_service_.wake);board.consume_local=false;
+ Application maintenance;board.maintenance=true;maintenance.HandleWakeWordDetectedEvent();
+ assert(maintenance.invokes==0&&maintenance.audio_service_.enables==0);board.maintenance=false;
+}
+'''
+        for enabled in [0,1]:
+            with self.subTest(barge_in=enabled):
+                self.run_cpp(f'#define CONFIG_USE_VOICE_BARGE_IN {enabled}\n'+program)
+
     def test_stale_events_stop_and_queued_old_start_cannot_break_a_new_reply(self):
         self.run_cpp(self.application()+r'''
 int main(){

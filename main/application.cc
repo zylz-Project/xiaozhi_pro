@@ -991,6 +991,19 @@ void Application::HandleWakeWordDetectedEvent() {
         return;
     auto state = GetDeviceState();
     auto wake_word = audio_service_.GetLastWakeWord();
+#if CONFIG_USE_VOICE_BARGE_IN
+    if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
+        // WakeNet can recognize the device's own spoken wake phrase. During an
+        // active conversation it must not bypass reference/AEC/near-end checks,
+        // reset capture, or reopen a blocked old reply. Keep ordinary standby
+        // wake-up; confirmed voice interruption owns cancellation in conversation.
+        // Also cover Listening while buffered playback or its wake event drains.
+        audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
+        ESP_LOGI(TAG,
+                 "Conversation wake word ignored: interruption requires near-end confirmation");
+        return;
+    }
+#endif
     // Boards can handle offline commands even before a protocol is available.
     if (Board::GetInstance().HandleLocalVoiceCommand(wake_word)) {
         const auto current = GetDeviceState();
