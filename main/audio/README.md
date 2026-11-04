@@ -79,6 +79,17 @@ short-term RMS guard trims dense music by up to 4 dB while leaving speech
 untouched, and a 1 ms look-ahead peak limiter holds peaks around -1.5 dBFS
 before the codec DAC. Other boards keep the untouched stream.
 
+2026-11-04 music-quality revision: `AUDIO_SPEAKER_SMOOTH_LIMITER` optionally
+averages the peak-constrained gains over the existing 1 ms look-ahead. Both tail
+red panda variants enable it; other variants default off. The bounded Q20 FIR
+reduces attack steps without changing volume, EQ, RMS/peak limits or PCM delay.
+The codec task also emits aggregate `Opus quality:` diagnostics about every three
+seconds of decoded PCM: coded TOC bandwidth/channel flags, payload bitrate and
+pre-EQ rail samples. This observes all decoded Opus (including local sounds),
+retains no audio, and does not identify music from assistant text. Hardware
+listening and CPU/timing acceptance remain pending. See
+`docs/wzh_tailredpanda_music_quality_2026-11-04.md`.
+
 ## Tasks and power management
 
 - `AudioInputTask` reads codec input and feeds the selected engine.

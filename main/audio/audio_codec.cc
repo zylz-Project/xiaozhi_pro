@@ -29,7 +29,13 @@ void AudioCodec::EnableSpeakerProtection(bool enable) {
     speaker_protection_enabled_ = enable;
     if (enable) {
 #if CONFIG_AUDIO_SPEAKER_VOICE_CLARITY
+#if CONFIG_AUDIO_SPEAKER_SMOOTH_LIMITER
+        speaker_protection_.Configure(output_sample_rate_, true, true);
+        ESP_LOGI(TAG,
+                 "Speaker limiter: 1 ms FIR-smoothed attack, peak ceiling and volume retained");
+#else
         speaker_protection_.Configure(output_sample_rate_, true);
+#endif
         ESP_LOGI(TAG,
                  "Speaker clarity: 300 Hz -1 dB, 2.5 kHz +2 dB, makeup +0.5 dB, 5 ms startup ramp; "
                  "120 Hz high-pass, RMS guard -> 1 ms peak limiter");

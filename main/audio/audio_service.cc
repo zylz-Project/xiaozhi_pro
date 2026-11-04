@@ -26,6 +26,10 @@
 #include "engines/lite_audio_engine.h"
 #endif
 
+#if CONFIG_AUDIO_SPEAKER_SMOOTH_LIMITER
+#include "decoded_audio_stats.h"
+#endif
+
 #define TAG "AudioService"
 
 AudioService::AudioService() { event_group_ = xEventGroupCreate(); }
@@ -537,6 +541,9 @@ void AudioService::AudioOutputTask() {
 void AudioService::OpusCodecTask() {
     // Reuse the conversion source; queued PCM retains independent ownership.
     std::vector<int16_t> decode_scratch;
+#if CONFIG_AUDIO_SPEAKER_SMOOTH_LIMITER
+    DecodedAudioStats decoded_stats;
+#endif
     while (true) {
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
         audio_queue_cv_.wait(lock, [this]() {
@@ -585,6 +592,30 @@ void AudioService::OpusCodecTask() {
                 auto ret = esp_opus_dec_decode(opus_decoder_, &raw, &out_frame, &dec_info);
                 if (ret == ESP_AUDIO_ERR_OK) {
                     pcm.resize(out_frame.decoded_size / sizeof(int16_t));
+#if CONFIG_AUDIO_SPEAKER_SMOOTH_LIMITER
+                    auto quality = decoded_stats.Observe(generation, packet->payload.data(),
+                                                         packet->payload.size(), pcm.data(),
+                                                         pcm.size(), decoder_sample_rate_);
+                    if (quality) {
+                        ESP_LOGI(TAG,
+                                 "Opus quality: decode=%dHz output=%dHz payload=%lubps "
+                                 "band=%lu..%lukHz stereo=%lu/%lu SILK/HYB/CELT=%lu/%lu/%lu "
+                                 "PCM peak=%lu rails=%lu/%llu failures=%lu",
+                                 quality->sample_rate, codec_->output_sample_rate(),
+                                 static_cast<unsigned long>(quality->PayloadBitsPerSecond()),
+                                 static_cast<unsigned long>(quality->minimum_band_khz),
+                                 static_cast<unsigned long>(quality->maximum_band_khz),
+                                 static_cast<unsigned long>(quality->stereo_packets),
+                                 static_cast<unsigned long>(quality->packets),
+                                 static_cast<unsigned long>(quality->silk_packets),
+                                 static_cast<unsigned long>(quality->hybrid_packets),
+                                 static_cast<unsigned long>(quality->celt_packets),
+                                 static_cast<unsigned long>(quality->peak),
+                                 static_cast<unsigned long>(quality->rail_samples),
+                                 static_cast<unsigned long long>(quality->samples),
+                                 static_cast<unsigned long>(quality->decode_failures));
+                    }
+#endif
                     if (resample && output_resampler_ != nullptr) {
                         uint32_t target_size = 0;
                         esp_ae_rate_cvt_get_max_out_sample_num(output_resampler_, pcm.size(),
@@ -607,6 +638,11 @@ void AudioService::OpusCodecTask() {
                 ESP_LOGE(TAG, "Audio decoder is not configured");
             }
 
+#if CONFIG_AUDIO_SPEAKER_SMOOTH_LIMITER
+            if (!decoded) {
+                decoded_stats.Failed(generation);
+            }
+#endif
             lock.lock();
             if (decoded && generation == playback_generation_ && !service_stopped_.load()) {
                 audio_playback_queue_.push_back(std::move(task));

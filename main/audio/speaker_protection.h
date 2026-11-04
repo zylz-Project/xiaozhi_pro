@@ -14,7 +14,7 @@
 // near-full-scale material below clipping before it reaches the codec.
 class SpeakerProtection {
 public:
-    void Configure(int sample_rate, bool voice_clarity = false);
+    void Configure(int sample_rate, bool voice_clarity = false, bool smooth_limiter = false);
     void Process(std::vector<int16_t>& pcm);
     void Reset();
 
@@ -34,6 +34,13 @@ private:
 
     bool configured_ = false;
     bool voice_clarity_ = false;
+    bool smooth_limiter_ = false;
+    // Q20 gains make the moving sum exact, with no long-run float drift.
+    static constexpr uint32_t kUnityGain = 1U << 20;
+    std::vector<uint32_t> gain_window_;
+    uint32_t gain_sum_ = 0;
+    size_t gain_position_ = 0;
+    float gain_scale_ = 1.0f;
     size_t startup_samples_ = 0, startup_position_ = 0;
 
     struct PeakingFilter {
@@ -87,7 +94,7 @@ private:
     float loudness_release_coeff_ = 0.0f;
 };
 
-inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity) {
+inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity, bool smooth_limiter) {
     if (sample_rate <= 0) {
         return;
     }
@@ -119,6 +126,13 @@ inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity) {
     // The monotonic ring visits each sample at most twice, with no per-sample
     // allocation or full-window peak scan.
     peaks_.resize(lookahead + 1);
+    // The peak window includes x[n-L] in every detector result from n-L to n.
+    // Averaging those L+1 gains therefore stays safe for the delayed sample,
+    // while spreading an attack over the existing 1 ms instead of stepping it.
+    // Bound the optional Q20 sum to 49 * 2^20 for the supported PCM rates.
+    smooth_limiter_ = smooth_limiter && voice_clarity_ && sample_rate <= 48000;
+    gain_window_.assign(smooth_limiter_ ? lookahead + 1 : 0, kUnityGain);
+    gain_scale_ = smooth_limiter_ ? 1.0f / (gain_window_.size() * kUnityGain) : 1.0f;
     release_coeff_ = static_cast<float>(1.0 - std::exp(-1.0 / (kReleaseSeconds * sample_rate)));
     rms_coeff_ = static_cast<float>(1.0 - std::exp(-1.0 / (kRmsSeconds * sample_rate)));
     loudness_attack_coeff_ =
@@ -136,6 +150,9 @@ inline void SpeakerProtection::Reset() {
     peak_head_ = peak_count_ = sample_clock_ = rms_countdown_ = 0;
     loudness_target_ = 1.0f;
     gain_ = 1.0f;
+    std::fill(gain_window_.begin(), gain_window_.end(), kUnityGain);
+    gain_sum_ = static_cast<uint32_t>(gain_window_.size()) * kUnityGain;
+    gain_position_ = 0;
     mean_square_ = 0.0f;
     loudness_gain_ = 1.0f;
     startup_position_ = 0;
@@ -201,7 +218,17 @@ inline void SpeakerProtection::Process(std::vector<int16_t>& pcm) {
         // smoothly. Keeping the delayed sample in the peak ring avoids overshoot.
         gain_ = std::min(target, gain_ + (1.0f - gain_) * release_coeff_);
 
-        float out = delayed * gain_ * (voice_clarity_ ? 1.0f : loudness_gain_);
+        float output_gain = gain_;
+        if (smooth_limiter_) {
+            // Round down so quantization cannot raise the safe gain envelope.
+            const uint32_t quantized = static_cast<uint32_t>(gain_ * kUnityGain);
+            gain_sum_ -= gain_window_[gain_position_];
+            gain_sum_ += quantized;
+            gain_window_[gain_position_] = quantized;
+            gain_position_ = (gain_position_ + 1) % gain_window_.size();
+            output_gain = static_cast<float>(gain_sum_) * gain_scale_;
+        }
+        float out = delayed * output_gain * (voice_clarity_ ? 1.0f : loudness_gain_);
         if (startup_position_ < startup_samples_) {
             // Start the smoothstep on the first delayed sample, rather than
             // consuming the ramp while look-ahead is still emitting zeros.
@@ -211,7 +238,10 @@ inline void SpeakerProtection::Process(std::vector<int16_t>& pcm) {
                 ++startup_position_;
             }
         }
-        out = std::clamp(out, -1.0f, 1.0f);
+        // The FIR is bounded analytically; cap float rounding at the same
+        // existing ceiling rather than permitting a one-sample overshoot.
+        const float ceiling = smooth_limiter_ ? kPeakThreshold : 1.0f;
+        out = std::clamp(out, -ceiling, ceiling);
         sample = static_cast<int16_t>(std::lrintf(out * 32767.0f));
     }
 }

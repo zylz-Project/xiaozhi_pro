@@ -10,6 +10,71 @@ HEADER = ROOT/'main/audio/speaker_protection.h'
 
 
 class SpeakerProtectionTest(unittest.TestCase):
+    def test_smoothed_attack_reduces_pre_transient_steps_without_extra_latency(self):
+        self.run_program(r'''
+#include <cassert>
+#include <cmath>
+#include <vector>
+int main(){
+ for(int rate:{8000,12000,16000,24000,48000}){
+  const int delay=std::lround(rate*.001),spike=rate/5;
+  std::vector<int16_t> signal(rate/2);
+  for(size_t i=0;i<signal.size();++i)
+   signal[i]=std::lrint(.15*32767*std::cos(6.283185307179586*200*(i+delay)/rate));
+  auto unmodulated=signal;SpeakerProtection reference;reference.Configure(rate,true);reference.Process(unmodulated);
+  signal[spike]=32767;
+  auto abrupt=signal,smooth=signal;
+  SpeakerProtection old_path,new_path;old_path.Configure(rate,true);new_path.Configure(rate,true,true);
+  old_path.Process(abrupt);new_path.Process(smooth);
+  int old_step=0,new_step=0;
+  // Before the delayed transient arrives, sudden gain steps modulate a quiet
+  // underlying tone. The FIR must spread this attack across the existing delay.
+  for(int i=spike;i<spike+delay;++i){
+   old_step=std::max(old_step,std::abs((int(abrupt[i])-unmodulated[i])-(int(abrupt[i-1])-unmodulated[i-1])));
+   new_step=std::max(new_step,std::abs((int(smooth[i])-unmodulated[i])-(int(smooth[i-1])-unmodulated[i-1])));
+  }
+  assert(old_step>100&&new_step<old_step*.5);
+  for(int sample:smooth)assert(sample<=27525&&sample>=-27525);
+  // Quiet material is sample-aligned and effectively unity through the new FIR.
+  signal[spike]=0;for(auto& v:signal)v/=10;
+  old_path.Reset();new_path.Reset();abrupt=signal;smooth=signal;
+  old_path.Process(abrupt);new_path.Process(smooth);
+  for(size_t i=0;i<signal.size();++i)assert(std::abs(int(abrupt[i])-smooth[i])<=1);
+ }
+}
+''')
+
+    def test_smoothed_music_bounds_fragmentation_reset_and_reconfiguration(self):
+        self.run_program(r'''
+#include <cassert>
+#include <cmath>
+#include <vector>
+int main(){
+ for(int rate:{8000,12000,16000,24000,48000}){
+  std::vector<int16_t> signal(rate*3);uint32_t random=19;
+  for(size_t i=0;i<signal.size();++i){
+   random=random*1664525U+1013904223U;signal[i]=static_cast<int16_t>(random>>16);
+   if(i%11==0)signal[i]=32767;
+   if(i%17==0)signal[i]=-32768;
+  }
+  SpeakerProtection whole,fragments;whole.Configure(rate,true,true);fragments.Configure(rate,true,true);
+  auto expected=signal;whole.Process(expected);std::vector<int16_t> joined;
+  for(size_t start=0;start<signal.size();){
+   size_t n=std::min<size_t>(1+start%173,signal.size()-start);
+   std::vector<int16_t> packet(signal.begin()+start,signal.begin()+start+n);
+   const auto* address=packet.data();auto capacity=packet.capacity();fragments.Process(packet);
+   assert(packet.data()==address&&packet.capacity()==capacity);
+   joined.insert(joined.end(),packet.begin(),packet.end());start+=n;
+  }
+  assert(joined==expected);for(int v:joined)assert(v<=27525&&v>=-27525);
+  fragments.Reset();std::vector<int16_t> silence(1000,0);fragments.Process(silence);
+  for(int v:silence)assert(v==0);
+  fragments.Configure(rate,true,false);SpeakerProtection original;original.Configure(rate,true);
+  auto a=signal,b=signal;fragments.Process(a);original.Process(b);assert(a==b);
+ }
+}
+''')
+
     def test_clarity_preserves_speech_level_and_recovers_limiter_headroom(self):
         self.run_program(r'''
 #include <cassert>

@@ -980,6 +980,16 @@ config AUDIO_SPEAKER_VOICE_CLARITY
         the peak limiter so their gains do not unnecessarily compound.
         Does not change the codec volume, clocks or microphone processing.
 
+config AUDIO_SPEAKER_SMOOTH_LIMITER
+    bool "Smooth protected speaker attacks for music and speech"
+    default n
+    depends on AUDIO_SPEAKER_VOICE_CLARITY
+    help
+        Smooth gain over the existing 1 ms look-ahead window to reduce sudden
+        gain changes on music transients. Preserves the original peak ceiling,
+        RMS guard, codec volume and output rate. Also logs decoded Opus quality
+        statistics without recording or sending audio.
+
 config VOICE_BARGE_IN_NEURAL_FRONTEND
     bool "NSNet2 and lightweight VAD after full-duplex AEC (experimental)"
     default n
