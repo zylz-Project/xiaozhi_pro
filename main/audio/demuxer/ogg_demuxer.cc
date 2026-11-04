@@ -7,6 +7,11 @@
 void OggDemuxer::Reset() {
     opus_info_ = {.head_seen = false, .tags_seen = false, .sample_rate = 48000};
 
+    enhanced_valid_ = false;
+    first_audio_packet_ = true;
+    preskip_remaining_ = 0;
+    decoded_48k_ = 0;
+    gain_q8_ = 0;
     state_ = ParseState::FIND_PAGE;
     ctx_.packet_len = 0;
     ctx_.seg_count = 0;
@@ -239,11 +244,17 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                                 if (ctx_.packet_len >= 8 &&
                                     memcmp(ctx_.packet_buf, "OpusHead", 8) == 0) {
                                     opus_info_.head_seen = true;
+                                    ParseOpusHeader();
                                     if (ctx_.packet_len >= 19) {
-                                        opus_info_.sample_rate = ctx_.packet_buf[12] |
-                                                                 (ctx_.packet_buf[13] << 8) |
-                                                                 (ctx_.packet_buf[14] << 16) |
-                                                                 (ctx_.packet_buf[15] << 24);
+                                        const uint32_t original_rate =
+                                            uint32_t(ctx_.packet_buf[12]) |
+                                            (uint32_t(ctx_.packet_buf[13]) << 8) |
+                                            (uint32_t(ctx_.packet_buf[14]) << 16) |
+                                            (uint32_t(ctx_.packet_buf[15]) << 24);
+                                        opus_info_.sample_rate =
+                                            original_rate > 0 && original_rate <= 192000
+                                                ? static_cast<int>(original_rate)
+                                                : 48000;
                                         ESP_LOGD(TAG, "OpusHead found, sample_rate=%d",
                                                  opus_info_.sample_rate);
                                     }
@@ -267,6 +278,7 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                                 }
                             }
                             if (opus_info_.head_seen && opus_info_.tags_seen) {
+                                EmitOpusPacket();
                                 if (on_demuxer_finished_) {
                                     on_demuxer_finished_(ctx_.packet_buf, opus_info_.sample_rate,
                                                          ctx_.packet_len);
@@ -307,4 +319,52 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
     }
 
     return processed;
+}
+
+void OggDemuxer::ParseOpusHeader() {
+    enhanced_valid_ = ctx_.packet_len >= 19 && ctx_.packet_buf[8] <= 15 &&
+                      (ctx_.packet_buf[9] == 1 || ctx_.packet_buf[9] == 2) &&
+                      ctx_.packet_buf[18] == 0;
+    if (!enhanced_valid_)
+        return;
+    preskip_remaining_ = uint32_t(ctx_.packet_buf[10]) | (uint32_t(ctx_.packet_buf[11]) << 8);
+    const uint16_t gain = uint16_t(ctx_.packet_buf[16]) | (uint16_t(ctx_.packet_buf[17]) << 8);
+    gain_q8_ = static_cast<int16_t>(gain);
+    if (gain_q8_ < -60 * 256 || gain_q8_ > 12 * 256) {
+        enhanced_valid_ = false;
+        ESP_LOGW(TAG, "Unsupported product Opus gain: %d/256 dB", gain_q8_);
+    }
+    first_audio_packet_ = true;
+    decoded_48k_ = 0;
+}
+
+void OggDemuxer::EmitOpusPacket() {
+    if (!on_opus_packet_ || !enhanced_valid_)
+        return;
+    const uint32_t samples = OpusPacketSamples48k(ctx_.packet_buf, ctx_.packet_len);
+    if (samples == 0) {
+        enhanced_valid_ = false;
+        return;
+    }
+    OpusStreamMetadata info;
+    info.start = first_audio_packet_;
+    first_audio_packet_ = false;
+    info.skip_48k = std::min(preskip_remaining_, samples);
+    preskip_remaining_ -= info.skip_48k;
+    info.gain_q8 = gain_q8_;
+    const bool eos = (ctx_.header[5] & 4) != 0;
+    if (eos) {
+        uint64_t granule = 0;
+        for (unsigned i = 0; i < 8; ++i)
+            granule |= uint64_t(ctx_.header[6 + i]) << (i * 8);
+        if (granule != UINT64_MAX) {
+            info.keep_end_48k =
+                granule <= decoded_48k_
+                    ? 0
+                    : static_cast<uint32_t>(std::min<uint64_t>(samples, granule - decoded_48k_));
+        }
+        info.end = ctx_.seg_index + 1 == ctx_.seg_count;
+    }
+    decoded_48k_ += samples;
+    on_opus_packet_(ctx_.packet_buf, ctx_.packet_len, info);
 }

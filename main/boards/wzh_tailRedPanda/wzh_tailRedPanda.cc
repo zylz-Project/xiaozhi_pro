@@ -7,6 +7,9 @@
 #include <utility>
 
 #include "application.h"
+#if CONFIG_AUDIO_PRODUCT_QUALITY
+#include "audio_calibration.inc"
+#endif
 #include "button.h"
 #include "codecs/es8311_audio_codec.h"
 #include "config.h"
@@ -53,6 +56,11 @@ private:
 
 class WzhTailRedPanda : public WifiBoard {
 public:
+#if CONFIG_AUDIO_PRODUCT_QUALITY
+    int16_t GetAudioSourceGainQ8(const uint8_t* data, size_t size) const override {
+        return tail_audio_calibration::Find(data, size);
+    }
+#endif
     WzhTailRedPanda() : boot_button_(BOOT_BUTTON_GPIO), display_(controller_) {
         // 配网热点和 DHCP 主机名使用产品前缀（"Panda-XXXX"），
         // 必须在 StartNetwork 之前设置。

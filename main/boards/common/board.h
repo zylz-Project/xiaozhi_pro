@@ -6,6 +6,8 @@
 #include <network_interface.h>
 #include <udp.h>
 #include <web_socket.h>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -74,6 +76,8 @@ public:
     virtual Display* GetDisplay();
     virtual Camera* GetCamera();
     virtual bool SupportsLocalInteraction() const { return false; }
+    // Optional, bounded lookup for trusted bundled source loudness calibration.
+    virtual int16_t GetAudioSourceGainQ8(const uint8_t*, size_t) const { return 0; }
     virtual bool IsAudioMaintenanceActive() { return false; }
     // Return true when the board consumes a recognized phrase locally.
     virtual bool HandleLocalVoiceCommand(const std::string&) { return false; }

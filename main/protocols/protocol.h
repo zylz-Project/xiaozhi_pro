@@ -7,11 +7,14 @@
 #include <string>
 #include <vector>
 
+#include "opus_stream_metadata.h"
+
 struct AudioStreamPacket {
     int sample_rate = 0;
     int frame_duration = 0;
     uint32_t timestamp = 0;
     std::vector<uint8_t> payload;
+    OpusStreamMetadata stream;  // Local-only; default network packets are unchanged.
 };
 
 struct BinaryProtocol2 {

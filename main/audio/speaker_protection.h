@@ -15,7 +15,7 @@
 class SpeakerProtection {
 public:
     void Configure(int sample_rate, bool voice_clarity = false, bool smooth_limiter = false);
-    void Process(std::vector<int16_t>& pcm);
+    void Process(std::vector<int16_t>& pcm, float source_gain = 1.0f);
     void Reset();
 
 private:
@@ -161,12 +161,12 @@ inline void SpeakerProtection::Reset() {
     }
 }
 
-inline void SpeakerProtection::Process(std::vector<int16_t>& pcm) {
+inline void SpeakerProtection::Process(std::vector<int16_t>& pcm, float source_gain) {
     if (!configured_ || pcm.empty()) {
         return;
     }
     for (int16_t& sample : pcm) {
-        const float input = static_cast<float>(sample) * (1.0f / 32768.0f);
+        const float input = static_cast<float>(sample) * (source_gain / 32768.0f);
         float high_passed = b0_ * input + z1_;
         z1_ = b1_ * input - a1_ * high_passed + z2_;
         z2_ = b2_ * input - a2_ * high_passed;

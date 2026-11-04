@@ -1,0 +1,362 @@
+[
+  {
+    "source": "0.ogg",
+    "bytes": 1438,
+    "fingerprint": "a4fec8f78418e7eb",
+    "gain_q8": 227,
+    "gain_db": 0.88671875,
+    "measurement": {
+      "input_i": -16.89,
+      "input_tp": -2.05,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "1.ogg",
+    "bytes": 1485,
+    "fingerprint": "b4269888858f8524",
+    "gain_q8": -766,
+    "gain_db": -2.9921875,
+    "measurement": {
+      "input_i": -13.01,
+      "input_tp": -1.16,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "2.ogg",
+    "bytes": 1250,
+    "fingerprint": "13111f5fc1c24e18",
+    "gain_q8": -318,
+    "gain_db": -1.2421875,
+    "measurement": {
+      "input_i": -14.76,
+      "input_tp": -0.54,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "3.ogg",
+    "bytes": 1503,
+    "fingerprint": "2c8b0e5b616ace0c",
+    "gain_q8": -210,
+    "gain_db": -0.8203125,
+    "measurement": {
+      "input_i": -15.18,
+      "input_tp": -0.45,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "4.ogg",
+    "bytes": 1634,
+    "fingerprint": "c5c70d925e9e2dd6",
+    "gain_q8": -272,
+    "gain_db": -1.0625,
+    "measurement": {
+      "input_i": -14.94,
+      "input_tp": -1.36,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "5.ogg",
+    "bytes": 1512,
+    "fingerprint": "ae8bf2cecb7f08c1",
+    "gain_q8": -1024,
+    "gain_db": -4.0,
+    "measurement": {
+      "input_i": -11.51,
+      "input_tp": -0.5,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "6.ogg",
+    "bytes": 1496,
+    "fingerprint": "fe4f94f71e81ac03",
+    "gain_q8": -379,
+    "gain_db": -1.48046875,
+    "measurement": {
+      "input_i": -14.52,
+      "input_tp": -0.42,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "7.ogg",
+    "bytes": 1652,
+    "fingerprint": "db1d750b97f4a43b",
+    "gain_q8": -894,
+    "gain_db": -3.4921875,
+    "measurement": {
+      "input_i": -12.51,
+      "input_tp": -1.6,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "8.ogg",
+    "bytes": 1473,
+    "fingerprint": "e8d900b25ac095c3",
+    "gain_q8": -175,
+    "gain_db": -0.68359375,
+    "measurement": {
+      "input_i": -15.32,
+      "input_tp": -1.36,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "9.ogg",
+    "bytes": 1421,
+    "fingerprint": "d393d4331960a67c",
+    "gain_q8": -182,
+    "gain_db": -0.7109375,
+    "measurement": {
+      "input_i": -15.29,
+      "input_tp": -0.01,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "activation.ogg",
+    "bytes": 8402,
+    "fingerprint": "3a7ee627b51d668d",
+    "gain_q8": 842,
+    "gain_db": 3.2890625,
+    "measurement": {
+      "input_i": -19.29,
+      "input_tp": -1.34,
+      "input_lra": 2.0
+    }
+  },
+  {
+    "source": "err_pin.ogg",
+    "bytes": 3538,
+    "fingerprint": "872d19e2010da5c5",
+    "gain_q8": 273,
+    "gain_db": 1.06640625,
+    "measurement": {
+      "input_i": -17.07,
+      "input_tp": -1.59,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "err_reg.ogg",
+    "bytes": 6747,
+    "fingerprint": "3a4a9ea03d0a21be",
+    "gain_q8": 1372,
+    "gain_db": 5.359375,
+    "measurement": {
+      "input_i": -21.36,
+      "input_tp": -1.7,
+      "input_lra": 2.3
+    }
+  },
+  {
+    "source": "upgrade.ogg",
+    "bytes": 2847,
+    "fingerprint": "d54acef70bcfcccb",
+    "gain_q8": 616,
+    "gain_db": 2.40625,
+    "measurement": {
+      "input_i": -18.41,
+      "input_tp": -1.4,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "welcome.ogg",
+    "bytes": 3493,
+    "fingerprint": "5182821222b24f04",
+    "gain_q8": -648,
+    "gain_db": -2.53125,
+    "measurement": {
+      "input_i": -13.47,
+      "input_tp": -1.16,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "wificonfig.ogg",
+    "bytes": 3155,
+    "fingerprint": "80b661113ce1e5f9",
+    "gain_q8": -113,
+    "gain_db": -0.44140625,
+    "measurement": {
+      "input_i": -15.56,
+      "input_tp": -0.21,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "paired-0",
+    "bytes": 12440,
+    "fingerprint": "632baf402d187e8d",
+    "gain_q8": -909,
+    "gain_db": -3.55078125,
+    "measurement": {
+      "input_i": -12.45,
+      "input_tp": 0.24,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "paired-1",
+    "bytes": 13166,
+    "fingerprint": "798526dc3ea4c80e",
+    "gain_q8": 860,
+    "gain_db": 3.359375,
+    "measurement": {
+      "input_i": -19.36,
+      "input_tp": -7.15,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "paired-2",
+    "bytes": 24594,
+    "fingerprint": "d2f581a741dbe2fc",
+    "gain_q8": 1536,
+    "gain_db": 6.0,
+    "measurement": {
+      "input_i": -25.09,
+      "input_tp": -12.75,
+      "input_lra": 3.4
+    }
+  },
+  {
+    "source": "paired-3",
+    "bytes": 4642,
+    "fingerprint": "6189ea94e601222f",
+    "gain_q8": 949,
+    "gain_db": 3.70703125,
+    "measurement": {
+      "input_i": -19.71,
+      "input_tp": -7.9,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "paired-4",
+    "bytes": 24594,
+    "fingerprint": "d3f58739e8b896f8",
+    "gain_q8": 1536,
+    "gain_db": 6.0,
+    "measurement": {
+      "input_i": -27.4,
+      "input_tp": -0.28,
+      "input_lra": 3.3
+    }
+  },
+  {
+    "source": "paired-5",
+    "bytes": 9267,
+    "fingerprint": "de3ea15f4faa1439",
+    "gain_q8": 1536,
+    "gain_db": 6.0,
+    "measurement": {
+      "input_i": -27.39,
+      "input_tp": -11.87,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "paired-6",
+    "bytes": 34543,
+    "fingerprint": "de7fd88797ecc1da",
+    "gain_q8": 1536,
+    "gain_db": 6.0,
+    "measurement": {
+      "input_i": -28.13,
+      "input_tp": 0.61,
+      "input_lra": 7.7
+    }
+  },
+  {
+    "source": "paired-7",
+    "bytes": 32002,
+    "fingerprint": "56b958d810e8d812",
+    "gain_q8": 1536,
+    "gain_db": 6.0,
+    "measurement": {
+      "input_i": -29.85,
+      "input_tp": -18.35,
+      "input_lra": 1.0
+    }
+  },
+  {
+    "source": "paired-8",
+    "bytes": 24594,
+    "fingerprint": "4278504d88bd6264",
+    "gain_q8": 153,
+    "gain_db": 0.59765625,
+    "measurement": {
+      "input_i": -16.6,
+      "input_tp": -3.73,
+      "input_lra": 2.1
+    }
+  },
+  {
+    "source": "paired-9",
+    "bytes": 12682,
+    "fingerprint": "bec3a1e1d1368968",
+    "gain_q8": 25,
+    "gain_db": 0.09765625,
+    "measurement": {
+      "input_i": -16.1,
+      "input_tp": -4.43,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "paired-10",
+    "bytes": 30671,
+    "fingerprint": "521bd6c08d54e7b8",
+    "gain_q8": 1536,
+    "gain_db": 6.0,
+    "measurement": {
+      "input_i": -31.26,
+      "input_tp": -17.69,
+      "input_lra": 4.6
+    }
+  },
+  {
+    "source": "paired-11",
+    "bytes": 10356,
+    "fingerprint": "8caee9ab2fee1bf7",
+    "gain_q8": 852,
+    "gain_db": 3.328125,
+    "measurement": {
+      "input_i": -19.33,
+      "input_tp": -8.58,
+      "input_lra": 0.0
+    }
+  },
+  {
+    "source": "paired-12",
+    "bytes": 23478,
+    "fingerprint": "330d18f1c232f226",
+    "gain_q8": 1039,
+    "gain_db": 4.05859375,
+    "measurement": {
+      "input_i": -20.06,
+      "input_tp": -5.84,
+      "input_lra": 4.8
+    }
+  },
+  {
+    "source": "paired-13",
+    "bytes": 21300,
+    "fingerprint": "55ba0ec08ff0570f",
+    "gain_q8": 734,
+    "gain_db": 2.8671875,
+    "measurement": {
+      "input_i": -18.87,
+      "input_tp": -7.58,
+      "input_lra": 0.2
+    }
+  }
+]

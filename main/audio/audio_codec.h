@@ -45,6 +45,9 @@ public:
     void EnableSpeakerProtection(bool enable);
     // Safe from any task; DSP state is cleared by the sole speaker writer.
     void ResetOutputProcessing();
+    // Called only by the speaker writer. Header gain is applied before protection.
+    void SetOutputStreamGain(int16_t gain_q8);
+    size_t FinishOutput();
 
     inline bool duplex() const { return duplex_; }
     inline bool input_reference() const { return input_reference_; }
@@ -74,6 +77,11 @@ protected:
     bool speaker_protection_enabled_ = false;
     SpeakerProtection speaker_protection_;
     std::atomic<bool> output_processing_reset_pending_{true};
+#if CONFIG_AUDIO_PRODUCT_QUALITY
+    std::vector<int16_t> finish_padding_;
+    float output_stream_gain_ = 1.0f;
+    int16_t last_output_sample_ = 0, output_gain_q8_ = 0;
+#endif
 
     virtual int Read(int16_t* dest, int samples) = 0;
     virtual int Write(const int16_t* data, int samples) = 0;

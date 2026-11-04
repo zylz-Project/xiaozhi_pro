@@ -195,6 +195,17 @@ physical device.
 
 ## Opt-in speaker voice clarity (2026-11-04)
 
+The later `AUDIO_PRODUCT_QUALITY` candidate adds bounded source calibration for
+known tail-panda assets, local Opus preskip/end trim/header gain, writer-owned
+smooth endings and reusable quality-3 capture conversion. Microphone encoding
+uses an explicit 32 kbps VBR / complexity-3 budget. It defaults off and is enabled
+only in the two tail-panda variants. These changes preserve physical codec rates,
+stored volume and speaker protection; they do not change official cloud music
+encoding. Container metadata remains local to `AudioStreamPacket`, with both
+transport wire formats unchanged. Full measurements, host/build validation and
+the pending listening/real-time acceptance are recorded in
+`docs/wzh_tailredpanda_product_audio_2026-11-04.md`.
+
 `AUDIO_SPEAKER_VOICE_CLARITY` is enabled in both tail-red-panda variants and
 defaults off elsewhere. It applies only to the existing protected speaker path.
 The profile uses peaking EQ at 300 Hz (-1 dB, Q 0.8) and 2.5 kHz (+2 dB,

@@ -971,6 +971,16 @@ config USE_VOICE_BARGE_IN
         Uses auto listening and the server's standard STT-before-TTS ordering.
         Enabled only in the dedicated WZH tail-red-panda test build by default.
 
+config AUDIO_PRODUCT_QUALITY
+    bool "Product audio quality: capture, container timing and smooth endings"
+    default n
+    depends on IDF_TARGET_ESP32S3 && SPIRAM
+    help
+        Use 32 kbps / complexity 3 microphone encoding and quality 3 capture
+        resampling. Preserve local Opus preskip, end trim and header gain;
+        reset independent streams and finish playback with a short smooth tail.
+        Does not change the official service's downlink bitrate or codec volume.
+
 config AUDIO_SPEAKER_VOICE_CLARITY
     bool "Speech clarity profile for protected small speakers"
     default n

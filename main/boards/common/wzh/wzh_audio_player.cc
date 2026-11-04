@@ -1,4 +1,5 @@
 #include "wzh_audio_player.h"
+#include "board.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -333,6 +334,49 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
     bool ok = true;
     uint32_t submitted_ms = 0;
     OggDemuxer demuxer;
+#if CONFIG_AUDIO_PRODUCT_QUALITY
+    uint64_t submitted_48k = 0;
+    const int16_t content_gain =
+        pair == nullptr ? 0
+                        : Board::GetInstance().GetAudioSourceGainQ8(pair->audio, pair->audio_size);
+    demuxer.OnOpusPacket([this, &app, &ok, &submitted_48k, &submitted_ms, &file, generation,
+                          decoder_generation, content_gain](const uint8_t* data, size_t size,
+                                                            const OpusStreamMetadata& source) {
+        if (playback_generation_.load() != generation) {
+            ok = false;
+            return;
+        }
+        const uint64_t limit = uint64_t(file.duration_ms) * 48;
+        if (limit && submitted_48k >= limit)
+            return;
+        const uint32_t samples = OpusPacketSamples48k(data, size);
+        const int packet_ms = OpusPacketDurationMs(data, size);
+        if (samples == 0 || packet_ms == 0) {
+            ok = false;
+            return;
+        }
+        auto stream = source;
+        stream.gain_q8 = std::clamp<int>(int(source.gain_q8) + content_gain, -60 * 256, 12 * 256);
+        const uint32_t end = std::min(stream.keep_end_48k, samples);
+        uint32_t audible = end > stream.skip_48k ? end - stream.skip_48k : 0;
+        if (limit && audible >= limit - submitted_48k) {
+            audible = limit - submitted_48k;
+            stream.keep_end_48k = stream.skip_48k + audible;
+            stream.end = true;
+        }
+        submitted_48k += audible;
+        submitted_ms = submitted_48k / 48;
+        local_packet_ms_.store(packet_ms);
+        auto packet = std::make_unique<AudioStreamPacket>();
+        packet->sample_rate = 48000;
+        packet->frame_duration = packet_ms;
+        packet->stream = stream;
+        packet->payload.assign(data, data + size);
+        if (!app.GetAudioService().PushPacketToDecodeQueue(std::move(packet), true,
+                                                           decoder_generation))
+            ok = false;
+    });
+#else
     demuxer.OnDemuxerFinished(
         [this, &app, &ok, &submitted_ms, &file, generation, decoder_generation](
             const uint8_t* data, int sample_rate, size_t size) {
@@ -358,6 +402,8 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
                 ok = false;
             }
         });
+
+#endif
 
     // 分块顺序读取，避免为完整音频文件申请大块 RAM。
     uint8_t buffer[kReadChunk];

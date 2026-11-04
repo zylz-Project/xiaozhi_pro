@@ -108,6 +108,7 @@ struct AudioTask {
     std::vector<int16_t> pcm;
     uint32_t timestamp = 0;
     uint32_t playback_generation = 0;
+    OpusStreamMetadata stream;
 #if CONFIG_USE_VOICE_BARGE_IN
     uint32_t capture_generation = 0;
 #endif
@@ -178,6 +179,7 @@ public:
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
+    void FinishPlayback();
     void SetModelsList(srmodel_list_t* models_list);
 
 private:
@@ -193,6 +195,9 @@ private:
     void* opus_decoder_ = nullptr;
     std::mutex decoder_mutex_;
     std::mutex input_resampler_mutex_;
+#if CONFIG_AUDIO_PRODUCT_QUALITY
+    std::vector<int16_t> input_resample_scratch_;
+#endif
     esp_ae_rate_cvt_handle_t input_resampler_ = nullptr;
     esp_ae_rate_cvt_handle_t output_resampler_ = nullptr;
 
@@ -215,6 +220,9 @@ private:
     TaskHandle_t audio_output_task_handle_ = nullptr;
     TaskHandle_t opus_codec_task_handle_ = nullptr;
     std::mutex audio_queue_mutex_;
+#if CONFIG_AUDIO_PRODUCT_QUALITY
+    bool finish_requested_ = false, cancel_fade_requested_ = false;
+#endif
     std::condition_variable audio_queue_cv_;
     // Recording playback must hold the entire bounded test queue. Runtime
     // conversation admission still uses max_decode_packets_ (96 on robots).

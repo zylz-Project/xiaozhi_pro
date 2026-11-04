@@ -197,9 +197,10 @@ template<class...T>void Log(T...){ }
 int64_t clock_us=10000000;int64_t esp_timer_get_time(){return clock_us;}
 void esp_timer_stop(int){}void esp_timer_start_periodic(int,int){}
 using esp_ae_sample_t=int16_t*;
-void esp_ae_rate_cvt_get_max_out_sample_num(void*,uint32_t n,uint32_t*out){*out=n*2/3;}
-void esp_ae_rate_cvt_process(void*,int16_t*,uint32_t,int16_t*out,uint32_t*n){
- std::fill(out,out+*n*2,0); // A converter can hide full-scale raw ADC samples.
+constexpr int ESP_AE_ERR_OK=0;
+int esp_ae_rate_cvt_get_max_out_sample_num(void*,uint32_t n,uint32_t*out){*out=n*2/3;return 0;}
+int esp_ae_rate_cvt_process(void*,int16_t*,uint32_t,int16_t*out,uint32_t*n){
+ std::fill(out,out+*n*2,0);return 0; // A converter can hide full-scale raw ADC samples.
 }
 struct Codec{
  bool clipped=false,fail=false;bool input_enabled(){return true;}void EnableInput(bool){}

@@ -646,6 +646,9 @@ void Application::InitializeProtocol() {
                 Schedule([this, generation]() {
                     if (GetDeviceState() == kDeviceStateSpeaking && !interaction_stopped_.load() &&
                         generation == interaction_generation_.load()) {
+#if CONFIG_AUDIO_PRODUCT_QUALITY
+                        audio_service_.FinishPlayback();
+#endif
                         if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
                         } else {
