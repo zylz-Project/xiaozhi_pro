@@ -40,6 +40,10 @@ AfeAudioEngine::AfeAudioEngine() { event_group_ = xEventGroupCreate(); }
 
 AfeAudioEngine::~AfeAudioEngine() {
     custom_wake_word_.reset();
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+    // Release model instances before the borrowed/mapped model storage below.
+    neural_frontend_.Close();
+#endif
     if (afe_data_ != nullptr) {
         afe_iface_->destroy(afe_data_);
     }
@@ -151,6 +155,11 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     if (vad_model_name != nullptr) {
         afe_config->vad_model_name = vad_model_name;
     }
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+    // Keep the AFE's wake pipeline lightweight. Uplink VAD is run again after
+    // the explicit NSNet2 stage, never inherited from this pre-NSNet result.
+    afe_config->vad_model_name = nullptr;
+#endif
     afe_config->wakenet_init = wake_detector_ == WakeDetector::kWakeNet;
     afe_config->wakenet_model_name =
         wake_detector_ == WakeDetector::kWakeNet ? wakenet_model_name : nullptr;
@@ -172,6 +181,16 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         afe_data_ = nullptr;
         return false;
     }
+
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+    // Reserve the essential AFE first. Model failure keeps ordinary capture,
+    // playback and wake words available, while interruption admission fails closed.
+    if (neural_frontend_.Initialize(models_)) {
+        ESP_LOGI(TAG, "Neural uplink: FD AEC -> NSNet2 -> VADNet; 16 kHz / 512 samples");
+    } else {
+        ESP_LOGE(TAG, "Neural models unavailable: automatic voice interruption disabled");
+    }
+#endif
 
     if (wake_detector_ == WakeDetector::kWakeNet) {
         afe_iface_->disable_wakenet(afe_data_);
@@ -199,6 +218,9 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     }
     if (processing_task_stack_ == nullptr || processing_task_buffer_ == nullptr) {
         ESP_LOGE(TAG, "Failed to allocate AFE processing task memory");
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+        neural_frontend_.Close();
+#endif
         afe_iface_->destroy(afe_data_);
         afe_data_ = nullptr;
         afe_iface_ = nullptr;
@@ -214,6 +236,9 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         processing_task_buffer_);
     if (processing_task_ == nullptr) {
         ESP_LOGE(TAG, "Failed to create AFE processing task");
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+        neural_frontend_.Close();
+#endif
         afe_iface_->destroy(afe_data_);
         afe_data_ = nullptr;
         afe_iface_ = nullptr;
@@ -468,7 +493,7 @@ void AfeAudioEngine::ProcessingTask() {
             HandleWakeWordResult(result);
         }
         if (kUseAfeForVoiceProcessing && (bits & kVoiceProcessingEnabled)) {
-            HandleVoiceResult(result);
+            HandleVoiceResult(result, generation);
         }
     }
 }
@@ -514,10 +539,48 @@ void AfeAudioEngine::HandleDetectedWakeWord(const std::string& wake_word) {
     }
 }
 
-void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result) {
+void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result, uint32_t generation) {
+    if (generation != control_generation_.load() || result == nullptr || result->data == nullptr ||
+        result->data_size <= 0 || result->data_size % sizeof(int16_t) != 0) {
+        return;
+    }
     if (output_reset_pending_.exchange(false)) {
         output_buffer_.clear();
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+        output_all_speech_ = true;
+        neural_frontend_.Reset();
+#endif
     }
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+    if (neural_frontend_.Ready()) {
+        const auto started_us = esp_timer_get_time();
+        struct Context {
+            AfeAudioEngine* engine;
+            uint32_t generation;
+        } context{this, generation};
+        neural_frontend_.Process(
+            result->data, result->data_size / sizeof(int16_t),
+            [](void* opaque, const int16_t* pcm, size_t samples, bool speech) {
+                auto* current = static_cast<Context*>(opaque);
+                current->engine->EmitNeuralChunk(pcm, samples, speech, current->generation);
+            },
+            &context);
+        const auto finished_us = esp_timer_get_time();
+        const auto budget_us =
+            static_cast<int64_t>(result->data_size / sizeof(int16_t)) * 1000000 / 16000;
+        if (finished_us - started_us > budget_us) {
+            ++neural_budget_misses_;
+            if (finished_us - last_neural_budget_log_us_ >= 5000000) {
+                last_neural_budget_log_us_ = finished_us;
+                ESP_LOGW(TAG, "Neural uplink over budget: %lld/%lld us, total=%lu",
+                         static_cast<long long>(finished_us - started_us),
+                         static_cast<long long>(budget_us),
+                         static_cast<unsigned long>(neural_budget_misses_));
+            }
+        }
+        return;
+    }
+#endif
     if (vad_state_change_callback_) {
 #if CONFIG_USE_VOICE_BARGE_IN
         // Publish the authoritative frame state before its PCM. AudioService
@@ -552,6 +615,39 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result) {
         }
     }
 }
+
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+void AfeAudioEngine::EmitNeuralChunk(const int16_t* pcm, size_t samples, bool speech,
+                                     uint32_t generation) {
+    if (frame_samples_ <= 0 || output_buffer_.size() > static_cast<size_t>(frame_samples_)) {
+        return;
+    }
+    while (samples > 0 && output_callback_) {
+        if (generation != control_generation_.load() || output_reset_pending_.load()) {
+            return;
+        }
+        const size_t count =
+            std::min(samples, static_cast<size_t>(frame_samples_) - output_buffer_.size());
+        output_buffer_.insert(output_buffer_.end(), pcm, pcm + count);
+        output_all_speech_ = output_all_speech_ && speech;
+        pcm += count;
+        samples -= count;
+        if (output_buffer_.size() == static_cast<size_t>(frame_samples_)) {
+            // Require every contributing neural chunk to be speech. A new
+            // 32 ms VAD result must not label an older 60 ms packet as speech.
+            if (vad_state_change_callback_) {
+                vad_state_change_callback_(output_all_speech_);
+            }
+            if (generation == control_generation_.load() && !output_reset_pending_.load()) {
+                output_callback_(std::move(output_buffer_));
+            }
+            output_buffer_.clear();
+            output_buffer_.reserve(frame_samples_);
+            output_all_speech_ = true;
+        }
+    }
+}
+#endif
 
 void AfeAudioEngine::OutputRawAudio(const std::vector<int16_t>& data) {
     if (!output_callback_ || codec_ == nullptr) {

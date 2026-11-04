@@ -901,6 +901,9 @@ endif()
 # Select one audio engine for each chip family
 if(CONFIG_IDF_TARGET_ESP32S3 OR CONFIG_IDF_TARGET_ESP32P4 OR CONFIG_IDF_TARGET_ESP32S31)
     list(APPEND SOURCES "audio/engines/afe_audio_engine.cc")
+    if(CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND)
+        list(APPEND SOURCES "audio/engines/neural_audio_frontend.cc")
+    endif()
     list(APPEND SOURCES "audio/wake_words/custom_wake_word.cc")
     list(APPEND SOURCES "audio/wake_words/wake_word_audio_cache.cc")
 else()
@@ -1273,6 +1276,18 @@ function(build_default_assets_bin)
 
     list(APPEND BUILD_ARGS "--esp_sr_model_path" "${ESP_SR_MODEL_PATH}")
     list(APPEND BUILD_ARGS "--noto_fonts_path" "${NOTO_FONTS_PATH}")
+
+    set(NEURAL_MODEL_DIRS "")
+    if(CONFIG_SR_NSN_NSNET2)
+        list(APPEND NEURAL_MODEL_DIRS "${ESP_SR_MODEL_PATH}/nsnet_model/nsnet2")
+    endif()
+    if(CONFIG_SR_VADN_VADNET1_MEDIUM)
+        list(APPEND NEURAL_MODEL_DIRS "${ESP_SR_MODEL_PATH}/vadnet_model/vadnet1_medium")
+    endif()
+    foreach(MODEL_DIR IN LISTS NEURAL_MODEL_DIRS)
+        file(GLOB NEURAL_MODEL_FILES CONFIGURE_DEPENDS "${MODEL_DIR}/*")
+        list(APPEND DEFAULT_ASSETS_DEPENDENCIES ${NEURAL_MODEL_FILES})
+    endforeach()
 
     # Create custom command to build assets
     add_custom_command(

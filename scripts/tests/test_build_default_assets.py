@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import struct
 import tempfile
 import unittest
 from unittest import mock
@@ -15,6 +16,80 @@ SPEC.loader.exec_module(BUILD)
 
 
 class BuildDefaultAssetsTest(unittest.TestCase):
+    @staticmethod
+    def neural_models(folder):
+        for directory, prefix in [('nsnet_model/nsnet2', 'nsnet2'),
+                                  ('vadnet_model/vadnet1_medium', 'vadn1')]:
+            model = folder / directory
+            model.mkdir(parents=True)
+            for name in ['_MODEL_INFO_', prefix+'_index', prefix+'_data']:
+                (model/name).write_bytes((directory+'/'+name).encode())
+
+    def test_selected_neural_weights_are_in_the_packed_model_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.neural_models(root)
+            config = root/'sdkconfig'
+            config.write_text('CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y\n'
+                              'CONFIG_SR_NSN_NSNET2=y\nCONFIG_SR_VADN_VADNET1_MEDIUM=y\n')
+            paths = BUILD.get_neural_model_paths(config, root)
+            assets = root/'assets'
+            assets.mkdir()
+            self.assertEqual(BUILD.process_sr_models([], [], root/'work', assets, paths), 'srmodels.bin')
+            data = (assets/'srmodels.bin').read_bytes()
+            self.assertEqual(struct.unpack_from('<I', data)[0], 2)
+            position = 4
+            packaged = {}
+            for _ in range(2):
+                name, count = struct.unpack_from('<32sI', data, position)
+                position += 36
+                files = {}
+                for _ in range(count):
+                    filename, offset, length = struct.unpack_from('<32sII', data, position)
+                    position += 40
+                    files[filename.rstrip(b'\0').decode()] = data[offset:offset+length]
+                packaged[name.rstrip(b'\0').decode()] = files
+            self.assertEqual(set(packaged), {'nsnet2', 'vadnet1_medium'})
+            self.assertEqual(packaged['nsnet2']['nsnet2_data'], b'nsnet_model/nsnet2/nsnet2_data')
+            self.assertEqual(packaged['vadnet1_medium']['vadn1_data'],
+                             b'vadnet_model/vadnet1_medium/vadn1_data')
+            with mock.patch.object(BUILD, 'pack_models', side_effect=RuntimeError('pack failure')):
+                with self.assertRaises(ValueError):
+                    BUILD.process_sr_models([], [], root/'work', assets, paths)
+
+    def test_required_neural_models_cannot_silently_disappear(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root/'sdkconfig'
+            config.write_text('CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y\n')
+            with self.assertRaises(ValueError):
+                BUILD.get_neural_model_paths(config, root)
+            config.write_text('CONFIG_SR_NSN_NSNET2=y\nCONFIG_SR_VADN_VADNET1_MEDIUM=y\n')
+            with self.assertRaises(ValueError):
+                BUILD.get_neural_model_paths(config, root)
+            self.neural_models(root)
+            (root/'vadnet_model/vadnet1_medium/vadn1_data').unlink()
+            with self.assertRaises(ValueError):
+                BUILD.get_neural_model_paths(config, root)
+            config.write_text('CONFIG_SR_NSN_WEBRTC=y\nCONFIG_SR_VADN_WEBRTC=y\n')
+            self.assertEqual(BUILD.get_neural_model_paths(config, root), [])
+
+    def test_neural_only_assets_are_built_without_a_wake_word(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.neural_models(root)
+            config = root/'sdkconfig'
+            config.write_text('CONFIG_WAKE_WORD_DISABLED=y\nCONFIG_SR_NSN_NSNET2=y\n'
+                              'CONFIG_SR_VADN_VADNET1_MEDIUM=y\n')
+            args = ['build_default_assets.py', '--sdkconfig', str(config),
+                    '--esp_sr_model_path', str(root), '--noto_fonts_path', str(root),
+                    '--output', str(root/'assets.bin')]
+            with mock.patch('sys.argv', args), mock.patch.object(
+                    BUILD, 'build_assets_integrated', return_value=True) as pack:
+                BUILD.main()
+            self.assertEqual({Path(p).name for p in pack.call_args.kwargs['neural_model_paths']},
+                             {'nsnet2', 'vadnet1_medium'})
+
     def test_wakenet_and_local_commands_package_both_models_without_custom_wake(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)

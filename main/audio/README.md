@@ -207,6 +207,16 @@ physical acceptance. Voice interruption remains an unaccepted experiment.
 
 ## Opt-in local voice interruption (2026-11-02)
 
+2026-11-04: the experimental tail-red-panda variant additionally enables
+`VOICE_BARGE_IN_NEURAL_FRONTEND`. An explicit NSNet2 stage consumes post-AEC
+mono, followed by standalone VADNet. Both model weights are packaged in assets.
+The base AFE's pre-NSNet VAD is not reused for the enhanced uplink. Neural chunk
+states are combined conservatively across each 60 ms encoded frame, and session
+generation is rechecked after inference. Missing models disable automatic
+interruption admission while retaining normal AFE capture. This remains a
+candidate without hardware acceptance; see
+`docs/wzh_tailredpanda_neural_barge_in_2026-11-04.md`.
+
 Hardware feedback on 2026-11-03 found both self-interruption and missed speech
 in the experimental builds. The waveform correlation veto is a heuristic;
 decorrelated residual echo can pass it. This feature has not passed hardware

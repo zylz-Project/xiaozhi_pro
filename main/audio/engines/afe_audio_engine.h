@@ -17,6 +17,9 @@
 
 #include "audio_engine.h"
 #include "wake_words/wake_word_audio_cache.h"
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+#include "neural_audio_frontend.h"
+#endif
 
 class CustomWakeWord;
 
@@ -36,6 +39,13 @@ public:
     bool IsWakeWordDetectionEnabled() const override;
     bool IsVoiceProcessingEnabled() const override;
     bool IsAfeWakeWord() const override { return HasWakeWord(); }
+    bool CanMonitorVoiceInterruption() const override {
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+        return afe_data_ != nullptr && neural_frontend_.Ready();
+#else
+        return afe_data_ != nullptr;
+#endif
+    }
     size_t GetFeedSize() const override;
 
     void OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback) override;
@@ -64,7 +74,16 @@ private:
     esp_afe_sr_data_t* afe_data_ = nullptr;
     EventGroupHandle_t event_group_ = nullptr;
     TaskHandle_t processing_task_ = nullptr;
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+    static constexpr size_t kProcessingTaskStackSize = 8192;
+    NeuralAudioFrontend neural_frontend_;
+    bool output_all_speech_ = true;
+    uint32_t neural_budget_misses_ = 0;
+    int64_t last_neural_budget_log_us_ = -5000000;
+    void EmitNeuralChunk(const int16_t* pcm, size_t samples, bool speech, uint32_t generation);
+#else
     static constexpr size_t kProcessingTaskStackSize = 4096;
+#endif
     StackType_t* processing_task_stack_ = nullptr;
     StaticTask_t* processing_task_buffer_ = nullptr;
     int frame_samples_ = 0;
@@ -109,7 +128,7 @@ private:
     void ApplyPendingReset();
     void OutputRawAudio(const std::vector<int16_t>& data);
     void HandleWakeWordResult(const afe_fetch_result_t* result);
-    void HandleVoiceResult(const afe_fetch_result_t* result);
+    void HandleVoiceResult(const afe_fetch_result_t* result, uint32_t generation);
 };
 
 #endif

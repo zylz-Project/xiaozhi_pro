@@ -346,7 +346,9 @@ enum AudioTaskType{kAudioTaskTypeEncodeToSendQueue,kAudioTaskTypeEncodeToTesting
 struct AudioTask{AudioTaskType type;std::vector<int16_t>pcm;uint32_t timestamp=0,capture_generation=0;};
 struct AudioStreamPacket{int number=0;};
 struct Codec{bool reference=true;bool input_reference(){return reference;}int output_volume(){return 70;}};
+struct Engine{bool ready=true;bool CanMonitorVoiceInterruption(){return ready;}};
 struct AudioService{
+ Engine engine;Engine*audio_engine_=&engine;
  Codec codec;Codec*codec_=&codec;bool device_aec_enabled_=true,capture_enabled_=true,running=true;
  bool IsAudioProcessorRunning(){return running;}
  std::mutex audio_queue_mutex_;VoiceBargeIn voice_barge_in_;uint32_t capture_generation_=0;
@@ -370,6 +372,7 @@ int main(){
  };
  service.codec.reference=false;assert(!service.BeginVoiceInterruption());service.codec.reference=true;
  service.running=false;assert(!service.BeginVoiceInterruption());service.running=true;
+ service.engine.ready=false;assert(!service.BeginVoiceInterruption());service.engine.ready=true;
  assert(service.BeginVoiceInterruption());auto generation=service.capture_generation_;
  auto token=service.voice_barge_in_.token();assert(service.BeginVoiceInterruption());
  assert(service.capture_generation_==generation&&service.voice_barge_in_.token()==token);
@@ -643,10 +646,11 @@ constexpr int VAD_SPEECH=1,VAD_SILENCE=0;
 struct afe_fetch_result_t{int16_t*data;int data_size;int vad_state;};
 struct AfeAudioEngine{
  std::atomic<bool>output_reset_pending_{false};std::vector<int16_t>output_buffer_;
+ std::atomic<uint32_t>control_generation_{0};
  int frame_samples_=960;
  std::function<void(bool)>vad_state_change_callback_;
  std::function<void(std::vector<int16_t>&&)>output_callback_;
- void HandleVoiceResult(const afe_fetch_result_t*);
+ void HandleVoiceResult(const afe_fetch_result_t*,uint32_t);
 };
 ''' + queue_function(source,'void AfeAudioEngine::HandleVoiceResult(') + r'''
 int main(){
@@ -654,15 +658,17 @@ int main(){
  engine.vad_state_change_callback_=[&](bool speaking){current=speaking;++states;};
  engine.output_callback_=[&](std::vector<int16_t>&&pcm){assert(current);assert(pcm.size()==960);++packets;};
  std::vector<int16_t>pcm(512,1000);afe_fetch_result_t speech{pcm.data(),1024,VAD_SPEECH};
- engine.HandleVoiceResult(&speech);engine.HandleVoiceResult(&speech);
+ engine.HandleVoiceResult(&speech,0);engine.HandleVoiceResult(&speech,0);
  assert(states==2&&packets==1&&current);
  engine.output_reset_pending_=true;
  engine.output_callback_=[&](std::vector<int16_t>&&fresh){
   assert(!current&&fresh.size()==960);for(auto sample:fresh){assert(sample==42);}++packets;
  };
  std::vector<int16_t>fresh(960,42);afe_fetch_result_t silence{fresh.data(),1920,VAD_SILENCE};
- engine.HandleVoiceResult(&silence);assert(states==3&&packets==2&&!current);
+ engine.HandleVoiceResult(&silence,0);assert(states==3&&packets==2&&!current);
  // Repeated silence must still overwrite a stale AudioService VAD latch.
- current=true;engine.HandleVoiceResult(&silence);assert(states==4&&!current);
+ current=true;engine.HandleVoiceResult(&silence,0);assert(states==4&&!current);
+ engine.control_generation_=1;engine.HandleVoiceResult(&speech,0);
+ assert(states==4&&packets==3); // Old fetch generation cannot publish fresh-session PCM/VAD.
 }
 ''')

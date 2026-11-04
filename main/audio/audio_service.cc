@@ -1105,7 +1105,8 @@ bool AudioService::InitializeAudioEngine() {
 
 #if CONFIG_USE_VOICE_BARGE_IN
 bool AudioService::BeginVoiceInterruption() {
-    if (!codec_->input_reference() || !device_aec_enabled_ || !IsAudioProcessorRunning()) {
+    if (!codec_->input_reference() || !device_aec_enabled_ || !IsAudioProcessorRunning() ||
+        !audio_engine_->CanMonitorVoiceInterruption()) {
         return false;
     }
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);

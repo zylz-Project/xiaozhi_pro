@@ -237,9 +237,10 @@ def copy_directory(src, dst):
         return False
 
 
-def process_sr_models(wakenet_model_dirs, multinet_model_dirs, build_dir, assets_dir):
-    """Process SR models (wakenet and multinet) and generate srmodels.bin"""
-    if not wakenet_model_dirs and not multinet_model_dirs:
+def process_sr_models(wakenet_model_dirs, multinet_model_dirs, build_dir, assets_dir,
+                      neural_model_dirs=None):
+    """Package selected speech models into the shared srmodels.bin."""
+    if not wakenet_model_dirs and not multinet_model_dirs and not neural_model_dirs:
         return None
     
     # Create SR models build directory
@@ -268,6 +269,13 @@ def process_sr_models(wakenet_model_dirs, multinet_model_dirs, build_dir, assets
                 models_processed += 1
                 print(f"Added multinet model: {multinet_name}")
     
+    for model_dir in neural_model_dirs or []:
+        name = os.path.basename(model_dir)
+        if not copy_directory(model_dir, os.path.join(sr_models_build_dir, name)):
+            raise ValueError(f'Cannot package required neural model: {name}')
+        models_processed += 1
+        print(f"Added neural model: {name}")
+
     if models_processed == 0:
         print("Warning: No SR models were successfully processed")
         return None
@@ -281,8 +289,37 @@ def process_sr_models(wakenet_model_dirs, multinet_model_dirs, build_dir, assets
         copy_file(srmodels_output, os.path.join(assets_dir, "srmodels.bin"))
         return "srmodels.bin"
     except Exception as e:
+        if neural_model_dirs:
+            raise ValueError('Cannot build assets with required neural models') from e
         print(f"Error: Failed to generate srmodels.bin: {e}")
         return None
+
+
+def get_neural_model_paths(sdkconfig_path, esp_sr_model_path):
+    """Honor NSNet2/VADNet selection instead of silently omitting their weights."""
+    values = {}
+    with open(sdkconfig_path, encoding='utf-8') as source:
+        for line in source:
+            key, separator, value = line.strip().partition('=')
+            if separator and not key.startswith('#'):
+                values[key] = value
+    specifications = [
+        ('CONFIG_SR_NSN_NSNET2', 'nsnet_model', 'nsnet2', 'nsnet2'),
+        ('CONFIG_SR_VADN_VADNET1_MEDIUM', 'vadnet_model', 'vadnet1_medium', 'vadn1'),
+    ]
+    if values.get('CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND') == 'y':
+        if any(values.get(key) != 'y' for key, _, _, _ in specifications):
+            raise ValueError('Neural voice interruption requires NSNet2 and VADNet1 medium')
+    paths = []
+    for key, folder, name, prefix in specifications:
+        if values.get(key) != 'y':
+            continue
+        model_path = os.path.join(esp_sr_model_path, folder, name)
+        required = ['_MODEL_INFO_', prefix+'_index', prefix+'_data']
+        if not all(os.path.isfile(os.path.join(model_path, file)) for file in required):
+            raise ValueError(f'A required neural model is missing or incomplete: {name}')
+        paths.append(model_path)
+    return paths
 
 
 def process_text_font(text_font_file, assets_dir):
@@ -823,7 +860,7 @@ def get_emoji_collection_path(default_emoji_collection, noto_fonts_path, project
 
 def build_assets_integrated(wakenet_model_paths, multinet_model_paths, text_font_path,
                             emoji_collection_path, extra_files_path, output_path,
-                            multinet_model_info=None, font_bundle_id=None):
+                            multinet_model_info=None, font_bundle_id=None, neural_model_paths=None):
     """
     Build assets using integrated functions (no external dependencies)
     """
@@ -841,7 +878,8 @@ def build_assets_integrated(wakenet_model_paths, multinet_model_paths, text_font
         print("Starting to build assets...")
         
         # Process each component
-        srmodels = process_sr_models(wakenet_model_paths, multinet_model_paths, temp_build_dir, assets_dir) if (wakenet_model_paths or multinet_model_paths) else None
+        srmodels = process_sr_models(wakenet_model_paths, multinet_model_paths,
+                                     temp_build_dir, assets_dir, neural_model_paths)
         text_font = process_text_font(text_font_path, assets_dir) if text_font_path else None
         emoji_collection = process_emoji_collection(emoji_collection_path, assets_dir) if emoji_collection_path else None
         extra_files = process_extra_files(extra_files_path, assets_dir) if extra_files_path else None
@@ -925,6 +963,7 @@ def main():
     # Read SR models from sdkconfig
     wakenet_model_names = read_wakenet_from_sdkconfig(args.sdkconfig)
     multinet_model_names = read_multinet_from_sdkconfig(args.sdkconfig)
+    neural_model_paths = get_neural_model_paths(args.sdkconfig, args.esp_sr_model_path)
     
     # Apply wake word logic to decide which models to package
     wakenet_model_paths = []
@@ -990,7 +1029,7 @@ def main():
         print(f"  MultiNet threshold: {multinet_model_info['threshold']}")
     
     # Check if we have anything to build
-    if not wakenet_model_paths and not multinet_model_paths and not text_font_path and not emoji_collection_path and not extra_files_path and not multinet_model_info:
+    if not wakenet_model_paths and not multinet_model_paths and not neural_model_paths and not text_font_path and not emoji_collection_path and not extra_files_path and not multinet_model_info:
         print("Warning: No assets to build (no SR models, text font, emoji collection, extra files, or custom wake word)")
         # Create an empty assets.bin file
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
@@ -1002,7 +1041,8 @@ def main():
     # Build the assets
     success = build_assets_integrated(
         wakenet_model_paths, multinet_model_paths, text_font_path, emoji_collection_path,
-        extra_files_path, args.output, multinet_model_info, font_bundle_id)
+        extra_files_path, args.output, multinet_model_info, font_bundle_id,
+        neural_model_paths=neural_model_paths)
     
     if not success:
         sys.exit(1)
