@@ -207,15 +207,22 @@ physical acceptance. Voice interruption remains an unaccepted experiment.
 
 ## Opt-in local voice interruption (2026-11-02)
 
-2026-11-04: the experimental tail-red-panda variant additionally enables
-`VOICE_BARGE_IN_NEURAL_FRONTEND`. An explicit NSNet2 stage consumes post-AEC
-mono, followed by standalone VADNet. Both model weights are packaged in assets.
-The base AFE's pre-NSNet VAD is not reused for the enhanced uplink. Neural chunk
-states are combined conservatively across each 60 ms encoded frame, and session
-generation is rechecked after inference. Missing models disable automatic
-interruption admission while retaining normal AFE capture. This remains a
-candidate without hardware acceptance; see
-`docs/wzh_tailredpanda_neural_barge_in_2026-11-04.md`.
+2026-11-04: hardware feedback found the NSNet2/VADNet candidate overran its
+32 ms budget, overflowed AFE input and starved CPU 1's idle task. The revised
+`VOICE_BARGE_IN_NEURAL_FRONTEND` route retains post-AEC NSNet2, replaces the
+second neural network with WebRTC VAD (160-sample/10 ms framing), and pauses
+secondary offline MultiNet commands while voice processing is active. Primary
+WakeNet remains enabled by its existing controls; primary MultiNet configurations
+are unaffected. Secondary commands resume with cleared partial input in standby.
+Only NSNet2 weights are required by this route. The AFE's pre-NSNet VAD is not
+reused for the enhanced uplink. All VAD chunks must agree across each 60 ms
+encoded frame; session generation is rechecked after inference. Missing models
+disable automatic interruption admission while retaining normal AFE capture.
+Average/max post-processing time is logged every 64 input frames; this is not a
+measurement of total AFE CPU use. Speaker settings and watchdogs are preserved.
+This revised candidate still requires hardware timing and acoustic acceptance;
+see `docs/wzh_tailredpanda_barge_in_realtime_2026-11-04.md` and the earlier
+research in `docs/wzh_tailredpanda_neural_barge_in_2026-11-04.md`.
 
 Hardware feedback on 2026-11-03 found both self-interruption and missed speech
 in the experimental builds. The waveform correlation veto is a heuristic;

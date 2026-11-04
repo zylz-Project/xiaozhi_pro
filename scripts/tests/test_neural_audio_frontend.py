@@ -1,6 +1,6 @@
 """Exercise production neural framing/binding with deterministic SDK doubles.
 
-These tests verify integration, not NSNet/VADNet acoustic accuracy.
+These tests verify integration, not NSNet/WebRTC acoustic accuracy.
 """
 from pathlib import Path
 import shutil
@@ -16,12 +16,11 @@ ENGINE = ROOT/'main/audio/engines'
 SDK = r'''
 #pragma once
 #define ESP_NSNET_PREFIX "nsnet"
-#define ESP_VADN_PREFIX "vadnet"
 struct srmodel_list_t { int num; };
-enum vad_mode_t { VAD_MODE_0 };
+enum vad_mode_t { VAD_MODE_0, VAD_MODE_1, VAD_MODE_2 };
 enum vad_state_t { VAD_SILENCE, VAD_SPEECH };
 struct esp_nsn_data_t { int16_t history[512]; };
-struct model_iface_data_t { int dummy; };
+using vad_handle_t = void*;
 struct esp_nsn_iface_t {
  esp_nsn_data_t*(*create)(char*);
  int(*get_samp_chunksize)(esp_nsn_data_t*);
@@ -29,18 +28,12 @@ struct esp_nsn_iface_t {
  int(*get_samp_rate)(esp_nsn_data_t*);
  void(*destroy)(esp_nsn_data_t*);
 };
-struct esp_vadn_iface_t {
- model_iface_data_t*(*create)(const void*,vad_mode_t,int,int,int);
- int(*get_samp_chunksize)(model_iface_data_t*);
- int(*get_channel_num)(model_iface_data_t*);
- int(*get_samp_rate)(model_iface_data_t*);
- vad_state_t(*detect)(model_iface_data_t*,int16_t*);
- void(*clean)(model_iface_data_t*);
- void(*destroy)(model_iface_data_t*);
-};
+vad_handle_t vad_create_with_param(vad_mode_t,int,int,int,int);
+vad_state_t vad_process_with_trigger(vad_handle_t,int16_t*);
+void vad_reset_trigger(vad_handle_t);
+void vad_destroy(vad_handle_t);
 char*esp_srmodel_filter(srmodel_list_t*,const char*,const char*);
 const esp_nsn_iface_t*esp_nsnet_handle_from_name(char*);
-const esp_vadn_iface_t*esp_vadn_handle_from_name(const char*);
 '''
 
 BACKEND = r'''
@@ -49,14 +42,14 @@ BACKEND = r'''
 #include <functional>
 #include <vector>
 int ns_created=0,ns_destroyed=0,vad_created=0,vad_destroyed=0,cleaned=0;
-int ns_chunk=512,vad_chunk=512,ns_rate=16000,vad_rate=16000,channels=1;
+int ns_chunk=512,ns_rate=16000;
 bool fail_ns=false,fail_vad=false,missing=false,unknown=false;
 std::vector<char> order;
 void(*on_ns)()=nullptr;
 char*esp_srmodel_filter(srmodel_list_t*,const char*prefix,const char*){
- static char ns[]="nsnet2",other[]="nsnet3",vad[]="vadnet1_medium";
+ static char ns[]="nsnet2",other[]="nsnet3";
  if(missing)return nullptr;
- return std::strcmp(prefix,"nsnet")==0?(unknown?other:ns):vad;
+ assert(std::strcmp(prefix,"nsnet")==0);return unknown?other:ns;
 }
 esp_nsn_data_t*NsCreate(char*){if(fail_ns)return nullptr;++ns_created;return new esp_nsn_data_t{};}
 int NsChunk(esp_nsn_data_t*){return ns_chunk;}
@@ -69,23 +62,18 @@ int NsProcess(esp_nsn_data_t*p,int16_t*in,int16_t*out){
  if(on_ns)on_ns();
  return 0;
 }
-model_iface_data_t*VadCreate(const void*,vad_mode_t,int c,int speech,int noise){
- assert(c==1&&speech==64&&noise==128);
+vad_handle_t vad_create_with_param(vad_mode_t mode,int rate,int ms,int speech,int noise){
+ assert(mode==VAD_MODE_2&&rate==16000&&ms==10&&speech==60&&noise==100);
  if(fail_vad)return nullptr;
- ++vad_created;return new model_iface_data_t{};
+ ++vad_created;return new int{};
 }
-int VadChunk(model_iface_data_t*){return vad_chunk;}
-int VadRate(model_iface_data_t*){return vad_rate;}
-int VadChannels(model_iface_data_t*){return channels;}
-vad_state_t VadDetect(model_iface_data_t*,int16_t*pcm){
+vad_state_t vad_process_with_trigger(vad_handle_t,int16_t*pcm){
  order.push_back('V');return pcm[0]>500?VAD_SPEECH:VAD_SILENCE;
 }
-void VadClean(model_iface_data_t*){++cleaned;}
-void VadDestroy(model_iface_data_t*p){++vad_destroyed;delete p;}
+void vad_reset_trigger(vad_handle_t){++cleaned;}
+void vad_destroy(vad_handle_t p){++vad_destroyed;delete static_cast<int*>(p);}
 esp_nsn_iface_t ns_interface{NsCreate,NsChunk,NsProcess,NsRate,NsDestroy};
-esp_vadn_iface_t vad_interface{VadCreate,VadChunk,VadChannels,VadRate,VadDetect,VadClean,VadDestroy};
 const esp_nsn_iface_t*esp_nsnet_handle_from_name(char*){return &ns_interface;}
-const esp_vadn_iface_t*esp_vadn_handle_from_name(const char*){return &vad_interface;}
 struct Output {
  std::vector<int16_t> pcm;std::vector<bool> speech;
  static void Emit(void*ctx,const int16_t*data,size_t count,bool voice){
@@ -104,7 +92,7 @@ class NeuralAudioFrontendTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             (folder/'fake_sdk.h').write_text(SDK)
-            for header in ['esp_nsn_models.h', 'esp_vadn_models.h', 'model_path.h']:
+            for header in ['esp_nsn_models.h', 'esp_vad.h', 'model_path.h']:
                 (folder/header).write_text('#include "fake_sdk.h"\n')
             source = folder/'test.cc'
             source.write_text('#include "'+str(ENGINE/'neural_audio_frontend.h')+'"\n'+BACKEND+program)
@@ -120,16 +108,20 @@ class NeuralAudioFrontendTest(unittest.TestCase):
         self.run_frontend(r'''
 int main(){
  srmodel_list_t models{2};NeuralAudioFrontend pipeline;assert(pipeline.Initialize(&models));
- order.clear();Output result;std::vector<int16_t> input(1536);
+ order.clear();Output result;std::vector<int16_t> input(2560);
  for(size_t i=0;i<input.size();++i)input[i]=2000+2*(i%511);
  assert(pipeline.Process(input.data(),511,Output::Emit,&result));assert(result.pcm.empty());
  assert(pipeline.Process(input.data()+511,5,Output::Emit,&result));
  assert(pipeline.Process(input.data()+516,input.size()-516,Output::Emit,&result));
- assert(order==std::vector<char>({'N','V','O','N','V','O','N','V','O'}));
+ assert(std::count(order.begin(),order.end(),'N')==5);
+ assert(std::count(order.begin(),order.end(),'V')==16);
+ assert(std::count(order.begin(),order.end(),'O')==16);
+ for(size_t i=0;i<order.size();++i)if(order[i]=='O')assert(i>0&&order[i-1]=='V');
  assert(result.pcm.size()==input.size());
  for(size_t i=0;i<512;++i)assert(result.pcm[i]==0);
  for(size_t i=512;i<input.size();++i)assert(result.pcm[i]==input[i-512]/2);
- assert(result.speech==std::vector<bool>({false,true,true}));
+ assert(result.speech.size()==16);
+ for(size_t i=0;i<result.speech.size();++i)assert(result.speech[i]==(i>=4));
  pipeline.Close();pipeline.Close();assert(ns_created==ns_destroyed&&vad_created==vad_destroyed);
 }
 ''')
@@ -138,7 +130,7 @@ int main(){
         self.run_frontend(r'''
 int main(){
  srmodel_list_t models{2};NeuralAudioFrontend pipeline;assert(pipeline.Initialize(&models));
- Output result;std::vector<int16_t> old(700,3000),fresh(1536,0);
+ Output result;std::vector<int16_t> old(700,3000),fresh(2560,0);
  pipeline.Process(old.data(),old.size(),Output::Emit,&result);
  const int created=ns_created+vad_created,clean_before=cleaned;
  pipeline.Reset();assert(cleaned==clean_before+1&&ns_created+vad_created==created);
@@ -157,14 +149,13 @@ int main(){
 int main(){
  srmodel_list_t models{2};NeuralAudioFrontend pipeline;
  assert(!pipeline.Initialize(nullptr));
- for(int failure=0;failure<9;++failure){
+ for(int failure=0;failure<6;++failure){
   missing=failure==0;unknown=failure==1;fail_ns=failure==2;fail_vad=failure==3;
-  ns_chunk=failure==4?256:512;vad_chunk=failure==5?256:512;
-  ns_rate=failure==6?8000:16000;vad_rate=failure==7?8000:16000;channels=failure==8?2:1;
+  ns_chunk=failure==4?256:512;ns_rate=failure==5?8000:16000;
   assert(!pipeline.Initialize(&models)&&!pipeline.Ready());
   assert(ns_created==ns_destroyed&&vad_created==vad_destroyed);
  }
- missing=unknown=fail_ns=fail_vad=false;ns_chunk=vad_chunk=512;ns_rate=vad_rate=16000;channels=1;
+ missing=unknown=fail_ns=fail_vad=false;ns_chunk=512;ns_rate=16000;
  assert(pipeline.Initialize(&models)&&pipeline.Ready());
  pipeline.Close();assert(ns_created==ns_destroyed&&vad_created==vad_destroyed);
 }
@@ -216,6 +207,7 @@ int main(){
 #define CONFIG_USE_VOICE_BARGE_IN 1
 #define CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND 1
 #define ESP_LOGW(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
 #include <atomic>
 int64_t esp_timer_get_time(){return 10000000;}
 struct afe_fetch_result_t{int16_t*data;int data_size;int vad_state;};
@@ -223,7 +215,9 @@ struct AfeAudioEngine{
  NeuralAudioFrontend neural_frontend_;std::atomic<uint32_t>control_generation_{0};
  std::atomic<bool>output_reset_pending_{false};std::vector<int16_t>output_buffer_;
  bool output_all_speech_=true;int frame_samples_=960;
- uint32_t neural_budget_misses_=0;int64_t last_neural_budget_log_us_=-5000000;
+ uint32_t neural_budget_misses_=0,neural_timing_frames_=0;
+ int64_t last_neural_budget_log_us_=-5000000,neural_timing_sum_us_=0,neural_timing_max_us_=0;
+ bool local_commands_suspended_=false;
  std::function<void(bool)>vad_state_change_callback_;
  std::function<void(std::vector<int16_t>&&)>output_callback_;
  void HandleVoiceResult(const afe_fetch_result_t*,uint32_t);

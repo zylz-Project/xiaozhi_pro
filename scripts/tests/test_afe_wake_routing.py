@@ -68,6 +68,8 @@ struct AfeAudioEngine {
     std::function<void(const std::string&)> wake_word_detected_callback_;
     void* models_ = nullptr; void* codec_ = nullptr;
     unsigned bits = 0; unsigned* event_group_ = &bits;
+    bool local_commands_suspended_ = false;
+    bool IsVoiceProcessingEnabled() const { return bits & 2; }
     bool HasWakeWord() const { return wake_detector_ != WakeDetector::kNone; }
     void UpdateActiveState() {}
     bool InitializeWakeWordDetectors(char*, char*);
@@ -103,6 +105,28 @@ int main() {
         engine.HandleWakeWordResult(&result);
         assert(engine.custom_wake_word_->feeds == 1 && detected.empty());
     }
+    int expected_feeds = needs_mn ? 1 : 0;
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+    if (needs_mn) {
+        engine.bits |= 2;
+        engine.HandleWakeWordResult(&result);
+        if (kUseWakeNet) {
+            assert(engine.custom_wake_word_->feeds == expected_feeds);
+            assert(!engine.custom_wake_word_->running);
+            int stopped = engine.custom_wake_word_->stops;
+            engine.HandleWakeWordResult(&result);
+            assert(engine.custom_wake_word_->stops == stopped);
+            engine.bits &= ~2;
+            engine.HandleWakeWordResult(&result);
+            assert(engine.custom_wake_word_->running && !engine.local_commands_suspended_);
+        } else {
+            // Primary MultiNet wake must keep working during capture.
+            engine.bits &= ~2;
+        }
+        ++expected_feeds;
+        assert(engine.custom_wake_word_->feeds == expected_feeds);
+    }
+#endif
     if (kUseWakeNet) {
         result.wakeup_state = WAKENET_DETECTED;
         result.wakenet_model_index = 99;
@@ -112,7 +136,7 @@ int main() {
         engine.HandleWakeWordResult(&result);
         assert(detected.size() == 1 && detected.back() == "小龙小龙" && engine.bits == 0);
         if (needs_mn) {
-            assert(!engine.custom_wake_word_->running && engine.custom_wake_word_->feeds == 1);
+            assert(!engine.custom_wake_word_->running && engine.custom_wake_word_->feeds == expected_feeds);
             engine.EnableWakeWordDetection(true);
             assert(engine.custom_wake_word_->running);
             engine.custom_wake_word_->callback("local:stop");
@@ -131,9 +155,12 @@ int main() {
     }
 }
 '''
-        for wn, mn, local in [(1, 0, 1), (1, 0, 0), (0, 1, 0), (0, 1, 1), (0, 0, 0)]:
-            with self.subTest(wakenet=wn, multinet=mn, local=local):
-                self.compile_and_run(program, [f'-DUSE_WN={wn}', f'-DUSE_MN={mn}', f'-DLOCAL={local}'])
+        for neural in (0, 1):
+            for wn, mn, local in [(1, 0, 1), (1, 0, 0), (0, 1, 0), (0, 1, 1), (0, 0, 0)]:
+                with self.subTest(wakenet=wn, multinet=mn, local=local, neural=neural):
+                    self.compile_and_run(program, [f'-DUSE_WN={wn}', f'-DUSE_MN={mn}',
+                                                   f'-DLOCAL={local}',
+                                                   f'-DCONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND={neural}'])
 
     def test_multinet_callback_can_stop_and_rearm_without_stale_audio(self):
         source = (ROOT / 'main/audio/wake_words/custom_wake_word.cc').read_text()

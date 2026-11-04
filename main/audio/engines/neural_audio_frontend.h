@@ -8,7 +8,7 @@
 // ESP-SR 2.4.x NSNet headers do not declare C linkage themselves.
 extern "C" {
 #include <esp_nsn_models.h>
-#include <esp_vadn_models.h>
+#include <esp_vad.h>
 #include <model_path.h>
 }
 
@@ -17,6 +17,7 @@ extern "C" {
 class NeuralAudioFrontend {
 public:
     static constexpr size_t kFrameSamples = 512;
+    static constexpr size_t kVadSamples = 160;  // 10 ms at 16 kHz.
     using Output = void (*)(void* context, const int16_t* pcm, size_t samples, bool speech);
 
     NeuralAudioFrontend() = default;
@@ -33,11 +34,12 @@ public:
 private:
     const esp_nsn_iface_t* ns_iface_ = nullptr;
     esp_nsn_data_t* ns_data_ = nullptr;
-    const esp_vadn_iface_t* vad_iface_ = nullptr;
-    model_iface_data_t* vad_data_ = nullptr;
+    vad_handle_t vad_data_ = nullptr;
     alignas(16) std::array<int16_t, kFrameSamples> input_{};
     alignas(16) std::array<int16_t, kFrameSamples> filtered_{};
+    alignas(16) std::array<int16_t, kVadSamples> vad_input_{};
     size_t input_samples_ = 0;
+    size_t vad_samples_ = 0;
 };
 
 #endif  // NEURAL_AUDIO_FRONTEND_H_

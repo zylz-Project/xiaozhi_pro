@@ -80,6 +80,9 @@ private:
     bool output_all_speech_ = true;
     uint32_t neural_budget_misses_ = 0;
     int64_t last_neural_budget_log_us_ = -5000000;
+    bool local_commands_suspended_ = false;
+    uint32_t neural_timing_frames_ = 0;
+    int64_t neural_timing_sum_us_ = 0, neural_timing_max_us_ = 0;
     void EmitNeuralChunk(const int16_t* pcm, size_t samples, bool speech, uint32_t generation);
 #else
     static constexpr size_t kProcessingTaskStackSize = 4096;

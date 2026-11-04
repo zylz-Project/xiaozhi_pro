@@ -74,6 +74,25 @@ class BuildDefaultAssetsTest(unittest.TestCase):
             config.write_text('CONFIG_SR_NSN_WEBRTC=y\nCONFIG_SR_VADN_WEBRTC=y\n')
             self.assertEqual(BUILD.get_neural_model_paths(config, root), [])
 
+    def test_realtime_frontend_requires_only_nsnet2_and_excludes_unselected_vadnet(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.neural_models(root)
+            config = root/'sdkconfig'
+            config.write_text('CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y\n'
+                              'CONFIG_SR_NSN_NSNET2=y\nCONFIG_SR_VADN_WEBRTC=y\n')
+            # VADNet need not exist on this route; stale model folders must not
+            # accidentally pull its weights back into the resource partition.
+            (root/'vadnet_model/vadnet1_medium/vadn1_data').unlink()
+            paths = BUILD.get_neural_model_paths(config, root)
+            self.assertEqual([Path(p).name for p in paths], ['nsnet2'])
+            assets = root/'assets'
+            assets.mkdir()
+            BUILD.process_sr_models([], [], root/'work', assets, paths)
+            data = (assets/'srmodels.bin').read_bytes()
+            self.assertEqual(struct.unpack_from('<I', data)[0], 1)
+            self.assertEqual(struct.unpack_from('<32s', data, 4)[0].rstrip(b'\0'), b'nsnet2')
+
     def test_neural_only_assets_are_built_without_a_wake_word(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

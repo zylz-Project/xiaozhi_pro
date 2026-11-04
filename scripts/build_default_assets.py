@@ -308,8 +308,8 @@ def get_neural_model_paths(sdkconfig_path, esp_sr_model_path):
         ('CONFIG_SR_VADN_VADNET1_MEDIUM', 'vadnet_model', 'vadnet1_medium', 'vadn1'),
     ]
     if values.get('CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND') == 'y':
-        if any(values.get(key) != 'y' for key, _, _, _ in specifications):
-            raise ValueError('Neural voice interruption requires NSNet2 and VADNet1 medium')
+        if values.get('CONFIG_SR_NSN_NSNET2') != 'y':
+            raise ValueError('Neural voice interruption requires NSNet2')
     paths = []
     for key, folder, name, prefix in specifications:
         if values.get(key) != 'y':

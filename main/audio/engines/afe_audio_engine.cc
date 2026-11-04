@@ -1,5 +1,6 @@
 #include "afe_audio_engine.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <sstream>
@@ -186,7 +187,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     // Reserve the essential AFE first. Model failure keeps ordinary capture,
     // playback and wake words available, while interruption admission fails closed.
     if (neural_frontend_.Initialize(models_)) {
-        ESP_LOGI(TAG, "Neural uplink: FD AEC -> NSNet2 -> VADNet; 16 kHz / 512 samples");
+        ESP_LOGI(TAG, "Neural uplink: FD AEC -> NSNet2 -> WebRTC VAD; NS=512, VAD=160 samples");
     } else {
         ESP_LOGE(TAG, "Neural models unavailable: automatic voice interruption disabled");
     }
@@ -509,6 +510,21 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
 #endif
     if (result->wakeup_state != WAKENET_DETECTED) {
         if (custom_wake_word_ != nullptr) {
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+            // The secondary recognizer serves offline commands. Running it
+            // alongside full-duplex neural capture exhausted the S3 fetch task.
+            if (IsVoiceProcessingEnabled()) {
+                if (!local_commands_suspended_) {
+                    custom_wake_word_->Stop();
+                    local_commands_suspended_ = true;
+                }
+                return;
+            }
+            if (local_commands_suspended_) {
+                custom_wake_word_->Start();
+                local_commands_suspended_ = false;
+            }
+#endif
             custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t));
         }
         return;
@@ -568,6 +584,17 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result, uint32_
         const auto finished_us = esp_timer_get_time();
         const auto budget_us =
             static_cast<int64_t>(result->data_size / sizeof(int16_t)) * 1000000 / 16000;
+        const auto elapsed_us = finished_us - started_us;
+        neural_timing_sum_us_ += elapsed_us;
+        neural_timing_max_us_ = std::max(neural_timing_max_us_, elapsed_us);
+        if (++neural_timing_frames_ >= 64) {
+            ESP_LOGI(TAG, "Neural uplink timing: avg=%lldus max=%lldus, local-MN=%s",
+                     static_cast<long long>(neural_timing_sum_us_ / neural_timing_frames_),
+                     static_cast<long long>(neural_timing_max_us_),
+                     local_commands_suspended_ ? "paused" : "idle");
+            neural_timing_frames_ = 0;
+            neural_timing_sum_us_ = neural_timing_max_us_ = 0;
+        }
         if (finished_us - started_us > budget_us) {
             ++neural_budget_misses_;
             if (finished_us - last_neural_budget_log_us_ >= 5000000) {
@@ -633,8 +660,8 @@ void AfeAudioEngine::EmitNeuralChunk(const int16_t* pcm, size_t samples, bool sp
         pcm += count;
         samples -= count;
         if (output_buffer_.size() == static_cast<size_t>(frame_samples_)) {
-            // Require every contributing neural chunk to be speech. A new
-            // 32 ms VAD result must not label an older 60 ms packet as speech.
+            // Require every contributing VAD chunk to be speech. A new
+            // 10 ms result must not label an older 60 ms packet as speech.
             if (vad_state_change_callback_) {
                 vad_state_change_callback_(output_all_speech_);
             }
