@@ -182,6 +182,29 @@ Host waveform tests cover 8/16/24/48 kHz, fragmented processing and cancellation
 actual loudness, timbre, latency, power integrity and applicable AEC require a
 physical device.
 
+## Opt-in speaker voice clarity (2026-11-04)
+
+`AUDIO_SPEAKER_VOICE_CLARITY` is enabled in both tail-red-panda variants and
+defaults off elsewhere. It applies only to the existing protected speaker path.
+The profile uses peaking EQ at 300 Hz (-1 dB, Q 0.8) and 2.5 kHz (+2 dB,
+Q 0.8), with 0.5 dB makeup before protection. These are conservative trial
+settings, not a measured correction for every speaker enclosure.
+
+In this profile, RMS attenuation is applied before the look-ahead peak detector,
+so the peak limiter measures the signal that will reach the DAC rather than
+unnecessarily multiplying two gains computed from unattenuated peaks. The
+sample peak ceiling, RMS threshold/floor and release constants are retained.
+A 5 ms smoothstep starts on the first delayed sample after a DSP reset and does
+not repeat at packet boundaries. Coefficients are computed at initialization;
+the sample loop allocates no memory. PCM duration/rate and stored volume are
+unchanged. The ES8311 DAC reference still follows the processed playback.
+
+Offline comparisons of seven bundled Chinese prompts measured loudness changes
+of -0.16 to +0.43 LU and no int16 clipping. This is a small digital-signal
+comparison, not a loudspeaker listening or distortion test. See
+`docs/wzh_tailredpanda_audio_quality_2026-11-04.md` for research, validation and
+physical acceptance. Voice interruption remains an unaccepted experiment.
+
 ## Opt-in local voice interruption (2026-11-02)
 
 Hardware feedback on 2026-11-03 found both self-interruption and missed speech

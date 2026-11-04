@@ -28,8 +28,15 @@ void AudioCodec::ResetOutputProcessing() { output_processing_reset_pending_.stor
 void AudioCodec::EnableSpeakerProtection(bool enable) {
     speaker_protection_enabled_ = enable;
     if (enable) {
+#if CONFIG_AUDIO_SPEAKER_VOICE_CLARITY
+        speaker_protection_.Configure(output_sample_rate_, true);
+        ESP_LOGI(TAG,
+                 "Speaker clarity: 300 Hz -1 dB, 2.5 kHz +2 dB, makeup +0.5 dB, 5 ms startup ramp; "
+                 "120 Hz high-pass, RMS guard -> 1 ms peak limiter");
+#else
         speaker_protection_.Configure(output_sample_rate_);
         ESP_LOGI(TAG, "Speaker protection: 120 Hz high-pass, RMS guard, 1 ms peak limiter");
+#endif
     }
 }
 

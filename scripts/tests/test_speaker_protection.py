@@ -10,6 +10,113 @@ HEADER = ROOT/'main/audio/speaker_protection.h'
 
 
 class SpeakerProtectionTest(unittest.TestCase):
+    def test_clarity_preserves_speech_level_and_recovers_limiter_headroom(self):
+        self.run_program(r'''
+#include <cassert>
+#include <cmath>
+#include <vector>
+
+double Rms(const std::vector<int16_t>& pcm, size_t start) {
+ double energy=0;
+ for(size_t i=start;i<pcm.size();++i)energy+=double(pcm[i])*pcm[i];
+ return std::sqrt(energy/(pcm.size()-start));
+}
+std::vector<int16_t> Tone(int rate,double hz,double amplitude) {
+ std::vector<int16_t> pcm(rate);
+ for(int i=0;i<rate;++i)pcm[i]=std::lrint(amplitude*32767*std::sin(6.283185307179586*hz*i/rate));
+ return pcm;
+}
+int main(){
+ for(int rate:{8000,16000,24000,48000}){
+  for(double hz:{300.0,1000.0,2500.0}){
+   SpeakerProtection original,clarity;
+   original.Configure(rate);clarity.Configure(rate,true);
+   auto before=Tone(rate,hz,.1),after=before;
+   original.Process(before);clarity.Process(after);
+   double ratio=Rms(after,rate/2)/Rms(before,rate/2);
+   if(hz==300)assert(ratio>.93&&ratio<.98);
+   if(hz==1000)assert(ratio>1.02&&ratio<1.18);
+   if(hz==2500)assert(ratio>1.30&&ratio<1.35);
+  }
+  // Speech-band mixture at normal level: do not buy clarity by making it quiet.
+  std::vector<int16_t> voice(rate);
+  for(int i=0;i<rate;++i){
+   double t=6.283185307179586*i/rate;
+   voice[i]=std::lrint(32767*(.06*std::sin(200*t)+.04*std::sin(600*t)
+                      +.05*std::sin(1400*t)+.03*std::sin(2800*t)));
+  }
+  SpeakerProtection before,after;before.Configure(rate);after.Configure(rate,true);
+  auto enhanced=voice;before.Process(voice);after.Process(enhanced);
+  assert(Rms(enhanced,rate/2)>Rms(voice,rate/2)*.97);
+
+  // Dense full-scale input used to receive both independent attenuation gains.
+  SpeakerProtection loud_before,loud_after;
+  loud_before.Configure(rate);loud_after.Configure(rate,true);
+  auto loud=Tone(rate,1000,1),improved=loud;
+  loud_before.Process(loud);loud_after.Process(improved);
+  assert(Rms(improved,rate/2)>Rms(loud,rate/2)*1.15);
+  for(int sample:improved)assert(sample<=27525&&sample>=-27525);
+ }
+}
+''')
+
+    def test_clarity_ramp_is_short_and_does_not_restart_at_packet_boundaries(self):
+        self.run_program(r'''
+#include <cassert>
+#include <cmath>
+#include <vector>
+int main(){
+ for(int rate:{8000,16000,24000,48000}){
+  std::vector<int16_t> signal(rate/5);
+  for(size_t i=0;i<signal.size();++i)
+   signal[i]=std::lrint(3000*std::cos(6.283185307179586*1000*i/rate));
+  SpeakerProtection ramp,warm;
+  ramp.Configure(rate,true);warm.Configure(rate,true);
+  std::vector<int16_t> silence(rate/10,0);warm.Process(silence);
+  auto faded=signal,direct=signal;ramp.Process(faded);warm.Process(direct);
+  const size_t delay=std::lround(rate*.001);
+  assert(faded[delay]==0&&std::abs(int(direct[delay]))>1000);
+  const size_t fade=rate/200;
+  for(size_t i=delay+fade;i<signal.size();++i)assert(faded[i]==direct[i]);
+  SpeakerProtection fragmented;fragmented.Configure(rate,true);
+  std::vector<int16_t> joined;
+  for(size_t pos=0;pos<signal.size();){
+   size_t count=std::min<size_t>(1+pos%173,signal.size()-pos);
+   std::vector<int16_t> chunk(signal.begin()+pos,signal.begin()+pos+count);
+   fragmented.Process(chunk);joined.insert(joined.end(),chunk.begin(),chunk.end());pos+=count;
+  }
+  assert(joined==faded);
+ }
+}
+''')
+
+    def test_clarity_extreme_pcm_remains_bounded_and_reset_clears_all_state(self):
+        self.run_program(r'''
+#include <cassert>
+#include <vector>
+int main(){
+ for(int rate:{8000,16000,24000,48000}){
+  SpeakerProtection processor;processor.Configure(rate,true);
+  std::vector<int16_t> pcm(rate);
+  uint32_t random=9;
+  for(size_t i=0;i<pcm.size();++i){
+   random=random*1664525U+1013904223U;pcm[i]=static_cast<int16_t>(random>>16);
+   if(i%5==0)pcm[i]=32767;
+   if(i%7==0)pcm[i]=-32768;
+  }
+  const auto* storage=pcm.data();const auto capacity=pcm.capacity();
+  processor.Process(pcm);
+  assert(pcm.data()==storage&&pcm.capacity()==capacity&&pcm.size()==size_t(rate));
+  for(int sample:pcm)assert(sample<=27525&&sample>=-27525);
+  processor.Reset();std::vector<int16_t> silence(1000,0);processor.Process(silence);
+  for(auto sample:silence)assert(sample==0);
+  // Turning the optional profile off must clear its filter and ramp state.
+  processor.Configure(rate);SpeakerProtection reference;reference.Configure(rate);
+  std::vector<int16_t> a(1000,100),b=a;processor.Process(a);reference.Process(b);assert(a==b);
+ }
+}
+''')
+
     def test_high_pass_limiter_lookahead_and_unity_for_quiet_audio(self):
         motion_tests.WzhFluentMotionTest.run_cpp(self,
             '#include "'+str(HEADER)+r'"' + r'''
