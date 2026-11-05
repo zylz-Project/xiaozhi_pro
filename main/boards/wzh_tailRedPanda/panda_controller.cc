@@ -69,8 +69,7 @@ Pose TargetPose(const Clip& clip, uint8_t frame, bool mirror) {
         pose.tail_lr = wzh::StoryAngle(pose.tail_lr, 90, 6, 174, 1.45f);
         pose.tail_ud = wzh::StoryAngle(pose.tail_ud, 150, 0, 180, 1.45f);
     } else {
-        pose.head =
-            wzh::PandaHeadTarget(wzh::ActionAngle(pose.head, 90.0f, 8.0f, 172.0f, 2.10f));
+        pose.head = wzh::PandaHeadTarget(wzh::ActionAngle(pose.head, 90.0f, 8.0f, 172.0f, 2.10f));
         pose.tail_lr = wzh::ActionAngle(pose.tail_lr, 90.0f, 6.0f, 174.0f, 2.10f);
         pose.tail_ud = wzh::ActionAngle(pose.tail_ud, 150.0f, 0.0f, 180.0f, 2.10f);
     }
@@ -177,19 +176,18 @@ constexpr Keyframe kAmbientStretch[] = {{1500, 122, 90, 174},
 constexpr Keyframe kSettle[] = {{900, 90, 58, 158}, {1100, 102, 142, 108}, {900, 90, 98, 150}};
 // Playful fast wag: small, quick side-to-side beats instead of the slow broad
 // sweeps used by the story clips.
-constexpr Keyframe kTailWagFast[] = {
-    {80, 90, 78, 118}, {80, 90, 102, 108}, {80, 90, 78, 118}, {80, 90, 102, 108},
-    {80, 90, 78, 118}, {80, 90, 102, 108}, {420, 90, 90, 136}, {500, 90, 90, 150}};
+constexpr Keyframe kTailWagFast[] = {{80, 90, 78, 118},  {80, 90, 102, 108}, {80, 90, 78, 118},
+                                     {80, 90, 102, 108}, {80, 90, 78, 118},  {80, 90, 102, 108},
+                                     {420, 90, 90, 136}, {500, 90, 90, 150}};
 // Tick-tock: holds the two sides for a beat, giving a cheeky pause.
 constexpr Keyframe kTailWagTickTock[] = {
-    {130, 90, 72, 122}, {180, 90, 72, 122}, {130, 90, 108, 102},
-    {180, 90, 108, 102}, {130, 90, 72, 122}, {180, 90, 72, 122},
-    {420, 90, 90, 138}, {500, 90, 90, 150}};
+    {130, 90, 72, 122}, {180, 90, 72, 122}, {130, 90, 108, 102}, {180, 90, 108, 102},
+    {130, 90, 72, 122}, {180, 90, 72, 122}, {420, 90, 90, 138},  {500, 90, 90, 150}};
 // Burst: eight short beats with a slight rise in energy toward the end.
-constexpr Keyframe kTailWagBurst[] = {
-    {60, 90, 76, 118}, {60, 90, 104, 112}, {60, 90, 74, 116}, {60, 90, 106, 108},
-    {60, 90, 72, 114}, {60, 90, 108, 106}, {60, 90, 70, 112}, {60, 90, 110, 104},
-    {360, 90, 90, 136}, {500, 90, 90, 150}};
+constexpr Keyframe kTailWagBurst[] = {{60, 90, 76, 118},  {60, 90, 104, 112}, {60, 90, 74, 116},
+                                      {60, 90, 106, 108}, {60, 90, 72, 114},  {60, 90, 108, 106},
+                                      {60, 90, 70, 112},  {60, 90, 110, 104}, {360, 90, 90, 136},
+                                      {500, 90, 90, 150}};
 constexpr Keyframe kStartledFrames[] = {
     {80, 88, 92, 148},     // 定格瞬间
     {130, 42, 148, 132},   // 快速缩头、尾巴甩向一侧
@@ -884,7 +882,8 @@ void PandaController::InitializeServos() {
         channel_config.hpoint = 0;
         ESP_ERROR_CHECK(ledc_channel_config(&channel_config));
     }
-    servo_output_.Initialize(SERVO_POWER_GPIO, kServoChannels, std::size(kServoChannels));
+    servo_output_.Initialize(SERVO_POWER_GPIO, kServoChannels, std::size(kServoChannels),
+                             (1U << SERVO_DUTY_RES) - 1);
     // Library poses still use the 150-degree sitting center. Re-indexed tails
     // map that whole library to a 90-degree center at the servo boundary.
     wzh::g_tail_ud_remap = SERVO_TAIL_UD_DEFAULT != 150;
@@ -924,7 +923,8 @@ void PandaController::OutputPose(const wzh_panda::Pose& requested) {
     const float write_ud = last_servo_ud + (servo_ud - last_servo_ud) * mix;
     const float angles[] = {target.head, target.tail_lr, write_ud};
     if (servo_output_.WriteDegrees(angles, std::size(angles))) {
-        target.tail_ud = last_output_pose_.tail_ud + (target.tail_ud - last_output_pose_.tail_ud) * mix;
+        target.tail_ud =
+            last_output_pose_.tail_ud + (target.tail_ud - last_output_pose_.tail_ud) * mix;
         last_output_pose_ = target;
         if (wzh::g_tail_ud_remap)
             wzh::g_tail_servo_ud = write_ud;
@@ -1104,6 +1104,10 @@ wzh_panda::Behaviour PandaController::ClassifySound(int index) const {
 }
 
 void PandaController::AddMicroMotion(wzh_panda::Pose& pose, uint32_t now_ms, float life) {
+    const float progress =
+        std::clamp(float(now_ms - frame_started_ms_) / frame_duration_ms_, 0.f, 1.f);
+    const float window = std::sin(progress * 3.14159265f);
+    life *= window * window * window * window;
     if (clip_active_ && clip_ && std::strncmp(clip_->name, "body_", 5) == 0)
         return;
     // 呼吸带动头部微幅起伏、尾巴轻轻浮沉。

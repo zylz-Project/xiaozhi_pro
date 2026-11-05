@@ -89,7 +89,7 @@
 #define SERVO_TAIL_UD_MAX 180
 #define SERVO_TIMER LEDC_TIMER_0
 #define SERVO_FREQ_HZ 50
-#define SERVO_DUTY_RES LEDC_TIMER_13_BIT
+#define SERVO_DUTY_RES LEDC_TIMER_14_BIT
 
 // 外部音频 Flash（型号以真机 JEDEC ID 为准，NAND: EF AA 21 / NOR: EF 40 19，
 // 由 wzh_flash 运行时自动探测；早期配置误写为 W25Q256，参考工程三款均为

@@ -103,6 +103,7 @@ int main() {
             )
             cpp = directory / "servo_test.cc"
             cpp.write_text(r'''#include <cassert>
+#include <cmath>
 #include "wzh_servo_output.h"
 static int power = 0, stops = 0, writes = 0;
 static uint32_t first_duty=0;
@@ -128,6 +129,20 @@ int main() {
     fractional[0]=90.25f;assert(output.WriteDegrees(fractional,3));const auto duty1=first_duty;
     fractional[0]=90.5f;assert(output.WriteDegrees(fractional,3));
     assert(duty1>duty0&&first_duty>duty1); // Sub-degree updates reach actual LEDC duty.
+    // Higher resolution must use the matching duty scale, retaining the same
+    // 500..2500 us pulses and improving small-angle steps instead of halving them.
+    wzh::ServoOutput precise;
+    precise.Initialize(4,channels,3,16383);
+    precise.SetFault(wzh::kBatteryPending,false);
+    for(float angle:{0.f,30.f,90.f,150.f,180.f}){
+        float pose[]={angle,90,150};assert(precise.WriteDegrees(pose,3));
+        const float pulse=first_duty*20000.f/16384;
+        assert(std::abs(pulse-(500+angle*2000/180))<=.62f);
+    }
+    float micro[]={90.f,90,150};assert(precise.WriteDegrees(micro,3));
+    const auto start_duty=first_duty;micro[0]=90.125f;
+    assert(precise.WriteDegrees(micro,3)&&first_duty>start_duty);
+    precise.Release();
     output.SetFault(wzh::kLowBattery, true);
     output.SetFault(wzh::kOverheat, true);
     const int previous_writes = writes;

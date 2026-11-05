@@ -57,10 +57,11 @@ inline std::array<float, 3> TailPhrase(float progress, unsigned variant, float d
     const float accent = variant % 4;
     const float head_role = variant % 4 < 2 ? 1.f : -1.f;
     // Complete looks to both sides, without the previous 0.72 attenuation.
-    const float head = (56 + accent) * std::sin(tau * p);
+    const float head = (58 + accent * (2.f / 3)) * std::sin(tau * p);
+    const float vertical_span = 140 + 28 * std::clamp((float(duration_ms) - 2550) / 450, 0.f, 1.f);
     return {std::clamp(90 + direction * head_role * head, kPandaHeadMin, kPandaHeadMax),
-            std::clamp(90 + direction * (82 + accent * (2.f / 3)) * lateral, 6.f, 174.f),
-            std::clamp(150 - 140 * lift, 10.f, 178.f)};
+            std::clamp(90 + direction * (83 + accent / 3) * lateral, 6.f, 174.f),
+            std::clamp(10 + vertical_span * (1 - lift), 10.f, 178.f)};
 }
 }  // namespace wzh
 #endif

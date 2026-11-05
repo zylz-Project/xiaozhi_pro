@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>三款动作 · 连贯性轨迹对照</title>
+<style>
+:root{font-family:system-ui,"Noto Sans CJK SC",sans-serif;color:#16322e;background:#f1f4f0;line-height:1.6}
+body{max-width:1100px;margin:30px auto;padding:0 22px}h1{font-size:28px;margin:3px 0}
+.eyebrow{color:#477568;letter-spacing:.13em;font-size:12px}.muted{color:#5e716b;font-size:14px}
+.panel{background:#fff;border:1px solid #dce5df;border-radius:16px;padding:20px;margin:18px 0}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px}select,button{font:inherit;border:1px solid #bbcdc3;border-radius:8px;padding:7px 12px;background:white;color:inherit}
+button{background:#1f6f5b;color:white;border-color:#1f6f5b;cursor:pointer}label{font-size:14px}
+#case{max-width:620px}input[type=range]{width:100%;accent-color:#1f6f5b}.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px}.swatch{display:inline-block;width:17px;height:3px;vertical-align:middle;margin-right:5px}
+canvas{display:block;width:100%;height:180px;margin-top:12px}#clock{font-variant-numeric:tabular-nums;font-size:14px}.footnote{font-size:13px;color:#5e716b}
+</style>
+<body>
+<div class="eyebrow">WZH MOTION / 2026-11-05</div>
+<h1>动作连贯性 · 改前与改后</h1>
+<p class="muted">来自生产 C++ 控制方法的关节命令回放。实线为改后，虚线为改前；速度和加速度由命令采样估算。此图不代表实测舵机位置或实机丝滑程度。</p>
+<section class="panel">
+<div class="controls">
+<select id="board" aria-label="产品"><option value="wzh_tailRedPanda">小熊猫 · 头 / 尾巴</option><option value="wzh_crawlPanda">爬爬熊猫 · 头 / 双爪</option><option value="wzh_dinosaur">恐龙 · 五轴</option></select>
+<select id="case" aria-label="动作"></select>
+<button id="play">播放</button>
+<label><input type="checkbox" id="align">对齐完成进度</label>
+</div>
+<p id="clock"></p><input id="time" type="range" min="0" value="0" step="20" aria-label="回放时间">
+<div class="legend" id="legend"></div>
+<canvas id="angles" aria-label="角度对照"></canvas>
+<canvas id="velocity" aria-label="速度对照"></canvas>
+<canvas id="acceleration" aria-label="加速度对照"></canvas>
+</section>
+<p class="footnote">默认按真实时间对照，可以看到为更大行程留出的时间。“对齐完成进度”仅便于比较形状。指令样本按原采样保持，不插入额外平滑；机械间隙、负载、供电和舵机内部控制不在该回放中。</p>
+<script id="motion-data" type="application/json">__MOTION_DATA__</script>
+<script>
+'use strict';
+const data=JSON.parse(document.getElementById('motion-data').textContent);
+const $=id=>document.getElementById(id),colors=['#156e63','#bf6d28','#506fb1','#8c4c84','#7f8b26'];
+const axes={'wzh_tailRedPanda':['头左右','尾左右','尾上下'],'wzh_crawlPanda':['头左右','左爪','右爪'],'wzh_dinosaur':['颈上下','颈左右','头左右','尾上下','尾左右']};
+let series={},playing=false,lastFrame=0,position=0;
+function derivatives(points){
+ const out=[];let prev=null;
+ for(const point of points){
+  if(prev&&point[0]>prev[0])out.push([point[0],point[1].map((v,i)=>(v-prev[1][i])*1000/(point[0]-prev[0]))]);
+  prev=point;
+ }
+ return out;
+}
+function selected(){return $('case').value;}
+function duration(which){const p=data[which][selected()];return p[p.length-1][0];}
+function endTime(){return Math.max(duration('before'),duration('after'));}
+function reset(){playing=false;$('play').textContent='播放';position=0;$('time').value=0;rebuild();}
+function populate(){
+ const keys=Object.keys(data.after).filter(k=>k.startsWith($('board').value+'|'));
+ $('case').replaceChildren(...keys.map(key=>{const option=document.createElement('option');option.value=key;option.textContent=key.split('|')[1];return option;}));
+ reset();
+}
+function rebuild(){
+ for(const which of ['before','after']){
+  const angle=data[which][selected()];const v=derivatives(angle);
+  series[which]=[angle,v,derivatives(v)];
+ }
+ $('time').max=endTime();
+ $('legend').replaceChildren(...axes[$('board').value].map((name,i)=>{
+  const item=document.createElement('span'),swatch=document.createElement('i');swatch.className='swatch';swatch.style.background=colors[i];item.append(swatch,document.createTextNode(name));return item;
+ }));
+ draw();
+}
+function drawChart(id,dimension,title){
+ const canvas=$(id),ratio=window.devicePixelRatio||1,w=canvas.clientWidth,h=180;
+ canvas.width=w*ratio;canvas.height=h*ratio;const c=canvas.getContext('2d');c.scale(ratio,ratio);
+ const left=66,right=w-15,top=28,bottom=h-28,total=endTime();
+ let bound=dimension===0?180:1;
+ if(dimension)for(const which of ['before','after'])for(const p of series[which][dimension])for(const value of p[1])bound=Math.max(bound,Math.abs(value));
+ const low=dimension?-bound:0,high=bound,px=t=>left+t/total*(right-left),py=v=>bottom-(v-low)/(high-low)*(bottom-top);
+ c.font='12px system-ui';c.fillStyle='#405d54';c.fillText(title,0,14);
+ for(let i=0;i<=4;i++){
+  const y=top+(bottom-top)*i/4;c.strokeStyle='#e3eae5';c.beginPath();c.moveTo(left,y);c.lineTo(right,y);c.stroke();
+  c.fillStyle='#60766c';c.fillText(Math.round(high-(high-low)*i/4),1,y+4);
+ }
+ for(let i=0;i<=4;i++){const t=total*i/4;c.textAlign=i===4?'right':i===0?'left':'center';c.fillText((t/1000).toFixed(1)+' s',px(t),h-7);}c.textAlign='left';
+ for(const which of ['before','after']){
+  const points=series[which][dimension],scale=$('align').checked?total/duration(which):1;
+  c.setLineDash(which==='before'?[5,5]:[]);c.globalAlpha=which==='before'?.45:1;c.lineWidth=which==='before'?1.1:1.7;
+  for(let axis=0;axis<axes[$('board').value].length;axis++){
+   c.strokeStyle=colors[axis];c.beginPath();points.forEach((p,i)=>{const x=px(p[0]*scale),y=py(p[1][axis]);if(i)c.lineTo(x,y);else c.moveTo(x,y);});c.stroke();
+  }
+ }
+ c.globalAlpha=1;c.setLineDash([]);c.strokeStyle='#2c4037';c.lineWidth=1;c.beginPath();c.moveTo(px(position),top);c.lineTo(px(position),bottom);c.stroke();
+}
+function draw(){
+ if(!selected())return;
+ $('clock').textContent=`时间 ${(position/1000).toFixed(2)} s · 改前 ${(duration('before')/1000).toFixed(2)} s · 改后 ${(duration('after')/1000).toFixed(2)} s`;
+ drawChart('angles',0,'角度 / °');drawChart('velocity',1,'速度 / °/s');drawChart('acceleration',2,'加速度 / °/s²');
+}
+$('board').onchange=populate;$('case').onchange=reset;$('align').onchange=draw;
+$('time').oninput=()=>{position=Number($('time').value);draw();};
+$('play').onclick=()=>{if(position>=endTime())position=0;playing=!playing;$('play').textContent=playing?'暂停':'播放';lastFrame=performance.now();};
+function tick(now){if(playing){position=Math.min(endTime(),position+now-lastFrame);$('time').value=position;draw();if(position>=endTime()){playing=false;$('play').textContent='播放';}}lastFrame=now;requestAnimationFrame(tick);}
+window.addEventListener('resize',draw);populate();requestAnimationFrame(tick);
+</script>
+</body>
+</html>

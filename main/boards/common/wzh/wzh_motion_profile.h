@@ -14,6 +14,26 @@ constexpr float kPetServoSpeed = 400.0f;
 constexpr float kPandaHeadMin = 30.f;
 constexpr float kPandaHeadMax = 150.f;
 
+// Quintic Hermite with zero endpoint acceleration. Tangents are normalized by
+// segment duration. Ordered Bezier controls keep the complete path inside its
+// landmarks; de Casteljau avoids cancellation near either end of the segment.
+inline float MotionQuintic(float from, float to, float outgoing, float incoming, float t) {
+    if (t <= 0)
+        return from;
+    if (t >= 1)
+        return to;
+    float points[] = {from,
+                      from + outgoing / 5,
+                      from + 2 * outgoing / 5,
+                      to - 2 * incoming / 5,
+                      to - incoming / 5,
+                      to};
+    for (unsigned count = 5; count > 0; --count)
+        for (unsigned i = 0; i < count; ++i)
+            points[i] += (points[i + 1] - points[i]) * t;
+    return points[0];
+}
+
 // Tail-panda coordinate remap. The authored library still uses the old
 // 150-degree sitting center; boards whose horn was re-indexed to 90 degrees
 // enable this once at startup. The map preserves the full physical range:
@@ -23,9 +43,13 @@ inline float g_tail_servo_ud = 90.f;
 inline float TailServoUd(float library_ud) {
     if (!g_tail_ud_remap)
         return library_ud;
-    const float servo = library_ud <= 150.f
-                            ? 3.f + (library_ud - 10.f) * (90.f - 3.f) / (150.f - 10.f)
-                            : 90.f + (library_ud - 150.f) * (177.f - 90.f) / (178.f - 150.f);
+    // The former piecewise linear map changed its slope by 5x at sitting.
+    // Match velocity and zero acceleration through that landmark as well.
+    constexpr float shared_slope = 1.2f * 87.f / 140.f;
+    const float servo =
+        library_ud <= 150.f
+            ? MotionQuintic(3, 90, 87, shared_slope * 140, (library_ud - 10) / 140)
+            : MotionQuintic(90, 177, shared_slope * 28, 87, (library_ud - 150) / 28);
     return std::clamp(servo, 3.f, 177.f);
 }
 // Yaw only. Preserve small attentive looks, then ease toward +/-60 degrees
@@ -49,6 +73,13 @@ inline uint32_t SettlingDuration(float travel, float peak_speed = 90.f) {
     return std::max<uint32_t>(900, std::ceil(travel * 1875.f / std::max(1.f, peak_speed)));
 }
 
+// The monotone quintic's normalized third derivative is bounded by 60*travel.
+// Give short motions a time budget as well as a peak-speed budget. This is a
+// command-segment bound, not a measured motor/load limit or a global planner.
+inline uint32_t MotionJerkDuration(float travel) {
+    return static_cast<uint32_t>(std::ceil(std::cbrt(std::max(0.f, travel) / 1000.f) * 1000));
+}
+
 // Broad authored poses need headroom between their waypoints. Expanding a
 // normalized excursion preserves the rest pose and endpoints without flattening
 // several different poses against the same mechanical stop.
@@ -62,7 +93,12 @@ inline float StoryAngle(float angle, float center, float low, float high, float 
     // Below 1.5 this curve stays strictly monotone, retaining distinct large
     // poses instead of clipping several different gestures to the same stop.
     gain = std::clamp(gain, 1.0f, 1.45f);
-    return std::clamp(center + span * (t + (gain - 1) * t * (1 - t * t)), low, high);
+    const float interior = 1 - t * t;
+    // Broaden intermediate gestures without flattening different landmarks at
+    // a hard stop. For gain<=1.45 this stays strictly monotone, with endpoints
+    // and center unchanged; quiet/settling scaling is still applied separately.
+    return std::clamp(center + span * (t + (gain - 1) * t * interior * (1 + .45f * interior)), low,
+                      high);
 }
 
 // Resolve once per performance, or deterministically from the same seed when
@@ -76,6 +112,7 @@ inline uint32_t StoryFrameDuration(float travel, uint32_t requested, uint32_t se
     if (travel < .01f)
         return std::clamp<uint32_t>(authored, 120, 650);
     return std::max({uint32_t(220), static_cast<uint32_t>(authored * .78f),
+                     MotionJerkDuration(travel),
                      static_cast<uint32_t>(std::ceil(travel * 2000 / kPetServoSpeed))});
 }
 
@@ -122,9 +159,10 @@ inline uint32_t MotionFrameDuration(float travel, uint32_t requested) {
     if (travel < 0.01f) {
         return std::clamp<uint32_t>(static_cast<uint32_t>(requested * .18f), 40, 120);
     }
-    // Budget two times average travel for the monotone cubic's peak. The final
+    // Budget two times average travel for the monotone quintic's peak. The final
     // output limiter also covers voice offsets and interrupted/new requests.
     return std::max({uint32_t(120), static_cast<uint32_t>(requested * .34f),
+                     MotionJerkDuration(travel),
                      static_cast<uint32_t>(std::ceil(travel * 2000.0f / kPetServoSpeed))});
 }
 
@@ -133,21 +171,23 @@ inline float MotionTangent(float before, float after, float before_ms, float aft
         return 0;
     const float left = before / before_ms, right = after / after_ms;
     const float w1 = 2 * after_ms + before_ms, w2 = after_ms + 2 * before_ms;
-    return (w1 + w2) / (w1 / left + w2 / right);
+    const float harmonic = (w1 + w2) / (w1 / left + w2 / right);
+    // Each segment's two normalized tangents sum to at most 2.4*travel.
+    // This keeps the quintic Bezier controls ordered, including unequal times.
+    return std::copysign(
+        std::min(std::abs(harmonic), 1.2f * std::min(std::abs(left), std::abs(right))), left);
 }
 
 // Durations are part of the tangents: unequal adjacent frame times must still
-// have the same velocity at their shared waypoint. Reversals/holds stop there.
+// have the same velocity at their shared waypoint. Zero knot acceleration makes
+// the whole authored path C2; reversals/holds stop without an acceleration step.
 inline float MotionHermite(float previous, float from, float to, float next, uint32_t before_ms,
                            uint32_t duration_ms, uint32_t after_ms, float t) {
     t = std::clamp(t, 0.0f, 1.0f);
     const float delta = to - from;
     const float m1 = MotionTangent(from - previous, delta, before_ms, duration_ms) * duration_ms;
     const float m2 = MotionTangent(delta, next - to, duration_ms, after_ms) * duration_ms;
-    const float t2 = t * t, t3 = t2 * t;
-    const float value = (2 * t3 - 3 * t2 + 1) * from + (t3 - 2 * t2 + t) * m1 +
-                        (-2 * t3 + 3 * t2) * to + (t3 - t2) * m2;
-    return std::clamp(value, std::min(from, to), std::max(from, to));
+    return MotionQuintic(from, to, m1, m2, t);
 }
 }  // namespace wzh
 #endif

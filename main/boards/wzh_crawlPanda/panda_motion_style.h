@@ -15,10 +15,21 @@ inline float GestureProgress(float progress, unsigned axis, unsigned beat, bool 
     const float t = std::clamp(progress, 0.0f, 1.0f);
     if (mirror && axis != 0)
         axis = 3 - axis;
-    const float skew = axis == 0 ? .10f : (axis == (beat % 2 + 1) ? -.04f : -.10f);
+    const float skew = axis == 0 ? .18f : (axis == (beat % 2 + 1) ? -.04f : -.10f);
     const float tail = 1 - t;
     const float bump = 64 * t * t * t * tail * tail * tail;
     return t + skew * bump;
+}
+
+inline uint32_t GestureDuration(float head_travel, float left_travel, float right_travel) {
+    const float arms = std::max(left_travel, right_travel);
+    // Include each axis's phase warp in the common beat clock. The head's
+    // anticipation is stronger, while the larger paw strokes still arrive
+    // together. Explicit crawling traction uses a separate unchanged clock.
+    return std::max(
+        {wzh::MotionJerkDuration(head_travel * 3.1f), wzh::MotionJerkDuration(arms * 2.f),
+         static_cast<uint32_t>(
+             std::ceil(std::max(head_travel * 3.1f, arms * 2.6f) * 1000 / wzh::kPetServoSpeed))});
 }
 
 inline float CrawlGaze(uint32_t elapsed, uint32_t running_ms, uint32_t arm_period_ms) {

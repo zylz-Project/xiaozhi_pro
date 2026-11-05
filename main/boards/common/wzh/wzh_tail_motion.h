@@ -28,7 +28,9 @@ public:
             travel = std::max(travel, std::abs(first[a] - origin_[a]));
         entry_ms_ = std::max<uint32_t>(750, std::ceil(travel * 1875 / 350));
         // Complete both sides at full travel, even for very short recordings.
-        body_ms_ = std::max(duration_ms, entry_ms_ + 2550);
+        // The larger vertical sweep needs a complete, slower arc rather than
+        // asking the output slew limiter to flatten its two-cycle variants.
+        body_ms_ = std::max(duration_ms, entry_ms_ + 3100);
         const auto last = Target(1, body_ms_ - entry_ms_);
         exit_ms_ = SettlingDuration(std::abs(150 - last[2]), kind == SoundKind::kSleep ? 65 : 130);
     }

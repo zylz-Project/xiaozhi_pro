@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-05",
+  "baseline_commit": "b1ea0ccc891b7d2966a70a08bfec846496611af9",
+  "replay_groups": 1984,
+  "command_sampling_ms": 20,
+  "pwm_before_bits": 13,
+  "pwm_after_bits": 14,
+  "pwm_hz": 50,
+  "hardware_validated": false,
+  "metrics": [
+    {
+      "board": "wzh_tailRedPanda",
+      "replay_paths": 596,
+      "median_clip_peak_jerk_ratio": 0.434466991503497,
+      "median_audio_excursion_ratio": 1.0547586860753233
+    },
+    {
+      "board": "wzh_crawlPanda",
+      "replay_paths": 564,
+      "median_clip_peak_jerk_ratio": 0.6036391939318464,
+      "median_audio_excursion_ratio": 1.004032778927746
+    },
+    {
+      "board": "wzh_dinosaur",
+      "replay_paths": 824,
+      "median_clip_peak_jerk_ratio": 0.3612612612612685,
+      "median_audio_excursion_ratio": 1.041751492409448
+    }
+  ],
+  "metric_definition": "Per-path ratio of peak third finite difference, median over keyframe-library paths; audio excursion is the sum of per-axis ranges. These are commanded floats, not measured servo motion."
+}

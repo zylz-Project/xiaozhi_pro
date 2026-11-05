@@ -6,11 +6,13 @@
 
 namespace wzh {
 
-void ServoOutput::Initialize(gpio_num_t power, const ledc_channel_t* channels, size_t count) {
+void ServoOutput::Initialize(gpio_num_t power, const ledc_channel_t* channels, size_t count,
+                             uint32_t duty_max) {
     std::lock_guard<std::mutex> lock(mutex_);
     power_ = power;
     channels_ = channels;
     count_ = count;
+    duty_max_ = duty_max;
     ReleaseLocked();
 }
 
@@ -44,7 +46,9 @@ bool ServoOutput::WriteDegrees(const float* angles, size_t count) {
     }
     for (size_t i = 0; i < count; ++i) {
         const float pulse_us = 500.0f + std::clamp(angles[i], 0.0f, 180.0f) * 2000.0f / 180.0f;
-        const uint32_t duty = static_cast<uint32_t>(std::lround(pulse_us * 8191.0f / 20000.0f));
+        // LEDC divides by 2^N timer counts, not its largest duty value 2^N-1.
+        const uint32_t duty =
+            static_cast<uint32_t>(std::lround(pulse_us * (duty_max_ + 1.f) / 20000.0f));
         ledc_set_duty(LEDC_LOW_SPEED_MODE, channels_[i], duty);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, channels_[i]);
     }

@@ -196,8 +196,8 @@ public:
                 Append(rest_, dino ? 1000 : 700, false);
             return;
         }
-        // Active long-neck gestures use >=300 ms and <=133 deg/s average. Other products
-        // use <=266 deg/s average so smoothstep peaks stay within 400 deg/s.
+        // Budget the quintic's 1.875x peak: long-neck gestures remain below
+        // 210 deg/s and the other products below 400 deg/s at the source.
         const uint32_t beat = dino ? (sound.kind == SoundKind::kRoar ? 700 : 1100)
                               : sound.kind == SoundKind::kSteps ? 600
                               : sound.kind == SoundKind::kSleep ? 1800
@@ -275,10 +275,8 @@ public:
                     i ? frames_[i - 1].end - (i > 1 ? frames_[i - 2].end : 0) : f.end - start;
                 const uint32_t after = i + 1 < count_ ? frames_[i + 1].end - f.end : f.end - start;
                 for (size_t axis = 0; axis < out.size(); ++axis)
-                    out[axis] = f.settling
-                                    ? from[axis] + (f.pose[axis] - from[axis]) * SettlingProgress(t)
-                                    : MotionHermite(previous[axis], from[axis], f.pose[axis],
-                                                    next[axis], before, f.end - start, after, t);
+                    out[axis] = MotionHermite(previous[axis], from[axis], f.pose[axis], next[axis],
+                                              before, f.end - start, after, t);
                 // A release flag on a return segment must not cut torque before
                 // arrival. Only a stationary resting segment can relax early.
                 powered = !f.release || from != f.pose;
@@ -344,10 +342,10 @@ private:
             travel = std::max(travel, std::abs(target[i] - from[i]));
         const bool dino = mechanism_ == PetMechanism::kDinosaur;
         const uint32_t minimum =
-            travel > .1f ? std::max<uint32_t>(
-                               dino ? 300 : 160,
-                               static_cast<uint32_t>(std::ceil(travel * (dino ? 7.5f : 3.75f))))
-                         : 1;
+            travel > .1f
+                ? std::max<uint32_t>(dino ? 300 : 160,
+                                     static_cast<uint32_t>(std::ceil(travel * (dino ? 9.5f : 5.f))))
+                : 1;
         const bool settling = target == rest_ && travel > .1f;
         const uint32_t duration =
             settling ? std::max(requested, SettlingDuration(

@@ -944,7 +944,8 @@ void PandaController::InitializeServos() {
         channel_config.flags = {.output_invert = 0};
         ESP_ERROR_CHECK(ledc_channel_config(&channel_config));
     }
-    servo_output_.Initialize(SERVO_POWER_GPIO, kServoChannels, std::size(kServoChannels));
+    servo_output_.Initialize(SERVO_POWER_GPIO, kServoChannels, std::size(kServoChannels),
+                             (1U << SERVO_DUTY_RES) - 1);
     SetServoAngles(SERVO_HEAD_DEFAULT, SERVO_LEFT_ARM_DEFAULT, SERVO_RIGHT_ARM_DEFAULT);
     ESP_LOGI(TAG, "Servos initialized");
 }
@@ -1002,9 +1003,15 @@ uint32_t PandaController::FrameDuration(uint8_t frame) const {
     if (travel > .1f && std::abs(to.head - 90) <= 2.f && std::abs(to.left_arm - 90) <= 2.f &&
         std::abs(to.right_arm - 90) <= 2.f)
         return std::max(requested, wzh::SettlingDuration(travel, 100.f));
-    return clip_->authored_dynamics
-               ? wzh::StoryFrameDuration(travel, requested, motion_seed_, frame)
-               : wzh::PetFrameDuration(travel, requested);
+    const uint32_t duration = clip_->authored_dynamics
+                                  ? wzh::StoryFrameDuration(travel, requested, motion_seed_, frame)
+                                  : wzh::PetFrameDuration(travel, requested);
+    // GestureProgress raises peak speed inside a beat. Reserve that headroom
+    // before output rather than clipping a smooth curve at the slew limit.
+    // The explicit 800/1200 ms traction gaits keep their own playback clocks.
+    return std::max(duration, wzh_crawl::GestureDuration(std::abs(to.head - from.head),
+                                                         std::abs(to.left_arm - from.left_arm),
+                                                         std::abs(to.right_arm - from.right_arm)));
 }
 
 int PandaController::ChooseClip(Behaviour behaviour) {
@@ -1193,6 +1200,12 @@ wzh_panda::Behaviour PandaController::ClassifySound(int index) const {
 }
 
 void PandaController::AddMicroMotion(wzh_panda::Pose& pose, uint32_t now_ms, float life) {
+    if (clip_active_ && clip_ && std::strncmp(clip_->name, "body_", 5) == 0)
+        return;
+    const float progress =
+        std::clamp(float(now_ms - frame_started_ms_) / frame_duration_ms_, 0.f, 1.f);
+    const float window = std::sin(progress * 3.14159265f);
+    life *= window * window * window * window;
     // 呼吸带动头部与前爪轻微起伏；两条不同频率的正弦避免节拍器感。
     breath_phase_ += 20.0f;
     if (breath_phase_ > breath_period_) {
@@ -1497,8 +1510,9 @@ void PandaController::Task() {
             expressive = {90 + (pose_.head - 90) * .25f, 90 + (pose_.left_arm - 90) * .12f,
                           90 + (pose_.right_arm - 90) * .12f};
         }
-        if (clip_active_ || motion.playing)
-            AddMicroMotion(expressive, now_ms, motion.playing ? 0.8f : 1.0f);
+        if (clip_active_ && !motion.playing) {
+            AddMicroMotion(expressive, now_ms, 1.0f);
+        }
         const wzh_panda::Pose out = ApplyAudioMotion(expressive, motion, now_ms);
         if (clip_active_ || motion.playing) {
             quiet_center_.Reset();

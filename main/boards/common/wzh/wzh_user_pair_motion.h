@@ -47,6 +47,11 @@ public:
                                        pair_->axes == 5 ? 1600U
                                        : tail           ? 2200U
                                                         : 1600U});
+        // Leave room for the broadened, acceleration-continuous dinosaur
+        // path and its reference overlay. Keep recorder data intact; retime the
+        // presentation slightly instead of letting the output limiter clip it.
+        if (pair_->axes == 5 && kind_ != SoundKind::kSteps)
+            body_ms_ += body_ms_ / 12;
         entry_ms_ = std::min<uint32_t>(
             body_ms_ / 2, std::clamp<uint32_t>(std::ceil(entry_travel * (tail ? 8 : 10)),
                                                tail ? 750 : 600, 1200));
@@ -68,7 +73,7 @@ public:
         exit_ms_ = SettlingDuration(exit_travel, speed);
         window_ms_ = std::min<uint32_t>(
             pair_->axes == 5
-                ? ((kind_ == SoundKind::kSteps || kind_ == SoundKind::kRoar) ? 600 : 360)
+                ? ((kind_ == SoundKind::kSteps || kind_ == SoundKind::kRoar) ? 660 : 400)
             : rest[2] == 150 ? 600
                              : (kind_ == SoundKind::kSneeze ? 420 : 320),
             body_ms_ / 3);
@@ -175,7 +180,7 @@ private:
         const float scale = float(pair_->motion_ms) / body_ms_;
         const float at = time * scale, width = window_ms_ * scale;
         // Integrate a triangular kernel over the *continuous* recorded curve.
-        // Four-point Gaussian quadrature is exact for our cubic Hermite or
+        // Four-point Gaussian quadrature is exact for our quintic Hermite or
         // quintic easing multiplied by a linear kernel. Sparse point taps can
         // alias 20 ms stick reversals into sharp speed pulses; integration does
         // not. Positive weights keep every joint in its authored physical box.

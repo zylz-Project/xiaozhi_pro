@@ -25,9 +25,9 @@
 
 namespace {
 constexpr uint32_t kTickMs = 20;
-// 待机动作不需要按每个 PWM 周期重新计算。舵机 PWM 仍保持标准 50 Hz，
-// 这里只把姿态目标的刷新降到 20 Hz，让缓慢漂移更安静、也减少无效写入。
-constexpr uint32_t kIdleUpdateMs = 50;
+// Slow standby paths use the same 20 ms command grid as active motion; the
+// hardware PWM carrier remains 50 Hz. Avoid a separate coarse idle staircase.
+constexpr uint32_t kIdleUpdateMs = 20;
 constexpr size_t kMaxClipFrames = 16;
 // Legacy story validation and the minimum moving frame for new long-neck stories.
 constexpr uint32_t kMinAuthoredStoryFrameMs = 420;
@@ -41,10 +41,8 @@ constexpr ledc_channel_t kServoChannels[] = {LEDC_CHANNEL_0, LEDC_CHANNEL_1, LED
                                              LEDC_CHANNEL_3, LEDC_CHANNEL_4};
 
 float SmoothStep(float value) {
-    // 恢复产品原有的三次平滑手感：起止速度仍为零，中段比五次曲线
-    // 更快建立姿态，避免整条恐龙看起来绵软、迟钝。
-    value = std::clamp(value, 0.0f, 1.0f);
-    return value * value * (3.0f - 2.0f * value);
+    // Match zero velocity AND acceleration when entering a hold or returning.
+    return wzh::SettlingProgress(value);
 }
 
 float EaseValue(wzh_dino::MotionEase ease, float value) {
@@ -216,7 +214,8 @@ constexpr Keyframe kSneezeFrames[] = {
 };
 constexpr MotionClip kSneezeClip = {"sneeze-down", kSneezeFrames, std::size(kSneezeFrames)};
 
-constexpr Keyframe kSleepyFrames[] = {    {100, 100, 95, 82, 100, 600, MotionEase::kSmooth},  // 眼皮渐沉
+constexpr Keyframe kSleepyFrames[] = {
+    {100, 100, 95, 82, 100, 600, MotionEase::kSmooth},  // 眼皮渐沉
     {130, 115, 75, 70, 68, 800, MotionEase::kSmooth},   // 长颈落入 S 形
     {138, 105, 85, 65, 110, 640, MotionEase::kSmooth},
     {128, 78, 122, 68, 75, 800, MotionEase::kSmooth},  // 缓慢呼吸横移
@@ -653,10 +652,10 @@ constexpr Keyframe kSoundProudGuardFrames[] = {
 
 // 参考旧恐龙工程 proud-front/sweep/orbit/echo 的实机语义：IO17=0°
 // 是仰到最高，IO8=180° 是尾巴最高。七套怒吼都先建立完整仰天剪影
-//（颈 0°、尾 180°），再按声音长度展开正面、侧仰、高位扫视或二次回应。
+// （颈 0°、尾 180°），再按声音长度展开正面、侧仰、高位扫视或二次回应。
 constexpr Keyframe kRoarFrontFrames[] = {
-    {0, 90, 90, 178, 90, 900, MotionEase::kSmooth},   // 第一段直接正面仰天
-    {0, 90, 90, 178, 90, 360, MotionEase::kLinear},   // 留在最高位发声
+    {0, 90, 90, 178, 90, 900, MotionEase::kSmooth},     // 第一段直接正面仰天
+    {0, 90, 90, 178, 90, 360, MotionEase::kLinear},     // 留在最高位发声
     {22, 104, 82, 168, 112, 560, MotionEase::kSmooth},  // 余音中向一侧展开
 };
 constexpr Keyframe kRoarQuickAnswerFrames[] = {
@@ -667,9 +666,9 @@ constexpr Keyframe kRoarQuickAnswerFrames[] = {
 constexpr Keyframe kRoarSideRiseFrames[] = {
     {0, 90, 90, 178, 90, 900, MotionEase::kSmooth},  // 先建立正面仰天
     {0, 90, 90, 178, 90, 420, MotionEase::kLinear},
-    {12, 178, 6, 176, 172, 660, MotionEase::kSmooth},   // 大幅侧仰，尾巴反向配重
-    {26, 6, 174, 164, 8, 720, MotionEase::kSmooth},     // 跨过中线到另一侧
-    {34, 90, 90, 140, 90, 560, MotionEase::kSmooth},    // 高位收声
+    {12, 178, 6, 176, 172, 660, MotionEase::kSmooth},  // 大幅侧仰，尾巴反向配重
+    {26, 6, 174, 164, 8, 720, MotionEase::kSmooth},    // 跨过中线到另一侧
+    {34, 90, 90, 140, 90, 560, MotionEase::kSmooth},   // 高位收声
 };
 constexpr Keyframe kRoarHighSweepFrames[] = {
     {0, 90, 90, 178, 90, 900, MotionEase::kSmooth},
@@ -682,10 +681,10 @@ constexpr Keyframe kRoarHighSweepFrames[] = {
 constexpr Keyframe kRoarEchoFrames[] = {
     {0, 90, 90, 178, 90, 900, MotionEase::kSmooth},
     {0, 90, 90, 178, 90, 480, MotionEase::kLinear},
-    {42, 178, 6, 166, 172, 760, MotionEase::kSmooth},   // 余音中大幅巡视
-    {48, 6, 174, 172, 8, 760, MotionEase::kSmooth},     // 跨到另一侧
+    {42, 178, 6, 166, 172, 760, MotionEase::kSmooth},  // 余音中大幅巡视
+    {48, 6, 174, 172, 8, 760, MotionEase::kSmooth},    // 跨到另一侧
     {18, 34, 140, 172, 140, 480, MotionEase::kLinear},
-    {0, 90, 90, 178, 90, 420, MotionEase::kFastOut},    // 第二次完整仰天回应
+    {0, 90, 90, 178, 90, 420, MotionEase::kFastOut},  // 第二次完整仰天回应
     {30, 120, 60, 150, 120, 720, MotionEase::kSmooth},
 };
 // 短吼增加向另一侧轻收声；长吼增加高位展开再回正的弧线故事。
@@ -698,11 +697,11 @@ constexpr Keyframe kRoarSoftAnswerFrames[] = {
 constexpr Keyframe kRoarCrownArcFrames[] = {
     {0, 90, 90, 178, 90, 900, MotionEase::kSmooth},
     {0, 90, 90, 178, 90, 460, MotionEase::kLinear},
-    {18, 176, 8, 174, 172, 760, MotionEase::kSmooth},   // 先向右大幅展开
-    {28, 8, 172, 164, 8, 740, MotionEase::kSmooth},     // 越过中线到另一侧
-    {12, 178, 6, 168, 178, 900, MotionEase::kSmooth},   // 高位跨中巡视
+    {18, 176, 8, 174, 172, 760, MotionEase::kSmooth},  // 先向右大幅展开
+    {28, 8, 172, 164, 8, 740, MotionEase::kSmooth},    // 越过中线到另一侧
+    {12, 178, 6, 168, 178, 900, MotionEase::kSmooth},  // 高位跨中巡视
     {12, 178, 6, 168, 178, 460, MotionEase::kLinear},
-    {42, 90, 90, 132, 90, 900, MotionEase::kSmooth},    // 舒展后正面收声
+    {42, 90, 90, 132, 90, 900, MotionEase::kSmooth},  // 舒展后正面收声
 };
 constexpr MotionClip kSkyRoarClips[] = {
     {"roar-front", kRoarFrontFrames, std::size(kRoarFrontFrames)},
@@ -1348,15 +1347,15 @@ struct IdlePose {
     int tail_lr;
 };
 constexpr IdlePose kIdlePoses[] = {
-    {70, 90, 90, 90, 90},   // 平静
-    {67, 94, 99, 94, 97},   // 警觉
-    {75, 87, 82, 85, 86},   // 困倦
-    {64, 97, 105, 99, 81},  // 好奇
-    {73, 88, 85, 92, 102},  // 放松
-    {68, 93, 95, 95, 95},   // 轻快
-    {58, 108, 122, 78, 66}, // 高位探看
-    {84, 76, 62, 104, 118}, // 低尾沉思
-    {61, 112, 56, 108, 34}, // 侧身警戒
+    {70, 90, 90, 90, 90},    // 平静
+    {67, 94, 99, 94, 97},    // 警觉
+    {75, 87, 82, 85, 86},    // 困倦
+    {64, 97, 105, 99, 81},   // 好奇
+    {73, 88, 85, 92, 102},   // 放松
+    {68, 93, 95, 95, 95},    // 轻快
+    {58, 108, 122, 78, 66},  // 高位探看
+    {84, 76, 62, 104, 118},  // 低尾沉思
+    {61, 112, 56, 108, 34},  // 侧身警戒
 };
 
 // 待机“生命脉冲”：每次只做一次观察、甩尾、嗅闻或精神一振，随后完整
@@ -1465,7 +1464,8 @@ void DinosaurController::InitializeServos() {
         channel_config.hpoint = 0;
         ESP_ERROR_CHECK(ledc_channel_config(&channel_config));
     }
-    servo_output_.Initialize(SERVO_POWER_GPIO, kServoChannels, std::size(kServoChannels));
+    servo_output_.Initialize(SERVO_POWER_GPIO, kServoChannels, std::size(kServoChannels),
+                             (1U << SERVO_DUTY_RES) - 1);
     SetPose(current_pose_);
     ESP_LOGI(TAG,
              "Motion revision: stories-v4 / roar-onset-v3; tilt=IO17 lean=IO16 head=IO15 "
@@ -1809,33 +1809,37 @@ void DinosaurController::PlaySegment(const Pose& from, const Pose& to, uint32_t 
                                      uint32_t after_ms, bool duration_resolved) {
     if (!duration_resolved)
         duration_ms = ComfortableDuration(from, to, duration_ms);
+    duration_ms = ((std::max(kTickMs, duration_ms) + kTickMs - 1) / kTickMs) * kTickMs;
     const bool moving = from.neck_tilt != to.neck_tilt || from.neck_lean != to.neck_lean ||
                         from.head_turn != to.head_turn || from.tail_ud != to.tail_ud ||
                         from.tail_lr != to.tail_lr;
-    // 匀速标签只用于静止停留。发生位移时，kFastOut 保留温和的提前到位感，
-    // 其他帧使用三次平滑；所有关节共用同一进度，同步开始、同步到达。
+    // 多帧编舞统一使用连续的五次轨迹。独立片段保留温和提前到位节奏，
+    // 所有关节共用同一进度，同步开始、同步到达。
     const wzh_dino::MotionEase effective_ease =
         moving && ease == wzh_dino::MotionEase::kLinear ? wzh_dino::MotionEase::kSmooth : ease;
-    // 连续同方向的 smooth 关键帧使用单调 Hermite 切线穿过中间姿态。切线遇到
+    // 连续同方向的关键帧使用单调 Hermite 切线穿过中间姿态。切线遇到
     // 反向、定格或动作首尾会自动归零，所以既消除“每帧刹停”的机械感，也不会
     // 越过关键帧两端造成舵机角度过冲。
     const bool settling = std::abs(to.neck_tilt - 70) <= 2 && std::abs(to.neck_lean - 90) <= 2 &&
                           std::abs(to.head_turn - 90) <= 2 && std::abs(to.tail_ud - 90) <= 2 &&
                           std::abs(to.tail_lr - 90) <= 2;
-    const bool flow_through = !settling && moving && ease == wzh_dino::MotionEase::kSmooth &&
-                              previous != nullptr && next != nullptr;
+    const bool flow_through = moving && previous != nullptr && next != nullptr;
     auto flow_axis = [before_ms, duration_ms, after_ms](float p0, float p1, float p2, float p3,
                                                         float t) {
         return wzh::MotionHermite(p0, p1, p2, p3, before_ms, duration_ms, after_ms, t);
     };
-    const uint32_t steps = std::max<uint32_t>(1, duration_ms / kTickMs);
+    const uint32_t started_ms = esp_timer_get_time() / 1000;
     TickType_t motion_tick = xTaskGetTickCount();
-    for (uint32_t step = 1; step <= steps; ++step) {
+    while (true) {
         PollInteraction(esp_timer_get_time() / 1000);
         if (MotionInterrupted()) {
             return;
         }
-        const float progress = static_cast<float>(step) / steps;
+        // Sample real elapsed time. A delayed task skips stale targets instead
+        // of replaying several old steps into a single PWM period.
+        const uint32_t elapsed_ms = uint32_t(esp_timer_get_time() / 1000) - started_ms;
+        const float progress =
+            std::min(1.f, float(elapsed_ms) / std::max<uint32_t>(1, duration_ms));
         const float amount =
             settling ? wzh::SettlingProgress(progress) : EaseValue(effective_ease, progress);
         Pose pose;
@@ -1870,9 +1874,14 @@ void DinosaurController::PlaySegment(const Pose& from, const Pose& to, uint32_t 
                 request_active_.load() && running_priority_.load() == wzh::PetPriority::kExplicit
                     ? 0.55f
                     : 1.0f;
-            ApplyLiving(pose, living_phase, window * window * duration_gain * explicit_gain);
+            ApplyLiving(pose, living_phase,
+                        window * window * window * window * duration_gain * explicit_gain);
         }
         SetPose(pose);
+        if (progress >= 1.f)
+            break;
+        if (xTaskGetTickCount() - motion_tick > pdMS_TO_TICKS(kTickMs))
+            motion_tick = xTaskGetTickCount();
         vTaskDelayUntil(&motion_tick, pdMS_TO_TICKS(kTickMs));
     }
 }
@@ -1913,18 +1922,18 @@ DinosaurController::Pose DinosaurController::PlayClip(const wzh_dino::MotionClip
             durations[i] = std::max(
                 {durations[i], uint32_t(300), static_cast<uint32_t>(std::ceil(travel * 7.5f))});
         }
+        // Resolve the actual 20 ms grid before computing shared tangents.
+        // Rounding only while playing would slow the last fraction of every
+        // segment and break the next segment's matching arrival velocity.
+        durations[i] = ((durations[i] + kTickMs - 1) / kTickMs) * kTickMs;
     }
     for (uint8_t i = 0; i < clip.count; ++i) {
         if (MotionInterrupted())
             return current_pose_;
-        const bool smooth_before =
-            i > 0 && clip.frames[i - 1].ease == wzh_dino::MotionEase::kSmooth;
-        const bool smooth_after =
-            i + 1 < clip.count && clip.frames[i + 1].ease == wzh_dino::MotionEase::kSmooth;
-        const Pose& previous = smooth_before ? poses[i - 1] : poses[i];
+        const Pose& previous = i > 0 ? poses[i - 1] : poses[i];
         const Pose& from = poses[i];
         const Pose& to = poses[i + 1];
-        const Pose& next = smooth_after ? poses[i + 2] : poses[i + 1];
+        const Pose& next = i + 1 < clip.count ? poses[i + 2] : poses[i + 1];
         const uint32_t before = i > 0 ? durations[i - 1] : durations[i];
         const uint32_t after = i + 1 < clip.count ? durations[i + 1] : durations[i];
         PlaySegment(from, to, durations[i], clip.frames[i].ease, living_phase, &previous, &next,
@@ -2446,8 +2455,8 @@ void DinosaurController::Task() {
             const bool offline = !conversation_active_.load();
             if (autoplay_.Due(now_ms,
                               offline && pet_state.local_sound &&
-                                  (!servo_output_.powered() || idle_breathing_) &&
-                                  !local_motion && (audio_ == nullptr || !audio_->Playing()),
+                                  (!servo_output_.powered() || idle_breathing_) && !local_motion &&
+                                  (audio_ == nullptr || !audio_->Playing()),
                               esp_random())) {
                 if (audio_ != nullptr && audio_->PlayAutonomousSound(true, 15)) {
                     autonomous_playback_ = true;
@@ -2467,9 +2476,8 @@ void DinosaurController::Task() {
             const auto voice = audio_ != nullptr ? audio_->GetTtsMotionData() : DinoMotionData{};
             const bool audible = conversation_active_.load() &&
                                  (speaking_.load() || speech_tail_.load()) && voice.playing;
-            const bool idle_eligible =
-                !conversation_active_.load() && pet_state.motion && !request_active_.load() &&
-                !local_motion && !audible;
+            const bool idle_eligible = !conversation_active_.load() && pet_state.motion &&
+                                       !request_active_.load() && !local_motion && !audible;
             if (audible) {
                 idle_breathing_ = false;
                 quiet_center_.Reset();

@@ -98,7 +98,9 @@ int main(){
             assert(longest<60000); // Long ambience deliberately releases torque.
             if(player.duration()<sound.duration_ms){std::cerr<<"SHORT "<<item.name<<" audio="<<sound.duration_ms<<" motion="<<player.duration()<<" frames="<<player.count()<<"\n";}
             assert(player.duration()>=sound.duration_ms);
-            const uint32_t duration_limit=sound.kind==SoundKind::kAmbient?sound.duration_ms+8000:sound.duration_ms+(dino?6500:5000);
+            // A short tail recording still completes the broadened two-axis
+            // arc and the original <=130 deg/s return, adding at most 550 ms.
+            const uint32_t duration_limit=sound.kind==SoundKind::kAmbient?sound.duration_ms+8000:sound.duration_ms+(dino?6500:tail?5600:5000);
             if(player.duration()>duration_limit){std::cerr<<"LONG "<<item.name<<" audio="<<sound.duration_ms<<" motion="<<player.duration()<<" frames="<<player.count()<<"\n";}
             assert(player.duration()<=duration_limit);
             std::cout<<"{\"file\":"<<id<<",\"variant\":"<<variant<<",\"phrase_variant\":"<<player.variant()+1<<",\"audio_ms\":"<<sound.duration_ms

@@ -15,7 +15,8 @@ namespace wzh {
 // The only owner of PWM/power writes after board channel initialization.
 class ServoOutput {
 public:
-    void Initialize(gpio_num_t power, const ledc_channel_t* channels, size_t count);
+    void Initialize(gpio_num_t power, const ledc_channel_t* channels, size_t count,
+                    uint32_t duty_max = 8191);
     bool Write(const int* angles, size_t count);
     bool WriteDegrees(const float* angles, size_t count);
     void Release();
@@ -34,6 +35,7 @@ private:
     gpio_num_t power_ = GPIO_NUM_NC;
     const ledc_channel_t* channels_ = nullptr;
     size_t count_ = 0;
+    uint32_t duty_max_ = 8191;
     ServoPowerBudget budget_;
     uint32_t last_write_ms_ = 0;
     void ReleaseLocked();

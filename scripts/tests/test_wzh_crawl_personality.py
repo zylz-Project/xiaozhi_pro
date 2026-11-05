@@ -47,7 +47,9 @@ class WzhCrawlPersonalityTest(unittest.TestCase):
                 elapsed+=20;clock_ms+=20;
                 assert(elapsed<8000);
             }while(c.clip_active_);
-            if(interaction)assert(elapsed<=5000);
+            // Broader, C2 gestures reserve turn/return time; onset above stays
+            // prompt while the full acknowledgement remains under six seconds.
+            if(interaction)assert(elapsed<=6000);
             if(onset<(reference?2:(held?6:10))){
                 std::fprintf(stderr,"%s held=%d onset=%.1f within 240ms\n",c.clip_->name,held,onset);
                 assert(false);
