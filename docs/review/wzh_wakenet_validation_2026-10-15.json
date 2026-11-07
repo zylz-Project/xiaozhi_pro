@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-15",
+  "sdk": "ESP-IDF v6.0.1",
+  "host_tests": {
+    "count": 82,
+    "result": "passed",
+    "log": "host-tests.log"
+  },
+  "builds": [
+    {
+      "board": "kevin/c3",
+      "variant": "kevin-c3",
+      "exit_code": 0,
+      "duration_seconds": 62.3,
+      "app_size_bytes": 1987616,
+      "app_partition_free_percent": 52
+    },
+    {
+      "board": "bread-compact-wifi",
+      "variant": "bread-compact-wifi",
+      "exit_code": 0,
+      "duration_seconds": 76.9,
+      "app_size_bytes": 2547040,
+      "app_partition_free_percent": 38
+    },
+    {
+      "board": "wzh_dinosaur",
+      "variant": "wzh-dinosaur",
+      "exit_code": 0,
+      "duration_seconds": 69.4,
+      "app_size_bytes": 2398928,
+      "app_partition_free_percent": 42,
+      "partition_offsets": {
+        "xiaozhi.bin": "0x20000",
+        "generated_assets.bin": "0x800000"
+      },
+      "wake_word": "小龙小龙",
+      "wakenet_model": "wn9_xiaolongxiaolong_tts",
+      "speech_models": [
+        "mn7_cn",
+        "wn9_xiaolongxiaolong_tts",
+        "fst"
+      ],
+      "local_phrase_count": 12,
+      "local_commands_only": true,
+      "assets_size_bytes": 3897718,
+      "assets_partition_free_bytes": 4490890,
+      "merged_offsets_verified": true,
+      "assets_checksum_verified": true
+    },
+    {
+      "board": "wzh_crawlPanda",
+      "variant": "wzh-crawlpanda",
+      "exit_code": 0,
+      "duration_seconds": 69.7,
+      "app_size_bytes": 2384512,
+      "app_partition_free_percent": 42,
+      "partition_offsets": {
+        "xiaozhi.bin": "0x20000",
+        "generated_assets.bin": "0x800000"
+      },
+      "wake_word": "你好小安",
+      "wakenet_model": "wn9_nihaoxiaoan_tts2",
+      "speech_models": [
+        "mn7_cn",
+        "wn9_nihaoxiaoan_tts2",
+        "fst"
+      ],
+      "local_phrase_count": 12,
+      "local_commands_only": true,
+      "assets_size_bytes": 3897744,
+      "assets_partition_free_bytes": 4490864,
+      "merged_offsets_verified": true,
+      "assets_checksum_verified": true
+    },
+    {
+      "board": "wzh_tailRedPanda",
+      "variant": "wzh-tailredpanda",
+      "exit_code": 0,
+      "duration_seconds": 80.5,
+      "app_size_bytes": 2385328,
+      "app_partition_free_percent": 42,
+      "partition_offsets": {
+        "xiaozhi.bin": "0x20000",
+        "generated_assets.bin": "0x800000"
+      },
+      "wake_word": "你好星宝",
+      "wakenet_model": "wn9l_ni3hao3xing1bao3_tts3",
+      "speech_models": [
+        "mn7_cn",
+        "wn9l_ni3hao3xing1bao3_tts3",
+        "fst"
+      ],
+      "local_phrase_count": 12,
+      "local_commands_only": true,
+      "assets_size_bytes": 3899281,
+      "assets_partition_free_bytes": 4489327,
+      "merged_offsets_verified": true,
+      "assets_checksum_verified": true
+    }
+  ],
+  "hardware_tested": false,
+  "full_record": "../../dist/wzh-wakenet-20261015/validation.json"
+}

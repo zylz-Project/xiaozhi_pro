@@ -1,16 +1,18 @@
 #ifndef _AUDIO_CODEC_H
 #define _AUDIO_CODEC_H
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/event_groups.h>
 #include <driver/i2s_std.h>
 #include <esp_idf_version.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
 
-#include <vector>
-#include <string>
+#include <atomic>
 #include <functional>
+#include <string>
+#include <vector>
 
 #include "board.h"
+#include "speaker_protection.h"
 
 #define AUDIO_CODEC_DMA_DESC_NUM 6
 #define AUDIO_CODEC_DMA_FRAME_NUM 240
@@ -28,7 +30,7 @@ class AudioCodec {
 public:
     AudioCodec();
     virtual ~AudioCodec();
-    
+
     virtual void SetOutputVolume(int volume);
     virtual void SetInputGain(float gain);
     virtual void EnableInput(bool enable);
@@ -37,6 +39,12 @@ public:
     virtual void OutputData(std::vector<int16_t>& data);
     virtual bool InputData(std::vector<int16_t>& data);
     virtual void Start();
+
+    // Optional board policy: high-pass and peak-limit everything sent to the
+    // speaker. Small toys enable this; desktop boards keep the raw stream.
+    void EnableSpeakerProtection(bool enable);
+    // Safe from any task; DSP state is cleared by the sole speaker writer.
+    void ResetOutputProcessing();
 
     inline bool duplex() const { return duplex_; }
     inline bool input_reference() const { return input_reference_; }
@@ -63,9 +71,12 @@ protected:
     int output_channels_ = 1;
     int output_volume_ = 70;
     float input_gain_ = 0.0;
+    bool speaker_protection_enabled_ = false;
+    SpeakerProtection speaker_protection_;
+    std::atomic<bool> output_processing_reset_pending_{true};
 
     virtual int Read(int16_t* dest, int samples) = 0;
     virtual int Write(const int16_t* data, int samples) = 0;
 };
 
-#endif // _AUDIO_CODEC_H
+#endif  // _AUDIO_CODEC_H

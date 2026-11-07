@@ -1,0 +1,1806 @@
+[
+  {
+    "index": 32,
+    "audio_ms": 1999,
+    "authored_motion_ms": 1920,
+    "motion_with_return_ms": 2899,
+    "frames": 30,
+    "body_ms": 1999,
+    "peak_target_speed_dps": 271.38,
+    "peak_limited_command_speed_dps": 270.1,
+    "return_peak_speed_dps": 0.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        44.64,
+        128.92
+      ],
+      [
+        24.99,
+        90.0
+      ],
+      [
+        90.0,
+        165.88
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "a可爱_熊猫宝宝_叫声哼唧",
+    "authored_time_scale": 1.0411,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 33,
+    "audio_ms": 2131,
+    "authored_motion_ms": 3000,
+    "motion_with_return_ms": 3900,
+    "frames": 62,
+    "body_ms": 3000,
+    "peak_target_speed_dps": 226.36,
+    "peak_limited_command_speed_dps": 225.43,
+    "return_peak_speed_dps": 0.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        82.08,
+        123.75
+      ],
+      [
+        34.18,
+        90.0
+      ],
+      [
+        90.0,
+        156.89
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "摸头_欢快的“嗯”声",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 34,
+    "audio_ms": 414,
+    "authored_motion_ms": 520,
+    "motion_with_return_ms": 1900,
+    "frames": 26,
+    "body_ms": 1000,
+    "peak_target_speed_dps": 294.53,
+    "peak_limited_command_speed_dps": 293.66,
+    "return_peak_speed_dps": 6.25,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        87.0,
+        155.76
+      ],
+      [
+        31.29,
+        90.0
+      ],
+      [
+        90.0,
+        102.27
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "摸头_回头找人",
+    "authored_time_scale": 1.9231,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 35,
+    "audio_ms": 4000,
+    "authored_motion_ms": 3380,
+    "motion_with_return_ms": 4900,
+    "frames": 62,
+    "body_ms": 4000,
+    "peak_target_speed_dps": 217.39,
+    "peak_limited_command_speed_dps": 216.72,
+    "return_peak_speed_dps": 0.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        18.66,
+        159.06
+      ],
+      [
+        35.72,
+        90.0
+      ],
+      [
+        90.0,
+        139.99
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "待机_有些犯困",
+    "authored_time_scale": 1.1834,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 36,
+    "audio_ms": 716,
+    "authored_motion_ms": 820,
+    "motion_with_return_ms": 1900,
+    "frames": 15,
+    "body_ms": 1000,
+    "peak_target_speed_dps": 220.41,
+    "peak_limited_command_speed_dps": 219.75,
+    "return_peak_speed_dps": 8.33,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        90.0,
+        127.18
+      ],
+      [
+        37.96,
+        90.0
+      ],
+      [
+        90.0,
+        144.22
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "笑声",
+    "authored_time_scale": 1.2195,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 37,
+    "audio_ms": 4000,
+    "authored_motion_ms": 4560,
+    "motion_with_return_ms": 5460,
+    "frames": 58,
+    "body_ms": 4560,
+    "peak_target_speed_dps": 199.88,
+    "peak_limited_command_speed_dps": 199.52,
+    "return_peak_speed_dps": 0.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        31.26,
+        153.71
+      ],
+      [
+        85.22,
+        139.99
+      ],
+      [
+        31.86,
+        98.89
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "熊猫_咀嚼",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 38,
+    "audio_ms": 1491,
+    "authored_motion_ms": 1600,
+    "motion_with_return_ms": 2500,
+    "frames": 28,
+    "body_ms": 1600,
+    "peak_target_speed_dps": 165.19,
+    "peak_limited_command_speed_dps": 164.78,
+    "return_peak_speed_dps": 4.17,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        73.04,
+        130.32
+      ],
+      [
+        89.6,
+        122.14
+      ],
+      [
+        61.49,
+        90.92
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "熊猫撒娇声音",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 39,
+    "audio_ms": 2037,
+    "authored_motion_ms": 2320,
+    "motion_with_return_ms": 3220,
+    "frames": 23,
+    "body_ms": 2320,
+    "peak_target_speed_dps": 320.69,
+    "peak_limited_command_speed_dps": 320.03,
+    "return_peak_speed_dps": 0.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        81.97,
+        107.19
+      ],
+      [
+        8.0,
+        114.93
+      ],
+      [
+        60.95,
+        172.0
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "熊猫_喷嚏",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 40,
+    "audio_ms": 5229,
+    "authored_motion_ms": 5300,
+    "motion_with_return_ms": 6200,
+    "frames": 62,
+    "body_ms": 5300,
+    "peak_target_speed_dps": 226.94,
+    "peak_limited_command_speed_dps": 226.62,
+    "return_peak_speed_dps": 4.17,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        81.52,
+        135.76
+      ],
+      [
+        13.35,
+        90.0
+      ],
+      [
+        90.0,
+        171.86
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "类似熊猫叫声- Cat",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 41,
+    "audio_ms": 5000,
+    "authored_motion_ms": 5020,
+    "motion_with_return_ms": 5920,
+    "frames": 45,
+    "body_ms": 5020,
+    "peak_target_speed_dps": 271.29,
+    "peak_limited_command_speed_dps": 270.72,
+    "return_peak_speed_dps": 2.08,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        43.83,
+        136.62
+      ],
+      [
+        8.0,
+        90.0
+      ],
+      [
+        90.0,
+        171.62
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "睡觉呼吸",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 42,
+    "audio_ms": 1657,
+    "authored_motion_ms": 1820,
+    "motion_with_return_ms": 2720,
+    "frames": 56,
+    "body_ms": 1820,
+    "peak_target_speed_dps": 289.23,
+    "peak_limited_command_speed_dps": 288.27,
+    "return_peak_speed_dps": 60.41,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        56.5,
+        144.37
+      ],
+      [
+        10.29,
+        93.0
+      ],
+      [
+        60.84,
+        169.0
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "挠痒痒笑声",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 43,
+    "audio_ms": 3814,
+    "authored_motion_ms": 4060,
+    "motion_with_return_ms": 4960,
+    "frames": 62,
+    "body_ms": 4060,
+    "peak_target_speed_dps": 257.06,
+    "peak_limited_command_speed_dps": 256.68,
+    "return_peak_speed_dps": 0.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        48.92,
+        129.62
+      ],
+      [
+        25.63,
+        90.0
+      ],
+      [
+        90.0,
+        151.59
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "唤醒_类似伸懒腰状态",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 44,
+    "audio_ms": 3465,
+    "authored_motion_ms": 3900,
+    "motion_with_return_ms": 4800,
+    "frames": 60,
+    "body_ms": 3900,
+    "peak_target_speed_dps": 220.35,
+    "peak_limited_command_speed_dps": 219.88,
+    "return_peak_speed_dps": 0.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        67.41,
+        115.2
+      ],
+      [
+        33.9,
+        90.0
+      ],
+      [
+        90.0,
+        156.84
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "哼唧",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 45,
+    "audio_ms": 345,
+    "authored_motion_ms": 760,
+    "motion_with_return_ms": 1900,
+    "frames": 30,
+    "body_ms": 1000,
+    "peak_target_speed_dps": 343.08,
+    "peak_limited_command_speed_dps": 342.14,
+    "return_peak_speed_dps": 0.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        87.6,
+        104.0
+      ],
+      [
+        30.45,
+        90.0
+      ],
+      [
+        90.0,
+        164.8
+      ]
+    ],
+    "board": "wzh_crawlPanda",
+    "name": "喷嚏",
+    "authored_time_scale": 1.3158,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 32,
+    "audio_ms": 1999,
+    "authored_motion_ms": 1840,
+    "motion_with_return_ms": 3499,
+    "frames": 51,
+    "body_ms": 1999,
+    "peak_target_speed_dps": 159.16,
+    "peak_limited_command_speed_dps": 159.02,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        88.08,
+        123.79
+      ],
+      [
+        70.78,
+        140.51
+      ],
+      [
+        77.85,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "可爱的熊猫幼崽发声",
+    "authored_time_scale": 1.0864,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 33,
+    "audio_ms": 2131,
+    "authored_motion_ms": 2240,
+    "motion_with_return_ms": 3415,
+    "frames": 45,
+    "body_ms": 2240,
+    "peak_target_speed_dps": 273.64,
+    "peak_limited_command_speed_dps": 272.94,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        84.0,
+        105.13
+      ],
+      [
+        78.79,
+        164.73
+      ],
+      [
+        73.88,
+        166.01
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "摸头_欢快的“嗯”声",
+    "authored_time_scale": 1.0,
+    "return_ms": 1175,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 34,
+    "audio_ms": 4000,
+    "authored_motion_ms": 3380,
+    "motion_with_return_ms": 5500,
+    "frames": 59,
+    "body_ms": 4000,
+    "peak_target_speed_dps": 191.59,
+    "peak_limited_command_speed_dps": 191.01,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        89.11,
+        127.13
+      ],
+      [
+        85.35,
+        95.93
+      ],
+      [
+        86.48,
+        172.99
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "待机_有些犯困",
+    "authored_time_scale": 1.1834,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 35,
+    "audio_ms": 716,
+    "authored_motion_ms": 1200,
+    "motion_with_return_ms": 2700,
+    "frames": 44,
+    "body_ms": 1200,
+    "peak_target_speed_dps": 397.05,
+    "peak_limited_command_speed_dps": 396.15,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        83.38,
+        99.86
+      ],
+      [
+        87.37,
+        155.19
+      ],
+      [
+        44.54,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "笑声",
+    "authored_time_scale": 1.0,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 36,
+    "audio_ms": 4000,
+    "authored_motion_ms": 4520,
+    "motion_with_return_ms": 6020,
+    "frames": 38,
+    "body_ms": 4520,
+    "peak_target_speed_dps": 227.51,
+    "peak_limited_command_speed_dps": 227.43,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        72.38,
+        107.32
+      ],
+      [
+        44.08,
+        134.62
+      ],
+      [
+        20.71,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "熊猫_咀嚼",
+    "authored_time_scale": 1.0,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 37,
+    "audio_ms": 1491,
+    "authored_motion_ms": 1540,
+    "motion_with_return_ms": 3465,
+    "frames": 59,
+    "body_ms": 1540,
+    "peak_target_speed_dps": 259.44,
+    "peak_limited_command_speed_dps": 259.05,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        83.31,
+        125.5
+      ],
+      [
+        62.0,
+        137.63
+      ],
+      [
+        63.58,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "熊猫撒娇声音",
+    "authored_time_scale": 1.0,
+    "return_ms": 1925,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 38,
+    "audio_ms": 5653,
+    "authored_motion_ms": 4900,
+    "motion_with_return_ms": 7678,
+    "frames": 56,
+    "body_ms": 5653,
+    "peak_target_speed_dps": 205.53,
+    "peak_limited_command_speed_dps": 205.47,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        56.8,
+        112.58
+      ],
+      [
+        23.89,
+        147.0
+      ],
+      [
+        36.36,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "熊猫吃竹子",
+    "authored_time_scale": 1.1537,
+    "return_ms": 2025,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 39,
+    "audio_ms": 5229,
+    "authored_motion_ms": 5540,
+    "motion_with_return_ms": 7040,
+    "frames": 61,
+    "body_ms": 5540,
+    "peak_target_speed_dps": 177.62,
+    "peak_limited_command_speed_dps": 177.58,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        73.65,
+        140.1
+      ],
+      [
+        72.67,
+        167.68
+      ],
+      [
+        17.63,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "类似熊猫叫声- Cat",
+    "authored_time_scale": 1.0,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 40,
+    "audio_ms": 4000,
+    "authored_motion_ms": 5320,
+    "motion_with_return_ms": 6770,
+    "frames": 55,
+    "body_ms": 5320,
+    "peak_target_speed_dps": 196.25,
+    "peak_limited_command_speed_dps": 196.18,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        29.28,
+        163.18
+      ],
+      [
+        65.35,
+        119.88
+      ],
+      [
+        10.0,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "熊猫_长鸣",
+    "authored_time_scale": 1.0,
+    "return_ms": 1450,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 41,
+    "audio_ms": 2037,
+    "authored_motion_ms": 1760,
+    "motion_with_return_ms": 3537,
+    "frames": 38,
+    "body_ms": 2037,
+    "peak_target_speed_dps": 322.63,
+    "peak_limited_command_speed_dps": 322.38,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        84.64,
+        134.16
+      ],
+      [
+        89.93,
+        125.34
+      ],
+      [
+        29.94,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "熊猫_喷嚏",
+    "authored_time_scale": 1.1574,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 42,
+    "audio_ms": 5000,
+    "authored_motion_ms": 4880,
+    "motion_with_return_ms": 6675,
+    "frames": 63,
+    "body_ms": 5000,
+    "peak_target_speed_dps": 249.44,
+    "peak_limited_command_speed_dps": 249.15,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        10.15,
+        128.99
+      ],
+      [
+        60.34,
+        161.36
+      ],
+      [
+        23.53,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "睡觉呼吸",
+    "authored_time_scale": 1.0246,
+    "return_ms": 1675,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 43,
+    "audio_ms": 1657,
+    "authored_motion_ms": 1700,
+    "motion_with_return_ms": 3200,
+    "frames": 61,
+    "body_ms": 1700,
+    "peak_target_speed_dps": 269.71,
+    "peak_limited_command_speed_dps": 269.44,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        84.88,
+        106.39
+      ],
+      [
+        83.38,
+        120.68
+      ],
+      [
+        34.96,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "挠痒痒笑声",
+    "authored_time_scale": 1.0,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 44,
+    "audio_ms": 3814,
+    "authored_motion_ms": 3900,
+    "motion_with_return_ms": 5400,
+    "frames": 58,
+    "body_ms": 3900,
+    "peak_target_speed_dps": 297.75,
+    "peak_limited_command_speed_dps": 297.33,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        73.7,
+        102.08
+      ],
+      [
+        16.48,
+        173.7
+      ],
+      [
+        10.0,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "唤醒_类似伸懒腰状态",
+    "authored_time_scale": 1.0,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 45,
+    "audio_ms": 3465,
+    "authored_motion_ms": 3960,
+    "motion_with_return_ms": 5460,
+    "frames": 64,
+    "body_ms": 3960,
+    "peak_target_speed_dps": 290.78,
+    "peak_limited_command_speed_dps": 290.09,
+    "return_peak_speed_dps": 75.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        87.66,
+        105.36
+      ],
+      [
+        31.73,
+        142.3
+      ],
+      [
+        10.0,
+        150.0
+      ]
+    ],
+    "board": "wzh_tailRedPanda",
+    "name": "哼唧",
+    "authored_time_scale": 1.0,
+    "return_ms": 1500,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 32,
+    "audio_ms": 4760,
+    "authored_motion_ms": 4780,
+    "motion_with_return_ms": 5680,
+    "frames": 64,
+    "body_ms": 4780,
+    "peak_target_speed_dps": 251.69,
+    "peak_limited_command_speed_dps": 251.38,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        37.21,
+        143.61
+      ],
+      [
+        68.13,
+        144.77
+      ],
+      [
+        90.0,
+        129.75
+      ],
+      [
+        58.72,
+        110.47
+      ],
+      [
+        90.0,
+        168.32
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (121)",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 33,
+    "audio_ms": 3675,
+    "authored_motion_ms": 4040,
+    "motion_with_return_ms": 4940,
+    "frames": 61,
+    "body_ms": 4040,
+    "peak_target_speed_dps": 263.78,
+    "peak_limited_command_speed_dps": 263.42,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        148.45
+      ],
+      [
+        0.16,
+        90.0
+      ],
+      [
+        90.0,
+        169.52
+      ],
+      [
+        71.4,
+        90.14
+      ],
+      [
+        0.01,
+        90.0
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (124)",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 34,
+    "audio_ms": 5057,
+    "authored_motion_ms": 4220,
+    "motion_with_return_ms": 5957,
+    "frames": 63,
+    "body_ms": 5057,
+    "peak_target_speed_dps": 270.26,
+    "peak_limited_command_speed_dps": 269.78,
+    "return_peak_speed_dps": 31.25,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        56.83,
+        156.94
+      ],
+      [
+        30.48,
+        175.57
+      ],
+      [
+        64.8,
+        113.71
+      ],
+      [
+        57.93,
+        90.0
+      ],
+      [
+        24.61,
+        128.5
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (125)",
+    "authored_time_scale": 1.1983,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 35,
+    "audio_ms": 2153,
+    "authored_motion_ms": 2480,
+    "motion_with_return_ms": 3380,
+    "frames": 42,
+    "body_ms": 2480,
+    "peak_target_speed_dps": 296.0,
+    "peak_limited_command_speed_dps": 295.77,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        170.82
+      ],
+      [
+        90.0,
+        90.0
+      ],
+      [
+        84.09,
+        103.51
+      ],
+      [
+        55.0,
+        90.0
+      ],
+      [
+        81.83,
+        94.21
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (13)",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 36,
+    "audio_ms": 3894,
+    "authored_motion_ms": 3780,
+    "motion_with_return_ms": 4794,
+    "frames": 61,
+    "body_ms": 3894,
+    "peak_target_speed_dps": 193.6,
+    "peak_limited_command_speed_dps": 193.44,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        0.0,
+        90.0
+      ],
+      [
+        58.6,
+        114.32
+      ],
+      [
+        90.0,
+        90.0
+      ],
+      [
+        70.52,
+        90.12
+      ],
+      [
+        14.87,
+        172.89
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (14)",
+    "authored_time_scale": 1.0302,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 37,
+    "audio_ms": 3826,
+    "authored_motion_ms": 2160,
+    "motion_with_return_ms": 5557,
+    "frames": 64,
+    "body_ms": 3826,
+    "peak_target_speed_dps": 186.6,
+    "peak_limited_command_speed_dps": 186.27,
+    "return_peak_speed_dps": 64.99,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        0.02,
+        70.07
+      ],
+      [
+        73.33,
+        113.0
+      ],
+      [
+        52.0,
+        95.1
+      ],
+      [
+        66.92,
+        90.06
+      ],
+      [
+        70.68,
+        115.63
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (147)",
+    "authored_time_scale": 1.7713,
+    "return_ms": 1731,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 38,
+    "audio_ms": 3750,
+    "authored_motion_ms": 3980,
+    "motion_with_return_ms": 4880,
+    "frames": 62,
+    "body_ms": 3980,
+    "peak_target_speed_dps": 186.67,
+    "peak_limited_command_speed_dps": 186.64,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        19.4,
+        162.15
+      ],
+      [
+        43.94,
+        163.74
+      ],
+      [
+        32.69,
+        157.38
+      ],
+      [
+        55.0,
+        90.0
+      ],
+      [
+        58.0,
+        157.97
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (15)",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 39,
+    "audio_ms": 3680,
+    "authored_motion_ms": 3640,
+    "motion_with_return_ms": 4580,
+    "frames": 64,
+    "body_ms": 3680,
+    "peak_target_speed_dps": 215.62,
+    "peak_limited_command_speed_dps": 215.18,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        0.0,
+        90.0
+      ],
+      [
+        90.0,
+        90.0
+      ],
+      [
+        81.03,
+        105.14
+      ],
+      [
+        68.74,
+        90.08
+      ],
+      [
+        68.8,
+        150.22
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (152)",
+    "authored_time_scale": 1.011,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 40,
+    "audio_ms": 3198,
+    "authored_motion_ms": 2660,
+    "motion_with_return_ms": 4098,
+    "frames": 55,
+    "body_ms": 3198,
+    "peak_target_speed_dps": 219.26,
+    "peak_limited_command_speed_dps": 218.95,
+    "return_peak_speed_dps": 41.67,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        11.59,
+        136.2
+      ],
+      [
+        43.06,
+        158.65
+      ],
+      [
+        78.64,
+        101.86
+      ],
+      [
+        63.66,
+        144.56
+      ],
+      [
+        21.7,
+        141.5
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (41)",
+    "authored_time_scale": 1.2023,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 41,
+    "audio_ms": 3261,
+    "authored_motion_ms": 3220,
+    "motion_with_return_ms": 4161,
+    "frames": 62,
+    "body_ms": 3261,
+    "peak_target_speed_dps": 186.33,
+    "peak_limited_command_speed_dps": 186.06,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        58.11,
+        122.63
+      ],
+      [
+        65.97,
+        132.78
+      ],
+      [
+        90.0,
+        90.0
+      ],
+      [
+        69.87,
+        134.31
+      ],
+      [
+        47.71,
+        108.21
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (46)",
+    "authored_time_scale": 1.0127,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 42,
+    "audio_ms": 2448,
+    "authored_motion_ms": 1780,
+    "motion_with_return_ms": 3348,
+    "frames": 56,
+    "body_ms": 2448,
+    "peak_target_speed_dps": 227.15,
+    "peak_limited_command_speed_dps": 227.11,
+    "return_peak_speed_dps": 41.67,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        90.0
+      ],
+      [
+        37.95,
+        154.32
+      ],
+      [
+        56.72,
+        127.05
+      ],
+      [
+        73.26,
+        90.0
+      ],
+      [
+        30.87,
+        142.8
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (5)",
+    "authored_time_scale": 1.3753,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 43,
+    "audio_ms": 4765,
+    "authored_motion_ms": 3980,
+    "motion_with_return_ms": 5665,
+    "frames": 63,
+    "body_ms": 4765,
+    "peak_target_speed_dps": 216.91,
+    "peak_limited_command_speed_dps": 216.86,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        0.0,
+        151.03
+      ],
+      [
+        60.66,
+        90.0
+      ],
+      [
+        80.38,
+        100.32
+      ],
+      [
+        67.7,
+        90.17
+      ],
+      [
+        83.02,
+        114.35
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (76)",
+    "authored_time_scale": 1.1972,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 44,
+    "audio_ms": 1010,
+    "authored_motion_ms": 1140,
+    "motion_with_return_ms": 2300,
+    "frames": 56,
+    "body_ms": 1400,
+    "peak_target_speed_dps": 252.81,
+    "peak_limited_command_speed_dps": 252.55,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        0.89,
+        90.0
+      ],
+      [
+        90.0,
+        103.05
+      ],
+      [
+        84.91,
+        92.0
+      ],
+      [
+        60.49,
+        90.7
+      ],
+      [
+        81.15,
+        112.59
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (79)",
+    "authored_time_scale": 1.2281,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 45,
+    "audio_ms": 2997,
+    "authored_motion_ms": 980,
+    "motion_with_return_ms": 3897,
+    "frames": 46,
+    "body_ms": 2997,
+    "peak_target_speed_dps": 153.75,
+    "peak_limited_command_speed_dps": 153.39,
+    "return_peak_speed_dps": 41.67,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        13.66,
+        90.0
+      ],
+      [
+        90.0,
+        90.0
+      ],
+      [
+        42.2,
+        141.14
+      ],
+      [
+        55.31,
+        90.04
+      ],
+      [
+        90.0,
+        90.0
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (8)",
+    "authored_time_scale": 3.0582,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 46,
+    "audio_ms": 4756,
+    "authored_motion_ms": 4020,
+    "motion_with_return_ms": 5656,
+    "frames": 46,
+    "body_ms": 4756,
+    "peak_target_speed_dps": 269.37,
+    "peak_limited_command_speed_dps": 269.1,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        90.0
+      ],
+      [
+        23.32,
+        164.7
+      ],
+      [
+        77.72,
+        128.87
+      ],
+      [
+        55.0,
+        90.0
+      ],
+      [
+        58.73,
+        110.15
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "叫声音效合集 (83)",
+    "authored_time_scale": 1.1831,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 47,
+    "audio_ms": 5749,
+    "authored_motion_ms": 4520,
+    "motion_with_return_ms": 7624,
+    "frames": 63,
+    "body_ms": 5749,
+    "peak_target_speed_dps": 214.39,
+    "peak_limited_command_speed_dps": 214.33,
+    "return_peak_speed_dps": 65.0,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        19.3,
+        101.0
+      ],
+      [
+        68.41,
+        136.4
+      ],
+      [
+        23.02,
+        156.54
+      ],
+      [
+        69.82,
+        110.18
+      ],
+      [
+        81.0,
+        120.47
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "咀嚼音效合集 (2)",
+    "authored_time_scale": 1.2719,
+    "return_ms": 1875,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 48,
+    "audio_ms": 7000,
+    "authored_motion_ms": 7360,
+    "motion_with_return_ms": 8260,
+    "frames": 62,
+    "body_ms": 7360,
+    "peak_target_speed_dps": 77.91,
+    "peak_limited_command_speed_dps": 77.88,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        24.19,
+        90.0
+      ],
+      [
+        68.78,
+        104.85
+      ],
+      [
+        70.01,
+        90.0
+      ],
+      [
+        88.3,
+        134.06
+      ],
+      [
+        80.48,
+        100.24
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "恐龙_长鸣",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 49,
+    "audio_ms": 3000,
+    "authored_motion_ms": 3920,
+    "motion_with_return_ms": 4820,
+    "frames": 63,
+    "body_ms": 3920,
+    "peak_target_speed_dps": 84.41,
+    "peak_limited_command_speed_dps": 84.39,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        129.6
+      ],
+      [
+        77.11,
+        116.5
+      ],
+      [
+        85.85,
+        100.73
+      ],
+      [
+        72.57,
+        90.09
+      ],
+      [
+        87.85,
+        111.97
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "恐龙_打喷嚏",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 50,
+    "audio_ms": 5000,
+    "authored_motion_ms": 5540,
+    "motion_with_return_ms": 6440,
+    "frames": 57,
+    "body_ms": 5540,
+    "peak_target_speed_dps": 91.54,
+    "peak_limited_command_speed_dps": 91.52,
+    "return_peak_speed_dps": 41.66,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        146.84
+      ],
+      [
+        75.88,
+        112.94
+      ],
+      [
+        61.7,
+        102.67
+      ],
+      [
+        70.18,
+        90.0
+      ],
+      [
+        75.29,
+        132.2
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "恐龙_哀鸣",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 51,
+    "audio_ms": 3123,
+    "authored_motion_ms": 2820,
+    "motion_with_return_ms": 4023,
+    "frames": 64,
+    "body_ms": 3123,
+    "peak_target_speed_dps": 268.03,
+    "peak_limited_command_speed_dps": 267.92,
+    "return_peak_speed_dps": 17.5,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        96.28
+      ],
+      [
+        16.94,
+        128.6
+      ],
+      [
+        67.99,
+        114.11
+      ],
+      [
+        65.65,
+        145.98
+      ],
+      [
+        70.31,
+        158.01
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "脚步音效合集 (12)",
+    "authored_time_scale": 1.1074,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 52,
+    "audio_ms": 1825,
+    "authored_motion_ms": 2440,
+    "motion_with_return_ms": 3340,
+    "frames": 62,
+    "body_ms": 2440,
+    "peak_target_speed_dps": 224.11,
+    "peak_limited_command_speed_dps": 223.81,
+    "return_peak_speed_dps": 29.16,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        99.48
+      ],
+      [
+        76.69,
+        134.58
+      ],
+      [
+        67.3,
+        112.61
+      ],
+      [
+        82.57,
+        108.63
+      ],
+      [
+        80.26,
+        134.53
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "脚步音效合集 (19)",
+    "authored_time_scale": 1.0,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 53,
+    "audio_ms": 11999,
+    "authored_motion_ms": 4020,
+    "motion_with_return_ms": 13442,
+    "frames": 62,
+    "body_ms": 11999,
+    "peak_target_speed_dps": 179.3,
+    "peak_limited_command_speed_dps": 179.06,
+    "return_peak_speed_dps": 64.97,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        69.85,
+        126.93
+      ],
+      [
+        0.82,
+        131.22
+      ],
+      [
+        39.61,
+        155.53
+      ],
+      [
+        70.72,
+        108.04
+      ],
+      [
+        13.9,
+        163.43
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "脚步音效合集 (23)",
+    "authored_time_scale": 2.9848,
+    "return_ms": 1443,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 54,
+    "audio_ms": 2623,
+    "authored_motion_ms": 1740,
+    "motion_with_return_ms": 3523,
+    "frames": 50,
+    "body_ms": 2623,
+    "peak_target_speed_dps": 330.82,
+    "peak_limited_command_speed_dps": 329.98,
+    "return_peak_speed_dps": 45.83,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        70.0,
+        88.75
+      ],
+      [
+        56.51,
+        164.75
+      ],
+      [
+        90.0,
+        90.0
+      ],
+      [
+        72.46,
+        90.01
+      ],
+      [
+        33.85,
+        161.36
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "脚步音效合集 (28)",
+    "authored_time_scale": 1.5075,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  },
+  {
+    "index": 55,
+    "audio_ms": 6495,
+    "authored_motion_ms": 5840,
+    "motion_with_return_ms": 7395,
+    "frames": 64,
+    "body_ms": 6495,
+    "peak_target_speed_dps": 164.33,
+    "peak_limited_command_speed_dps": 164.26,
+    "return_peak_speed_dps": 17.5,
+    "return_residual_deg": 0.0,
+    "axis_range_deg": [
+      [
+        66.7,
+        121.63
+      ],
+      [
+        60.65,
+        169.11
+      ],
+      [
+        75.81,
+        107.78
+      ],
+      [
+        55.0,
+        133.29
+      ],
+      [
+        63.13,
+        124.66
+      ]
+    ],
+    "board": "wzh_dinosaur",
+    "name": "脚步音效合集 (7)",
+    "authored_time_scale": 1.1122,
+    "return_ms": 900,
+    "validation_scope": "source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py"
+  }
+]

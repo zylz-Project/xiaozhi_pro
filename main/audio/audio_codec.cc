@@ -2,20 +2,35 @@
 #include "board.h"
 #include "settings.h"
 
-#include <esp_log.h>
-#include <cstring>
 #include <driver/i2s_common.h>
+#include <esp_log.h>
+#include <algorithm>
+#include <cstring>
 
 #define TAG "AudioCodec"
 
-AudioCodec::AudioCodec() {
-}
+AudioCodec::AudioCodec() {}
 
-AudioCodec::~AudioCodec() {
-}
+AudioCodec::~AudioCodec() {}
 
 void AudioCodec::OutputData(std::vector<int16_t>& data) {
+    if (speaker_protection_enabled_) {
+        if (output_processing_reset_pending_.exchange(false)) {
+            speaker_protection_.Reset();
+        }
+        speaker_protection_.Process(data);
+    }
     Write(data.data(), data.size());
+}
+
+void AudioCodec::ResetOutputProcessing() { output_processing_reset_pending_.store(true); }
+
+void AudioCodec::EnableSpeakerProtection(bool enable) {
+    speaker_protection_enabled_ = enable;
+    if (enable) {
+        speaker_protection_.Configure(output_sample_rate_);
+        ESP_LOGI(TAG, "Speaker protection: 120 Hz high-pass, RMS guard, 1 ms peak limiter");
+    }
 }
 
 bool AudioCodec::InputData(std::vector<int16_t>& data) {
@@ -29,10 +44,8 @@ bool AudioCodec::InputData(std::vector<int16_t>& data) {
 void AudioCodec::Start() {
     Settings settings("audio", false);
     output_volume_ = settings.GetInt("output_volume", output_volume_);
-    if (output_volume_ <= 0) {
-        ESP_LOGW(TAG, "Output volume value (%d) is too small, setting to default (10)", output_volume_);
-        output_volume_ = 10;
-    }
+    // Zero is an intentional mute, including after a developer-page restart.
+    output_volume_ = std::clamp(output_volume_, 0, 100);
 
     ESP_LOGI(TAG, "Audio codec started");
 }
@@ -40,7 +53,7 @@ void AudioCodec::Start() {
 void AudioCodec::SetOutputVolume(int volume) {
     output_volume_ = volume;
     ESP_LOGI(TAG, "Set output volume to %d", output_volume_);
-    
+
     Settings settings("audio", true);
     settings.SetInt("output_volume", output_volume_);
 }
@@ -63,5 +76,9 @@ void AudioCodec::EnableOutput(bool enable) {
         return;
     }
     output_enabled_ = enable;
+    if (!enable) {
+        // Drop the look-ahead tail so a re-enabled DAC cannot replay stale PCM.
+        ResetOutputProcessing();
+    }
     ESP_LOGI(TAG, "Set output enable to %s", enable ? "true" : "false");
 }

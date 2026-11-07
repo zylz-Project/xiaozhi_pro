@@ -11,6 +11,9 @@ protected:
     esp_timer_handle_t connect_timer_ = nullptr;
     bool in_config_mode_ = false;
     NetworkEventCallback network_event_callback_ = nullptr;
+    // Config AP SSID and DHCP hostname prefix, used by StartNetwork().
+    // Boards may change it in their constructor (defaults to "Xiaozhi").
+    std::string wifi_ssid_prefix_ = "Xiaozhi";
 
     virtual std::string GetBoardJson() override;
 

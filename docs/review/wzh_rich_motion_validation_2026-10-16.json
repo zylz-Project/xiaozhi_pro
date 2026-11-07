@@ -1,0 +1,772 @@
+{
+  "date": "2026-10-16",
+  "sdk": "ESP-IDF v6.0.1",
+  "host_tests": {
+    "count": 99,
+    "result": "passed",
+    "log": "host-tests.log"
+  },
+  "builds": [
+    {
+      "board": "wzh_dinosaur",
+      "variant": "wzh-dinosaur",
+      "exit_code": 0,
+      "seconds": 67.7,
+      "log": "build-logs/wzh-dinosaur.log",
+      "app_bytes": 2409456,
+      "synthetic_interaction_audio_embedded": false,
+      "artifact_sha256": {
+        "bootloader/bootloader.bin": "0b922d69bdb9e8c004128e571c4f0beeb00ebccd9746a31cafd0acffbcaf3a71",
+        "flash_args": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db",
+        "flasher_args.json": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc",
+        "generated_assets.bin": "cad0de15dd40f7f3691f1143603664f9c5282b1846cda99f331c29965ab85bc2",
+        "merged-binary.bin": "8bdb7cae305cbe8236be615314ac1c6932aa680d6f823486be29111c7ce3ab1a",
+        "ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+        "partition_table/partition-table.bin": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5",
+        "sdkconfig.snapshot": "c660ac4f5d385dc78b90c1bca8cb0b69602561b5af56686f8b908d1e5d2d7ea6",
+        "speech-models.json": "d7476913a76f6970aceb1d7d51751cbc17ff557d8d2c9b6cafcb13c67fa3181e",
+        "xiaozhi.bin": "e4116a4f8cbb221278dd3cfc4ca50ac45364da8f46141da236e3e6381b7ef25d"
+      },
+      "wake_word": "小龙小龙",
+      "speech_models": [
+        "mn7_cn",
+        "wn9_xiaolongxiaolong_tts",
+        "fst"
+      ],
+      "local_commands": 12,
+      "assets_checksum_verified": true,
+      "merged_offsets_verified": true
+    },
+    {
+      "board": "wzh_tailRedPanda",
+      "variant": "wzh-tailredpanda",
+      "exit_code": 0,
+      "seconds": 70.1,
+      "log": "build-logs/wzh-tailredpanda.log",
+      "app_bytes": 2392832,
+      "synthetic_interaction_audio_embedded": false,
+      "artifact_sha256": {
+        "bootloader/bootloader.bin": "0b922d69bdb9e8c004128e571c4f0beeb00ebccd9746a31cafd0acffbcaf3a71",
+        "flash_args": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db",
+        "flasher_args.json": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc",
+        "generated_assets.bin": "89a6d4d2199cb338649ffd1eb67818e7e44a764767ddebcb3d86eee1fcc2943a",
+        "merged-binary.bin": "068ec4851b69679c012c536caa0d3caff762fba138852c04eff54b43ccf3f224",
+        "ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+        "partition_table/partition-table.bin": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5",
+        "sdkconfig.snapshot": "913762adde8c2f121576465a232e2896a4adf02fbdb0886463af1a31f7404b96",
+        "speech-models.json": "f9132c6fb1ee22f549eea07ec543bb41d16053dc50cca0983e48939c3e4c786d",
+        "xiaozhi.bin": "b89fde1bbde939c33aedaee8fbc8d815171d8cc30a420ccc712a0a4ddbd7dfce"
+      },
+      "wake_word": "你好星宝",
+      "speech_models": [
+        "mn7_cn",
+        "wn9l_ni3hao3xing1bao3_tts3",
+        "fst"
+      ],
+      "local_commands": 12,
+      "assets_checksum_verified": true,
+      "merged_offsets_verified": true
+    },
+    {
+      "board": "wzh_crawlPanda",
+      "variant": "wzh-crawlpanda",
+      "exit_code": 0,
+      "seconds": 64.2,
+      "log": "build-logs/wzh-crawlpanda.log",
+      "app_bytes": 2392656,
+      "synthetic_interaction_audio_embedded": false,
+      "artifact_sha256": {
+        "bootloader/bootloader.bin": "0b922d69bdb9e8c004128e571c4f0beeb00ebccd9746a31cafd0acffbcaf3a71",
+        "flash_args": "928ffa71cfb830d3c13e28cea1491354655f13052a52c6a501b8e59d4973d6db",
+        "flasher_args.json": "152dec92873e5c47efe132ed4e65e1ded2f0dcc18dea5ee460e6cddd1027fccc",
+        "generated_assets.bin": "32392a73768dbf0a2576b7472af21d1ecbdf7580109a5e4a7e5d0b50785d9b5f",
+        "merged-binary.bin": "0b951022cd176d496c544088ffafd8475bfb1640ae21698b9f309832ca3bbea7",
+        "ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
+        "partition_table/partition-table.bin": "4811619cacae08ef2e0e71b7220c6033a346ca5da7ca179082408c963ef530b5",
+        "sdkconfig.snapshot": "94dc178a04f2be82c6f18d3b202da2d35f06bfbe5881fe360cea9c6cf9973106",
+        "speech-models.json": "07215e57a80d9689dbc5dfa86ae0da73276c33ffa7c542024881e4785b54c357",
+        "xiaozhi.bin": "ab33fe069f8a03ed0c1037b385f9a397e607749925fb4fbd141b1100d73aad1c"
+      },
+      "wake_word": "你好小安",
+      "speech_models": [
+        "mn7_cn",
+        "wn9_nihaoxiaoan_tts2",
+        "fst"
+      ],
+      "local_commands": 12,
+      "assets_checksum_verified": true,
+      "merged_offsets_verified": true
+    }
+  ],
+  "format_check": {
+    "result": "passed",
+    "files": 6,
+    "clang_format": "23.1.3"
+  },
+  "hardware_tested": false,
+  "final_local_board": "wzh-crawlpanda",
+  "motion_validation": {
+    "all_three_controller_output_paths": "passed",
+    "panda_profile_modes": [
+      "normal",
+      "gentle",
+      "quiet"
+    ],
+    "panda_final_speed_deg_s": 160,
+    "dinosaur_final_speed_deg_s": 160,
+    "crawl_left_forward_target": 8,
+    "crawl_right_forward_target": 172,
+    "autonomous_idle_shows": false,
+    "physical_position_feedback": false
+  },
+  "interaction_validation": {
+    "event_types": 11,
+    "clips_per_product": 33,
+    "pad_variants": 3,
+    "all_event_variants": 3,
+    "shuffle_without_adjacent_repeat": true,
+    "triple_tap_rearms": true,
+    "gesture_preserves_current_flash_call": true,
+    "queue_reserves_before_decode": true,
+    "explicit_stop_cancels_playback": true,
+    "virtual_idle_hours": 24,
+    "tested": "production code with clock, audio and hardware substitutes"
+  },
+  "fluent_motion_validation": {
+    "same_direction_waypoint_velocity_continuity": "passed",
+    "fractional_pwm_duty": "passed",
+    "own_motion_pet_gestures_suppressed": true,
+    "settling_window_ms": 600,
+    "independent_free_fall_during_powered_motion": "passed with sensor/task substitutes",
+    "long_recording_does_not_extend_gesture": "passed",
+    "routine_battery_log_seconds": 30,
+    "hardware_measured": false
+  },
+  "rich_motion_validation": {
+    "catalogue": {
+      "date": "2026-10-16",
+      "event_types": 11,
+      "variants_per_event": 3,
+      "hardware_tested": false,
+      "products": {
+        "wzh_crawlPanda": {
+          "counts": {
+            "full": {
+              "before": 27,
+              "current": 33
+            },
+            "body": {
+              "before": 8,
+              "current": 8
+            },
+            "interaction": {
+              "before": 15,
+              "current": 33
+            }
+          },
+          "added": {
+            "full": [
+              "curious_paw_search",
+              "curious_listen_back",
+              "affection_paw_cuddle",
+              "affection_open_hug",
+              "playful_invite",
+              "playful_weight_shift"
+            ],
+            "body": [],
+            "interaction": [
+              "ack_playful_alt",
+              "ack_held_alt",
+              "ack_released_alt",
+              "ack_pickup_alt",
+              "ack_shake_alt",
+              "ack_flip_alt",
+              "ack_settled_alt",
+              "ack_touch1_story",
+              "ack_touch2_story",
+              "ack_touch3_story",
+              "ack_touch4_story",
+              "ack_playful_story",
+              "ack_held_story",
+              "ack_released_story",
+              "ack_pickup_story",
+              "ack_shake_story",
+              "ack_flip_story",
+              "ack_settled_story"
+            ]
+          },
+          "clips": {
+            "full": [
+              "idle_listen",
+              "idle_paw_adjust",
+              "idle_breath",
+              "idle_stretch",
+              "curious_peek",
+              "curious_reach",
+              "curious_double_check",
+              "eat_hold_bamboo",
+              "eat_chew",
+              "eat_paw_swap",
+              "baby_call",
+              "baby_paddle",
+              "baby_find_user",
+              "proud_push_up",
+              "proud_patrol",
+              "proud_call",
+              "affection_hug",
+              "affection_shy",
+              "affection_ask_up",
+              "playful_crawl",
+              "playful_paw_drum",
+              "playful_pounce",
+              "ambient_listen",
+              "ambient_rain",
+              "ambient_explore",
+              "ambient_stretch",
+              "settle",
+              "curious_paw_search",
+              "curious_listen_back",
+              "affection_paw_cuddle",
+              "affection_open_hug",
+              "playful_invite",
+              "playful_weight_shift"
+            ],
+            "body": [
+              "body_shake_head",
+              "body_look_left",
+              "body_look_right",
+              "body_wave_left",
+              "body_wave_right",
+              "body_raise_arms",
+              "body_crawl",
+              "body_crawl_both"
+            ],
+            "interaction": [
+              "ack_touch1",
+              "ack_touch2",
+              "ack_touch3",
+              "ack_touch4",
+              "ack_playful",
+              "ack_held",
+              "ack_released",
+              "ack_pickup",
+              "ack_shake",
+              "ack_flip",
+              "ack_settled",
+              "ack_touch1_alt",
+              "ack_touch2_alt",
+              "ack_touch3_alt",
+              "ack_touch4_alt",
+              "ack_playful_alt",
+              "ack_held_alt",
+              "ack_released_alt",
+              "ack_pickup_alt",
+              "ack_shake_alt",
+              "ack_flip_alt",
+              "ack_settled_alt",
+              "ack_touch1_story",
+              "ack_touch2_story",
+              "ack_touch3_story",
+              "ack_touch4_story",
+              "ack_playful_story",
+              "ack_held_story",
+              "ack_released_story",
+              "ack_pickup_story",
+              "ack_shake_story",
+              "ack_flip_story",
+              "ack_settled_story"
+            ]
+          },
+          "interactions": {
+            "touch1": [
+              "ack_touch1",
+              "ack_touch1_alt",
+              "ack_touch1_story"
+            ],
+            "touch2": [
+              "ack_touch2",
+              "ack_touch2_alt",
+              "ack_touch2_story"
+            ],
+            "touch3": [
+              "ack_touch3",
+              "ack_touch3_alt",
+              "ack_touch3_story"
+            ],
+            "touch4": [
+              "ack_touch4",
+              "ack_touch4_alt",
+              "ack_touch4_story"
+            ],
+            "playful": [
+              "ack_playful",
+              "ack_playful_alt",
+              "ack_playful_story"
+            ],
+            "held": [
+              "ack_held",
+              "ack_held_alt",
+              "ack_held_story"
+            ],
+            "released": [
+              "ack_released",
+              "ack_released_alt",
+              "ack_released_story"
+            ],
+            "picked_up": [
+              "ack_pickup",
+              "ack_pickup_alt",
+              "ack_pickup_story"
+            ],
+            "shaken": [
+              "ack_shake",
+              "ack_shake_alt",
+              "ack_shake_story"
+            ],
+            "flipped": [
+              "ack_flip",
+              "ack_flip_alt",
+              "ack_flip_story"
+            ],
+            "settled": [
+              "ack_settled",
+              "ack_settled_alt",
+              "ack_settled_story"
+            ]
+          }
+        },
+        "wzh_tailRedPanda": {
+          "counts": {
+            "full": {
+              "before": 28,
+              "current": 34
+            },
+            "body": {
+              "before": 5,
+              "current": 5
+            },
+            "interaction": {
+              "before": 15,
+              "current": 33
+            }
+          },
+          "added": {
+            "full": [
+              "curious_look_back",
+              "curious_tail_radar",
+              "affection_tail_wrap",
+              "affection_peek",
+              "playful_ribbon",
+              "playful_welcome"
+            ],
+            "body": [],
+            "interaction": [
+              "ack_playful_alt",
+              "ack_held_alt",
+              "ack_released_alt",
+              "ack_pickup_alt",
+              "ack_shake_alt",
+              "ack_flip_alt",
+              "ack_settled_alt",
+              "ack_touch1_story",
+              "ack_touch2_story",
+              "ack_touch3_story",
+              "ack_touch4_story",
+              "ack_playful_story",
+              "ack_held_story",
+              "ack_released_story",
+              "ack_pickup_story",
+              "ack_shake_story",
+              "ack_flip_story",
+              "ack_settled_story"
+            ]
+          },
+          "clips": {
+            "full": [
+              "idle_glance",
+              "idle_low_sweep",
+              "idle_perk",
+              "idle_circle",
+              "curious_peek",
+              "curious_track",
+              "curious_circle",
+              "eat_search",
+              "eat_chew",
+              "eat_look_up",
+              "baby_seek",
+              "baby_wiggle",
+              "baby_comfort",
+              "proud_display",
+              "proud_patrol",
+              "proud_call",
+              "affection_nuzzle",
+              "affection_shy",
+              "affection_curl",
+              "playful_wag",
+              "playful_chase",
+              "playful_figure8",
+              "ambient_listen",
+              "ambient_rain",
+              "ambient_scent",
+              "ambient_stretch",
+              "settle",
+              "startled_flinch",
+              "curious_look_back",
+              "curious_tail_radar",
+              "affection_tail_wrap",
+              "affection_peek",
+              "playful_ribbon",
+              "playful_welcome"
+            ],
+            "body": [
+              "body_shake_head",
+              "body_look_left",
+              "body_look_right",
+              "body_wag_tail",
+              "body_twist_neck"
+            ],
+            "interaction": [
+              "ack_touch1",
+              "ack_touch2",
+              "ack_touch3",
+              "ack_touch4",
+              "ack_playful",
+              "ack_held",
+              "ack_released",
+              "ack_pickup",
+              "ack_shake",
+              "ack_flip",
+              "ack_settled",
+              "ack_touch1_alt",
+              "ack_touch2_alt",
+              "ack_touch3_alt",
+              "ack_touch4_alt",
+              "ack_playful_alt",
+              "ack_held_alt",
+              "ack_released_alt",
+              "ack_pickup_alt",
+              "ack_shake_alt",
+              "ack_flip_alt",
+              "ack_settled_alt",
+              "ack_touch1_story",
+              "ack_touch2_story",
+              "ack_touch3_story",
+              "ack_touch4_story",
+              "ack_playful_story",
+              "ack_held_story",
+              "ack_released_story",
+              "ack_pickup_story",
+              "ack_shake_story",
+              "ack_flip_story",
+              "ack_settled_story"
+            ]
+          },
+          "interactions": {
+            "touch1": [
+              "ack_touch1",
+              "ack_touch1_alt",
+              "ack_touch1_story"
+            ],
+            "touch2": [
+              "ack_touch2",
+              "ack_touch2_alt",
+              "ack_touch2_story"
+            ],
+            "touch3": [
+              "ack_touch3",
+              "ack_touch3_alt",
+              "ack_touch3_story"
+            ],
+            "touch4": [
+              "ack_touch4",
+              "ack_touch4_alt",
+              "ack_touch4_story"
+            ],
+            "playful": [
+              "ack_playful",
+              "ack_playful_alt",
+              "ack_playful_story"
+            ],
+            "held": [
+              "ack_held",
+              "ack_held_alt",
+              "ack_held_story"
+            ],
+            "released": [
+              "ack_released",
+              "ack_released_alt",
+              "ack_released_story"
+            ],
+            "picked_up": [
+              "ack_pickup",
+              "ack_pickup_alt",
+              "ack_pickup_story"
+            ],
+            "shaken": [
+              "ack_shake",
+              "ack_shake_alt",
+              "ack_shake_story"
+            ],
+            "flipped": [
+              "ack_flip",
+              "ack_flip_alt",
+              "ack_flip_story"
+            ],
+            "settled": [
+              "ack_settled",
+              "ack_settled_alt",
+              "ack_settled_story"
+            ]
+          }
+        },
+        "wzh_dinosaur": {
+          "counts": {
+            "full": {
+              "before": 24,
+              "current": 30
+            },
+            "short_sound": {
+              "before": 24,
+              "current": 30
+            },
+            "roar": {
+              "before": 7,
+              "current": 7
+            },
+            "body": {
+              "before": 7,
+              "current": 7
+            },
+            "interaction": {
+              "before": 15,
+              "current": 33
+            }
+          },
+          "added": {
+            "full": [
+              "discover-scent-trail",
+              "discover-listen-back",
+              "affection-cheek-nest",
+              "affection-reassure",
+              "happy-play-bow",
+              "happy-tail-fanfare"
+            ],
+            "short_sound": [
+              "sound-discover-scent",
+              "sound-discover-listen-back",
+              "sound-affection-cheek",
+              "sound-affection-reassure",
+              "sound-happy-bow",
+              "sound-happy-fanfare"
+            ],
+            "roar": [],
+            "body": [],
+            "interaction": [
+              "ack-playful-alt",
+              "ack-held-alt",
+              "ack-released-alt",
+              "ack-pickup-alt",
+              "ack-shake-alt",
+              "ack-flip-alt",
+              "ack-settled-alt",
+              "ack-touch1-story",
+              "ack-touch2-story",
+              "ack-touch3-story",
+              "ack-touch4-story",
+              "ack-playful-story",
+              "ack-held-story",
+              "ack-released-story",
+              "ack-pickup-story",
+              "ack-shake-story",
+              "ack-flip-story",
+              "ack-settled-story"
+            ]
+          },
+          "clips": {
+            "full": [
+              "discover-direct",
+              "discover-peek",
+              "discover-track",
+              "discover-canopy",
+              "discover-scent-trail",
+              "discover-listen-back",
+              "affection-bow",
+              "affection-nuzzle",
+              "affection-nest",
+              "affection-check-in",
+              "affection-cheek-nest",
+              "affection-reassure",
+              "happy-display",
+              "happy-chase",
+              "happy-arc",
+              "happy-invite",
+              "happy-play-bow",
+              "happy-tail-fanfare",
+              "proud-call",
+              "proud-survey",
+              "eat-peck",
+              "eat-forage",
+              "eat-graze",
+              "listen-locate",
+              "listen-echo",
+              "listen-confirm",
+              "startled-recoil",
+              "startled-recover",
+              "sleepy-nod",
+              "sleepy-dream"
+            ],
+            "short_sound": [
+              "sound-discover",
+              "sound-discover-sweep",
+              "sound-discover-sky",
+              "sound-discover-scent",
+              "sound-discover-listen-back",
+              "sound-affection",
+              "sound-affection-lean",
+              "sound-affection-shy",
+              "sound-affection-cheek",
+              "sound-affection-reassure",
+              "sound-happy",
+              "sound-happy-greeting",
+              "sound-happy-orbit",
+              "sound-happy-bow",
+              "sound-happy-fanfare",
+              "sound-proud",
+              "sound-proud-guard",
+              "sound-proud-sentry",
+              "sound-eat",
+              "sound-eat-nibble",
+              "sound-eat-look-up",
+              "sound-listen",
+              "sound-listen-track",
+              "sound-listen-overhead",
+              "sound-startled",
+              "sound-startled-peek",
+              "sound-startled-duck",
+              "sound-sleepy",
+              "sound-sleepy-sigh",
+              "sound-sleepy-wrap"
+            ],
+            "roar": [
+              "roar-front",
+              "roar-quick-answer",
+              "roar-side-rise",
+              "roar-high-sweep",
+              "roar-echo",
+              "roar-soft-answer",
+              "roar-crown-arc"
+            ],
+            "body": [
+              "body-shake-head",
+              "body-look-left",
+              "body-look-right",
+              "body-look-up",
+              "body-look-down",
+              "body-wag-tail",
+              "body-twist-neck"
+            ],
+            "interaction": [
+              "ack-touch1",
+              "ack-touch2",
+              "ack-touch3",
+              "ack-touch4",
+              "ack-playful",
+              "ack-held",
+              "ack-released",
+              "ack-pickup",
+              "ack-shake",
+              "ack-flip",
+              "ack-settled",
+              "ack-touch1-alt",
+              "ack-touch2-alt",
+              "ack-touch3-alt",
+              "ack-touch4-alt",
+              "ack-playful-alt",
+              "ack-held-alt",
+              "ack-released-alt",
+              "ack-pickup-alt",
+              "ack-shake-alt",
+              "ack-flip-alt",
+              "ack-settled-alt",
+              "ack-touch1-story",
+              "ack-touch2-story",
+              "ack-touch3-story",
+              "ack-touch4-story",
+              "ack-playful-story",
+              "ack-held-story",
+              "ack-released-story",
+              "ack-pickup-story",
+              "ack-shake-story",
+              "ack-flip-story",
+              "ack-settled-story"
+            ]
+          },
+          "interactions": {
+            "touch1": [
+              "ack-touch1",
+              "ack-touch1-alt",
+              "ack-touch1-story"
+            ],
+            "touch2": [
+              "ack-touch2",
+              "ack-touch2-alt",
+              "ack-touch2-story"
+            ],
+            "touch3": [
+              "ack-touch3",
+              "ack-touch3-alt",
+              "ack-touch3-story"
+            ],
+            "touch4": [
+              "ack-touch4",
+              "ack-touch4-alt",
+              "ack-touch4-story"
+            ],
+            "playful": [
+              "ack-playful",
+              "ack-playful-alt",
+              "ack-playful-story"
+            ],
+            "held": [
+              "ack-held",
+              "ack-held-alt",
+              "ack-held-story"
+            ],
+            "released": [
+              "ack-released",
+              "ack-released-alt",
+              "ack-released-story"
+            ],
+            "picked_up": [
+              "ack-pickup",
+              "ack-pickup-alt",
+              "ack-pickup-story"
+            ],
+            "shaken": [
+              "ack-shake",
+              "ack-shake-alt",
+              "ack-shake-story"
+            ],
+            "flipped": [
+              "ack-flip",
+              "ack-flip-alt",
+              "ack-flip-story"
+            ],
+            "settled": [
+              "ack-settled",
+              "ack-settled-alt",
+              "ack-settled-story"
+            ]
+          }
+        }
+      },
+      "added_clip_count": 78
+    },
+    "all_new_stories_reachable": true,
+    "all_event_variants_distinct_after_clamp": true,
+    "all_events_draw_all_three_before_reshuffle": true,
+    "happy_selects_playful_family": true,
+    "directional_crawl_commands_preserved": true
+  },
+  "full_record": "../../dist/wzh-rich-motion-20261016/validation.json"
+}

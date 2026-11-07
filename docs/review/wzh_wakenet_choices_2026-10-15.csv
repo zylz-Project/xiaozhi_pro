@@ -1,0 +1,65 @@
+﻿配置键,SDK显示名称,模型目录名,本地目录存在,说明
+SR_WN_WN9S_HILEXIN,"Hi,乐鑫 (wn9s_hilexin)",wn9s_hilexin,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9S_HIESP,"Hi,ESP (wn9s_hiesp)",wn9s_hiesp,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9S_NIHAOXIAOZHI,你好小智 (wn9s_nihaoxiaozhi),wn9s_nihaoxiaozhi,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9S_HIJASON,"Hi,Jason (wn9s_hijason)",wn9s_hijason,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HILEXIN,"Hi,乐鑫 (wn9_hilexin)",wn9_hilexin,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIESP,"Hi,ESP (wn9_hiesp)",wn9_hiesp,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9L_JA_KONNICHIHAESP_TTS3,こんにちは ESP (wn9l_ja_konnichihaesp_tts3),wn9l_ja_konnichihaesp_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9L_FR_BONJOURESP_TTS3,Bonjour ESP (wn9l_fr_bonjouresp_tts3),wn9l_fr_bonjouresp_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NIHAOMIAOBAN_TTS2,你好喵伴 (wn9_nihaomiaoban_tts2),wn9_nihaomiaoban_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOAITONGXUE,小爱同学 (wn9_xiaoaitongxue),wn9_xiaoaitongxue,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9L_XIAOAITONGXUE,小爱同学 (wn9l_xiaoaitongxue),wn9l_xiaoaitongxue,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NIHAOXIAOZHI_TTS,你好小智 (wn9_nihaoxiaozhi_tts),wn9_nihaoxiaozhi_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9L_NIHAOXIAOZHI_TTS3,你好小智 (wn9l_nihaoxiaozhi_tts3),wn9l_nihaoxiaozhi_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_ALEXA,Alexa (wn9_alexa),wn9_alexa,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_JARVIS_TTS,Jarvis (wn9_jarvis_tts),wn9_jarvis_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_COMPUTER_TTS,computer (wn9_computer_tts),wn9_computer_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HEYWILLOW_TTS,"Hey,Willow (wn9_heywillow_tts)",wn9_heywillow_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIMFIVE,"Hi,M Five (wn9_himfive)",wn9_himfive,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_SOPHIA_TTS,Sophia (wn9_sophia_tts),wn9_sophia_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HEYWANDA_TTS,"Hey,Wanda (wn9_heywanda_tts)",wn9_heywanda_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIJOLLY_TTS2,"Hi,Jolly (wn9_hijolly_tts2)",wn9_hijolly_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIFAIRY_TTS2,"Hi,Fairy (wn9_hifairy_tts2)",wn9_hifairy_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HEYPRINTER_TTS,"Hey,Printer (wn9_heyprinter_tts)",wn9_heyprinter_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_MYCROFT_TTS,Mycroft (wn9_mycroft_tts),wn9_mycroft_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIJOY_TTS,"Hi,Joy (wn9_hijoy_tts)",wn9_hijoy_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIJASON_TTS2,"Hi,Jason (wn9_hijason_tts2)",wn9_hijason_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_ASTROLABE_TTS,Astrolabe (wn9_astrolabe_tts),wn9_astrolabe_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HEYILY_TTS2,"Hey,Ily (wn9_heyily_tts2)",wn9_heyily_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_BLUECHIP_TTS2,Blue Chip (wn9_bluechip_tts2),wn9_bluechip_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIANDY_TTS2,"Hi,Andy (wn9_hiandy_tts2)",wn9_hiandy_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HEYIVY_TTS2,"Hey,Ivy (wn9_heyivy_tts2)",wn9_heyivy_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9L_HISTACKCHAN_TTS3,"Hi,Stack Chan (wn9l_histackchan_tts3)",wn9l_histackchan_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HEYKIRA_TTS3,"Hey,Kira (wn9_heykira_tts3)",wn9_heykira_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9L_HEYGIGI_TTS3,"Hey,GiGi (wn9l_heygigi_tts3)",wn9l_heygigi_tts3,False,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOLONGXIAOLONG_TTS,小龙小龙 (wn9_xiaolongxiaolong_tts),wn9_xiaolongxiaolong_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIMIAOMIAO_TTS,"Hi,喵喵 (wn9_himiaomiao_tts)",wn9_himiaomiao_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_MIAOMIAOTONGXUE_TTS,喵喵同学 (wn9_miaomiaotongxue_tts),wn9_miaomiaotongxue_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NIHAOXIAOXIN_TTS,你好小鑫 (wn9_nihaoxiaoxin_tts),wn9_nihaoxiaoxin_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOMEITONGXUE_TTS,小美同学 (wn9_xiaomeitongxue_tts),wn9_xiaomeitongxue_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HILILI_TTS,"Hi,Lily/Hi,莉莉 (wn9_hilili_tts)",wn9_hilili_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HITELLY_TTS,"Hi,Telly/Hi,泰力 (wn9_hitelly_tts)",wn9_hitelly_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOBINXIAOBIN_TTS,小滨小滨/小冰小冰 (wn9_xiaobinxiaobin_tts),wn9_xiaobinxiaobin_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HAIXIAOWU_TTS,"Hi,小巫 (wn9_haixiaowu_tts)",wn9_haixiaowu_tts,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOYAXIAOYA_TTS2,小鸭小鸭 (wn9_xiaoyaxiaoya_tts2),wn9_xiaoyaxiaoya_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_LINAIBAN_TTS2,璃奈板 (wn9_linaiban_tts2),wn9_linaiban_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOSUROU_TTS2,小酥肉 (wn9_xiaosurou_tts2),wn9_xiaosurou_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOYUTONGXUE_TTS2,小宇同学 (wn9_xiaoyutongxue_tts2),wn9_xiaoyutongxue_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOMINGTONGXUE_TTS2,小明同学 (wn9_xiaomingtongxue_tts2),wn9_xiaomingtongxue_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOKANGTONGXUE_TTS2,小康同学 (wn9_xiaokangtongxue_tts2),wn9_xiaokangtongxue_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOJIANXIAOJIAN_TTS2,小箭小箭 (wn9_xiaojianxiaojian_tts2),wn9_xiaojianxiaojian_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOTEXIAOTE_TTS2,小特小特 (wn9_xiaotexiaote_tts2),wn9_xiaotexiaote_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NIHAOXIAOYI_TTS2,你好小益 (wn9_nihaoxiaoyi_tts2),wn9_nihaoxiaoyi_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NIHAOBAIYING_TTS2,你好百应 (wn9_nihaobaiying_tts2),wn9_nihaobaiying_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NIHAODONGDONG_TTS2,你好东东 (wn9_nihaodongdong_tts2),wn9_nihaodongdong_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HIWALLE_TTS2,Hi Wall E or Hi 瓦力(wn9_hiwalle_tts2),wn9_hiwalle_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAOLUXIAOLU_TTS2,小鹿小鹿 (wn9_xiaoluxiaolu_tts2),wn9_xiaoluxiaolu_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NIHAOXIAOAN_TTS2,你好小安 (wn9_nihaoxiaoan_tts2),wn9_nihaoxiaoan_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NI3HAO3XIAO3MAI4_TTS2,你好小脉 (wn9_ni3hao3xiao3mai4_tts2),wn9_ni3hao3xiao3mai4_tts2,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_NI3HAO3XIAO3RUI4_TTS3,你好小瑞 (wn9_ni3hao3xiao3rui4_tts3),wn9_ni3hao3xiao3rui4_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HAI1XIAO3OU1_TTS3,嗨小欧 (wn9_hai1xiao3ou1_tts3),wn9_hai1xiao3ou1_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAO3JIA1XIAO3JIA1_TTS3,小珈小珈 (wn9_xiao3jia1xiao3jia1_tts3),wn9_xiao3jia1xiao3jia1_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_XIAO3FENG1XIAO3FENG1_TTS3,小峰小峰 (wn9_xiao3feng1xiao3feng1_tts3),wn9_xiao3feng1xiao3feng1_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9_HAI1XIAO3XIANG4_TTS3,嗨小象 (wn9_hai1xiao3xiang4_tts3),wn9_hai1xiao3xiang4_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准
+SR_WN_WN9L_NI3HAO3XING1BAO3_TTS3,你好星宝 (wn9l_ni3hao3xing1bao3_tts3),wn9l_ni3hao3xing1bao3_tts3,True,SDK预训练选项；非当前MultiNet路径；芯片依赖以Kconfig为准

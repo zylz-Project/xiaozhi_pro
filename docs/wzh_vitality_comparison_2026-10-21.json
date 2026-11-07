@@ -1,0 +1,1130 @@
+{
+  "source": "actual paired recordings and production C++ motion player",
+  "sample_ms": 20,
+  "variants_per_source": 32,
+  "includes_entry": true,
+  "hardware_measurement": false,
+  "products": [
+    {
+      "board": "wzh_crawlPanda",
+      "summary": {
+        "mean_axis_range_deg": {
+          "before": 59.02105714285715,
+          "after": 64.80109285714286,
+          "change_percent": 9.793175510725693
+        },
+        "mean_joint_speed_dps": {
+          "before": 54.12993571428571,
+          "after": 64.50152857142857,
+          "change_percent": 19.16054900173405
+        },
+        "moving_fraction_above_25dps": {
+          "before": 0.8334049285714286,
+          "after": 0.8418351428571428,
+          "change_percent": 1.0115388086514798
+        },
+        "motion_ms": {
+          "before": 3927.0714285714284,
+          "after": 3927.0714285714284,
+          "change_percent": 0.0
+        }
+      },
+      "files": [
+        {
+          "before": {
+            "name": "a可爱_熊猫宝宝_叫声哼唧",
+            "mean_axis_range_deg": 61.8459,
+            "mean_joint_speed_dps": 74.9878,
+            "moving_fraction_above_25dps": 0.873106,
+            "peak_20ms_target_speed_dps": 292.751,
+            "motion_ms": 2899.0,
+            "body_ms": 1999.0
+          },
+          "after": {
+            "name": "a可爱_熊猫宝宝_叫声哼唧",
+            "mean_axis_range_deg": 69.134,
+            "mean_joint_speed_dps": 91.3707,
+            "moving_fraction_above_25dps": 0.884154,
+            "peak_20ms_target_speed_dps": 342.128,
+            "motion_ms": 2899.0,
+            "body_ms": 1999.0
+          }
+        },
+        {
+          "before": {
+            "name": "摸头_欢快的“嗯”声",
+            "mean_axis_range_deg": 54.7677,
+            "mean_joint_speed_dps": 43.2596,
+            "moving_fraction_above_25dps": 0.827601,
+            "peak_20ms_target_speed_dps": 243.085,
+            "motion_ms": 3900.0,
+            "body_ms": 3000.0
+          },
+          "after": {
+            "name": "摸头_欢快的“嗯”声",
+            "mean_axis_range_deg": 61.3624,
+            "mean_joint_speed_dps": 48.8429,
+            "moving_fraction_above_25dps": 0.837878,
+            "peak_20ms_target_speed_dps": 280.173,
+            "motion_ms": 3900.0,
+            "body_ms": 3000.0
+          }
+        },
+        {
+          "before": {
+            "name": "摸头_回头找人",
+            "mean_axis_range_deg": 40.2701,
+            "mean_joint_speed_dps": 51.746,
+            "moving_fraction_above_25dps": 0.814873,
+            "peak_20ms_target_speed_dps": 285.871,
+            "motion_ms": 2500.0,
+            "body_ms": 1600.0
+          },
+          "after": {
+            "name": "摸头_回头找人",
+            "mean_axis_range_deg": 44.3045,
+            "mean_joint_speed_dps": 64.4157,
+            "moving_fraction_above_25dps": 0.853639,
+            "peak_20ms_target_speed_dps": 319.765,
+            "motion_ms": 2500.0,
+            "body_ms": 1600.0
+          }
+        },
+        {
+          "before": {
+            "name": "待机_有些犯困",
+            "mean_axis_range_deg": 68.3079,
+            "mean_joint_speed_dps": 39.5502,
+            "moving_fraction_above_25dps": 0.87657,
+            "peak_20ms_target_speed_dps": 218.925,
+            "motion_ms": 4900.0,
+            "body_ms": 4000.0
+          },
+          "after": {
+            "name": "待机_有些犯困",
+            "mean_axis_range_deg": 75.2776,
+            "mean_joint_speed_dps": 48.5535,
+            "moving_fraction_above_25dps": 0.881281,
+            "peak_20ms_target_speed_dps": 282.181,
+            "motion_ms": 4900.0,
+            "body_ms": 4000.0
+          }
+        },
+        {
+          "before": {
+            "name": "笑声",
+            "mean_axis_range_deg": 48.9449,
+            "mean_joint_speed_dps": 62.0379,
+            "moving_fraction_above_25dps": 0.816456,
+            "peak_20ms_target_speed_dps": 209.256,
+            "motion_ms": 2500.0,
+            "body_ms": 1600.0
+          },
+          "after": {
+            "name": "笑声",
+            "mean_axis_range_deg": 57.8968,
+            "mean_joint_speed_dps": 73.4745,
+            "moving_fraction_above_25dps": 0.84019,
+            "peak_20ms_target_speed_dps": 257.24,
+            "motion_ms": 2500.0,
+            "body_ms": 1600.0
+          }
+        },
+        {
+          "before": {
+            "name": "熊猫_咀嚼",
+            "mean_axis_range_deg": 66.9209,
+            "mean_joint_speed_dps": 41.5075,
+            "moving_fraction_above_25dps": 0.852285,
+            "peak_20ms_target_speed_dps": 202.914,
+            "motion_ms": 5460.0,
+            "body_ms": 4560.0
+          },
+          "after": {
+            "name": "熊猫_咀嚼",
+            "mean_axis_range_deg": 73.9406,
+            "mean_joint_speed_dps": 49.2941,
+            "moving_fraction_above_25dps": 0.859169,
+            "peak_20ms_target_speed_dps": 244.329,
+            "motion_ms": 5460.0,
+            "body_ms": 4560.0
+          }
+        },
+        {
+          "before": {
+            "name": "熊猫撒娇声音",
+            "mean_axis_range_deg": 34.6439,
+            "mean_joint_speed_dps": 52.1056,
+            "moving_fraction_above_25dps": 0.822389,
+            "peak_20ms_target_speed_dps": 198.978,
+            "motion_ms": 2500.0,
+            "body_ms": 1600.0
+          },
+          "after": {
+            "name": "熊猫撒娇声音",
+            "mean_axis_range_deg": 46.7341,
+            "mean_joint_speed_dps": 73.2428,
+            "moving_fraction_above_25dps": 0.85443,
+            "peak_20ms_target_speed_dps": 275.005,
+            "motion_ms": 2500.0,
+            "body_ms": 1600.0
+          }
+        },
+        {
+          "before": {
+            "name": "熊猫_喷嚏",
+            "mean_axis_range_deg": 70.8338,
+            "mean_joint_speed_dps": 62.1686,
+            "moving_fraction_above_25dps": 0.783696,
+            "peak_20ms_target_speed_dps": 338.619,
+            "motion_ms": 3220.0,
+            "body_ms": 2320.0
+          },
+          "after": {
+            "name": "熊猫_喷嚏",
+            "mean_axis_range_deg": 71.8375,
+            "mean_joint_speed_dps": 63.0411,
+            "moving_fraction_above_25dps": 0.79212,
+            "peak_20ms_target_speed_dps": 341.948,
+            "motion_ms": 3220.0,
+            "body_ms": 2320.0
+          }
+        },
+        {
+          "before": {
+            "name": "类似熊猫叫声- Cat",
+            "mean_axis_range_deg": 65.8337,
+            "mean_joint_speed_dps": 48.0717,
+            "moving_fraction_above_25dps": 0.808239,
+            "peak_20ms_target_speed_dps": 240.754,
+            "motion_ms": 6200.0,
+            "body_ms": 5300.0
+          },
+          "after": {
+            "name": "类似熊猫叫声- Cat",
+            "mean_axis_range_deg": 67.6783,
+            "mean_joint_speed_dps": 51.1998,
+            "moving_fraction_above_25dps": 0.779948,
+            "peak_20ms_target_speed_dps": 257.924,
+            "motion_ms": 6200.0,
+            "body_ms": 5300.0
+          }
+        },
+        {
+          "before": {
+            "name": "睡觉呼吸",
+            "mean_axis_range_deg": 81.8899,
+            "mean_joint_speed_dps": 47.8463,
+            "moving_fraction_above_25dps": 0.768375,
+            "peak_20ms_target_speed_dps": 272.83,
+            "motion_ms": 5920.0,
+            "body_ms": 5020.0
+          },
+          "after": {
+            "name": "睡觉呼吸",
+            "mean_axis_range_deg": 83.431,
+            "mean_joint_speed_dps": 49.6397,
+            "moving_fraction_above_25dps": 0.703,
+            "peak_20ms_target_speed_dps": 307.749,
+            "motion_ms": 5920.0,
+            "body_ms": 5020.0
+          }
+        },
+        {
+          "before": {
+            "name": "挠痒痒笑声",
+            "mean_axis_range_deg": 72.572,
+            "mean_joint_speed_dps": 75.6188,
+            "moving_fraction_above_25dps": 0.863194,
+            "peak_20ms_target_speed_dps": 302.695,
+            "motion_ms": 2720.0,
+            "body_ms": 1820.0
+          },
+          "after": {
+            "name": "挠痒痒笑声",
+            "mean_axis_range_deg": 78.7591,
+            "mean_joint_speed_dps": 89.6063,
+            "moving_fraction_above_25dps": 0.881597,
+            "peak_20ms_target_speed_dps": 376.83,
+            "motion_ms": 2720.0,
+            "body_ms": 1820.0
+          }
+        },
+        {
+          "before": {
+            "name": "唤醒_类似伸懒腰状态",
+            "mean_axis_range_deg": 58.757,
+            "mean_joint_speed_dps": 52.3328,
+            "moving_fraction_above_25dps": 0.886139,
+            "peak_20ms_target_speed_dps": 262.127,
+            "motion_ms": 4960.0,
+            "body_ms": 4060.0
+          },
+          "after": {
+            "name": "唤醒_类似伸懒腰状态",
+            "mean_axis_range_deg": 66.6019,
+            "mean_joint_speed_dps": 72.2822,
+            "moving_fraction_above_25dps": 0.915687,
+            "peak_20ms_target_speed_dps": 318.686,
+            "motion_ms": 4960.0,
+            "body_ms": 4060.0
+          }
+        },
+        {
+          "before": {
+            "name": "哼唧",
+            "mean_axis_range_deg": 53.0841,
+            "mean_joint_speed_dps": 45.7338,
+            "moving_fraction_above_25dps": 0.891914,
+            "peak_20ms_target_speed_dps": 226.306,
+            "motion_ms": 4800.0,
+            "body_ms": 3900.0
+          },
+          "after": {
+            "name": "哼唧",
+            "mean_axis_range_deg": 61.8181,
+            "mean_joint_speed_dps": 66.1724,
+            "moving_fraction_above_25dps": 0.918976,
+            "peak_20ms_target_speed_dps": 324.692,
+            "motion_ms": 4800.0,
+            "body_ms": 3900.0
+          }
+        },
+        {
+          "before": {
+            "name": "喷嚏",
+            "mean_axis_range_deg": 47.623,
+            "mean_joint_speed_dps": 60.8525,
+            "moving_fraction_above_25dps": 0.782832,
+            "peak_20ms_target_speed_dps": 295.409,
+            "motion_ms": 2500.0,
+            "body_ms": 1600.0
+          },
+          "after": {
+            "name": "喷嚏",
+            "mean_axis_range_deg": 48.4394,
+            "mean_joint_speed_dps": 61.8857,
+            "moving_fraction_above_25dps": 0.783623,
+            "peak_20ms_target_speed_dps": 297.076,
+            "motion_ms": 2500.0,
+            "body_ms": 1600.0
+          }
+        }
+      ]
+    },
+    {
+      "board": "wzh_tailRedPanda",
+      "summary": {
+        "mean_axis_range_deg": {
+          "before": 79.51671428571429,
+          "after": 80.79234285714286,
+          "change_percent": 1.6042269639626516
+        },
+        "mean_joint_speed_dps": {
+          "before": 50.32880714285714,
+          "after": 50.94516428571429,
+          "change_percent": 1.224660741725181
+        },
+        "moving_fraction_above_25dps": {
+          "before": 0.8428552857142856,
+          "after": 0.8455609285714286,
+          "change_percent": 0.3210091818846683
+        },
+        "motion_ms": {
+          "before": 5193.428571428572,
+          "after": 5093.714285714285,
+          "change_percent": -1.920008802332629
+        }
+      },
+      "files": [
+        {
+          "before": {
+            "name": "可爱的熊猫幼崽发声",
+            "mean_axis_range_deg": 63.0588,
+            "mean_joint_speed_dps": 49.9329,
+            "moving_fraction_above_25dps": 0.792718,
+            "peak_20ms_target_speed_dps": 345.535,
+            "motion_ms": 3700.0,
+            "body_ms": 2200.0
+          },
+          "after": {
+            "name": "可爱的熊猫幼崽发声",
+            "mean_axis_range_deg": 65.1265,
+            "mean_joint_speed_dps": 51.3613,
+            "moving_fraction_above_25dps": 0.799599,
+            "peak_20ms_target_speed_dps": 349.322,
+            "motion_ms": 3553.0,
+            "body_ms": 2200.0
+          }
+        },
+        {
+          "before": {
+            "name": "摸头_欢快的“嗯”声",
+            "mean_axis_range_deg": 54.552,
+            "mean_joint_speed_dps": 46.6906,
+            "moving_fraction_above_25dps": 0.765203,
+            "peak_20ms_target_speed_dps": 358.243,
+            "motion_ms": 3415.0,
+            "body_ms": 2240.0
+          },
+          "after": {
+            "name": "摸头_欢快的“嗯”声",
+            "mean_axis_range_deg": 56.1725,
+            "mean_joint_speed_dps": 47.7981,
+            "moving_fraction_above_25dps": 0.775056,
+            "peak_20ms_target_speed_dps": 361.996,
+            "motion_ms": 3307.0,
+            "body_ms": 2240.0
+          }
+        },
+        {
+          "before": {
+            "name": "待机_有些犯困",
+            "mean_axis_range_deg": 43.4526,
+            "mean_joint_speed_dps": 28.5235,
+            "moving_fraction_above_25dps": 0.768216,
+            "peak_20ms_target_speed_dps": 170.267,
+            "motion_ms": 5500.0,
+            "body_ms": 4000.0
+          },
+          "after": {
+            "name": "待机_有些犯困",
+            "mean_axis_range_deg": 43.8225,
+            "mean_joint_speed_dps": 28.7665,
+            "moving_fraction_above_25dps": 0.767745,
+            "peak_20ms_target_speed_dps": 171.4,
+            "motion_ms": 5731.0,
+            "body_ms": 4000.0
+          }
+        },
+        {
+          "before": {
+            "name": "笑声",
+            "mean_axis_range_deg": 74.614,
+            "mean_joint_speed_dps": 60.6192,
+            "moving_fraction_above_25dps": 0.793865,
+            "peak_20ms_target_speed_dps": 363.673,
+            "motion_ms": 3700.0,
+            "body_ms": 2200.0
+          },
+          "after": {
+            "name": "笑声",
+            "mean_axis_range_deg": 75.7099,
+            "mean_joint_speed_dps": 60.8937,
+            "moving_fraction_above_25dps": 0.797305,
+            "peak_20ms_target_speed_dps": 368.109,
+            "motion_ms": 3553.0,
+            "body_ms": 2200.0
+          }
+        },
+        {
+          "before": {
+            "name": "熊猫_咀嚼",
+            "mean_axis_range_deg": 85.9835,
+            "mean_joint_speed_dps": 41.6349,
+            "moving_fraction_above_25dps": 0.859583,
+            "peak_20ms_target_speed_dps": 244.29,
+            "motion_ms": 6020.0,
+            "body_ms": 4520.0
+          },
+          "after": {
+            "name": "熊猫_咀嚼",
+            "mean_axis_range_deg": 88.4861,
+            "mean_joint_speed_dps": 42.36,
+            "moving_fraction_above_25dps": 0.85375,
+            "peak_20ms_target_speed_dps": 252.636,
+            "motion_ms": 5873.0,
+            "body_ms": 4520.0
+          }
+        },
+        {
+          "before": {
+            "name": "熊猫撒娇声音",
+            "mean_axis_range_deg": 77.7958,
+            "mean_joint_speed_dps": 65.1681,
+            "moving_fraction_above_25dps": 0.842317,
+            "peak_20ms_target_speed_dps": 375.234,
+            "motion_ms": 4125.0,
+            "body_ms": 2200.0
+          },
+          "after": {
+            "name": "熊猫撒娇声音",
+            "mean_axis_range_deg": 79.5024,
+            "mean_joint_speed_dps": 66.324,
+            "moving_fraction_above_25dps": 0.84375,
+            "peak_20ms_target_speed_dps": 378.193,
+            "motion_ms": 3917.0,
+            "body_ms": 2200.0
+          }
+        },
+        {
+          "before": {
+            "name": "熊猫吃竹子",
+            "mean_axis_range_deg": 94.2695,
+            "mean_joint_speed_dps": 43.9416,
+            "moving_fraction_above_25dps": 0.905807,
+            "peak_20ms_target_speed_dps": 265.765,
+            "motion_ms": 7678.0,
+            "body_ms": 5653.0
+          },
+          "after": {
+            "name": "熊猫吃竹子",
+            "mean_axis_range_deg": 97.1698,
+            "mean_joint_speed_dps": 45.2348,
+            "moving_fraction_above_25dps": 0.912234,
+            "peak_20ms_target_speed_dps": 273.19,
+            "motion_ms": 7453.0,
+            "body_ms": 5653.0
+          }
+        },
+        {
+          "before": {
+            "name": "类似熊猫叫声- Cat",
+            "mean_axis_range_deg": 89.5057,
+            "mean_joint_speed_dps": 40.4382,
+            "moving_fraction_above_25dps": 0.886775,
+            "peak_20ms_target_speed_dps": 275.521,
+            "motion_ms": 7040.0,
+            "body_ms": 5540.0
+          },
+          "after": {
+            "name": "类似熊猫叫声- Cat",
+            "mean_axis_range_deg": 90.4721,
+            "mean_joint_speed_dps": 40.7925,
+            "moving_fraction_above_25dps": 0.884284,
+            "peak_20ms_target_speed_dps": 282.513,
+            "motion_ms": 6893.0,
+            "body_ms": 5540.0
+          }
+        },
+        {
+          "before": {
+            "name": "熊猫_长鸣",
+            "mean_axis_range_deg": 91.5078,
+            "mean_joint_speed_dps": 39.3815,
+            "moving_fraction_above_25dps": 0.873231,
+            "peak_20ms_target_speed_dps": 267.286,
+            "motion_ms": 6770.0,
+            "body_ms": 5320.0
+          },
+          "after": {
+            "name": "熊猫_长鸣",
+            "mean_axis_range_deg": 91.6618,
+            "mean_joint_speed_dps": 39.8521,
+            "moving_fraction_above_25dps": 0.881132,
+            "peak_20ms_target_speed_dps": 274.817,
+            "motion_ms": 6629.0,
+            "body_ms": 5320.0
+          }
+        },
+        {
+          "before": {
+            "name": "熊猫_喷嚏",
+            "mean_axis_range_deg": 66.6776,
+            "mean_joint_speed_dps": 60.0816,
+            "moving_fraction_above_25dps": 0.793865,
+            "peak_20ms_target_speed_dps": 330.783,
+            "motion_ms": 3700.0,
+            "body_ms": 2200.0
+          },
+          "after": {
+            "name": "熊猫_喷嚏",
+            "mean_axis_range_deg": 67.4677,
+            "mean_joint_speed_dps": 61.2463,
+            "moving_fraction_above_25dps": 0.799885,
+            "peak_20ms_target_speed_dps": 330.51,
+            "motion_ms": 3553.0,
+            "body_ms": 2200.0
+          }
+        },
+        {
+          "before": {
+            "name": "睡觉呼吸",
+            "mean_axis_range_deg": 103.341,
+            "mean_joint_speed_dps": 53.9126,
+            "moving_fraction_above_25dps": 0.932103,
+            "peak_20ms_target_speed_dps": 283.86,
+            "motion_ms": 6500.0,
+            "body_ms": 5000.0
+          },
+          "after": {
+            "name": "睡觉呼吸",
+            "mean_axis_range_deg": 103.043,
+            "mean_joint_speed_dps": 53.9278,
+            "moving_fraction_above_25dps": 0.931978,
+            "peak_20ms_target_speed_dps": 283.956,
+            "motion_ms": 6731.0,
+            "body_ms": 5000.0
+          }
+        },
+        {
+          "before": {
+            "name": "挠痒痒笑声",
+            "mean_axis_range_deg": 69.9987,
+            "mean_joint_speed_dps": 56.6354,
+            "moving_fraction_above_25dps": 0.84633,
+            "peak_20ms_target_speed_dps": 309.974,
+            "motion_ms": 3700.0,
+            "body_ms": 2200.0
+          },
+          "after": {
+            "name": "挠痒痒笑声",
+            "mean_axis_range_deg": 71.4467,
+            "mean_joint_speed_dps": 57.1584,
+            "moving_fraction_above_25dps": 0.844897,
+            "peak_20ms_target_speed_dps": 310.428,
+            "motion_ms": 3553.0,
+            "body_ms": 2200.0
+          }
+        },
+        {
+          "before": {
+            "name": "唤醒_类似伸懒腰状态",
+            "mean_axis_range_deg": 97.065,
+            "mean_joint_speed_dps": 58.04,
+            "moving_fraction_above_25dps": 0.86163,
+            "peak_20ms_target_speed_dps": 341.238,
+            "motion_ms": 5400.0,
+            "body_ms": 3900.0
+          },
+          "after": {
+            "name": "唤醒_类似伸懒腰状态",
+            "mean_axis_range_deg": 97.8858,
+            "mean_joint_speed_dps": 57.7651,
+            "moving_fraction_above_25dps": 0.86759,
+            "peak_20ms_target_speed_dps": 340.919,
+            "motion_ms": 5253.0,
+            "body_ms": 3900.0
+          }
+        },
+        {
+          "before": {
+            "name": "哼唧",
+            "mean_axis_range_deg": 101.412,
+            "mean_joint_speed_dps": 59.6032,
+            "moving_fraction_above_25dps": 0.878331,
+            "peak_20ms_target_speed_dps": 332.899,
+            "motion_ms": 5460.0,
+            "body_ms": 3960.0
+          },
+          "after": {
+            "name": "哼唧",
+            "mean_axis_range_deg": 103.126,
+            "mean_joint_speed_dps": 59.7517,
+            "moving_fraction_above_25dps": 0.878648,
+            "peak_20ms_target_speed_dps": 333.57,
+            "motion_ms": 5313.0,
+            "body_ms": 3960.0
+          }
+        }
+      ]
+    },
+    {
+      "board": "wzh_dinosaur",
+      "summary": {
+        "mean_axis_range_deg": {
+          "before": 56.12242083333333,
+          "after": 65.29133333333333,
+          "change_percent": 16.33734319342515
+        },
+        "mean_joint_speed_dps": {
+          "before": 30.587520833333333,
+          "after": 38.70216666666667,
+          "change_percent": 26.529269493754626
+        },
+        "moving_fraction_above_25dps": {
+          "before": 0.8040292916666667,
+          "after": 0.8569988749999999,
+          "change_percent": 6.588016616102754
+        },
+        "motion_ms": {
+          "before": 5862.333333333333,
+          "after": 5315.333333333333,
+          "change_percent": -9.330755671803036
+        }
+      },
+      "files": [
+        {
+          "before": {
+            "name": "叫声音效合集 (121)",
+            "mean_axis_range_deg": 63.1129,
+            "mean_joint_speed_dps": 32.8885,
+            "moving_fraction_above_25dps": 0.864233,
+            "peak_20ms_target_speed_dps": 193.028,
+            "motion_ms": 6425.0,
+            "body_ms": 4780.0
+          },
+          "after": {
+            "name": "叫声音效合集 (121)",
+            "mean_axis_range_deg": 69.0637,
+            "mean_joint_speed_dps": 38.4142,
+            "moving_fraction_above_25dps": 0.897584,
+            "peak_20ms_target_speed_dps": 238.513,
+            "motion_ms": 5699.0,
+            "body_ms": 4780.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (124)",
+            "mean_axis_range_deg": 58.3522,
+            "mean_joint_speed_dps": 29.3281,
+            "moving_fraction_above_25dps": 0.821362,
+            "peak_20ms_target_speed_dps": 207.976,
+            "motion_ms": 5685.0,
+            "body_ms": 4040.0
+          },
+          "after": {
+            "name": "叫声音效合集 (124)",
+            "mean_axis_range_deg": 68.4261,
+            "mean_joint_speed_dps": 37.3624,
+            "moving_fraction_above_25dps": 0.865827,
+            "peak_20ms_target_speed_dps": 272.654,
+            "motion_ms": 4959.0,
+            "body_ms": 4040.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (125)",
+            "mean_axis_range_deg": 74.1499,
+            "mean_joint_speed_dps": 33.8247,
+            "moving_fraction_above_25dps": 0.833581,
+            "peak_20ms_target_speed_dps": 238.577,
+            "motion_ms": 6723.0,
+            "body_ms": 5057.0
+          },
+          "after": {
+            "name": "叫声音效合集 (125)",
+            "mean_axis_range_deg": 81.0173,
+            "mean_joint_speed_dps": 42.3051,
+            "moving_fraction_above_25dps": 0.880208,
+            "peak_20ms_target_speed_dps": 305.289,
+            "motion_ms": 5998.0,
+            "body_ms": 5057.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (13)",
+            "mean_axis_range_deg": 38.4056,
+            "mean_joint_speed_dps": 27.3366,
+            "moving_fraction_above_25dps": 0.734502,
+            "peak_20ms_target_speed_dps": 188.825,
+            "motion_ms": 4125.0,
+            "body_ms": 2480.0
+          },
+          "after": {
+            "name": "叫声音效合集 (13)",
+            "mean_axis_range_deg": 46.9146,
+            "mean_joint_speed_dps": 37.4184,
+            "moving_fraction_above_25dps": 0.810213,
+            "peak_20ms_target_speed_dps": 292.746,
+            "motion_ms": 3399.0,
+            "body_ms": 2480.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (14)",
+            "mean_axis_range_deg": 58.6909,
+            "mean_joint_speed_dps": 29.6602,
+            "moving_fraction_above_25dps": 0.812017,
+            "peak_20ms_target_speed_dps": 244.382,
+            "motion_ms": 5539.0,
+            "body_ms": 3894.0
+          },
+          "after": {
+            "name": "叫声音效合集 (14)",
+            "mean_axis_range_deg": 68.321,
+            "mean_joint_speed_dps": 37.4564,
+            "moving_fraction_above_25dps": 0.856637,
+            "peak_20ms_target_speed_dps": 308.446,
+            "motion_ms": 4813.0,
+            "body_ms": 3894.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (147)",
+            "mean_axis_range_deg": 57.3304,
+            "mean_joint_speed_dps": 28.3772,
+            "moving_fraction_above_25dps": 0.821499,
+            "peak_20ms_target_speed_dps": 210.351,
+            "motion_ms": 5804.0,
+            "body_ms": 3826.0
+          },
+          "after": {
+            "name": "叫声音效合集 (147)",
+            "mean_axis_range_deg": 66.6371,
+            "mean_joint_speed_dps": 35.624,
+            "moving_fraction_above_25dps": 0.864038,
+            "peak_20ms_target_speed_dps": 305.519,
+            "motion_ms": 5095.0,
+            "body_ms": 3826.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (15)",
+            "mean_axis_range_deg": 72.0101,
+            "mean_joint_speed_dps": 37.1462,
+            "moving_fraction_above_25dps": 0.828756,
+            "peak_20ms_target_speed_dps": 219.59,
+            "motion_ms": 5625.0,
+            "body_ms": 3980.0
+          },
+          "after": {
+            "name": "叫声音效合集 (15)",
+            "mean_axis_range_deg": 82.6321,
+            "mean_joint_speed_dps": 46.2924,
+            "moving_fraction_above_25dps": 0.866951,
+            "peak_20ms_target_speed_dps": 287.432,
+            "motion_ms": 4899.0,
+            "body_ms": 3980.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (152)",
+            "mean_axis_range_deg": 53.3258,
+            "mean_joint_speed_dps": 29.8839,
+            "moving_fraction_above_25dps": 0.783641,
+            "peak_20ms_target_speed_dps": 230.01,
+            "motion_ms": 5325.0,
+            "body_ms": 3680.0
+          },
+          "after": {
+            "name": "叫声音效合集 (152)",
+            "mean_axis_range_deg": 59.5575,
+            "mean_joint_speed_dps": 37.7999,
+            "moving_fraction_above_25dps": 0.844092,
+            "peak_20ms_target_speed_dps": 309.172,
+            "motion_ms": 4599.0,
+            "body_ms": 3680.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (41)",
+            "mean_axis_range_deg": 57.7605,
+            "mean_joint_speed_dps": 34.3788,
+            "moving_fraction_above_25dps": 0.800314,
+            "peak_20ms_target_speed_dps": 304.412,
+            "motion_ms": 4843.0,
+            "body_ms": 3198.0
+          },
+          "after": {
+            "name": "叫声音效合集 (41)",
+            "mean_axis_range_deg": 65.5526,
+            "mean_joint_speed_dps": 42.2816,
+            "moving_fraction_above_25dps": 0.853577,
+            "peak_20ms_target_speed_dps": 393.611,
+            "motion_ms": 4117.0,
+            "body_ms": 3198.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (46)",
+            "mean_axis_range_deg": 56.0663,
+            "mean_joint_speed_dps": 36.8305,
+            "moving_fraction_above_25dps": 0.806557,
+            "peak_20ms_target_speed_dps": 301.13,
+            "motion_ms": 4906.0,
+            "body_ms": 3261.0
+          },
+          "after": {
+            "name": "叫声音效合集 (46)",
+            "mean_axis_range_deg": 62.2687,
+            "mean_joint_speed_dps": 44.4473,
+            "moving_fraction_above_25dps": 0.858512,
+            "peak_20ms_target_speed_dps": 380.127,
+            "motion_ms": 4180.0,
+            "body_ms": 3261.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (5)",
+            "mean_axis_range_deg": 46.2179,
+            "mean_joint_speed_dps": 33.3767,
+            "moving_fraction_above_25dps": 0.760502,
+            "peak_20ms_target_speed_dps": 221.182,
+            "motion_ms": 4093.0,
+            "body_ms": 2448.0
+          },
+          "after": {
+            "name": "叫声音效合集 (5)",
+            "mean_axis_range_deg": 57.3814,
+            "mean_joint_speed_dps": 44.083,
+            "moving_fraction_above_25dps": 0.826332,
+            "peak_20ms_target_speed_dps": 333.267,
+            "motion_ms": 3367.0,
+            "body_ms": 2448.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (76)",
+            "mean_axis_range_deg": 53.3187,
+            "mean_joint_speed_dps": 25.1378,
+            "moving_fraction_above_25dps": 0.773634,
+            "peak_20ms_target_speed_dps": 188.561,
+            "motion_ms": 6410.0,
+            "body_ms": 4765.0
+          },
+          "after": {
+            "name": "叫声音效合集 (76)",
+            "mean_axis_range_deg": 60.9541,
+            "mean_joint_speed_dps": 31.152,
+            "moving_fraction_above_25dps": 0.838104,
+            "peak_20ms_target_speed_dps": 243.176,
+            "motion_ms": 5684.0,
+            "body_ms": 4765.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (79)",
+            "mean_axis_range_deg": 29.7633,
+            "mean_joint_speed_dps": 24.5316,
+            "moving_fraction_above_25dps": 0.701705,
+            "peak_20ms_target_speed_dps": 166.966,
+            "motion_ms": 3645.0,
+            "body_ms": 2000.0
+          },
+          "after": {
+            "name": "叫声音效合集 (79)",
+            "mean_axis_range_deg": 33.3551,
+            "mean_joint_speed_dps": 32.3727,
+            "moving_fraction_above_25dps": 0.744382,
+            "peak_20ms_target_speed_dps": 204.142,
+            "motion_ms": 2719.0,
+            "body_ms": 1800.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (8)",
+            "mean_axis_range_deg": 44.3879,
+            "mean_joint_speed_dps": 28.3497,
+            "moving_fraction_above_25dps": 0.772232,
+            "peak_20ms_target_speed_dps": 175.246,
+            "motion_ms": 4642.0,
+            "body_ms": 2997.0
+          },
+          "after": {
+            "name": "叫声音效合集 (8)",
+            "mean_axis_range_deg": 52.8462,
+            "mean_joint_speed_dps": 36.3389,
+            "moving_fraction_above_25dps": 0.832215,
+            "peak_20ms_target_speed_dps": 245.349,
+            "motion_ms": 3916.0,
+            "body_ms": 2997.0
+          }
+        },
+        {
+          "before": {
+            "name": "叫声音效合集 (83)",
+            "mean_axis_range_deg": 69.0723,
+            "mean_joint_speed_dps": 36.8374,
+            "moving_fraction_above_25dps": 0.857199,
+            "peak_20ms_target_speed_dps": 269.566,
+            "motion_ms": 6401.0,
+            "body_ms": 4756.0
+          },
+          "after": {
+            "name": "叫声音效合集 (83)",
+            "mean_axis_range_deg": 77.9986,
+            "mean_joint_speed_dps": 44.4441,
+            "moving_fraction_above_25dps": 0.890559,
+            "peak_20ms_target_speed_dps": 271.865,
+            "motion_ms": 5675.0,
+            "body_ms": 4756.0
+          }
+        },
+        {
+          "before": {
+            "name": "咀嚼音效合集 (2)",
+            "mean_axis_range_deg": 70.4487,
+            "mean_joint_speed_dps": 31.4871,
+            "moving_fraction_above_25dps": 0.926067,
+            "peak_20ms_target_speed_dps": 193.113,
+            "motion_ms": 8517.0,
+            "body_ms": 5749.0
+          },
+          "after": {
+            "name": "咀嚼音效合集 (2)",
+            "mean_axis_range_deg": 97.1118,
+            "mean_joint_speed_dps": 53.6435,
+            "moving_fraction_above_25dps": 0.964286,
+            "peak_20ms_target_speed_dps": 324.615,
+            "motion_ms": 7549.0,
+            "body_ms": 5749.0
+          }
+        },
+        {
+          "before": {
+            "name": "恐龙_长鸣",
+            "mean_axis_range_deg": 53.7215,
+            "mean_joint_speed_dps": 17.3226,
+            "moving_fraction_above_25dps": 0.680177,
+            "peak_20ms_target_speed_dps": 145.785,
+            "motion_ms": 9005.0,
+            "body_ms": 7360.0
+          },
+          "after": {
+            "name": "恐龙_长鸣",
+            "mean_axis_range_deg": 60.3965,
+            "mean_joint_speed_dps": 20.7767,
+            "moving_fraction_above_25dps": 0.772309,
+            "peak_20ms_target_speed_dps": 201.7,
+            "motion_ms": 8279.0,
+            "body_ms": 7360.0
+          }
+        },
+        {
+          "before": {
+            "name": "恐龙_打喷嚏",
+            "mean_axis_range_deg": 42.4015,
+            "mean_joint_speed_dps": 25.6087,
+            "moving_fraction_above_25dps": 0.826122,
+            "peak_20ms_target_speed_dps": 159.579,
+            "motion_ms": 4820.0,
+            "body_ms": 3920.0
+          },
+          "after": {
+            "name": "恐龙_打喷嚏",
+            "mean_axis_range_deg": 55.8986,
+            "mean_joint_speed_dps": 33.9313,
+            "moving_fraction_above_25dps": 0.899199,
+            "peak_20ms_target_speed_dps": 187.173,
+            "motion_ms": 4820.0,
+            "body_ms": 3920.0
+          }
+        },
+        {
+          "before": {
+            "name": "恐龙_哀鸣",
+            "mean_axis_range_deg": 50.776,
+            "mean_joint_speed_dps": 20.8941,
+            "moving_fraction_above_25dps": 0.804121,
+            "peak_20ms_target_speed_dps": 156.578,
+            "motion_ms": 6440.0,
+            "body_ms": 5540.0
+          },
+          "after": {
+            "name": "恐龙_哀鸣",
+            "mean_axis_range_deg": 66.3001,
+            "mean_joint_speed_dps": 30.1596,
+            "moving_fraction_above_25dps": 0.913949,
+            "peak_20ms_target_speed_dps": 223.777,
+            "motion_ms": 6440.0,
+            "body_ms": 5540.0
+          }
+        },
+        {
+          "before": {
+            "name": "脚步音效合集 (12)",
+            "mean_axis_range_deg": 59.4359,
+            "mean_joint_speed_dps": 46.1569,
+            "moving_fraction_above_25dps": 0.849159,
+            "peak_20ms_target_speed_dps": 263.783,
+            "motion_ms": 4023.0,
+            "body_ms": 3123.0
+          },
+          "after": {
+            "name": "脚步音效合集 (12)",
+            "mean_axis_range_deg": 67.6018,
+            "mean_joint_speed_dps": 52.5546,
+            "moving_fraction_above_25dps": 0.857973,
+            "peak_20ms_target_speed_dps": 265.501,
+            "motion_ms": 4023.0,
+            "body_ms": 3123.0
+          }
+        },
+        {
+          "before": {
+            "name": "脚步音效合集 (19)",
+            "mean_axis_range_deg": 39.1822,
+            "mean_joint_speed_dps": 35.3655,
+            "moving_fraction_above_25dps": 0.792097,
+            "peak_20ms_target_speed_dps": 280.515,
+            "motion_ms": 3340.0,
+            "body_ms": 2440.0
+          },
+          "after": {
+            "name": "脚步音效合集 (19)",
+            "mean_axis_range_deg": 46.6371,
+            "mean_joint_speed_dps": 41.2157,
+            "moving_fraction_above_25dps": 0.804752,
+            "peak_20ms_target_speed_dps": 283.602,
+            "motion_ms": 3340.0,
+            "body_ms": 2440.0
+          }
+        },
+        {
+          "before": {
+            "name": "脚步音效合集 (23)",
+            "mean_axis_range_deg": 84.1685,
+            "mean_joint_speed_dps": 20.5747,
+            "moving_fraction_above_25dps": 0.777233,
+            "peak_20ms_target_speed_dps": 172.189,
+            "motion_ms": 13442.0,
+            "body_ms": 11999.0
+          },
+          "after": {
+            "name": "脚步音效合集 (23)",
+            "mean_axis_range_deg": 92.7727,
+            "mean_joint_speed_dps": 28.3064,
+            "moving_fraction_above_25dps": 0.915432,
+            "peak_20ms_target_speed_dps": 209.598,
+            "motion_ms": 13080.0,
+            "body_ms": 11999.0
+          }
+        },
+        {
+          "before": {
+            "name": "脚步音效合集 (28)",
+            "mean_axis_range_deg": 47.6778,
+            "mean_joint_speed_dps": 40.898,
+            "moving_fraction_above_25dps": 0.803674,
+            "peak_20ms_target_speed_dps": 381.982,
+            "motion_ms": 3523.0,
+            "body_ms": 2623.0
+          },
+          "after": {
+            "name": "脚步音效合集 (28)",
+            "mean_axis_range_deg": 52.9562,
+            "mean_joint_speed_dps": 45.1187,
+            "moving_fraction_above_25dps": 0.807968,
+            "peak_20ms_target_speed_dps": 386.751,
+            "motion_ms": 3523.0,
+            "body_ms": 2623.0
+          }
+        },
+        {
+          "before": {
+            "name": "脚步音效合集 (7)",
+            "mean_axis_range_deg": 67.1613,
+            "mean_joint_speed_dps": 27.905,
+            "moving_fraction_above_25dps": 0.866319,
+            "peak_20ms_target_speed_dps": 195.244,
+            "motion_ms": 7395.0,
+            "body_ms": 6495.0
+          },
+          "after": {
+            "name": "脚步音效合集 (7)",
+            "mean_axis_range_deg": 74.3911,
+            "mean_joint_speed_dps": 35.3531,
+            "moving_fraction_above_25dps": 0.902874,
+            "peak_20ms_target_speed_dps": 231.578,
+            "motion_ms": 7395.0,
+            "body_ms": 6495.0
+          }
+        }
+      ]
+    }
+  ]
+}

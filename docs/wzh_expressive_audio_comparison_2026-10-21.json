@@ -1,0 +1,231 @@
+{
+  "sample_ms": 20,
+  "body_window": "t >= 500ms and t + 300ms < body_ms (entry may be included)",
+  "before_variants": 16,
+  "after_variants": 32,
+  "physical_meaning": "neck tilt 0=sky,70=neutral,180=ground",
+  "reference": "production paired recordings + actual reference library",
+  "rows": [
+    {
+      "name": "叫声音效合集 (121)",
+      "before": {
+        "mean_tilt_deg": 76.7672,
+        "sky_samples_percent": 1.75879,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 7.06946,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (124)",
+      "before": {
+        "mean_tilt_deg": 87.3204,
+        "sky_samples_percent": 0.0,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 8.37918,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (125)",
+      "before": {
+        "mean_tilt_deg": 88.5338,
+        "sky_samples_percent": 0.0,
+        "food_samples_percent": 0.586854
+      },
+      "after": {
+        "mean_tilt_deg": 8.19644,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (13)",
+      "before": {
+        "mean_tilt_deg": 121.545,
+        "sky_samples_percent": 0.0,
+        "food_samples_percent": 19.0476
+      },
+      "after": {
+        "mean_tilt_deg": 9.18915,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (14)",
+      "before": {
+        "mean_tilt_deg": 36.6939,
+        "sky_samples_percent": 49.8387,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 4.66322,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (147)",
+      "before": {
+        "mean_tilt_deg": 16.7775,
+        "sky_samples_percent": 78.9474,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 2.45669,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (15)",
+      "before": {
+        "mean_tilt_deg": 85.1933,
+        "sky_samples_percent": 9.5912,
+        "food_samples_percent": 4.08805
+      },
+      "after": {
+        "mean_tilt_deg": 6.65799,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (152)",
+      "before": {
+        "mean_tilt_deg": 40.5115,
+        "sky_samples_percent": 39.0625,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 3.91409,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (41)",
+      "before": {
+        "mean_tilt_deg": 66.9709,
+        "sky_samples_percent": 22.9167,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 7.02299,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (46)",
+      "before": {
+        "mean_tilt_deg": 79.4663,
+        "sky_samples_percent": 0.0,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 6.72666,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (5)",
+      "before": {
+        "mean_tilt_deg": 80.2715,
+        "sky_samples_percent": 0.0,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 7.75335,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (76)",
+      "before": {
+        "mean_tilt_deg": 46.385,
+        "sky_samples_percent": 36.809,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 2.90009,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (79)",
+      "before": {
+        "mean_tilt_deg": 44.2465,
+        "sky_samples_percent": 31.6667,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 6.11812,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (8)",
+      "before": {
+        "mean_tilt_deg": 56.531,
+        "sky_samples_percent": 13.4091,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 6.72587,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "叫声音效合集 (83)",
+      "before": {
+        "mean_tilt_deg": 73.3617,
+        "sky_samples_percent": 0.0,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 7.29154,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    },
+    {
+      "name": "咀嚼音效合集 (2)",
+      "before": {
+        "mean_tilt_deg": 72.8314,
+        "sky_samples_percent": 0.0,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 158.796,
+        "sky_samples_percent": 0.0,
+        "food_samples_percent": 97.3286
+      }
+    },
+    {
+      "name": "恐龙_长鸣",
+      "before": {
+        "mean_tilt_deg": 56.6171,
+        "sky_samples_percent": 22.3323,
+        "food_samples_percent": 0.0
+      },
+      "after": {
+        "mean_tilt_deg": 6.65602,
+        "sky_samples_percent": 100.0,
+        "food_samples_percent": 0.0
+      }
+    }
+  ]
+}

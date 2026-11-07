@@ -526,6 +526,27 @@
 </style>
 </head>
 <body>
+<p style="padding:12px 18px;background:#eaf4ef;color:#174739">2026-10-21 离线动作更新：三款一起优化，大熊猫加入随机爬行、小熊猫突出连续大幅尾巴，恐龙四段完整编舞增加独立回看与高低对比。<a href="../../../docs/wzh_offline_personality_2026-10-21.md">最新说明、验证及固件</a>；下方为此前版本。</p>
+<p style="padding:12px 18px;background:#eaf4ef;color:#174739">2026-10-21 三款活力／断音修正：有界播放缓冲与解码优先，语音动作更快响应；恐龙加强颈尾幅度和正常动作节奏。<a href="../../../docs/wzh_vitality_audio_2026-10-21.md">最新参数、验证及固件</a>，下方为历史记录。</p>
+<p style="padding:12px 18px;background:#eaf4ef;color:#174739">2026-10-21 三款音画表现更新：每段音频与手调配套32种随机变化，对话16种组合；大熊猫独立爪部、小熊猫高翘尾连续弧、恐龙正面仰天吼叫与低头取食。180项主机测试和三款编译打包通过，未烧录。<a href="../../../docs/wzh_expressive_audio_2026-10-21.md">本轮说明与固件</a>；下方为历史记录。</p>
+<p style="padding:12px 18px;background:#eaf4ef;color:#174739">2026-10-21 三款已通过编译、链接、分区检查和固件打包，包含当前关节语音、电池与温度保护。未烧录。<a href="../../../docs/wzh_build_2026-10-21.md">最新固件与校验</a>；下方未编译文字为修改阶段记录。</p>
+<p style="padding:12px 18px;background:#eaf4ef;color:#174739">2026-10-21 电池保护源码更新：常规3.30V／3.40V／3.00V，普通低电取时间中值连续确认，恢复要求静置，页面显示静置电压。未编译、未烧录。<a href="../../../docs/wzh_battery_rest_2026-10-21.md">参数、时序与验证</a></p>
+<p style="padding:12px 18px;background:#eaf4ef;color:#174739">2026-10-21 关节控制源码更新：33类头、颈、尾动作接入离线关键词与原生小智MCP；明确指令暂停语音叠加。未编译、未烧录，安装时需匹配新识别assets。<a href="../../../docs/wzh_joint_voice_2026-10-21.md">口令表、接口与验证</a></p>
+<p style="padding:12px 18px;background:#eaf4ef;color:#174739">2026-10-20 动作源码更新：参考例程参与本地音画，配套各增16种随机表达与连续平滑。按用户要求未编译，现有固件包仍为上一轮。<a href="../../../docs/wzh_reference_expression_2026-10-20.md">查看实现与轨迹对比</a></p>
+<p style="margin:20px;padding:16px;background:#e5efe9;border-radius:12px">2026-10-20 最新：脚步 (23) 动作已覆盖完整 12 秒，收势约 2.9 秒；三款统一改善柔和归中。<a href="../../../docs/wzh_fluid_motion_2026-10-20.md">实现、验证与固件</a>。</p>
+
+<p style="margin:20px;padding:16px;background:#fff3d9;border-radius:12px;color:#523b12">2026-10-20 最新：24 套手调音画配套优先、29 段参考动作保留、普通随机方向均衡、有效长按 1 秒冷启动。<a href="../../../docs/wzh_user_pairs_natural_motion_2026-10-20.md">本轮实现、验证与固件</a>；以下为较早运行说明。</p>
+
+<p>2026-10-19 整套动作增强：扩大颈部、头部与尾部中间行程，精简彗星舞多余折返；对话扩展为 8 种组合，各句子风格独立洗牌，音画摆幅加强。<a href="../../../docs/wzh_broad_expression_2026-10-19.md">最新整套动作说明</a>。</p>
+<p>2026-10-19 同音频随机动作：通用录音每文件 8 套独立洗牌，恐龙吼声按时长独立抽取 3／4 套；短吼声保留不同抬尾高度，跨轮也避免同一录音紧接重复。<a href="../../../docs/wzh_random_sound_motion_2026-10-19.md">最新随机动作说明</a>。</p>
+<p>2026-10-19 动作丰富更新：恐龙常规池75段、互动55个入口，本地录音8种编排变化，对话6种语句组合。详见 <a href="../../../docs/wzh_lively_motion_2026-10-19.md">三款灵动动作说明</a>。</p>
+
+<section style="margin:24px;padding:20px;border:1px solid #ccdacd;border-radius:12px;background:#f4faf4"><h2>2026-10-19 双击对话与播放衔接</h2><p>电源键／BOOT键双击进入对话，再次双击在连接、收音、回复阶段均完整退出。正常单击不进入对话。提示音在正确的解码器复位后排入，旧回复、提示、PCM及旧会话回调被取消；退出后恢复本地陪伴节奏。</p><a href="../../../docs/wzh_double_click_conversation_2026-10-19.md">当前按键与扬声器衔接说明</a></section>
+
+<section style="margin:24px;padding:20px;border:1px solid #ccdacd;border-radius:12px;background:#f4faf4"><h2>2026-10-19 当前音画展示方案</h2><p>正常空闲约2秒后启动逐音频配对动作；恐龙22段动物音与5段环境音随机覆盖，环境音自动为12秒。触摸与姿态各两段候选，真实PCM计时；对话随动加强。触摸、唤醒、停止、安静、维护及保护优先。历史“无人互动始终安静”规则已被此次用户要求替代。</p><a href="../../../docs/wzh_audio_choreography_2026-10-19.md">当前方案及逐文件表</a> · <a href="../../../docs/wzh_audio_motion_preview.html">试听动作预览</a></section>
+
+<p>2026-10-15 唤醒更新：恐龙使用 WakeNet“小龙小龙”，保留 12 条本地口令；更新需同时包含 app 与 assets。<a href="../../../docs/wzh_wakenet_2026-10-15.md">当前唤醒说明</a>。</p>
+
 
 <!-- ── Progress bar ── -->
 <div id="progress-bar" style="width:0%"></div>
@@ -560,11 +581,29 @@
 
 <!-- ═══════════ MAIN ═══════════ -->
 <main id="main">
+<section><h2>2026-10-19 参考动作库与大幅故事</h2><p>三款迁入参考编舞 86 段，新增故事动作 24 段；恐龙普通动作池 67 段，每族不放回洗牌。触摸与姿态回应增加到每类四个候选，共 44 个入口，包含额头贴近、螺旋招呼和高低巡视。新编舞保留大幅空间轨迹、观察停顿与稳定节拍变奏，五轴仍共用插值进度，完成后回默认并释放。静置安静与保护继续生效。<a href="../../../docs/wzh_reference_motion_2026-10-19.md">当前动作库与验证说明</a>。</p></section>
+<section><h2>2026-10-16 当前快动作</h2><p>三款缩短移动与停顿，扩大明确目标，最终指令上限 400°/s；恐龙取消身体指令额外慢放，长声音不再成倍拉慢普通动作，五轴说话跟随也加强。爬爬熊猫使用参考工程的 800ms／1200ms 连续有限步态。下文 160°/s 等早期参数为历史。<a href="../../../docs/wzh_fast_motion_2026-10-16.md">本轮幅度、速度与验证</a>。</p></section>
+<section><h2>2026-10-16 整机流程优化</h2><p>正常唤醒直接衔接对话，普通情绪不反复打断，模式切换清除旧接触，退出会话消耗旧动作。电源键异常不当成操作；活动舵机有限关机收尾，空闲保持释放。动作工具默认布尔兼容，可选详情与新状态工具；后台声音更新避让互动并保留失败文件的旧条目。<a href="../../../docs/wzh_product_polish_2026-10-16.md">本轮产品优化与验证</a>。</p></section>
+<section><h2>2026-10-16 静置误触发修正</h2><p>人体仅响应稳定无人后的新靠近，旧信号不补表演；姿态在自身动作后重建基准，放稳需要新一轮搬动，保护解除不补旧事件。触摸异常取消接触，本地动作口令增加输出回声门控。正常 WakeNet 唤醒和停止类保留。下方较早的补招呼、动作中搬动识别描述为历史记录。<a href="../../../docs/wzh_quiet_idle_2026-10-16.md">当前静置与输入规则</a>。</p></section>
+<section><h2>2026-10-16 动作库扩展</h2><p>三款每类互动三套、共 33 套，独立洗牌并避免跨轮连续重复。三款合计新增 78 段编舞；恐龙完整与短声编舞各增加六套，分别进入好奇、亲昵、开心类别。保留连续插值、大幅行程、回中释放、互动触发与保护。<a href="../../../docs/wzh_rich_motion_2026-10-16.md">当前动作库与验证说明</a>。</p></section>
+<section><h2>2026-10-16 流畅度修正</h2><p>连续关键帧按时间权重保持速度衔接，缩短多余停留，浮点角度直到 PWM。三款运动指令限速 160°/s。舵机上电及释放后 600ms 暂缓姿态陪伴触发，独立跌落保护继续运行；离线长录音不再延长有限动作。日志以互动和保护状态变化为主。<a href="../../../docs/wzh_fluent_motion_2026-10-16.md">当前动作、日志与验证说明</a>。</p></section>
+<section><h2>2026-10-16 成品互动体验更新</h2><p>三款四触点各有两种交替动作，三击后重新计数。连续互动保留原始 Flash 录音，繁忙时不积压新声；恐龙新增专用触摸与姿态动作，小熊猫加强头尾配合。大幅动作、回中释放、无人互动安静等待和保护保持。<a href="../../../docs/wzh_product_experience_2026-10-16.md">当前互动体验与验收说明</a>。</p></section>
+<section><h2>2026-10-16 头部补强</h2><p>正常模式下，左右看与一轮大幅摇头可覆盖 0°～180°，停留后回中；头部声音随动进一步扩大，抬低头使用真实颈俯仰轴。<a href="../../../docs/wzh_head_motion_2026-10-16.md">头部说明与验收</a>。</p></section>
+<section><h2>2026-10-16 大幅动作更新</h2><p>普通表演 1.35～1.50 倍，身体指令及强制短声剪辑 1.40 倍、怒吼剪辑 1.15 倍；颈俯仰按实际 70° 中心放大，温和偏移调整到 60%，声音随动扩大。方向、限位、保护和互动触发保留。<a href="../../../docs/wzh_large_motion_2026-10-16.md">当前动作与验收说明</a>。</p></section>
+<section><h2>2026-10-16 外置声音修正</h2><p>触摸与姿态互动只使用已有外置 Flash 录音，按互动选声并避免连续重复，不使用新增合成音。明确互动声音启动间隔下限 650ms，需播放通道空闲，停止或对话可中断原声音。四触点分流、姿态反馈与保护保留。详见 <a href="../../../docs/wzh_flash_interaction_2026-10-16.md">当前外置音频说明</a>。</p></section>
+<section id="pet-interaction-v1">
+<h2>2026-10-15 宠物交互更新</h2>
+<p>正常完整表演幅度为1.12～1.22，生命脉冲0.98～1.10；保留怒吼正面仰头、轴方向和舒缓限速。
+单槽最新意图可打断长编舞，GPIO0双击改为停止/恢复。本地模型可在联网前加载，配网/激活允许显式互动，升级/录音测试保持禁动。</p>
+<p>持续休息、触摸长按、对话回答表达、500ms输出更新超时与实机边界见
+<a href="../../../docs/wzh_pet_interaction.md">共享宠物交互说明</a>。下面保留动作库和运行机制的详细说明。</p>
+</section>
 <div class="content-wrapper">
 
 <!-- ── Hero ── -->
 <div class="reveal">
 <h1>XiaoZhi 工程运行原理</h1>
+<section><h2>当前产品策略：互动驱动</h2><p>2026-10-15 互动驱动更新：默认安静等待触摸、姿态、人体、口令或对话；移除定时表演/叫声、开机探索和结束会话探索。感应回应冷却3秒，普通本地回应叫声启动间隔12秒。</p><p>详见 <a href="../../../docs/wzh_interaction_product_2026-10-15.md">互动产品说明与唤醒词候选</a>。下文定时自主调度段落为历史机制，动作素材与协议说明仍保留。</p></section>
 <p style="font-size:15px">
   WZH Dinosaur 版本 &nbsp;·&nbsp;
   从固件构建到舵机动作的完整运行时说明
@@ -744,7 +783,7 @@ flowchart TD
   </div>
   <div class="highlight-card reveal">
     <strong style="color:var(--accent-2)">② 电源</strong>
-    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 0">拉高 GPIO7 锁存，初始化 ADC，启动电源任务</p>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 0">拉高 GPIO7 锁存，初始化电源键/电池/IO5 触摸 ADC，启动电源任务</p>
   </div>
   <div class="highlight-card reveal">
     <strong style="color:var(--accent-3)">③ 离线音频</strong>
@@ -965,6 +1004,7 @@ flowchart LR
 </table>
 
 <p style="margin-top:12px"><strong>GPIO0 双击：</strong>直接提交 <code>happy</code> 动作——在线只做动作，离线还会播放本地声音。</p>
+<p style="margin-top:12px"><strong>IO5 四路触摸：</strong>SW1～SW4 经 R-2R 网络接入 ADC1_CH4；每 20ms 连读 3 次取中值，连续 5 次解码一致才发布。单点提交 <code>affection</code>，组合触摸提交 <code>happy</code>。回调只投递有界动作队列，在线期间不叠加本地声音。</p>
 </div>
 
 <!-- ═══════ 12 ═══════ -->
@@ -1093,12 +1133,23 @@ sequenceDiagram
 
 <p><strong>队列规则：</strong></p>
 <ul>
-  <li>容量为 4 的 <code>action_queue_</code></li>
+  <li>容量为 1 的 <code>action_queue_</code>，只保留最新待执行意图</li>
   <li>1.2 秒内重复动作<strong>合并</strong></li>
-  <li>队列满时<strong>丢弃最旧</strong>，保留最新意图</li>
-  <li>20 ms 插值步长 + SmoothStep 平滑</li>
+  <li>队列满时<strong>替换旧请求</strong>，保留最新意图</li>
+  <li>完整动作 20 ms 插值，待机目标 50 ms 更新；移动帧至少 420 ms、最快轴平均不超过约 80 度/秒</li>
+  <li>同一关键帧内五轴共用进度，同步开始、同步到达</li>
+  <li>单独移动使用原有三次 SmoothStep；连续同向关键帧用单调 Hermite 轨迹穿过中间姿态，不再每帧刹停且不过冲</li>
   <li>随机左右镜像，减少机械重复</li>
-  <li>空闲时五关节<strong>正弦摆动</strong>形成"呼吸"效果 🫁</li>
+  <li>声音/生命偏移不写回基础姿态，镜像不重复翻转 KEEP 轴，动作结束准确回中</li>
+  <li>12 秒慢呼吸后回默认中位停顿约 4 秒，偏姿后回中停留 9～15 秒 🫁</li>
+  <li>八种待机小表情随机变化，相邻两次不重复，完成后自然回中</li>
+  <li>Flash 自主表演先选声音再按名称/时长选择动作；24 套完整 + 24 套短声 + 7 套怒吼变体，共 55 套声音表演，相邻轨迹不复读</li>
+  <li>所有“叫声音效合集 (N)”/怒吼/长啸/咆哮/roar 按时长进入怒吼库：先明显仰头，再做有限且平衡的横向细节；不随机镜像，声音主要加强仰头和抬尾</li>
+  <li>在线 TTS、本地声音和系统提示音按实际 PCM 包络驱动五轴同步随动</li>
+  <li>roar-onset-v3：怒吼首帧直接正面仰头，默认起点约 900 ms；长声只拉伸后续表演，回中独立计时。侧仰时头部反向补偿，尾巴配重</li>
+  <li>stories-v4：新增亲近回望、侧耳复核、短吼轻收声和长吼高位弧线。随机缩放/镜像后先夹紧物理目标再插值，减少极限位空等；生命微动两端平滑淡入淡出，短于 900 ms 的帧按时长减弱微动。触发间隔不变</li>
+  <li>2026-09-13 用户确认五轴方向。新增高低巡视 discover-canopy、探身招呼 happy-invite、贴地取食 eat-graze；取食正面到 IO17=180，深低头时声音抬头叠加减弱至零。显式 0/180 落点不受随机缩幅影响，保留同步慢速和原触发间隔</li>
+  <li>Roar pose 日志记录最终软件输出角度；显式调用 self.dinosaur.test_servo（gpio=17/16/15/8/18）可关闭叠加并逐路小范围核对实际装配，结束回默认姿态</li>
 </ul>
 </div>
 
@@ -1110,21 +1161,22 @@ sequenceDiagram
   <div class="highlight-card" style="border-top:3px solid var(--accent-3)">
     <h4 style="margin-top:0">🟢 在线模式</h4>
     <ul style="font-size:13px">
-      <li>Wi-Fi Connected → online=true</li>
+      <li>正在连接会话、聆听、说话或录音测试 → online=true</li>
       <li>先做 listen 动作</li>
       <li>停止离线随机动作</li>
       <li>不播放 W25Q256 声音</li>
       <li>接收 llm.emotion + MCP</li>
+      <li>在线 TTS 按真实响度驱动颈、头、尾动作</li>
     </ul>
   </div>
   <div class="highlight-card" style="border-top:3px solid #f59e0b">
     <h4 style="margin-top:0">🟡 离线模式</h4>
     <ul style="font-size:13px">
-      <li>Wi-Fi Disconnected → online=false</li>
+      <li>idle 或没有语音会话 → online=false</li>
       <li>做 discover + 本地声音</li>
       <li>继续空闲呼吸动作</li>
-      <li>7～16 秒随机动作</li>
-      <li>从 W25Q256 选择声音</li>
+      <li>前一动作结束 5～13 秒后再选下一段声音</li>
+      <li>先选 W25Q256 声音，再按名称/时长选择动作</li>
     </ul>
   </div>
 </div>
@@ -1142,16 +1194,21 @@ sequenceDiagram
   <span class="diagram-label">离线声音播放流程</span>
 <div class="mermaid">
 flowchart LR
-    Action["🎬 离线动作"] --> Select["📂 选择声音"]
+    Select["📂 选择实际 Flash 声音"] --> Classify["🧭 名称/时长选动作"]
     Select --> Queue["📋 dino_audio 队列"]
     Queue --> SPI["💾 分块读 W25Q256"]
     SPI --> OGG["📦 OggDemuxer"]
     OGG --> Decode["🔊 解码队列"]
     Decode --> Output["🔉 ES8311 扬声器"]
+    SPI --> Started["▶️ 确认目标声音开始"]
+    Started --> Motion["🦖 专属/完整编舞"]
+    Classify --> Motion
+    Output --> Envelope["〰️ 真实 PCM 包络"]
+    Envelope --> Motion
 </div>
 </div>
 
-<p><code>DinosaurAudio</code> 复用 AudioService，不与在线 TTS 产生驱动冲突。</p>
+<p><code>DinosaurAudio</code> 复用 AudioService，不与在线 TTS 产生驱动冲突。动作线程最多等待 300 ms 确认目标文件开始；当前共有 24 套完整动作、24 套短声动作和 7 套怒吼动作。旧工程动作仅尾上下按 <code>180-angle</code> 换算，其余轴不反向；移植动作改为五轴同步起停。长声音使用完整编舞并只向慢方向拉伸，真实 PCM 强弱还会同步控制全身舒展与收束。</p>
 </div>
 
 <!-- ═══════ 18 ═══════ -->
@@ -1163,6 +1220,7 @@ flowchart LR
   <ul>
     <li>GPIO7 维持电源锁存</li>
     <li>每 20ms 读取模拟电源键</li>
+    <li>每 20ms 读取 IO5 触摸网络，3 次中值滤波并做 100ms 稳定判定</li>
     <li>长按 1.5s → 拉低 GPIO7 关机</li>
     <li>每 5s 采样电池 ADC ×32 取平均</li>
     <li>3.2～4.2V → 0～100% 线性映射</li>
@@ -1228,6 +1286,7 @@ sequenceDiagram
     A->>A: listening → speaking
     P->>AS: 下行 Opus 解码
     AS-->>U: 🔊 扬声器声音
+    AS->>D: 实际 PCM 响度/重音
     D-->>U: 🤖 情绪身体动作
     S-->>P: tts:stop
     A->>A: speaking → listening/idle
@@ -1252,7 +1311,7 @@ sequenceDiagram
     W->>C: Disconnected
     C->>C: online=false
     C->>C: discover 动作
-    loop 🔄 每 7～16 秒
+    loop 🔄 前一动作结束 5～13 秒后
         C->>C: 随机选择动作
         C->>DA: PlayForAction
         DA->>DA: 选择 PNDA 文件
@@ -1537,5 +1596,6 @@ console.log('🦖 XiaoZhi 运行原理文档已就绪');
 console.log('  快捷键: Ctrl+D 切换主题 | Ctrl+Shift+T 回到顶部 | Esc 关闭侧栏');
 </script>
 
+<section><h2>感应和动作保护更新</h2><p>新增 IO41 人体感应、独立 I2C1 的 SC7A20H 姿态检测，以及在 idle 本地执行的 MultiNet 动作关键词。新增欠压、ESP32 芯片温度与连续通电预算保护；动作/脉冲结束释放 PWM 和舵机电源，安静待机不再持续输出呼吸角度，声音播放时保留 PCM 随动。正常关机请求动作任务回默认姿态，严重欠压直接断电。原理图没有舵机温度、电流或位置反馈，不能测得真实堵转或绕组过热。详见 <a href="../../../docs/wzh_sensing_and_protection.md">共享说明</a>。</p></section>
 </body>
 </html>

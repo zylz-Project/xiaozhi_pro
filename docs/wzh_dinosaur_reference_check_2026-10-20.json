@@ -1,0 +1,180 @@
+{
+  "source": "/home/wzh/project/dinosaur_action/main/web_assets/motion-library.js",
+  "sha256": "62e9140936fd98345a734d5c5a0fd74aebb8639b781404f254dce62f87692132",
+  "clips": [
+    {
+      "name": "ref-discover-direct",
+      "category": "discover",
+      "source_frames": 7,
+      "registered": true
+    },
+    {
+      "name": "ref-discover-peek",
+      "category": "discover",
+      "source_frames": 7,
+      "registered": true
+    },
+    {
+      "name": "ref-discover-sky-track",
+      "category": "discover",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-affection-neck-bow",
+      "category": "affection",
+      "source_frames": 6,
+      "registered": true
+    },
+    {
+      "name": "ref-affection-gentle-reach",
+      "category": "affection",
+      "source_frames": 6,
+      "registered": true
+    },
+    {
+      "name": "ref-affection-playful-nuzzle",
+      "category": "affection",
+      "source_frames": 6,
+      "registered": true
+    },
+    {
+      "name": "ref-affection-shy-approach",
+      "category": "affection",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-happy-juvenile-display",
+      "category": "happy",
+      "source_frames": 5,
+      "registered": true
+    },
+    {
+      "name": "ref-happy-long-neck-sweep",
+      "category": "happy",
+      "source_frames": 5,
+      "registered": true
+    },
+    {
+      "name": "ref-happy-orbit",
+      "category": "happy",
+      "source_frames": 9,
+      "registered": true
+    },
+    {
+      "name": "ref-happy-tail-chase",
+      "category": "happy",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-proud-front",
+      "category": "proud",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-proud-sweep",
+      "category": "proud",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-proud-orbit",
+      "category": "proud",
+      "source_frames": 12,
+      "registered": true
+    },
+    {
+      "name": "ref-proud-echo-call",
+      "category": "proud",
+      "source_frames": 9,
+      "registered": true
+    },
+    {
+      "name": "ref-eat-peck",
+      "category": "eat",
+      "source_frames": 9,
+      "registered": true
+    },
+    {
+      "name": "ref-eat-sniff",
+      "category": "eat",
+      "source_frames": 10,
+      "registered": true
+    },
+    {
+      "name": "ref-eat-look-up",
+      "category": "eat",
+      "source_frames": 10,
+      "registered": true
+    },
+    {
+      "name": "ref-eat-low-graze",
+      "category": "eat",
+      "source_frames": 9,
+      "registered": true
+    },
+    {
+      "name": "ref-listen-locate",
+      "category": "listen",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-listen-track",
+      "category": "listen",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-listen-double-check",
+      "category": "listen",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-listen-overhead",
+      "category": "listen",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-startled-recoil",
+      "category": "startled",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-startled-jump",
+      "category": "startled",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-startled-low-duck",
+      "category": "startled",
+      "source_frames": 8,
+      "registered": true
+    },
+    {
+      "name": "ref-sleepy-neck-rest",
+      "category": "sleepy",
+      "source_frames": 6,
+      "registered": true
+    },
+    {
+      "name": "ref-sleepy-long-neck-nod",
+      "category": "sleepy",
+      "source_frames": 7,
+      "registered": true
+    },
+    {
+      "name": "ref-sleepy-neck-wrap",
+      "category": "sleepy",
+      "source_frames": 7,
+      "registered": true
+    }
+  ]
+}
