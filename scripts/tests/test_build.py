@@ -950,6 +950,28 @@ class BuildOptionTests(unittest.TestCase):
             ],
         )
 
+    def test_product_default_wake_word_and_cli_override_reach_configuration(self):
+        for override, expected in [(None, 'WN9_XIAOLONGXIAOLONG_TTS'),
+                                   ('wn9_jarvis_tts', 'WN9_JARVIS_TTS')]:
+            with (
+                self.subTest(override=override),
+                mock.patch.object(build, '_prepare_target'),
+                mock.patch.object(build, '_configure_build') as configure,
+                mock.patch.object(build, '_validate_configured_symbols') as validate,
+                mock.patch.object(build, '_run_idf'),
+                mock.patch.object(build, 'merge_bin'),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                build.build_board('wzh_dinosaur', name_filter='wzh-dinosaur', wake_word=override)
+                options = configure.call_args.args[1]
+                self.assertIn('CONFIG_USE_AFE_WAKE_WORD=y', options)
+                self.assertIn('CONFIG_USE_CUSTOM_WAKE_WORD=n', options)
+                self.assertIn('CONFIG_SR_WN_WN9_NIHAOXIAOZHI_TTS=n', options)
+                self.assertEqual([option for option in options
+                                  if option.startswith('CONFIG_SR_WN_') and option.endswith('=y')],
+                                 [f'CONFIG_SR_WN_{expected}=y'])
+                self.assertIn(f'CONFIG_SR_WN_{expected}', validate.call_args.args[0])
+
     def test_configured_build_options_are_verified(self):
         previous_cwd = Path.cwd()
         try:

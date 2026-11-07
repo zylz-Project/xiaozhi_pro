@@ -1,0 +1,22 @@
+{
+  "confirmed_source_root": "/home/wzh/project/dinosaur_action (1)",
+  "axis_order": [
+    "neck_tilt/IO17",
+    "neck_lean/IO16",
+    "head_turn/IO15",
+    "tail_ud/IO8",
+    "tail_lr/IO18"
+  ],
+  "schema_version": 1,
+  "export_conversion": "only ch3: encoded = 180 - physical; channels 0,1,2,4 unchanged",
+  "import_conversion": "only ch3: physical = 180 - encoded; channels 0,1,2,4 unchanged",
+  "keyframe_export_transform_matches_previously_checked_source": true,
+  "validated_user_archives": 24,
+  "all_embedded_keyframes_match_import": true,
+  "firmware_behavior_change_required": false,
+  "source_sha256": {
+    "main/web_assets/dino-gamepad.html": "e6675a826bc83d034b65d6a59bd4d2245507e030f5d88daecedd806518108996",
+    "tools/pipeline/2_make_pack.py": "8414194609d26aa0bcdea8507a0124ceb650d80ed60f7abef56095d6e69834f9",
+    "main/servo.cc": "eb64b67d59ea1064f2496c8772ae69b6f2de3b831883f835910e80b2146be59c"
+  }
+}

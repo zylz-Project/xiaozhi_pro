@@ -1,0 +1,29 @@
+{
+  "source_root": "/home/wzh/program/ESP32/zylz_project/final/newWebServer_Project",
+  "products": {
+    "wzh_crawlPanda": {
+      "source": "crawlPanda/main/auto_run.cc",
+      "source_sha256": "bae32c5705c9695ab958fa8596d1e69c7103ea05b994850b0b133e4688f6709c",
+      "header": "panda_reference_motion.h",
+      "clips": 27,
+      "frames": 146,
+      "frames_sha256": "66870769fcdc4527e68412f064571f9c35bb4c1c0869c8551a14e09272e1710a"
+    },
+    "wzh_tailRedPanda": {
+      "source": "tailRedPanda/main/auto_run.cc",
+      "source_sha256": "7fb407b40fa91901882d422e64cdbe992976eb2e4fe5ad6417643b6da7dc6500",
+      "header": "panda_reference_motion.h",
+      "clips": 30,
+      "frames": 192,
+      "frames_sha256": "a1b635831ad47d50c38ed46504472489027c044a7b8669af72a9c28254063508"
+    },
+    "wzh_dinosaur": {
+      "source": "dinosaur/main/auto_run_data.cc",
+      "source_sha256": "8083517db6e675497b29a2d5ea69339ef145ae966f0a79a051895a9889473c43",
+      "header": "dinosaur_reference_motion.h",
+      "clips": 29,
+      "frames": 255,
+      "frames_sha256": "5bf8d75e86a770ad75f1579c5bcffa90fe7e7debf9f518c717f6c446e86315bd"
+    }
+  }
+}

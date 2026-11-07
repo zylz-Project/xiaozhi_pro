@@ -1035,7 +1035,7 @@ def build_board(
         name_filter: build["name"] to compile
         create_zip: package merged-binary.bin under releases/ when true
         language: optional locale such as en-US
-        wake_word: optional ESP-SR model name or "disabled"
+        wake_word: optional ESP-SR model name or "disabled"; overrides the variant default
     """
     cfg_path = _BOARDS_DIR / Path(board_type) / config_filename
     if not cfg_path.exists():
@@ -1100,14 +1100,17 @@ def build_board(
             validation_symbols.append(
                 ([option.split("=", 1)[0]], "--language")
             )
-        if wake_word is not None:
+        variant_wake_word = wake_word if wake_word is not None else build.get("default_wake_word")
+        if variant_wake_word is not None:
+            if not isinstance(variant_wake_word, str) or not variant_wake_word.strip():
+                raise ValueError(f"{cfg_path}: default_wake_word must be a non-empty model name")
             (
                 selected_wake_word,
                 wake_word_options,
                 wake_word_symbols,
-            ) = _wake_word_sdkconfig_options(wake_word, target)
+            ) = _wake_word_sdkconfig_options(variant_wake_word, target)
             user_options.extend(wake_word_options)
-            validation_symbols.append((wake_word_symbols, "--wake-word"))
+            validation_symbols.append((wake_word_symbols, "--wake-word/default_wake_word"))
 
         sdkconfig_append = _merge_sdkconfig_options(
             sdkconfig_append,

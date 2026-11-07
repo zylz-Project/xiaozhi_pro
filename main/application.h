@@ -6,6 +6,7 @@
 #include <freertos/event_groups.h>
 #include <freertos/task.h>
 
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -15,6 +16,7 @@
 #include "audio_service.h"
 #include "device_state.h"
 #include "device_state_machine.h"
+#include "direct_barge_guard.h"
 #include "ota.h"
 #include "protocol.h"
 
@@ -33,6 +35,7 @@
 #define MAIN_EVENT_STOP_LISTENING (1 << 11)
 #define MAIN_EVENT_STATE_CHANGED (1 << 12)
 #define MAIN_EVENT_PLAYBACK_DRAINED (1 << 13)
+#define MAIN_EVENT_TOGGLE_CONVERSATION (1 << 14)
 
 enum AecMode {
     kAecOff,
@@ -66,6 +69,11 @@ public:
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
+    bool IsVoiceEnrollmentActive() const { return voice_enrollment_active_.load(); }
+    bool RequestDeviceVoiceEnrollment(const std::string& name);
+    bool RequestExternalVoicePreview();
+    bool IsExternalVoicePreviewActive() const { return external_voice_preview_active_.load(); }
+    const char* ExternalVoicePreviewStatus() const;
 
     /**
      * Request state transition
@@ -93,6 +101,12 @@ public:
     void DismissAlert();
 
     void AbortSpeaking(AbortReason reason);
+    // Safe from board callbacks: cancel speech/listening on the application task.
+    void StopInteraction(bool play_exit_sound = false);
+
+    // Complete session toggle: also exits while connecting or speaking.
+    // Unlike ToggleChatState(), it never starts provisioning audio tests.
+    void ToggleConversation();
 
     /**
      * Toggle chat state (event-based, thread-safe)
@@ -136,7 +150,8 @@ private:
 
     std::mutex mutex_;
     std::deque<std::function<void()>> main_tasks_;
-    std::unique_ptr<Protocol> protocol_;
+    // A reconnect worker retains the protocol until its pending handshake ends.
+    std::shared_ptr<Protocol> protocol_;
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;
     DeviceStateMachine state_machine_;
@@ -150,28 +165,60 @@ private:
 
     bool has_server_time_ = false;
     bool aborted_ = false;
+    std::atomic<bool> local_assets_applied_{false};
+    std::atomic<bool> interaction_stopped_{false};
+    std::atomic<uint32_t> interaction_generation_{0};
+    // A TTS start arrives before its first audio packets, but the state change
+    // runs on the main task. Keep a bounded prefix so the first syllable is
+    // not dropped while the start transition is pending.
+    static constexpr size_t kMaxEarlyAudioPackets = 8;
+    std::mutex early_audio_mutex_;
+    std::deque<std::unique_ptr<AudioStreamPacket>> early_audio_;
+    std::atomic<bool> tts_start_pending_{false};
+    std::atomic<bool> external_tts_selected_{false};
+    std::atomic<bool> voice_enrollment_active_{false};
+    // Block late server speech for a local voice-selection turn until the next user transcript.
+    std::atomic<bool> voice_selection_reply_guard_{false};
+    std::atomic<bool> external_voice_preview_active_{false};
+    // 0 idle, 1 requested/playing, 2 complete, 3 failed, 4 cancelled.
+    std::atomic<int> external_voice_preview_status_{0};
+    std::atomic<bool> voice_enrollment_reconnecting_{false};
+    // A delayed server goodbye may arrive immediately after enrollment ends.
+    std::atomic<int64_t> voice_enrollment_resume_guard_until_us_{0};
+    std::atomic<uint32_t> external_tts_turn_{0};
+    std::atomic<uint32_t> external_tts_callback_token_{0};
+    bool server_music_active_ = false;  // main-task owned
+    DirectBargeGuard direct_barge_guard_;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ =
         false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ =
         false;  // Waiting for playback to drain before starting listening (auto mode)
+    // Double-click entry only: play the ready prompt before opening the mic.
+    // Wake-word and other original XiaoZhi entry paths keep their behavior.
+    bool entry_prompt_before_listening_ = false;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
     // Event handlers
     void HandleStateChangedEvent();
     void HandleToggleChatEvent();
+    void HandleToggleConversationEvent();
     void HandleStartListeningEvent();
     void HandleStopListeningEvent();
     void HandleNetworkConnectedEvent();
     void HandleNetworkDisconnectedEvent();
     void HandleActivationDoneEvent();
     void HandleWakeWordDetectedEvent();
+    void HandleDirectSpeechInterrupt();
     void ContinueOpenAudioChannel(ListeningMode mode);
     void BeginWakeWordInvoke(const std::string& wake_word);
     void ContinueWakeWordInvoke(const std::string& wake_word);
     void StartListeningAudio();
+    void FlushEarlyAudio();
+    void ClearEarlyAudio();
     void ConfigureWakeWordForListening();
+    void ResumeAfterVoiceEnrollment(uint32_t generation);
 
     // Activation task (runs in background)
     void ActivationTask();

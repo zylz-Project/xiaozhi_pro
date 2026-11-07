@@ -1,30 +1,32 @@
 #ifndef AUDIO_SERVICE_H
 #define AUDIO_SERVICE_H
 
-#include <memory>
 #include <atomic>
-#include <deque>
-#include <condition_variable>
 #include <chrono>
-#include <mutex>
+#include <condition_variable>
 #include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <freertos/event_groups.h>
 #include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
+#include <freertos/task.h>
 #include <model_path.h>
-#include "esp_audio_enc.h"
-#include "esp_opus_enc.h"
-#include "esp_opus_dec.h"
 #include "esp_ae_rate_cvt.h"
+#include "esp_audio_enc.h"
 #include "esp_audio_types.h"
+#include "esp_opus_dec.h"
+#include "esp_opus_enc.h"
 
 #include "audio_codec.h"
 #include "audio_debugger.h"
 #include "audio_engine.h"
-#include "protocol.h"
+#include "audio_playout_buffer.h"
+#include "fixed_queue.h"
 #include "ogg_demuxer.h"
+#include "protocol.h"
 
 /*
  * There are two types of audio data flow:
@@ -32,9 +34,10 @@
  * 2. (Server) -> {Decode Queue} -> [Opus Decoder] -> {Playback Queue} -> (Speaker)
  *
  * We use dedicated tasks for input, output, and Opus encoding/decoding.
- * 
- * Decode Queue and Send Queue are the main queues, because Opus packets are quite smaller than PCM packets.
- * 
+ *
+ * Decode Queue and Send Queue are the main queues, because Opus packets are quite smaller than PCM
+ * packets.
+ *
  */
 
 #define OPUS_FRAME_DURATION_MS 60
@@ -48,35 +51,40 @@
 #define AUDIO_POWER_TIMEOUT_MS 15000
 #define AUDIO_POWER_CHECK_INTERVAL_MS 1000
 
-#define AS_EVENT_AUDIO_TESTING_RUNNING      (1 << 0)
-#define AS_EVENT_WAKE_WORD_RUNNING          (1 << 1)
-#define AS_EVENT_AUDIO_PROCESSOR_RUNNING    (1 << 2)
-#define AS_EVENT_AUDIO_INPUT_STOP_REQUEST   (1 << 4)
+#define AS_EVENT_AUDIO_TESTING_RUNNING (1 << 0)
+#define AS_EVENT_WAKE_WORD_RUNNING (1 << 1)
+#define AS_EVENT_AUDIO_PROCESSOR_RUNNING (1 << 2)
+#define AS_EVENT_AUDIO_INPUT_STOP_REQUEST (1 << 4)
 
-#define AS_OPUS_GET_FRAME_DRU_ENUM(duration_ms)                   \
-    ((duration_ms) == 5 ? ESP_OPUS_ENC_FRAME_DURATION_5_MS :      \
-     (duration_ms) == 10 ? ESP_OPUS_ENC_FRAME_DURATION_10_MS :    \
-     (duration_ms) == 20 ? ESP_OPUS_ENC_FRAME_DURATION_20_MS :    \
-     (duration_ms) == 40 ? ESP_OPUS_ENC_FRAME_DURATION_40_MS :    \
-     (duration_ms) == 60 ? ESP_OPUS_ENC_FRAME_DURATION_60_MS :    \
-     (duration_ms) == 80 ? ESP_OPUS_ENC_FRAME_DURATION_80_MS :    \
-     (duration_ms) == 100 ? ESP_OPUS_ENC_FRAME_DURATION_100_MS :  \
-     (duration_ms) == 120 ? ESP_OPUS_ENC_FRAME_DURATION_120_MS : -1)
+#define AS_OPUS_GET_FRAME_DRU_ENUM(duration_ms)                  \
+    ((duration_ms) == 5     ? ESP_OPUS_ENC_FRAME_DURATION_5_MS   \
+     : (duration_ms) == 10  ? ESP_OPUS_ENC_FRAME_DURATION_10_MS  \
+     : (duration_ms) == 20  ? ESP_OPUS_ENC_FRAME_DURATION_20_MS  \
+     : (duration_ms) == 40  ? ESP_OPUS_ENC_FRAME_DURATION_40_MS  \
+     : (duration_ms) == 60  ? ESP_OPUS_ENC_FRAME_DURATION_60_MS  \
+     : (duration_ms) == 80  ? ESP_OPUS_ENC_FRAME_DURATION_80_MS  \
+     : (duration_ms) == 100 ? ESP_OPUS_ENC_FRAME_DURATION_100_MS \
+     : (duration_ms) == 120 ? ESP_OPUS_ENC_FRAME_DURATION_120_MS \
+                            : -1)
 
-#define AS_OPUS_ENC_CONFIG() {                                                                                    \
-        .sample_rate        = ESP_AUDIO_SAMPLE_RATE_16K,                                                          \
-        .channel            = ESP_AUDIO_MONO,                                                                     \
-        .bits_per_sample    = ESP_AUDIO_BIT16,                                                                    \
-        .bitrate            = ESP_OPUS_BITRATE_AUTO,                                                              \
-        .frame_duration     = (esp_opus_enc_frame_duration_t)AS_OPUS_GET_FRAME_DRU_ENUM(OPUS_FRAME_DURATION_MS),  \
-        .application_mode   = ESP_OPUS_ENC_APPLICATION_AUDIO,                                                     \
-        .complexity         = 0,                                                                                  \
-        .enable_fec         = false,                                                                              \
-        .enable_dtx         = true,                                                                               \
-        .enable_vbr         = true,                                                                               \
+#define AS_OPUS_ENC_CONFIG()                                                                   \
+    {                                                                                          \
+        .sample_rate = ESP_AUDIO_SAMPLE_RATE_16K,                                              \
+        .channel = ESP_AUDIO_MONO,                                                             \
+        .bits_per_sample = ESP_AUDIO_BIT16,                                                    \
+        .bitrate = ESP_OPUS_BITRATE_AUTO,                                                      \
+        .frame_duration =                                                                      \
+            (esp_opus_enc_frame_duration_t)AS_OPUS_GET_FRAME_DRU_ENUM(OPUS_FRAME_DURATION_MS), \
+        .application_mode = ESP_OPUS_ENC_APPLICATION_AUDIO,                                    \
+        .complexity = 0,                                                                       \
+        .enable_fec = false,                                                                   \
+        .enable_dtx = true,                                                                    \
+        .enable_vbr = true,                                                                    \
     }
 
 struct AudioServiceCallbacks {
+    // Return true when the board consumes a processed frame locally.
+    std::function<bool(const int16_t*, size_t, bool)> on_processed_audio;
     std::function<void(void)> on_send_queue_available;
     std::function<void(const std::string&)> on_wake_word_detected;
     std::function<void(bool)> on_vad_change;
@@ -84,7 +92,6 @@ struct AudioServiceCallbacks {
     // Fired when the decode/playback queues and their in-flight work are drained.
     std::function<void(void)> on_playback_drained;
 };
-
 
 enum AudioTaskType {
     kAudioTaskTypeEncodeToSendQueue,
@@ -96,6 +103,7 @@ struct AudioTask {
     AudioTaskType type;
     std::vector<int16_t> pcm;
     uint32_t timestamp = 0;
+    uint32_t playback_generation = 0;
 };
 
 struct DebugStatistics {
@@ -104,6 +112,11 @@ struct DebugStatistics {
     uint32_t encode_count = 0;
     uint32_t playback_count = 0;
     uint32_t encode_drop_count = 0;
+};
+
+struct PlaybackBufferStatus {
+    uint32_t decode_packets = 0, pcm_frames = 0, buffered_ms = 0;
+    uint32_t rebuffer_count = 0, queue_full_count = 0;
 };
 
 class AudioService {
@@ -120,8 +133,13 @@ public:
     bool IsVoiceDetected() const { return voice_detected_; }
     bool IsIdle();
     bool IsPlaybackIdle();
-    bool IsWakeWordRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING; }
-    bool IsAudioProcessorRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_AUDIO_PROCESSOR_RUNNING; }
+    PlaybackBufferStatus GetPlaybackBufferStatus();
+    bool IsWakeWordRunning() const {
+        return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING;
+    }
+    bool IsAudioProcessorRunning() const {
+        return xEventGroupGetBits(event_group_) & AS_EVENT_AUDIO_PROCESSOR_RUNNING;
+    }
     bool IsAfeWakeWord();
 
     void EnableWakeWordDetection(bool enable);
@@ -138,7 +156,15 @@ public:
     using OutputAudioLevelListener = std::function<void(float level, float attack)>;
     void SetOutputAudioLevelListener(OutputAudioLevelListener listener);
 
-    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
+    // Optional generation binds a streaming producer to the decoder session it
+    // started in. ResetDecoder invalidates queued AND waiting old producers.
+    uint32_t GetPlaybackGeneration();
+    bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false,
+                                 std::optional<uint32_t> expected_generation = std::nullopt);
+    // Enqueue a short frame already converted to the codec's output rate. The
+    // caller must be a worker task; waiting producers are released on reset.
+    bool PushPcmToPlaybackQueue(std::vector<int16_t> pcm, int sample_rate,
+                                uint32_t expected_generation, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
@@ -160,7 +186,7 @@ private:
     std::mutex input_resampler_mutex_;
     esp_ae_rate_cvt_handle_t input_resampler_ = nullptr;
     esp_ae_rate_cvt_handle_t output_resampler_ = nullptr;
-    
+
     // Encoder/Decoder state
     int encoder_sample_rate_ = 16000;
     int encoder_duration_ms_ = OPUS_FRAME_DURATION_MS;
@@ -181,20 +207,32 @@ private:
     TaskHandle_t opus_codec_task_handle_ = nullptr;
     std::mutex audio_queue_mutex_;
     std::condition_variable audio_queue_cv_;
-    std::deque<std::unique_ptr<AudioStreamPacket>> audio_decode_queue_;
-    std::deque<std::unique_ptr<AudioStreamPacket>> audio_send_queue_;
-    std::deque<std::unique_ptr<AudioStreamPacket>> audio_testing_queue_;
-    std::deque<std::unique_ptr<AudioTask>> audio_encode_queue_;
-    std::deque<std::unique_ptr<AudioTask>> audio_playback_queue_;
+    // Recording playback must hold the entire bounded test queue. Runtime
+    // conversation admission still uses max_decode_packets_ (96 on robots).
+    static constexpr size_t kTestingPacketCapacity =
+        AUDIO_TESTING_MAX_DURATION_MS / OPUS_FRAME_DURATION_MS;
+    static constexpr size_t kDecodePacketCapacity =
+        kTestingPacketCapacity > 96 ? kTestingPacketCapacity : 96;
+    static constexpr size_t kPlaybackTaskCapacity = 6;
+    FixedQueue<std::unique_ptr<AudioStreamPacket>, kDecodePacketCapacity> audio_decode_queue_;
+    FixedQueue<std::unique_ptr<AudioStreamPacket>, MAX_SEND_PACKETS_IN_QUEUE> audio_send_queue_;
+    FixedQueue<std::unique_ptr<AudioStreamPacket>, kDecodePacketCapacity> audio_testing_queue_;
+    FixedQueue<AudioTask, MAX_ENCODE_TASKS_IN_QUEUE> audio_encode_queue_;
+    FixedQueue<AudioTask, kPlaybackTaskCapacity> audio_playback_queue_;
     bool decode_in_flight_ = false;
     bool output_in_flight_ = false;
     bool playback_drained_notified_ = true;
     uint32_t playback_generation_ = 0;
+    AudioPlayoutBuffer playout_buffer_;
+    bool buffered_playback_ = false;
+    size_t max_playback_tasks_ = MAX_PLAYBACK_TASKS_IN_QUEUE;
+    size_t max_decode_packets_ = MAX_DECODE_PACKETS_IN_QUEUE;
+    uint32_t decode_queue_full_count_ = 0;
     // For server AEC
-    std::deque<uint32_t> timestamp_queue_;
+    FixedQueue<uint32_t, MAX_TIMESTAMPS_IN_QUEUE> timestamp_queue_;
 
     bool audio_engine_initialized_ = false;
-    bool voice_detected_ = false;
+    std::atomic<bool> voice_detected_{false};
 #if CONFIG_USE_DEVICE_AEC
     bool device_aec_enabled_ = true;
 #else
@@ -212,10 +250,11 @@ private:
     void OpusCodecTask();
     void PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm);
     bool InitializeAudioEngine();
-    void SetDecodeSampleRate(int sample_rate, int frame_duration);
+    bool SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckAndUpdateAudioPowerState();
     bool IsPlaybackDrainedLocked() const;
     bool MarkPlaybackDrainedLocked();
+    uint32_t BufferedPlaybackMsLocked() const;
 };
 
 #endif

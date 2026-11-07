@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-15",
+  "build_manifest": "../../dist/wzh-interaction-20261015/validation.json",
+  "host_tests": {
+    "count": 75,
+    "result": "passed",
+    "log": "host-tests.log"
+  },
+  "builds": [
+    {
+      "board": "wzh_dinosaur",
+      "variant": "wzh-dinosaur",
+      "exit_code": 0,
+      "app_size_bytes": 2397168,
+      "app_partition_free_percent": 42
+    },
+    {
+      "board": "wzh_crawlPanda",
+      "variant": "wzh-crawlpanda",
+      "exit_code": 0,
+      "app_size_bytes": 2382736,
+      "app_partition_free_percent": 42
+    },
+    {
+      "board": "wzh_tailRedPanda",
+      "variant": "wzh-tailredpanda",
+      "exit_code": 0,
+      "app_size_bytes": 2383552,
+      "app_partition_free_percent": 42
+    }
+  ],
+  "cooldowns": {
+    "accepted_sensor_response_ms": 3000,
+    "local_reaction_sound_start_ms": 12000,
+    "human_greeting_ms": 60000
+  },
+  "wake_word": {
+    "display": "你好小智",
+    "phrase": "ni hao xiao zhi",
+    "pipeline": "Chinese MultiNet custom word plus 12 local command phrases",
+    "changed_this_turn": false
+  },
+  "hardware_tested": false,
+  "flashed": false
+}

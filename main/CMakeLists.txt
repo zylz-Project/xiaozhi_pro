@@ -778,6 +778,16 @@ elseif(CONFIG_BOARD_TYPE_WZH_TAILREDPANDA)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_32)
 elseif(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA)
     set(BOARD_DIR "wzh_crawlPanda")
+    list(APPEND SOURCES "boards/wzh_crawlPanda/voice_tts/ali_enrollment.cc"
+                        "boards/wzh_crawlPanda/voice_tts/ali_voice_enrollment.cc"
+                        "boards/wzh_crawlPanda/voice_tts/ali_provider.cc"
+                        "boards/wzh_crawlPanda/voice_tts/voice_config.cc"
+                        "boards/wzh_crawlPanda/voice_tts/voice_manager.cc"
+                        "boards/wzh_crawlPanda/voice_tts/voice_names.cc"
+                        "boards/wzh_crawlPanda/voice_tts/voice_reservation.cc"
+                        "boards/wzh_crawlPanda/voice_tts/voice_web.cc"
+                        "boards/wzh_crawlPanda/voice_tts/voice_session.cc"
+                        "boards/wzh_crawlPanda/voice_tts/wav_playback.cc")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
     set(BUILTIN_ICON_FONT font_material_symbols_16_4)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_32)
@@ -885,6 +895,18 @@ file(GLOB BOARD_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/*.c
 )
 list(APPEND SOURCES ${BOARD_SOURCES})
+
+# WZH 三产品共享基础层（Flash 抽象/PNDA 音频仓库/播放引擎等），
+# 只在三块 WZH 板型下参与编译，不影响其他板型的固件体积。
+if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_BOARD_TYPE_WZH_TAILREDPANDA)
+    file(GLOB WZH_COMMON_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/*.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/*.c
+    )
+    list(APPEND SOURCES ${WZH_COMMON_SOURCES})
+    list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh)
+    set(WZH_CONSOLE_FILES "assets/wzh_console.html")
+endif()
 
 # Select one audio engine for each chip family
 if(CONFIG_IDF_TARGET_ESP32S3 OR CONFIG_IDF_TARGET_ESP32P4 OR CONFIG_IDF_TARGET_ESP32S31)
@@ -1007,6 +1029,8 @@ if(NOT LANG_DIR STREQUAL "en-US")
     endforeach()
 endif()
 
+# 注意：不能用 CONFIGURE_DEPENDS —— IDF 的 component 脚本模式会 include 本文件，
+# 脚本模式下该选项报错。新增音效文件后重新构建（重新 configure）即可生效。
 file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
 
 # If target chip is ESP32, exclude specific files to avoid build errors
@@ -1064,7 +1088,7 @@ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
     )
 endif()
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
+                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${WZH_CONSOLE_FILES}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES
@@ -1083,6 +1107,7 @@ idf_component_register(SRCS ${SOURCES}
                         esp_driver_tsens
                         esp_app_format
                         app_update
+                        esp_http_client
                         spi_flash
                         mbedtls
                         console
@@ -1127,6 +1152,7 @@ add_custom_command(
     DEPENDS
         ${LANG_JSON}
         ${PROJECT_DIR}/scripts/gen_lang.py
+        ${COMMON_SOUNDS}
     COMMENT "Generating ${LANG_DIR} language config"
 )
 

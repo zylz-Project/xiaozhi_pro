@@ -586,14 +586,14 @@ choice BOARD_TYPE
     config BOARD_TYPE_WDMOMO_CGC_144
         bool "WDMomo ESP32-CGC-144"
         depends on IDF_TARGET_ESP32
+    config BOARD_TYPE_WZH_CRAWLPANDA
+        bool "WZH Crawl Panda"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_WZH_DINOSAUR
         bool "WZH Dinosaur"
         depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_WZH_TAILREDPANDA
         bool "WZH Tail Red Panda"
-        depends on IDF_TARGET_ESP32S3
-    config BOARD_TYPE_WZH_CRAWLPANDA
-        bool "WZH Crawl Panda"
         depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_XMINI_C3
         bool "Xmini C3"
@@ -874,6 +874,24 @@ choice WAKE_WORD_TYPE
 
 endchoice
 
+config WZH_OFFLINE_COMMANDS
+    bool "WZH local motion keywords"
+    depends on (BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA) && (USE_CUSTOM_WAKE_WORD || USE_AFE_WAKE_WORD)
+    default y
+    help
+        Package local motion commands with the Chinese MultiNet model.
+        Commands share the AFE output with WakeNet or a custom wake phrase.
+        The board handles them locally, without opening a network session.
+
+config WZH_OFFLINE_COMMAND_THRESHOLD
+    int "WZH local keyword threshold (%)"
+    depends on WZH_OFFLINE_COMMANDS
+    default 50
+    range 1 99
+    help
+        Recognition threshold for local commands when WakeNet handles wake-up.
+        A higher value reduces false triggers; it does not change WakeNet sensitivity.
+
 config CUSTOM_WAKE_WORD
     string "Custom Wake Word"
     default "xiao tu dou"
@@ -932,7 +950,7 @@ config USE_DEVICE_AEC
         || BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_3_4C || BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_4C || BOARD_TYPE_ESP32_S3_LCD_EV_BOARD_2 || BOARD_TYPE_YUNLIAO_S3 \
         || BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_7 || BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_8 || BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_10_1 \
         || BOARD_TYPE_ESP_VOCAT || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_3_49 || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_3_49_V2 || BOARD_TYPE_WAVESHARE_ESP32_S3_RLCD_4_2 || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_85B || BOARD_TYPE_ZHENGCHEN_CAM || BOARD_TYPE_ZHENGCHEN_CAM_ML307 \
-        || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_4_3C || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_54 || BOARD_TYPE_WAVESHARE_ESP32_S3_LCD_0_85 || BOARD_TYPE_AI_VOX3 || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_AMOLED_1_43C || BOARD_TYPE_ATK_DNESP32S3_BOX3)
+        || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_4_3C || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_54 || BOARD_TYPE_WAVESHARE_ESP32_S3_LCD_0_85 || BOARD_TYPE_AI_VOX3 || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_AMOLED_1_43C || BOARD_TYPE_ATK_DNESP32S3_BOX3 || BOARD_TYPE_WZH_CRAWLPANDA)
     help
         To work properly, device-side AEC requires a clean output reference path from the speaker signal and physical acoustic isolation between the microphone and speaker.
 
@@ -942,6 +960,15 @@ config USE_SERVER_AEC
     depends on USE_AUDIO_PROCESSOR
     help
         To work perperly, server-side AEC requires server support
+
+config WZH_PANDA_SOFTWARE_AEC
+    bool "Experimental crawl panda software-reference barge-in"
+    default n
+    depends on BOARD_TYPE_WZH_CRAWLPANDA && USE_AUDIO_PROCESSOR && !USE_SERVER_AEC
+    select USE_DEVICE_AEC
+    help
+        Experimental software playback reference for AEC and direct speech interruption.
+        Acoustic alignment and false interruption rates require physical validation.
 
 config USE_AUDIO_DEBUGGER
     bool "Enable Audio Debugger"
@@ -1076,6 +1103,46 @@ menu "TAIJIPAI_S3_CONFIG"
     default y
     help
         启动双声道
+endmenu
+
+menu "WZH Product Configuration"
+    depends on BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_TAILREDPANDA
+
+    choice WZH_FLASH_TYPE
+        prompt "External audio flash type"
+        default WZH_FLASH_AUTO_DETECT
+        help
+            三款产品默认搭载 W25N01GV SPI NAND（128MB）。以开机日志中的
+            JEDEC ID 为准（NAND: EF AA 21；NOR: EF 40/60 xx）。个别批次
+            若换成 NOR，可在真机确认后在此强制指定。
+        config WZH_FLASH_AUTO_DETECT
+            bool "Auto detect (JEDEC ID)"
+            help
+                运行时读取 JEDEC ID 自动选择 NOR/NAND 驱动。
+        config WZH_FLASH_FORCE_NAND
+            bool "Force W25N01GV (SPI NAND)"
+            help
+                跳过探测，直接按 NAND 初始化；芯片不符时初始化失败。
+        config WZH_FLASH_FORCE_NOR
+            bool "Force W25Q256-class (SPI NOR)"
+            help
+                跳过探测，直接按 NOR 初始化；芯片不符时初始化失败。
+    endchoice
+
+    config WZH_AUDIO_SYNC_ENABLE
+        bool "Enable Audio Hub background sync"
+        default n
+        help
+            默认关闭：设备开机和运行期间不主动连接 Audio Hub。
+            后续可由设备网页控制台按需检查清单、选择并更新音频；
+            关闭时设备完整离线运行（对话与本地声音不受影响）。
+
+    config WZH_AUDIO_SYNC_SERVER
+        string "Audio Hub server base URL"
+        default "http://192.168.1.7:5000"
+        help
+            Audio Hub 服务地址（老工程硬编码 192.168.1.7:5000）。
+            可通过 NVS（audio_hub 命名空间，server 键）覆盖，无需重烧固件。
 endmenu
 
 endmenu
