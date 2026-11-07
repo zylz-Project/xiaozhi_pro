@@ -892,9 +892,11 @@ if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_
     file(GLOB WZH_COMMON_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/*.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/*.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/voice_tts/*.cc
     )
     list(APPEND SOURCES ${WZH_COMMON_SOURCES})
     list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh)
+    list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/voice_tts)
     set(WZH_CONSOLE_FILES "assets/wzh_console.html")
     set(WZH_CONVERSATION_SOUNDS "assets/wzh_sounds/conversation_exit.ogg")
 endif()

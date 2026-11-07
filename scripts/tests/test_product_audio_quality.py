@@ -222,6 +222,7 @@ int main(){
 #include <cassert>
 #include <atomic>
 #include <condition_variable>
+#include <optional>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -234,7 +235,8 @@ struct AudioService{
  bool decode_in_flight_=false,output_in_flight_=false,playback_drained_notified_=true;
  std::atomic<uint32_t> playback_drained_count_{0};
  bool finish_requested_=false,cancel_fade_requested_=false;
- void FinishPlayback();bool IsPlaybackDrainedLocked()const;bool MarkPlaybackDrainedLocked();
+ uint32_t playback_generation_=7;
+ void FinishPlayback(std::optional<uint32_t> expected_generation=std::nullopt);bool IsPlaybackDrainedLocked()const;bool MarkPlaybackDrainedLocked();
 };
 '''
         for marker in ['void AudioService::FinishPlayback(', 'bool AudioService::IsPlaybackDrainedLocked(',
@@ -242,7 +244,9 @@ struct AudioService{
             program+=queue_function(source,marker)+'\n'
         program+=r'''
 int main(){
- AudioService service;service.FinishPlayback();
+ AudioService service;service.FinishPlayback(6);
+ assert(!service.finish_requested_&&service.playback_drained_notified_);
+ service.FinishPlayback(7);
  assert(service.finish_requested_&&!service.playback_drained_notified_);
  assert(!service.IsPlaybackDrainedLocked()&&!service.MarkPlaybackDrainedLocked());
  service.finish_requested_=false;assert(service.MarkPlaybackDrainedLocked());

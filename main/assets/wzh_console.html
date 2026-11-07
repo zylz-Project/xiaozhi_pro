@@ -160,6 +160,12 @@
   .bar { height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
   .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
   .job p { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin: 6px 0 0; min-height: 1.4em; overflow-wrap: anywhere; }
+  .dev-tabs { display:flex; gap:6px; padding:5px; margin-bottom:22px; background:var(--surface-2); border-radius:12px; width:fit-content; max-width:100%; }
+  .dev-tab { border:0; border-radius:9px; padding:9px 16px; font:inherit; font-size:13px; font-weight:600; color:var(--muted); background:transparent; cursor:pointer; }
+  .dev-tab[aria-selected="true"] { color:var(--fg); background:var(--surface); box-shadow:0 1px 5px #0002; }
+  .dev-tab:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .voice-settings { margin-top:24px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; }
+  .voice-settings summary { cursor:pointer; font-size:13px; font-weight:600; }
   .api { margin-top: 18px; }
   .api-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
   .api-grid > * { min-width: 0; }
@@ -235,6 +241,7 @@ dialog::backdrop{background:#16292488}dialog h2{margin-top:0}dialog label{displa
       </div>
       <div class="hero-actions">
         <button class="btn primary" id="chatBtn">进入对话</button>
+        <button class="btn" id="voiceSettings">专属音色</button>
         <span class="hint">双击机身电源键或 BOOT 键同样可用；单击不启动对话。</span>
       </div>
     </div>
@@ -323,6 +330,11 @@ dialog::backdrop{background:#16292488}dialog h2{margin-top:0}dialog label{displa
   <section class="card developer" id="developerPanel" hidden>
     <div class="card-head"><div><span class="eyebrow">开发者模式已解锁</span><h2 class="card-title">展示与调试工作台</h2><p class="card-sub">更快检查声音、动作与设备状态</p></div><button class="btn ghost" id="developerClose">退出开发者模式</button></div>
     <div class="card-body">
+      <div class="dev-tabs" role="tablist" aria-label="开发者功能">
+        <button class="dev-tab" id="devTabGeneral" type="button" role="tab" aria-controls="devGeneral" aria-selected="true">设备调试</button>
+        <button class="dev-tab" id="devTabVoice" type="button" role="tab" aria-controls="voiceKeyPanel" aria-selected="false" tabindex="-1" hidden>音色复刻</button>
+      </div>
+      <div id="devGeneral" role="tabpanel" aria-labelledby="devTabGeneral">
       <div class="dev-grid">
         <div><h3>扬声器音量</h3><div class="dev-control"><input id="devVolume" type="range" min="0" max="100" value="70" aria-label="扬声器音量"><output id="devVolumeValue">70%</output><button class="btn primary" id="devVolumeSave">应用音量</button></div><p class="dev-small">0 为静音，应用后保存，重启仍保留。</p></div>
         <div><h3>声音与动作联动</h3><div id="devVoice">等待真实声音…</div><div class="dev-meter"><i id="devLevel"></i></div><div class="dev-ops"><button class="btn" id="devDemo">随机展示一段</button><button class="btn" id="devCenter">停止并归中</button></div><p class="dev-small">展示使用现有动物音和配套动作；保护生效时暂停动作。</p></div>
@@ -331,6 +343,35 @@ dialog::backdrop{background:#16292488}dialog h2{margin-top:0}dialog label{displa
       <p class="dev-small" id="devPlayback">播放缓冲读取中…</p>
       <div class="dev-danger"><h3>外置音频 Flash</h3><p>清空外置 Flash 的音效和目录，预置调校配套保留。外置音频可手动重新导入；设备固件、小智绑定和 Wi-Fi 配置保留。对话或更新进行中无法擦除。</p><button class="btn danger" id="devErase">擦除外置 Flash 音频</button></div>
       <div class="dev-job" id="devJob" role="status">尚未执行擦除</div>
+      </div>
+      <div id="voiceKeyPanel" role="tabpanel" aria-labelledby="devTabVoice" hidden>
+        <h3>专属聊天音色</h3>
+        <p class="dev-small">先设置语音服务，再选择系统音色或创建自己的声音。只影响联网聊天，开机、配网等提示保留原声。</p>
+        <p class="dev-small" id="aliCurrentVoice">当前音色：读取中…</p>
+        <p class="dev-small" id="aliEnrollmentStatus" role="status">复刻状态：未开始</p>
+        <p class="dev-small" id="aliPreviousVoice" style="overflow-wrap:anywhere">上一个音色：无</p>
+        <div class="dev-ops"><button class="btn" id="aliVoiceRestore" disabled>切回上一个音色</button><button class="btn" id="aliVoicePreview">试听当前音色</button><button class="btn" id="voiceCancel" disabled>取消录音或试听</button><span class="dev-small" id="aliVoicePreviewStatus"></span></div>
+        <p class="dev-small">空闲时可试听当前音色；切回后再次点击“切回”可恢复刚才的音色。</p>
+        <h3>音色管理</h3>
+        <p class="dev-small">系统音色每台设备都可使用；本设备最多保留 10 个专属音色。新音色创建成功后会用于聊天，也可以切回上一个声音。删除会同时删除阿里云中的对应音色。</p>
+        <div class="dev-ops"><button class="btn" id="voiceCatalogRefresh">刷新音色列表</button><span class="dev-small" id="voiceCatalogStatus">请先刷新</span></div>
+        <div id="voiceCatalog" aria-live="polite"></div>
+        <h3>录制并创建音色</h3>
+        <p class="dev-small">请在安静环境中自然朗读 5～20 秒：你好，我正在录制自己的声音。今天的天气很好，希望未来的每一天都充满快乐。</p>
+        <div class="field"><label for="voiceName">音色名称</label><input id="voiceName" type="text" maxlength="16" autocomplete="off" placeholder="例如：妈妈的声音"></div>
+        <div class="dev-ops"><button class="btn primary" id="voiceDeviceRecord">用设备麦克风录音</button><span class="dev-small">设备空闲时点击，听提示后靠近设备从一数到二十。</span></div>
+        <p class="dev-small">也可以用当前浏览器录音或选择音频文件上传：</p>
+        <div class="dev-ops"><button class="btn" id="voiceRecordStart">开始录音</button><button class="btn" id="voiceRecordStop" disabled>结束录音</button></div>
+        <p class="dev-small" id="voiceRecordStatus">也可以选择系统录音或已有音频文件。</p>
+        <div class="field"><label for="voiceFile">选择或录制音频文件</label><input id="voiceFile" type="file" accept="audio/*" capture="user"></div>
+        <audio id="voiceRecordPreview" controls hidden></audio>
+        <div class="dev-ops"><button class="btn primary" id="voiceCreate" disabled>上传并创建音色</button></div>
+        <details class="voice-settings" id="voiceSettingsDetails" open><summary>阿里服务设置</summary>
+        <p class="dev-small">管理页使用 HTTP，设备存储未加密，请仅在可信热点配置测试 Key。配置后下一个对话回复生效；配置不完整时使用官方原声。</p>
+        <div class="field"><label for="aliKey">阿里百炼 API Key（保存后不显示）</label><input id="aliKey" type="password" autocomplete="off" maxlength="256"></div>
+        <div class="dev-ops"><button class="btn" id="aliKeySave">保存阿里 Key</button><button class="btn" id="aliKeyDelete">删除阿里 Key</button><span id="aliKeyStatus" class="dev-small"></span></div>
+        </details>
+      </div>
     </div>
   </section>
 
@@ -381,13 +422,13 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
 
   <footer class="foot">
     <span>数据由设备实时返回；页面无外部字体/CDN。</span>
-    <span>三款产品共用页面 · 固件 2.4.1</span>
+    <span>三款产品共用页面 · 固件 <span id="consoleVersion">—</span></span>
   </footer>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 
-<dialog id="developerDialog"><form id="developerLoginForm"><h2>进入开发者模式</h2><p>解锁音量、动作检查和 Flash 维护。普通音频浏览与小智对话无需进入。</p><label for="developerPassword">开发者密码</label><input id="developerPassword" type="password" autocomplete="off" required><p class="form-error" id="developerError" role="alert"></p><div class="dialog-actions"><button type="button" class="btn ghost" id="developerCancel">取消</button><button type="submit" class="btn primary" id="developerLogin">进入</button></div></form></dialog>
+<dialog id="developerDialog"><form id="developerLoginForm"><h2>进入开发者模式</h2><p>解锁专属音色、音量、动作检查和 Flash 维护。普通音频浏览与小智对话无需进入。</p><label for="developerPassword">开发者密码</label><input id="developerPassword" type="password" autocomplete="off" required><p class="form-error" id="developerError" role="alert"></p><div class="dialog-actions"><button type="button" class="btn ghost" id="developerCancel">取消</button><button type="submit" class="btn primary" id="developerLogin">进入</button></div></form></dialog>
 <dialog id="eraseDialog"><form id="eraseForm"><h2>清空外置音频 Flash？</h2><p id="eraseDetail">全部本地音频和目录将被删除，无法撤销。</p><p>擦除期间请保持供电。此操作不会擦除设备固件、小智绑定或 Wi-Fi 配置。</p><label for="eraseConfirm">输入 ERASE 确认清空</label><input id="eraseConfirm" autocomplete="off" spellcheck="false" required><p class="form-error" id="eraseError" role="alert"></p><div class="dialog-actions"><button type="button" class="btn ghost" id="eraseCancel">取消</button><button type="submit" class="btn danger" id="eraseSubmit" disabled>确认擦除</button></div></form></dialog>
 
 <script>
@@ -404,6 +445,7 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
   var statusPoll = null;
   var developerToken = "";
   var developerData = null;
+  var developerTab = "general";
   var volumeDirty = false;
   var hubOperation = "check";
 
@@ -482,6 +524,7 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
     $('productName').textContent = s.product || '设备';
     $('buildName').textContent = s.build || '—';
     $('version').textContent = s.version || '—';
+    $('consoleVersion').textContent = s.version || '—';
     $('uptime').textContent = formatUptime(s.uptime_s);
     var state = s.state || 'unknown';
     $('stateText').textContent = STATE_LABEL[state] || state;
@@ -898,8 +941,22 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
 
 
   function lockDeveloper() {
+    voiceCaptureGeneration++;
+    if (voiceRecording && voiceRecording.state !== 'inactive') {
+      voiceRecording.onstop = function () {
+        if (voiceStream) voiceStream.getTracks().forEach(function (track) { track.stop(); });
+        voiceStream = null;
+      };
+      stopVoiceCapture();
+    }
+    if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+    voicePreviewUrl = ''; voiceBlob = null; voiceChunks = [];
+    $('voiceRecordPreview').hidden = true; $('voiceCreate').disabled = true;
+    $('voiceRecordStart').disabled = false; $('voiceRecordStop').disabled = true;
     developerToken = '';
     developerData = null;
+    $('aliKey').value = '';
+    developerTab = "general";
     volumeDirty = false;
     $('developerPanel').hidden = true;
     $('developerApi').hidden = true;
@@ -915,10 +972,190 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
     });
   }
 
+  var voiceRecording = null, voiceStream = null, voiceChunks = [], voiceBlob = null, voiceRecordTimer = null, voicePreviewUrl = '', voiceCatalogSignature = '', voiceUploadWorking = false, voiceCaptureGeneration = 0;
+  if (!window.isSecureContext)
+    $('voiceRecordStatus').textContent = '当前 HTTP 页面可能无法直接使用麦克风，请用下方系统录音或选择音频文件。';
+  function showVoiceBlob(blob) {
+    voiceBlob = blob;
+    if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+    voicePreviewUrl = URL.createObjectURL(blob);
+    $('voiceRecordPreview').src = voicePreviewUrl;
+    $('voiceRecordPreview').hidden = false;
+    $('voiceCreate').disabled = false;
+    $('voiceRecordStatus').textContent = '录音已准备，可试听后上传。';
+    if (developerData) renderVoiceCatalog(developerData);
+  }
+  function stopVoiceCapture() {
+    if (voiceRecording && voiceRecording.state !== 'inactive') voiceRecording.stop();
+    clearTimeout(voiceRecordTimer);
+    $('voiceRecordStop').disabled = true;
+  }
+  $('voiceRecordStart').addEventListener('click', async function () {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      $('voiceRecordStatus').textContent = '当前浏览器或 HTTP 地址不允许网页直接录音，请使用下方系统录音或选择音频文件。';
+      return;
+    }
+    try {
+      var captureGeneration = ++voiceCaptureGeneration;
+      $('voiceRecordStart').disabled = true;
+      var stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      if (!developerToken || captureGeneration !== voiceCaptureGeneration) {
+        stream.getTracks().forEach(function (track) { track.stop(); });
+        return;
+      }
+      voiceStream = stream; voiceBlob = null; $('voiceCreate').disabled = true;
+      voiceChunks = []; var recorder = new MediaRecorder(stream); voiceRecording = recorder;
+      recorder.ondataavailable = function (e) { if (e.data.size) voiceChunks.push(e.data); };
+      recorder.onstop = function () {
+        stream.getTracks().forEach(function (track) { track.stop(); });
+        if (voiceStream === stream) voiceStream = null;
+        $('voiceRecordStart').disabled = false;
+        if (developerToken && captureGeneration === voiceCaptureGeneration && voiceChunks.length)
+          showVoiceBlob(new Blob(voiceChunks, {type:recorder.mimeType}));
+      };
+      recorder.start();
+      $('voiceRecordStop').disabled = false;
+      $('voiceRecordStatus').textContent = '正在录音，最多 20 秒。';
+      voiceRecordTimer = setTimeout(stopVoiceCapture, 20000);
+    } catch (e) {
+      if (voiceStream) voiceStream.getTracks().forEach(function (track) { track.stop(); });
+      voiceStream = null;
+      $('voiceRecordStart').disabled = false;
+      $('voiceRecordStatus').textContent = '无法使用麦克风，请检查权限或使用下方音频文件。';
+    }
+  });
+  $('voiceRecordStop').addEventListener('click', stopVoiceCapture);
+  $('voiceFile').addEventListener('change', function () {
+    var file = this.files && this.files[0];
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { toast('音频文件过大'); return; }
+    showVoiceBlob(file);
+  });
+  async function voicePcm(blob) {
+    var AudioCtx = window.AudioContext || window.webkitAudioContext;
+    var Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!AudioCtx || !Offline) throw new Error('浏览器不支持音频处理');
+    var context = new AudioCtx(), decoded;
+    try { decoded = await context.decodeAudioData(await blob.arrayBuffer()); }
+    finally { await context.close(); }
+    if (decoded.duration < 5 || decoded.duration > 20.05) throw new Error('请录制 5～20 秒音频');
+    var offline = new Offline(1, Math.min(320000, Math.ceil(decoded.duration * 16000)), 16000);
+    var source = offline.createBufferSource(); source.buffer = decoded; source.connect(offline.destination); source.start();
+    var rendered = await offline.startRendering(), samples = rendered.getChannelData(0);
+    var bytes = new Uint8Array(samples.length * 2), view = new DataView(bytes.buffer);
+    for (var i = 0; i < samples.length; i++) {
+      var sample = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(i * 2, sample < 0 ? sample * 32768 : sample * 32767, true);
+    }
+    return bytes;
+  }
+  $('voiceCreate').addEventListener('click', async function () {
+    if (voiceUploadWorking) return;
+    var name = $('voiceName').value.trim(), bytes = new TextEncoder().encode(name);
+    if (!name || bytes.length > 48 || !voiceBlob) { toast('请输入音色名称并准备录音'); return; }
+    voiceUploadWorking = true; $('voiceCreate').disabled = true;
+    try {
+      $('voiceRecordStatus').textContent = '正在处理并上传音频…';
+      var pcm = await voicePcm(voiceBlob), body = new Uint8Array(1 + bytes.length + pcm.length);
+      body[0] = bytes.length; body.set(bytes, 1); body.set(pcm, 1 + bytes.length);
+      await getJson('/api/developer/voice-upload', {method:'POST', headers:{'Content-Type':'application/octet-stream','X-Developer-Token':developerToken}, body:body});
+      voiceBlob = null;
+      $('voiceRecordStatus').textContent = '音频已提交，设备正在创建音色。';
+      await refreshDeveloper();
+    } catch (e) { $('voiceRecordStatus').textContent = '上传失败：' + e.message; }
+    finally { voiceUploadWorking = false; if (developerData) renderVoiceCatalog(developerData); else $('voiceCreate').disabled = true; }
+  });
+  $('voiceDeviceRecord').addEventListener('click', async function () {
+    var name = $('voiceName').value.trim();
+    if (!name || new TextEncoder().encode(name).length > 48) { toast('请输入音色名称'); return; }
+    try {
+      await developerRequest('voice-config', {kind:'device_record',value:name});
+      $('voiceRecordStatus').textContent = '请听设备提示，然后靠近设备从一数到二十。';
+      await refreshDeveloper();
+    } catch (e) { toast('无法开始，请确认设备空闲且已配置阿里音色'); }
+  });
+  async function voiceManage(action, id, name) {
+    try { await developerRequest('voice-manage', {action:action,id:id || '',name:name || ''}); await refreshDeveloper(); }
+    catch (e) { toast('操作未提交，请确认设备空闲：' + e.message); }
+  }
+  function applyDeveloperTab() {
+    var voice = developerTab === 'voice' && !$('devTabVoice').hidden;
+    $('devGeneral').hidden = voice;
+    $('voiceKeyPanel').hidden = !voice;
+    $('devTabGeneral').setAttribute('aria-selected', String(!voice));
+    $('devTabVoice').setAttribute('aria-selected', String(voice));
+    $('devTabGeneral').tabIndex = voice ? -1 : 0;
+    $('devTabVoice').tabIndex = voice ? 0 : -1;
+  }
+  function selectDeveloperTab(tab) {
+    developerTab = tab;
+    applyDeveloperTab();
+    if (tab === 'voice' && developerData && developerData.ali_key_configured &&
+        !developerData.voice_management_loaded && !developerData.voice_management_busy)
+      voiceManage('list');
+  }
+  $('devTabGeneral').addEventListener('click', function () { selectDeveloperTab('general'); });
+  $('devTabVoice').addEventListener('click', function () { selectDeveloperTab('voice'); });
+  [$('devTabGeneral'), $('devTabVoice')].forEach(function (tab) {
+    tab.addEventListener('keydown', function (event) {
+      if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !$('devTabVoice').hidden) {
+        event.preventDefault();
+        var next = developerTab === 'voice' ? 'general' : 'voice';
+        selectDeveloperTab(next);
+        $(next === 'voice' ? 'devTabVoice' : 'devTabGeneral').focus();
+      }
+    });
+  });
+  $('voiceCatalogRefresh').addEventListener('click', function () { voiceManage('list'); });
+  function renderVoiceCatalog(d) {
+    var messages = {idle:'请先刷新',busy:'正在处理…',ok:'已更新',network:'云端连接失败，请重试',full:'已达 10 个，请先删除',uncertain:'上次创建结果尚未确认，请刷新音色列表并核对云端',invalid:'名称重复、音色不可操作或正在使用',save:'本地保存失败，请刷新列表检查',config:'请先配置阿里 Key',memory:'设备内存不足',cancelled:'已取消',cancelling:'正在停止，请稍等'};
+    $('voiceCatalogStatus').textContent = messages[d.voice_management_status] || '请先刷新';
+    $('voiceCatalogRefresh').disabled = !!d.voice_management_busy;
+    var voiceFull = !!d.voice_management_loaded && (d.voice_catalog || []).filter(function (v) { return !v.builtin; }).length >= 10;
+    if (voiceFull) $('voiceCatalogStatus').textContent = '本设备已有 10 个专属音色，请先删除。';
+    $('voiceCreate').disabled = voiceUploadWorking || !voiceBlob || !!d.voice_management_busy || voiceFull;
+    $('voiceDeviceRecord').disabled = d.state !== 'idle' || !!d.voice_management_busy || voiceFull || ['prompt','recording','processing'].includes(d.voice_enrollment_status);
+    var signature = JSON.stringify([d.voice_catalog || [], d.ali_voice_id || '', !!d.voice_management_busy]);
+    if (voiceCatalogSignature === signature) return;
+    voiceCatalogSignature = signature;
+    var container = $('voiceCatalog'); container.replaceChildren();
+    (d.voice_catalog || []).forEach(function (voice) {
+      var row = document.createElement('div'); row.className = 'dev-ops';
+      var label = document.createElement('span'); label.className = 'dev-small';
+      label.textContent = voice.name + (voice.builtin ? ' · 系统' : ' · 专属') + (voice.id === d.ali_voice_id ? ' · 使用中' : ''); row.appendChild(label);
+      function button(title, callback, disabled) { var b = document.createElement('button'); b.className = 'btn'; b.textContent = title; b.disabled = !!d.voice_management_busy || !!disabled; b.addEventListener('click', callback); row.appendChild(b); }
+      button('使用', function () { voiceManage('select', voice.id); });
+      if (!voice.builtin) {
+        button('重命名', function () { var name = prompt('输入新的音色名称', voice.name); if (name !== null && name.trim()) voiceManage('rename', voice.id, name.trim()); });
+        button('删除', function () { if (confirm('确认删除“' + voice.name + '”？这也会删除阿里云中的音色。')) voiceManage('delete', voice.id); }, voice.id === d.ali_voice_id);
+      }
+      container.appendChild(row);
+    });
+  }
+
   var eraseWasRunning = false;
   function renderDeveloper() {
     if (!developerToken || !developerData) return;
     var d = developerData, audio = d.audio || {};
+    var voiceAvailable = typeof d.ali_key_configured === 'boolean';
+    $('devTabVoice').hidden = !voiceAvailable;
+    if (!voiceAvailable) developerTab = 'general';
+    applyDeveloperTab();
+    $('aliKeyStatus').textContent = d.ali_key_configured ? '已配置' : '未配置';
+    var current = (d.voice_catalog || []).find(function (voice) { return voice.id === d.ali_voice_id; });
+    $('aliCurrentVoice').textContent = '当前音色：' + (current ? current.name : (d.ali_voice_id ? '已配置（刷新列表查看名称）' : '未配置'));
+    var enrollmentNames = {idle:'未开始',prompt:'正在播放录音提示',recording:'正在录音',processing:'正在上传及创建音色',success:'复刻完成',failed:'复刻失败',cancelled:'已取消'};
+    var enrollmentErrors = {config:'请检查阿里服务、Key 和当前音色',prompt:'录音提示播放失败',memory:'设备内存不足',short:'录音中的人声太短',cloud:'网络或阿里服务请求失败',auth:'阿里鉴权失败，请检查 Key 和权限',limit:'阿里服务限流，请稍后再试',voice_full:'本设备已有 10 个复刻音色，请先删除',uncertain:'上次创建结果尚未确认，请刷新音色列表',save:'音色保存失败',busy:'上一次复刻仍在结束'};
+    $('aliEnrollmentStatus').textContent = '复刻状态：' + (enrollmentNames[d.voice_enrollment_status] || '未开始') + (d.voice_enrollment_failure && enrollmentErrors[d.voice_enrollment_failure] ? '（' + enrollmentErrors[d.voice_enrollment_failure] + '）' : '');
+    var previous = (d.voice_catalog || []).find(function (voice) { return voice.id === d.ali_previous_voice_id; });
+    $('aliPreviousVoice').textContent = '上一个音色：' + (previous ? previous.name : (d.ali_previous_voice_id ? '已保存' : '无'));
+    $('aliVoiceRestore').disabled = !d.ali_previous_voice_id || d.voice_preview_status === 'playing' || ['prompt','recording','processing'].includes(d.voice_enrollment_status);
+    var previewNames = {idle:'',playing:'正在试听…',complete:'试听完成',failed:'试听失败，请检查网络与阿里配置',cancelled:'试听已取消'};
+    $('aliVoicePreviewStatus').textContent = previewNames[d.voice_preview_status] || '';
+    $('aliVoicePreview').disabled = d.state !== 'idle' || d.voice_preview_status === 'playing';
+    var voiceBusy = ['prompt','recording','processing'].includes(d.voice_enrollment_status);
+    $('voiceCancel').disabled = !voiceBusy && d.voice_preview_status !== 'playing' && !d.voice_management_cancellable;
+    renderVoiceCatalog(d);
     var running = !!(d.erase && d.erase.running);
     if (!volumeDirty && document.activeElement !== $('devVolume') && audio.volume !== undefined) {
       $('devVolume').value = audio.volume;
@@ -957,6 +1194,11 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
     }
   }
 
+  $('voiceSettings').addEventListener('click', function () {
+    developerTab = 'voice';
+    if (developerToken) selectDeveloperTab('voice');
+    $('developerOpen').click();
+  });
   $('developerOpen').addEventListener('click', function () {
     if (developerToken) {
       $('developerPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -966,6 +1208,36 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
     $('developerPassword').value = '';
     $('developerDialog').showModal();
     $('developerPassword').focus();
+  });
+  async function saveVoiceConfig(kind, value) {
+    await developerRequest('voice-config', { kind: kind, value: value });
+    await refreshDeveloper();
+  }
+  $('aliKeySave').addEventListener('click', async function () {
+    var key = $('aliKey').value; if (!key) { toast('请输入阿里 Key'); return; }
+    try { await saveVoiceConfig('ali_key', key); $('aliKey').value = ''; toast('阿里 Key 已保存'); }
+    catch (e) { $('aliKey').value = ''; toast('保存失败：' + e.message); }
+  });
+  $('aliKeyDelete').addEventListener('click', async function () {
+    try { await saveVoiceConfig('ali_key', ''); $('aliKey').value = ''; toast('阿里 Key 已删除'); }
+    catch (e) { toast('删除失败：' + e.message); }
+  });
+  $('aliVoiceRestore').addEventListener('click', async function () {
+    try { await developerRequest('voice-config', { kind: 'ali_restore', value: '' }); await refreshDeveloper(); toast('已切换到上一个音色'); }
+    catch (e) { toast('切换失败，请确认音色存在且当前没有复刻任务'); }
+  });
+  $('voiceCancel').addEventListener('click', async function () {
+    this.disabled = true;
+    try {
+      stopVoiceCapture();
+      await developerRequest('voice-config', {kind:'voice_cancel', value:''});
+      await refreshDeveloper();
+      toast('已请求取消，请等待当前任务结束');
+    } catch (e) { toast('当前没有可取消的设备录音或试听'); await refreshDeveloper(); }
+  });
+  $('aliVoicePreview').addEventListener('click', async function () {
+    try { await developerRequest('voice-config', { kind: 'ali_preview', value: '' }); await refreshDeveloper(); toast('正在试听当前音色'); }
+    catch (e) { toast('试听失败，请确认设备空闲并已配置阿里音色'); }
   });
   $('developerCancel').addEventListener('click', function () { $('developerDialog').close(); });
   $('developerLoginForm').addEventListener('submit', async function (event) {

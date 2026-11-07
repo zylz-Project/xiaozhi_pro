@@ -37,6 +37,23 @@ public:
         std::function<void(cJSON*)> status_extra;
         std::function<void(bool)> maintenance;
         std::function<bool()> center;
+        // Optional board-specific credential storage; never include the key in status.
+        std::function<bool(const std::string&)> save_ali_key;
+        std::function<bool()> has_ali_key;
+        std::function<bool(const std::string&)> save_ali_voice;
+        std::function<std::string()> ali_voice;
+        std::function<std::string()> previous_ali_voice;
+        std::function<bool()> restore_ali_voice;
+        std::function<const char*()> voice_enrollment_status;
+        std::function<const char*()> voice_enrollment_failure;
+        std::function<bool()> preview_ali_voice;
+        std::function<bool()> cancel_voice;
+        std::function<const char*()> voice_preview_status;
+        std::function<bool(const std::string&, const std::string&, const std::string&)>
+            voice_command;
+        std::function<bool(uint8_t*, size_t)> voice_upload;
+        std::function<bool(const std::string&)> voice_device_record;
+        std::function<void(cJSON*)> voice_status_extra;
     };
 
     WebConsole() = default;
@@ -71,6 +88,9 @@ private:
     static esp_err_t HandleDeveloperLogout(httpd_req_t* req);
     static esp_err_t HandleDeveloperStatus(httpd_req_t* req);
     static esp_err_t HandleDeveloperVolume(httpd_req_t* req);
+    static esp_err_t HandleDeveloperVoiceConfig(httpd_req_t* req);
+    static esp_err_t HandleDeveloperVoiceManage(httpd_req_t* req);
+    static esp_err_t HandleDeveloperVoiceUpload(httpd_req_t* req);
     static esp_err_t HandleDeveloperCenter(httpd_req_t* req);
     static esp_err_t HandleDeveloperDemo(httpd_req_t* req);
     static esp_err_t HandleDeveloperErase(httpd_req_t* req);

@@ -26,6 +26,7 @@ APP_HARNESS = r'''
 #include "cJSON.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
+#define ESP_LOGW(...) ((void)0)
 enum DeviceState{kDeviceStateIdle,kDeviceStateConnecting,kDeviceStateListening,kDeviceStateSpeaking,
     kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateActivating,kDeviceStateUpgrading,kDeviceStateAudioTesting};
 using ListeningMode=int;
@@ -67,6 +68,9 @@ struct Display{
     void SetStatus(int){}
 };
 struct Board{
+    ExternalTts* GetExternalTts(){return nullptr;}
+    VoiceEnrollment* GetVoiceEnrollment(){return nullptr;}
+    void SetVoiceEnrollmentRecording(bool){}
     bool maintenance=false;bool IsAudioMaintenanceActive(){return maintenance;}
     std::string_view exit_sound="exit";
     std::string_view GetConversationExitSound() const{return exit_sound;}
@@ -85,6 +89,7 @@ struct Protocol{
     void CloseAudioChannel(){opened=false;++closes;if(closed){if(deferred_close)delayed_closes.push_back(closed);else closed();}}
     void DeliverCloses(){auto work=std::move(delayed_closes);delayed_closes.clear();for(auto&f:work)f();}
     void SendStartListening(int){++listens;}
+    void SendStopListening(){}
     void OnIncomingAudio(decltype(audio) callback){audio=callback;}
     void OnAudioChannelClosed(decltype(closed) callback){closed=callback;}
 };
@@ -98,8 +103,16 @@ public:
     Audio audio_service_;
     Protocol protocol;
     Protocol*protocol_=&protocol;
+    std::atomic<bool>external_tts_selected_{false},voice_enrollment_active_{false};
+    std::atomic<bool>voice_selection_reply_guard_{false},external_voice_preview_active_{false};
+    std::atomic<bool>voice_enrollment_reconnecting_{false};
+    std::atomic<int>external_voice_preview_status_{0};
+    std::atomic<int64_t>voice_enrollment_resume_guard_until_us_{0};
+    std::atomic<uint32_t>external_tts_turn_{0},external_tts_callback_token_{0};
+    bool server_music_active_=false;
+    void ResumeAfterVoiceEnrollment(uint32_t){}
     std::atomic<bool>interaction_stopped_{false};
-    std::atomic<uint32_t>interaction_generation_{0};
+    std::atomic<uint32_t>interaction_generation_{0},protocol_generation_{0};
     bool play_popup_on_listening_=false,pending_listening_start_=false,aborted_=false;
     bool entry_prompt_before_listening_=false;
     static constexpr size_t kMaxEarlyAudioPackets=8;
@@ -125,11 +138,12 @@ public:
     void FlushEarlyAudio();void ClearEarlyAudio();
     void StopInteraction(bool play_exit_sound=false);
     void Button(){ToggleConversation();if(pending_bits){pending_bits=0;HandleToggleConversationEvent();}}
-    void Install(){auto&board=Board::GetInstance();__AUDIO_CALLBACK__;__CLOSE_CALLBACK__;}
+    void Install(){auto&board=Board::GetInstance();const auto protocol_generation=protocol_generation_.load();__AUDIO_CALLBACK__;__CLOSE_CALLBACK__;}
     void Tts(const char* body){
         auto holder=std::unique_ptr<cJSON,decltype(&cJSON_Delete)>(cJSON_Parse(body),cJSON_Delete);
         auto*root=holder.get();assert(root);auto*type=cJSON_GetObjectItem(root,"type");
         auto*display=Board::GetInstance().GetDisplay();
+        const auto callback_generation=interaction_generation_.load();
         __TTS_BRANCH__
     }
     void SpeakingStateEvent(){auto*display=Board::GetInstance().GetDisplay();
@@ -141,6 +155,11 @@ public:
 };
 __METHODS__
 '''
+
+
+APP_HARNESS = ('#include "' + str(ROOT/'main/audio/external_tts.h') + '"\n' +
+               '#include "' + str(ROOT/'main/audio/voice_enrollment.h') + '"\n' +
+               '#include <cstdint>\nint64_t esp_timer_get_time(){return 10000000;}\n' + APP_HARNESS)
 
 
 class WzhConversationToggleTest(unittest.TestCase):
@@ -187,6 +206,21 @@ class WzhConversationToggleTest(unittest.TestCase):
             .replace('__CLOSE_CALLBACK__',closed+')').replace('__TTS_BRANCH__',tts)
             .replace('__LISTENING_CASE__',listening)
             .replace('__SPEAKING_CASE__',source[begin:end]))
+
+    def test_retired_protocol_audio_and_close_cannot_change_replacement(self):
+        self.run_cpp(self.application()+r'''
+int main(){
+ Application app;app.Install();app.protocol.opened=true;app.state=kDeviceStateSpeaking;
+ auto old_audio=app.protocol.audio;auto old_close=app.protocol.closed;
+ old_close(); // A close already scheduled before protocol replacement.
+ ++app.protocol_generation_;++app.interaction_generation_;app.Install();
+ app.protocol.opened=false;app.Drain();assert(app.state==kDeviceStateSpeaking);
+ old_audio(std::make_unique<AudioStreamPacket>());old_close();app.Drain();
+ assert(app.audio_service_.packets==0&&app.state==kDeviceStateSpeaking);
+ app.protocol.opened=true;app.protocol.audio(std::make_unique<AudioStreamPacket>());
+ assert(app.audio_service_.packets==1);
+}
+''')
 
     def test_enter_and_exit_from_listening_speaking_or_connecting_and_reenter(self):
         self.run_cpp(self.application()+r'''

@@ -531,7 +531,7 @@ int main(){
         end=source.index('        case kDeviceStateConnecting:',begin)
         idle=source[begin:end]
         program=program.replace('void SpeakingStateEvent(){',
-            'void IdleStateEvent(){auto*display=Board::GetInstance().GetDisplay();switch(state){'+idle+'default:break;}}\n    void SpeakingStateEvent(){')
+            'void IdleStateEvent(){auto&board=Board::GetInstance();auto*display=board.GetDisplay();switch(state){'+idle+'default:break;}}\n    void SpeakingStateEvent(){')
         return '#define CONFIG_USE_VOICE_BARGE_IN 1\n'+HEADER+program+queue_function(
             source,'void Application::HandleVoiceInterruptionEvent(')
 
@@ -543,6 +543,9 @@ int main(){
  assert(app.state==kDeviceStateSpeaking&&app.audio_service_.monitoring&&app.audio_service_.voice);
  app.audio_service_.interruption_pending=true;
  app.pending_voice_interruption_=app.audio_service_.interruption_token;
+ app.voice_enrollment_active_=true;app.HandleVoiceInterruptionEvent();
+ assert(app.aborts==0&&app.state==kDeviceStateSpeaking); // Stale event cannot cancel enrollment.
+ app.voice_enrollment_active_=false;
  auto generation=app.interaction_generation_.load();events.clear();
  app.HandleVoiceInterruptionEvent();
  assert(app.state==kDeviceStateListening&&app.aborts==1&&app.barge_in_reply_gate_.blocked());
@@ -601,7 +604,7 @@ struct Board{
 struct Protocol{int listens=0;void SendStartListening(int){++listens;}};
 struct Application{
  DeviceState state=kDeviceStateIdle;Audio audio_service_;Protocol transport;Protocol*protocol_=&transport;
- BargeInReplyGate barge_in_reply_gate_;std::atomic<bool>interaction_stopped_{false},local_assets_applied_{true};
+ BargeInReplyGate barge_in_reply_gate_;std::atomic<bool>interaction_stopped_{false},local_assets_applied_{true},voice_enrollment_active_{false};
  std::atomic<uint32_t>interaction_generation_{17};
  bool entry_prompt_before_listening_=true,play_popup_on_listening_=false,pending_listening_start_=false;
  int aborts=0,invokes=0,mode_changes=0;

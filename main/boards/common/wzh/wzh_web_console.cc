@@ -267,6 +267,9 @@ bool WebConsole::StartHttpServer() {
                     add("/api/developer/logout", HTTP_POST, HandleDeveloperLogout) &&
                     add("/api/developer/status", HTTP_GET, HandleDeveloperStatus) &&
                     add("/api/developer/volume", HTTP_POST, HandleDeveloperVolume) &&
+                    add("/api/developer/voice-config", HTTP_POST, HandleDeveloperVoiceConfig) &&
+                    add("/api/developer/voice-manage", HTTP_POST, HandleDeveloperVoiceManage) &&
+                    add("/api/developer/voice-upload", HTTP_POST, HandleDeveloperVoiceUpload) &&
                     add("/api/developer/center", HTTP_POST, HandleDeveloperCenter) &&
                     add("/api/developer/demo", HTTP_POST, HandleDeveloperDemo) &&
                     add("/api/developer/flash/erase", HTTP_POST, HandleDeveloperErase);
@@ -765,6 +768,24 @@ esp_err_t WebConsole::HandleDeveloperStatus(httpd_req_t* req) {
     cJSON_AddNumberToObject(out, "heap_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     cJSON_AddStringToObject(out, "compiled", esp_app_get_description()->date);
     cJSON_AddStringToObject(out, "compiled_time", esp_app_get_description()->time);
+    if (self->options_.has_ali_key && self->options_.ali_voice) {
+        cJSON_AddBoolToObject(out, "ali_key_configured", self->options_.has_ali_key());
+        cJSON_AddStringToObject(out, "ali_voice_id", self->options_.ali_voice().c_str());
+        if (self->options_.previous_ali_voice)
+            cJSON_AddStringToObject(out, "ali_previous_voice_id",
+                                    self->options_.previous_ali_voice().c_str());
+        if (self->options_.voice_enrollment_status)
+            cJSON_AddStringToObject(out, "voice_enrollment_status",
+                                    self->options_.voice_enrollment_status());
+        if (self->options_.voice_enrollment_failure)
+            cJSON_AddStringToObject(out, "voice_enrollment_failure",
+                                    self->options_.voice_enrollment_failure());
+        if (self->options_.voice_preview_status)
+            cJSON_AddStringToObject(out, "voice_preview_status",
+                                    self->options_.voice_preview_status());
+    }
+    if (self->options_.voice_status_extra)
+        self->options_.voice_status_extra(out);
     cJSON* job = cJSON_AddObjectToObject(out, "erase");
     if (job) {
         std::lock_guard<std::mutex> lock(self->job_mutex_);
@@ -775,6 +796,120 @@ esp_err_t WebConsole::HandleDeveloperStatus(httpd_req_t* req) {
     const auto result = SendJson(req, out);
     cJSON_Delete(out);
     return result;
+}
+
+esp_err_t WebConsole::HandleDeveloperVoiceManage(httpd_req_t* req) {
+    auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
+    if (!self->options_.voice_command)
+        return SendError(req, 404, "voice_management_not_supported");
+    cJSON* body = nullptr;
+    if (!ReadJsonBody(req, &body))
+        return SendError(req, 400, "invalid_json");
+    const auto* action = cJSON_GetObjectItemCaseSensitive(body, "action");
+    const auto* id = cJSON_GetObjectItemCaseSensitive(body, "id");
+    const auto* name = cJSON_GetObjectItemCaseSensitive(body, "name");
+    unsigned actions = 0, ids = 0, names = 0;
+    for (const cJSON* field = body->child; field; field = field->next) {
+        if (!field->string)
+            continue;
+        if (std::strcmp(field->string, "action") == 0)
+            ++actions;
+        else if (std::strcmp(field->string, "id") == 0)
+            ++ids;
+        else if (std::strcmp(field->string, "name") == 0)
+            ++names;
+    }
+    bool valid = cJSON_IsObject(body) && actions == 1 && ids <= 1 && names <= 1 &&
+                 cJSON_IsString(action) && action->valuestring &&
+                 (!id || (cJSON_IsString(id) && id->valuestring)) &&
+                 (!name || (cJSON_IsString(name) && name->valuestring));
+    bool accepted =
+        valid && self->options_.voice_command(action->valuestring, id ? id->valuestring : "",
+                                              name ? name->valuestring : "");
+    cJSON_Delete(body);
+    if (!accepted)
+        return SendError(req, 400, "voice_management_unavailable");
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebConsole::HandleDeveloperVoiceUpload(httpd_req_t* req) {
+    auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
+    if (!self->options_.voice_upload)
+        return SendError(req, 404, "voice_management_not_supported");
+    constexpr size_t kMaxUpload = 20 * 16000 * 2 + 49;
+    if (req->content_len <= 0 || static_cast<size_t>(req->content_len) > kMaxUpload)
+        return SendError(req, 400, "invalid_audio_length");
+    const size_t size = static_cast<size_t>(req->content_len);
+    auto* data = static_cast<uint8_t*>(heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!data)
+        return SendError(req, 500, "audio_memory_unavailable");
+    size_t offset = 0;
+    const int64_t deadline = esp_timer_get_time() + 30000000;
+    while (offset < size && esp_timer_get_time() < deadline) {
+        const int count = httpd_req_recv(req, reinterpret_cast<char*>(data + offset),
+                                         std::min<size_t>(4096, size - offset));
+        if (count == HTTPD_SOCK_ERR_TIMEOUT)
+            continue;
+        if (count <= 0)
+            break;
+        offset += static_cast<size_t>(count);
+    }
+    if (offset != size || !self->options_.voice_upload(data, size)) {
+        heap_caps_free(data);
+        return SendError(req, 400, "voice_upload_rejected");
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebConsole::HandleDeveloperVoiceConfig(httpd_req_t* req) {
+    auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
+    cJSON* body = nullptr;
+    if (!ReadJsonBody(req, &body))
+        return SendError(req, 400, "invalid_json");
+    const auto* kind = cJSON_GetObjectItemCaseSensitive(body, "kind");
+    const auto* value = cJSON_GetObjectItemCaseSensitive(body, "value");
+    unsigned fields = 0, kinds = 0, values = 0;
+    for (const cJSON* field = body->child; field; field = field->next) {
+        ++fields;
+        if (field->string && std::strcmp(field->string, "kind") == 0)
+            ++kinds;
+        if (field->string && std::strcmp(field->string, "value") == 0)
+            ++values;
+    }
+    bool valid = cJSON_IsObject(body) && fields == 2 && kinds == 1 && values == 1 &&
+                 cJSON_IsString(kind) && cJSON_IsString(value) && kind->valuestring &&
+                 value->valuestring && std::strlen(value->valuestring) <= 256;
+    bool saved = false;
+    if (valid && std::strcmp(kind->valuestring, "ali_key") == 0 && self->options_.save_ali_key)
+        saved = self->options_.save_ali_key(value->valuestring);
+    else if (valid && std::strcmp(kind->valuestring, "device_record") == 0 &&
+             self->options_.voice_device_record)
+        saved = self->options_.voice_device_record(value->valuestring);
+    else if (valid && std::strcmp(kind->valuestring, "ali_voice") == 0 &&
+             self->options_.save_ali_voice)
+        saved = self->options_.save_ali_voice(value->valuestring);
+    else if (valid && std::strcmp(kind->valuestring, "ali_restore") == 0 &&
+             value->valuestring[0] == '\0' && self->options_.restore_ali_voice)
+        saved = self->options_.restore_ali_voice();
+    else if (valid && std::strcmp(kind->valuestring, "ali_preview") == 0 &&
+             value->valuestring[0] == '\0' && self->options_.preview_ali_voice)
+        saved = self->options_.preview_ali_voice();
+    else if (valid && std::strcmp(kind->valuestring, "voice_cancel") == 0 &&
+             value->valuestring[0] == '\0' && self->options_.cancel_voice)
+        saved = self->options_.cancel_voice();
+    cJSON_Delete(body);
+    if (!valid || !saved)
+        return SendError(req, 400, "voice_config_failed");
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
 }
 
 esp_err_t WebConsole::HandleDeveloperVolume(httpd_req_t* req) {

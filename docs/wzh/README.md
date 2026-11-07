@@ -16,6 +16,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
+| [音色复刻与管理](audio/voice_cloning.md) | 三款产品的对话／页面入口、录音、切换、试听与取消 |
 | [本地播报制作](audio/system_prompts.md) · [试听页面](audio/system_prompts_preview.html) | 现有固定音包的来源、生成、导入与验证 |
 | [响度恢复](audio/wzh_loudness_recovery_2026-11-07.md) | 针对音量100仍偏小的补偿及保护方案 |
 | [满音量音质修正](audio/wzh_volume100_audio_2026-11-07.md) | 功放增益、余量与失真调查；响度后续调整见上一条 |

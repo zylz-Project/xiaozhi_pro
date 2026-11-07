@@ -69,6 +69,11 @@ public:
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
+    bool IsVoiceEnrollmentActive() const { return voice_enrollment_active_.load(); }
+    bool RequestDeviceVoiceEnrollment(const std::string& name);
+    bool RequestExternalVoicePreview();
+    bool IsExternalVoicePreviewActive() const { return external_voice_preview_active_.load(); }
+    const char* ExternalVoicePreviewStatus() const;
 
     /**
      * Request state transition
@@ -145,7 +150,9 @@ private:
 
     std::mutex mutex_;
     std::deque<std::function<void()>> main_tasks_;
-    std::unique_ptr<Protocol> protocol_;
+    // A reconnect worker retains the protocol until its pending handshake ends.
+    std::shared_ptr<Protocol> protocol_;
+    std::atomic<uint32_t> protocol_generation_{0};
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;
     DeviceStateMachine state_machine_;
@@ -174,6 +181,19 @@ private:
     std::mutex early_audio_mutex_;
     std::deque<std::unique_ptr<AudioStreamPacket>> early_audio_;
     std::atomic<bool> tts_start_pending_{false};
+    std::atomic<bool> external_tts_selected_{false};
+    std::atomic<bool> voice_enrollment_active_{false};
+    // Block late server speech for a local voice-selection turn until the next user transcript.
+    std::atomic<bool> voice_selection_reply_guard_{false};
+    std::atomic<bool> external_voice_preview_active_{false};
+    // 0 idle, 1 requested/playing, 2 complete, 3 failed, 4 cancelled.
+    std::atomic<int> external_voice_preview_status_{0};
+    std::atomic<bool> voice_enrollment_reconnecting_{false};
+    // A delayed server goodbye may arrive immediately after enrollment ends.
+    std::atomic<int64_t> voice_enrollment_resume_guard_until_us_{0};
+    std::atomic<uint32_t> external_tts_turn_{0};
+    std::atomic<uint32_t> external_tts_callback_token_{0};
+    bool server_music_active_ = false;  // main-task owned
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ =
         false;  // Flag to play popup sound after state changes to listening
@@ -202,6 +222,7 @@ private:
     void FlushEarlyAudio();
     void ClearEarlyAudio();
     void ConfigureWakeWordForListening();
+    void ResumeAfterVoiceEnrollment(uint32_t generation);
 
     // Activation task (runs in background)
     void ActivationTask();

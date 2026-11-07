@@ -3,6 +3,15 @@
 `AudioService` owns one input engine and keeps codec I/O, Opus encoding/decoding,
 and network queues independent from the chip-specific speech pipeline.
 
+WZH boards optionally provide `ExternalTts` and `VoiceEnrollment` through `Board`.
+Their shared Ali implementation and console live under `boards/common/wzh/`;
+other boards default to neither capability. See
+[voice cloning and management](../../docs/wzh/audio/voice_cloning.md) for setup and validation.
+Processed enrollment frames are consumed before debug taps and uplink encoding.
+Native PCM uses the same bounded playback queue, output task, gain protection and
+AEC reference as other audio; finishing a PCM stream is bound to its playback
+generation so a cancelled worker cannot finish a newer reply.
+
 ## Input engines
 
 The old `AudioProcessor + WakeWord` combinations have been replaced by a single

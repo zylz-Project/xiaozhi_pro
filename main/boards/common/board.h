@@ -49,6 +49,8 @@ using NetworkEventCallback = std::function<void(NetworkEvent event, const std::s
 void* create_board();
 class AudioCodec;
 class Display;
+class ExternalTts;
+class VoiceEnrollment;
 class Board {
 private:
     Board(const Board&) = delete;             // 禁用拷贝构造函数
@@ -81,6 +83,10 @@ public:
     virtual std::string_view GetConversationExitSound() const { return {}; }
     // Optional, bounded lookup for trusted bundled source loudness calibration.
     virtual int16_t GetAudioSourceGainQ8(const uint8_t*, size_t) const { return 0; }
+    virtual ExternalTts* GetExternalTts() { return nullptr; }
+    virtual VoiceEnrollment* GetVoiceEnrollment() { return nullptr; }
+    virtual void SetVoiceEnrollmentRecording(bool) {}
+    virtual bool KeepAudioOutputEnabled() const { return false; }
     virtual bool IsAudioMaintenanceActive() { return false; }
     // Return true when the board consumes a recognized phrase locally.
     virtual bool HandleLocalVoiceCommand(const std::string&) { return false; }

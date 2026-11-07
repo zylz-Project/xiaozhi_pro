@@ -127,6 +127,9 @@ void AudioService::Initialize(AudioCodec* codec) {
     audio_engine_ = std::make_unique<LiteAudioEngine>();
 #endif
     audio_engine_->OnOutput([this](std::vector<int16_t>&& data) {
+        if (callbacks_.on_processed_audio &&
+            callbacks_.on_processed_audio(data.data(), data.size(), voice_detected_.load()))
+            return;
 #if CONFIG_USE_AUDIO_DEBUGGER
 #if CONFIG_VOICE_BARGE_IN_SHADOW
         if (IsVoiceInterruptionMonitoring()) {
@@ -964,6 +967,37 @@ uint32_t AudioService::GetPlaybackGeneration() {
     return playback_generation_;
 }
 
+bool AudioService::PushPcmToPlaybackQueue(std::vector<int16_t> pcm, int sample_rate,
+                                          uint32_t expected_generation, bool wait) {
+    // Keep each frame bounded and ensure the output task receives native-rate
+    // PCM. Never make a second codec or I2S writer for external speech.
+    if (!codec_ || sample_rate != codec_->output_sample_rate() || pcm.empty() ||
+        pcm.size() > static_cast<size_t>(sample_rate * 60 / 1000)) {
+        return false;
+    }
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+    auto can_enqueue = [this, expected_generation]() {
+        return service_stopped_.load() || expected_generation != playback_generation_ ||
+               audio_playback_queue_.size() + (decode_in_flight_ ? 1 : 0) < max_playback_tasks_;
+    };
+    if (!can_enqueue()) {
+        if (!wait)
+            return false;
+        audio_queue_cv_.wait(lock, can_enqueue);
+    }
+    if (service_stopped_.load() || expected_generation != playback_generation_)
+        return false;
+    AudioTask task;
+    task.type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task.playback_generation = expected_generation;
+    task.pcm = std::move(pcm);
+    if (!audio_playback_queue_.push_back(std::move(task)))
+        return false;
+    playback_drained_notified_ = false;
+    audio_queue_cv_.notify_all();
+    return true;
+}
+
 bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait,
                                            std::optional<uint32_t> expected_generation) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
@@ -1256,7 +1290,8 @@ void AudioService::CheckAndUpdateAudioPowerState() {
         // input task instead of closing the codec from the esp_timer task.
         xEventGroupSetBits(event_group_, AS_EVENT_AUDIO_INPUT_STOP_REQUEST);
     }
-    if (output_elapsed > AUDIO_POWER_TIMEOUT_MS && codec_->output_enabled()) {
+    if (output_elapsed > AUDIO_POWER_TIMEOUT_MS && codec_->output_enabled() &&
+        !Board::GetInstance().KeepAudioOutputEnabled()) {
         // Keep TX clock when duplex RX is active; otherwise RX may stall on some boards.
         if (!(codec_->duplex() && codec_->input_enabled())) {
             codec_->EnableOutput(false);
@@ -1376,9 +1411,11 @@ void AudioService::QueueVoicePacket(std::unique_ptr<AudioStreamPacket> packet,
 }
 #endif
 
-void AudioService::FinishPlayback() {
+void AudioService::FinishPlayback(std::optional<uint32_t> expected_generation) {
 #if CONFIG_AUDIO_PRODUCT_QUALITY
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    if (expected_generation && *expected_generation != playback_generation_)
+        return;
     playback_drained_notified_ = false;
     if (!audio_decode_queue_.empty())
         audio_decode_queue_[audio_decode_queue_.size() - 1]->stream.end = true;
@@ -1387,5 +1424,7 @@ void AudioService::FinishPlayback() {
     else
         finish_requested_ = true;
     audio_queue_cv_.notify_all();
+#else
+    (void)expected_generation;
 #endif
 }

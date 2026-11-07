@@ -61,6 +61,9 @@ struct Protocol {
     void CloseAudioChannel() { ++closed; opened = false; }
 };
 struct Board {
+    ExternalTts* GetExternalTts(){return nullptr;}
+    VoiceEnrollment* GetVoiceEnrollment(){return nullptr;}
+    void SetVoiceEnrollmentRecording(bool){}
     bool maintenance=false;bool IsAudioMaintenanceActive(){return maintenance;}
     std::string_view GetConversationExitSound() const{return {};}
     bool local = true;
@@ -73,6 +76,11 @@ struct Application {
     Audio audio_service_;
     Protocol protocol;
     Protocol* protocol_ = &protocol;
+    std::atomic<bool> voice_enrollment_active_{false},voice_enrollment_reconnecting_{false},voice_selection_reply_guard_{false};
+    std::atomic<bool> external_voice_preview_active_{false},external_tts_selected_{false};
+    std::atomic<int> external_voice_preview_status_{0};
+    std::atomic<uint32_t> external_tts_turn_{0};
+    std::atomic<int64_t> voice_enrollment_resume_guard_until_us_{0};
     std::atomic<bool> interaction_stopped_{false};
     std::atomic<unsigned> interaction_generation_{0};
     bool play_popup_on_listening_=false,pending_listening_start_=false;
@@ -94,6 +102,8 @@ struct Application {
 '''
         # The production prefix captures state for the network path outside this branch.
         wake = wake.replace("    auto state = GetDeviceState();\n", "")
+        program = ('#include "' + str(ROOT/'main/audio/external_tts.h') + '"\n' +
+                   '#include "' + str(ROOT/'main/audio/voice_enrollment.h') + '"\n' + program)
         program += wake + stop + resume
         program += r'''
 int main() {

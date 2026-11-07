@@ -162,12 +162,14 @@ struct Power{std::atomic<bool> shutting_down_{false};GETTER};
 struct Web{bool active=false;bool maintenance_active(){return active;}};
 struct Store{bool writing=false;bool IsWriting(){return writing;}};
 struct Audio{Store store;Store& audio_store(){return store;}};
+namespace wzh{bool voice_busy=false;bool VoiceManagementBusy(){return voice_busy;}}
 struct Base{virtual bool IsAudioMaintenanceActive(){return false;}};
 struct Board:Base{Power power_;Web web_console_;Audio local_audio_;ADMISSION};
 int main(){Board b;assert(!b.IsAudioMaintenanceActive());
  b.power_.shutting_down_=true;assert(b.IsAudioMaintenanceActive());
  b.power_.shutting_down_=false;b.web_console_.active=true;assert(b.IsAudioMaintenanceActive());
- b.web_console_.active=false;b.local_audio_.store.writing=true;assert(b.IsAudioMaintenanceActive());}
+ b.web_console_.active=false;b.local_audio_.store.writing=true;assert(b.IsAudioMaintenanceActive());
+ b.local_audio_.store.writing=false;wzh::voice_busy=true;assert(b.IsAudioMaintenanceActive());}
 '''.replace('GETTER', getter).replace('ADMISSION', admission)
                 self.compile_run(program)
 

@@ -22,6 +22,7 @@
 #include "wzh_power_telemetry.h"
 #include "wzh_sensors.h"
 #include "wzh_user_pairs_catalog.inc"
+#include "wzh_voice_services.h"
 #include "wzh_web_console.h"
 
 #define TAG "WzhDinosaur"
@@ -107,9 +108,11 @@ public:
             const bool system = state == kDeviceStateStarting || state == kDeviceStateUpgrading ||
                                 state == kDeviceStateFatalError ||
                                 state == kDeviceStateAudioTesting;
-            controller_.SetMaintenance(enabled || system || web_console_.maintenance_active());
+            controller_.SetMaintenance(enabled || system || web_console_.maintenance_active() ||
+                                       Application::GetInstance().IsVoiceEnrollmentActive());
         };
         console.center = [this]() { return controller_.RequestCenter(); };
+        wzh::ConfigureVoiceConsole(console);
         console.status_extra = [this](cJSON* root) {
             wzh::AddPowerTelemetry(root, power_.battery_voltage_mv(), power_.touch_valid(),
                                    power_.touch_code(), power_.touch_voltage_mv());
@@ -144,13 +147,28 @@ public:
 
     bool SupportsLocalInteraction() const override { return true; }
 
+    ExternalTts* GetExternalTts() override { return wzh::ProductExternalTts(); }
+
+    VoiceEnrollment* GetVoiceEnrollment() override { return wzh::ProductVoiceEnrollment(); }
+
+    void SetVoiceEnrollmentRecording(bool recording) override {
+        const auto state = Application::GetInstance().GetDeviceState();
+        const bool system = state == kDeviceStateStarting || state == kDeviceStateUpgrading ||
+                            state == kDeviceStateFatalError || state == kDeviceStateAudioTesting;
+        controller_.SetMaintenance(recording || system || web_console_.maintenance_active());
+    }
+
+    bool KeepAudioOutputEnabled() const override {
+        return Application::GetInstance().IsVoiceEnrollmentActive();
+    }
+
     std::string_view GetConversationExitSound() const override {
         return wzh::ConversationExitSound();
     }
 
     bool IsAudioMaintenanceActive() override {
         return power_.IsShuttingDown() || web_console_.maintenance_active() ||
-               local_audio_.audio_store().IsWriting();
+               local_audio_.audio_store().IsWriting() || wzh::VoiceManagementBusy();
     }
 
     // Local commands remain available during provisioning and cloud initialization.

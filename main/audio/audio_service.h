@@ -86,6 +86,8 @@
     }
 
 struct AudioServiceCallbacks {
+    // Return true when the board consumes a processed frame locally.
+    std::function<bool(const int16_t*, size_t, bool)> on_processed_audio;
     std::function<void(void)> on_send_queue_available;
     std::function<void(const std::string&)> on_wake_word_detected;
     std::function<void(bool)> on_vad_change;
@@ -175,6 +177,10 @@ public:
     uint32_t GetPlaybackGeneration();
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false,
                                  std::optional<uint32_t> expected_generation = std::nullopt);
+    // Enqueue a short frame already converted to the codec's output rate. The
+    // caller must be a worker task; waiting producers are released on reset.
+    bool PushPcmToPlaybackQueue(std::vector<int16_t> pcm, int sample_rate,
+                                uint32_t expected_generation, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     // A deferred prompt may bind to the session observed before its idle/state check.
     void PlaySound(const std::string_view& sound,
@@ -187,7 +193,7 @@ public:
     }
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
-    void FinishPlayback();
+    void FinishPlayback(std::optional<uint32_t> expected_generation = std::nullopt);
     void SetModelsList(srmodel_list_t* models_list);
 
 private:
