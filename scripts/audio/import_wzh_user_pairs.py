@@ -146,7 +146,7 @@ def generate():
         lines += ['inline constexpr wzh::UserPair kPairs[] = {']+entries+['};', '}  // namespace wzh_user_assets', '']
         target = ROOT/'main/boards'/board/'wzh_user_pairs_catalog.inc'
         target.write_text('\n'.join(lines))
-    target = ROOT/'docs/wzh_user_pairs_2026-10-20.json'
+    target = ROOT/'docs/wzh/data/user_pairs.json'
     target.write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
     print(f'{len(report)} paired archives validated and imported')
 

@@ -30,7 +30,7 @@ template<size_t N>void Emit(const char*name,int variant,uint32_t ms,const std::a
 '''
 
 
-def harness(tree, board):
+def harness(tree, board, style_seed=0):
     motion.ROOT = tree
     motion.COMMON = tree / 'main/boards/common/wzh'
     tester = motion.WzhMotionOutputTest()
@@ -104,7 +104,8 @@ int main(){
 }
 '''.replace('__REST__', rest).replace('__ANIMAL_COUNT__', '27' if board == 'wzh_dinosaur' else '18').replace('__SCORE_OFFSET__', '19' if board == 'wzh_dinosaur' else '1').replace(
         '__MECHANISM__', mechanism).replace('__CONTROLLER__', 'DinosaurController' if board == 'wzh_dinosaur' else 'PandaController').replace('__WRITER__', writer)
-    return program
+    return program.replace('unsigned esp_random(){return 0;}',
+                           'unsigned esp_random(){return '+str(style_seed)+'U;}')
 
 
 def summarize(samples):
@@ -131,11 +132,11 @@ def summarize(samples):
             'peak_speed_dps': peaks[0], 'peak_acceleration_dps2': peaks[1], 'peak_jerk_dps3': peaks[2]}
 
 
-def replay(tree, label, output):
+def replay(tree, label, output, style_seed=0):
     rows, examples = {}, {}
     for board in ['wzh_tailRedPanda', 'wzh_crawlPanda', 'wzh_dinosaur']:
         program = output / f'{label}-{board}.cc'
-        program.write_text(harness(tree, board))
+        program.write_text(harness(tree, board, style_seed))
         executable = program.with_suffix('')
         subprocess.run(['g++', '-std=c++17', '-O2', '-pthread', '-I', str(tree/'main/boards/common/wzh'),
                         str(program), '-o', str(executable)], check=True, capture_output=True)
@@ -168,6 +169,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline-tree', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--style-seed', type=int, default=0,
+                        help='Deterministic per-performance entropy for before/after comparison')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     def source_fingerprints(tree):
@@ -178,15 +181,18 @@ def main():
         return {str(p.relative_to(tree)):hashlib.sha256(p.read_bytes()).hexdigest()
                 for p in sorted(files)}
     reviewed=source_fingerprints(ROOT)
-    before, b_traces = replay(args.baseline_tree.resolve(), 'before', args.output)
-    after, a_traces = replay(ROOT, 'after', args.output)
+    if not 0 <= args.style_seed <= 0xffffffff:
+        parser.error('--style-seed must fit uint32_t')
+    before, b_traces = replay(args.baseline_tree.resolve(), 'before', args.output, args.style_seed)
+    after, a_traces = replay(ROOT, 'after', args.output, args.style_seed)
     assert reviewed==source_fingerprints(ROOT), 'Motion sources changed during replay; rerun after edits finish'
     assert before.keys() == after.keys()
     comparisons = []
     for key, current in after.items():
         previous = before[key]
         comparisons.append({'path': key, 'before': previous, 'after': current})
-    summary = {'paths': len(comparisons), 'method': 'Production methods / host SDK and servo substitutes; 20 ms commanded samples',
+    summary = {'paths': len(comparisons), 'style_seed': args.style_seed,
+               'method': 'Production methods / host SDK and servo substitutes; 20 ms commanded samples',
                'physical_validation': False, 'reviewed_source_sha256':reviewed, 'rows': comparisons}
     (args.output/'motion-comparison.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2)+'\n')
     traces = {'before': b_traces, 'after': a_traces}

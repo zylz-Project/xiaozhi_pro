@@ -13,6 +13,7 @@
 #include "assets/lang_config.h"
 #include "config.h"
 #include "wzh_power_startup.h"
+#include "wzh_system_prompts.h"
 #include "wzh_touch_input.h"
 
 #define TAG "PandaPower"
@@ -146,21 +147,28 @@ void PandaPower::TaskEntry(void* arg) { static_cast<PandaPower*>(arg)->Task(); }
 
 void PandaPower::Shutdown() {
     ESP_LOGI(TAG, "Power-off requested; stop interaction and park active motion");
+    shutting_down_.store(true);
+    wzh::BeginSystemPromptShutdown();
     // Stop the old call/choreography first, before the shutdown prompt.
     if (shutdown_hook_ready_.load(std::memory_order_acquire) && shutdown_hook_)
         shutdown_hook_();
     Application::GetInstance().StopInteraction();
     const uint32_t started = esp_log_timestamp();
+    uint32_t last_battery_check = started;
     while (esp_log_timestamp() - started < 2400) {
         if (auto* output = servo_output_.load())
             output->Watchdog();
+        const auto now = esp_log_timestamp();
+        if (now - last_battery_check >= 1000) {
+            last_battery_check = now;
+            ReadBattery(now);  // Parking must not suspend critical-voltage checks.
+        }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
     if (auto* output = servo_output_.load())
         output->SetFault(wzh::kShutdown, true);
     gpio_set_level(SERVO_POWER_GPIO, 0);
-    Application::GetInstance().GetAudioService().PlaySound(Lang::Sounds::OGG_POWER_OFF);
-    vTaskDelay(pdMS_TO_TICKS(700));
+    wzh::PlayShutdownPromptAndWait([this]() { ReadBattery(esp_log_timestamp()); });
     gpio_set_level(POWER_CTRL_GPIO, 0);
     ESP_LOGI(TAG, "Power latch released");
     while (true)
@@ -168,6 +176,7 @@ void PandaPower::Shutdown() {
 }
 
 void PandaPower::EmergencyShutdown() {
+    shutting_down_.store(true);
     ESP_LOGE(TAG, "Critical battery voltage: immediate shutdown without servo movement");
     if (auto* output = servo_output_.load()) {
         output->SetFault(wzh::kShutdown, true);
@@ -261,6 +270,7 @@ void PandaPower::Task() {
     wzh::TouchInputFilter touch_filter(TOUCH_STABLE_SAMPLES);
 
     vTaskDelay(pdMS_TO_TICKS(1200));  // 等待音频服务就绪
+    wzh::StartSystemPrompts();
 
     // 开机提示音：内嵌上行叮咚（不读外部 Flash，硬件就绪即可响，早于
     // 联网流程）。叮咚先播，控制器 +2s 的 Flash 开机叫声经 IsPlaybackIdle
@@ -439,6 +449,9 @@ void PandaPower::Task() {
             battery_settled = true;
             last_battery_sample_ms = now;
             ReadBattery(now);
+#if CONFIG_WZH_SYSTEM_PROMPTS
+            wzh::ObserveSystemPromptBattery(battery_protection_.ready(), battery_protection_.low());
+#endif
             if (last_battery_log_ms == 0 || now - last_battery_log_ms >= 30000) {
                 ESP_LOGI(TAG, "Battery rest=%dmV live=%dmV level=%d%% valid=%d load=%d",
                          battery_voltage_mv_.load(), battery_live_mv_.load(), battery_level_.load(),

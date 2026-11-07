@@ -1365,8 +1365,10 @@ void Application::StopInteraction(bool play_exit_sound) {
             }
             // Queue the one exit prompt before Idle admits local sound again.
             // Ordinary stop/quiet/rest/shutdown remain silent here.
-            if (play_exit_sound)
-                audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            if (play_exit_sound) {
+                const auto sound = Board::GetInstance().GetConversationExitSound();
+                audio_service_.PlaySound(sound.empty() ? Lang::Sounds::OGG_POPUP : sound);
+            }
             SetDeviceState(kDeviceStateIdle);
         }
     });

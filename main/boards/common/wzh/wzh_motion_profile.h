@@ -116,13 +116,66 @@ inline uint32_t StoryFrameDuration(float travel, uint32_t requested, uint32_t se
                      static_cast<uint32_t>(std::ceil(travel * 2000 / kPetServoSpeed))});
 }
 
+// Choose a spatial/rhythmic character once per performance. The seed is never
+// sampled on servo ticks; all lookahead resolves the same shared landmarks.
+inline unsigned MotionPhraseStyle(uint32_t seed) { return (seed ^ (seed >> 11)) & 3U; }
+
+inline float MotionPhraseAngle(float angle, float center, float low, float high, uint32_t seed,
+                               unsigned axis) {
+    angle = std::clamp(angle, low, high);
+    if (!seed)
+        return angle;
+    constexpr float accents[4][5] = {{.20f, -.12f, -.06f, .12f, .04f},
+                                     {-.12f, .16f, .20f, -.08f, .12f},
+                                     {.12f, -.08f, .14f, .20f, -.12f},
+                                     {-.08f, .14f, -.12f, .16f, .20f}};
+    const float span = angle < center ? center - low : high - center;
+    if (span <= 0)
+        return center;
+    const float t = (angle - center) / span;
+    // A monotone interior accent: preserve rest, side and exact endpoints.
+    // Attention can lead with the head, paws or tail without hard-stop clipping.
+    return std::clamp(center + span * (t + accents[MotionPhraseStyle(seed)][std::min(axis, 4U)] *
+                                               t * (1 - t * t)),
+                      low, high);
+}
+
+inline uint32_t MotionPhraseDuration(uint32_t requested, uint32_t seed, unsigned beat) {
+    if (!seed)
+        return requested;
+    constexpr unsigned rhythm[4][4] = {
+        {92, 106, 114, 94}, {106, 94, 92, 114}, {94, 114, 106, 92}, {114, 92, 94, 106}};
+    return static_cast<uint32_t>(
+        (uint64_t(requested) * rhythm[MotionPhraseStyle(seed)][beat % 4] + 50) / 100);
+}
+
+inline float MotionPhraseBeat(float progress, unsigned style) {
+    if (progress <= 0)
+        return 0;
+    if (progress >= 1)
+        return 4;
+    constexpr float weights[4][4] = {{1.f, 1.3f, .85f, 1.f},
+                                     {1.2f, .85f, 1.25f, .85f},
+                                     {.85f, 1.25f, 1.f, 1.05f},
+                                     {1.1f, .9f, 1.3f, .85f}};
+    const auto& rhythm = weights[style % 4];
+    float at = std::clamp(progress, 0.f, 1.f) * (rhythm[0] + rhythm[1] + rhythm[2] + rhythm[3]);
+    for (unsigned beat = 0; beat < 3; ++beat) {
+        if (at < rhythm[beat])
+            return beat + at / rhythm[beat];
+        at -= rhythm[beat];
+    }
+    return 3 + std::clamp(at / rhythm[3], 0.f, 1.f);
+}
+
 template <unsigned Capacity>
 class MotionShuffleBag {
 public:
-    int Draw(unsigned count, uint32_t random) {
+    int Draw(unsigned count, uint32_t random, int avoid = -1, unsigned group_width = 1) {
         if (count == 0 || count > Capacity)
             return -1;
-        if (count_ != count || position_ >= count_) {
+        const bool new_round = count_ != count || position_ >= count_;
+        if (new_round) {
             count_ = count;
             position_ = 0;
             for (unsigned i = 0; i < count; ++i)
@@ -133,6 +186,18 @@ public:
             }
             if (count > 1 && items_[0] == previous_)
                 std::swap(items_[0], items_[1]);
+        }
+        // Reorder remaining choices, never consume/redraw them. Cross-file
+        // playback can avoid the last spatial family while preserving coverage.
+        group_width = std::max(1U, group_width);
+        if (avoid >= 0 && items_[position_] / group_width == unsigned(avoid) / group_width) {
+            for (unsigned i = position_ + 1; i < count_; ++i) {
+                if (items_[i] / group_width != unsigned(avoid) / group_width &&
+                    (!new_round || items_[i] != previous_)) {
+                    std::swap(items_[position_], items_[i]);
+                    break;
+                }
+            }
         }
         previous_ = items_[position_++];
         return previous_;

@@ -7,7 +7,7 @@ performance owns the motion lane. Return smoothly from the last commanded PWM
 pose, including voice offsets, then settle and release; do not latch an
 interrupted logical waypoint or keep an unbounded holding current. Protections
 always release immediately. Keep this work in the motion task. See
-`docs/wzh_dialog_developer_2026-10-19.md`.
+`docs/wzh/archive/2026-10/wzh_dialog_developer_2026-10-19.md`.
 
 Assistant text only supplies a bounded style hint; actual speaker PCM owns voice
 energy, stresses, pauses and tail completion. Never execute controls from quoted
@@ -24,7 +24,7 @@ enter from Idle and fully exit from Connecting/Listening/Speaking. Single click
 must not toggle chat in normal operation; keep BOOT provisioning and power-key
 long-press shutdown. Prompt ordering, cancellation and stale-session fencing are
 owned by Application/AudioService, never by the power polling task. See
-`docs/wzh_double_click_conversation_2026-10-19.md`.
+`docs/wzh/archive/2026-10/wzh_double_click_conversation_2026-10-19.md`.
 
 ## Current exhibition policy (2026-10-19)
 
@@ -38,8 +38,8 @@ Use measured sound scores and the fair coverage selector; do not restore byte-
 progress timing or compressed-packet-size loudness estimates. Every sound uses
 its own duration/content score and eight phrase variations (dedicated sky-roar
 paths remain in use). The latest all-product enrichment is documented in
-`docs/wzh_lively_motion_2026-10-19.md`. See
-`docs/wzh_audio_choreography_2026-10-19.md` for the current product contract.
+`docs/wzh/archive/2026-10/wzh_lively_motion_2026-10-19.md`. See
+`docs/wzh/archive/2026-10/wzh_audio_choreography_2026-10-19.md` for the current product contract.
 
 ## Scope and identity
 

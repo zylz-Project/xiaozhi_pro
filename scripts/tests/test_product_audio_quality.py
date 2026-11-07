@@ -220,6 +220,7 @@ int main(){
         program=r'''
 #define CONFIG_AUDIO_PRODUCT_QUALITY 1
 #include <cassert>
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <memory>
@@ -231,6 +232,7 @@ struct AudioService{
  std::mutex audio_queue_mutex_;std::condition_variable audio_queue_cv_;
  std::deque<std::unique_ptr<Packet>>audio_decode_queue_;std::deque<AudioTask>audio_playback_queue_;
  bool decode_in_flight_=false,output_in_flight_=false,playback_drained_notified_=true;
+ std::atomic<uint32_t> playback_drained_count_{0};
  bool finish_requested_=false,cancel_fade_requested_=false;
  void FinishPlayback();bool IsPlaybackDrainedLocked()const;bool MarkPlaybackDrainedLocked();
 };
@@ -295,6 +297,7 @@ struct AudioService{
  std::atomic<bool>service_stopped_{false};uint32_t playback_generation_=7;
  bool finish_requested_=false,cancel_fade_requested_=true;
  bool decode_in_flight_=false,output_in_flight_=false,playback_drained_notified_=false;
+ std::atomic<uint32_t> playback_drained_count_{0};
  std::atomic<bool>waiting{false};
  AudioPlayoutBuffer playout_buffer_;uint32_t BufferedPlaybackMsLocked(){waiting=true;return 60;}
  bool buffered_playback_=true;float output_fast_env_=0,output_slow_env_=0;
@@ -344,7 +347,7 @@ int main(){
     def test_calibration_matches_trusted_asset_and_rejects_modified_or_unknown_audio(self):
         import json
         import re
-        calibration=json.loads((ROOT/'docs/wzh_tailredpanda_audio_calibration_2026-11-04.json').read_text())
+        calibration=json.loads((ROOT/'docs/wzh/data/tailredpanda_audio_calibration.json').read_text())
         first=next(item for item in calibration if not item['source'].startswith('paired-'))
         data=(ROOT/'main/assets/locales/zh-CN'/first['source']).read_bytes()
         self.run_cpp('#include "'+str(ROOT/'main/boards/wzh_tailRedPanda/audio_calibration.inc')+'"\n'+r'''

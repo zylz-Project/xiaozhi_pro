@@ -47,7 +47,7 @@ using wzh_panda::ShuffleBag;
 
 constexpr size_t kBehaviourCount = static_cast<size_t>(Behaviour::kCount);
 
-Pose TargetPose(const Clip& clip, uint8_t frame, bool mirror) {
+Pose TargetPose(const Clip& clip, uint8_t frame, bool mirror, uint32_t seed = 0) {
     const Keyframe& key = clip.frames[frame];
     Pose pose{static_cast<float>(key.head), static_cast<float>(key.tail_lr),
               static_cast<float>(key.tail_ud)};
@@ -75,6 +75,11 @@ Pose TargetPose(const Clip& clip, uint8_t frame, bool mirror) {
     }
     if (expressive)
         pose.head = std::clamp(pose.head + (pose.tail_lr - 90.0f) * 0.30f, 30.0f, 150.0f);
+    if (expressive) {
+        pose.head = wzh::MotionPhraseAngle(pose.head, 90, 30, 150, seed, 0);
+        pose.tail_lr = wzh::MotionPhraseAngle(pose.tail_lr, 90, 6, 174, seed, 1);
+        pose.tail_ud = wzh::MotionPhraseAngle(pose.tail_ud, 150, 0, 180, seed, 2);
+    }
     return pose;
 }
 
@@ -939,12 +944,15 @@ void PandaController::OutputPose(const wzh_panda::Pose& requested) {
 }
 
 uint32_t PandaController::FrameDuration(uint8_t frame) const {
-    const Pose from = frame == 0 ? clip_origin_ : TargetPose(*clip_, frame - 1, mirror_);
-    const Pose to = TargetPose(*clip_, frame, mirror_);
+    const Pose from =
+        frame == 0 ? clip_origin_ : TargetPose(*clip_, frame - 1, mirror_, motion_seed_);
+    const Pose to = TargetPose(*clip_, frame, mirror_, motion_seed_);
     const float travel =
         std::max({std::abs(to.head - from.head), std::abs(to.tail_lr - from.tail_lr),
                   std::abs(to.tail_ud - from.tail_ud)});
-    const uint32_t requested = static_cast<uint32_t>(clip_->frames[frame].duration_ms * tempo_);
+    uint32_t requested = static_cast<uint32_t>(clip_->frames[frame].duration_ms * tempo_);
+    if (std::strncmp(clip_->name, "body_", 5) != 0)
+        requested = wzh::MotionPhraseDuration(requested, motion_seed_, frame);
     if (travel > .1f && std::abs(to.head - 90) <= 2.f && std::abs(to.tail_lr - 90) <= 2.f &&
         std::abs(to.tail_ud - 150) <= 2.f)
         return std::max(requested, wzh::SettlingDuration(travel, 75.f));
@@ -1031,7 +1039,7 @@ void PandaController::UpdatePlayer(uint32_t now_ms) {
         return;
     }
     while (clip_active_ && now_ms - frame_started_ms_ >= frame_duration_ms_) {
-        pose_ = TargetPose(*clip_, frame_, mirror_);
+        pose_ = TargetPose(*clip_, frame_, mirror_, motion_seed_);
         from_ = pose_;
         frame_started_ms_ += frame_duration_ms_;
         if (++frame_ >= clip_->count) {
@@ -1040,11 +1048,12 @@ void PandaController::UpdatePlayer(uint32_t now_ms) {
         }
         frame_duration_ms_ = FrameDuration(frame_);
     }
-    const Pose target = TargetPose(*clip_, frame_, mirror_);
+    const Pose target = TargetPose(*clip_, frame_, mirror_, motion_seed_);
     const Pose previous = frame_ == 0   ? from_
                           : frame_ == 1 ? clip_origin_
-                                        : TargetPose(*clip_, frame_ - 2, mirror_);
-    const Pose next = frame_ + 1 < clip_->count ? TargetPose(*clip_, frame_ + 1, mirror_) : target;
+                                        : TargetPose(*clip_, frame_ - 2, mirror_, motion_seed_);
+    const Pose next =
+        frame_ + 1 < clip_->count ? TargetPose(*clip_, frame_ + 1, mirror_, motion_seed_) : target;
     const uint32_t before = frame_ == 0 ? frame_duration_ms_ : FrameDuration(frame_ - 1);
     const uint32_t after =
         frame_ + 1 < clip_->count ? FrameDuration(frame_ + 1) : frame_duration_ms_;

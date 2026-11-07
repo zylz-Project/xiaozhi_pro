@@ -1900,13 +1900,33 @@ DinosaurController::Pose DinosaurController::PlayClip(const wzh_dino::MotionClip
     std::array<Pose, kMaxClipFrames + 1> poses;
     std::array<uint32_t, kMaxClipFrames> durations;
     const uint32_t seed = esp_random();
+    const bool varied = std::strncmp(clip.name, "body", 4) != 0 &&
+                        std::strncmp(clip.name, "roar-", 5) != 0 && !sky_roar_active_.load();
     poses[0] = start;
     for (uint8_t i = 0; i < clip.count; ++i) {
         poses[i + 1] =
             ResolveKeyframe(clip.frames[i], poses[i], mirror, amplitude, clip.authored_dynamics);
+        if (varied) {
+            auto& pose = poses[i + 1];
+            // kKeep already inherits the styled physical landmark. Applying
+            // the accent again would make a stationary joint drift each beat.
+            const auto& key = clip.frames[i];
+            if (key.neck_tilt != wzh_dino::kKeep)
+                pose.neck_tilt = wzh::MotionPhraseAngle(pose.neck_tilt, 70, 0, 180, seed, 0);
+            if (key.neck_lean != wzh_dino::kKeep)
+                pose.neck_lean = wzh::MotionPhraseAngle(pose.neck_lean, 90, 0, 180, seed, 1);
+            if (key.head_turn != wzh_dino::kKeep)
+                pose.head_turn = wzh::MotionPhraseAngle(pose.head_turn, 90, 0, 180, seed, 2);
+            if (key.tail_ud != wzh_dino::kKeep)
+                pose.tail_ud = wzh::MotionPhraseAngle(pose.tail_ud, 90, 55, 180, seed, 3);
+            if (key.tail_lr != wzh_dino::kKeep)
+                pose.tail_lr = wzh::MotionPhraseAngle(pose.tail_lr, 90, 0, 180, seed, 4);
+        }
         const float factor = sky_roar_active_.load() && i == 0 ? 1.0f : duration_factor;
-        const uint32_t requested =
+        uint32_t requested =
             static_cast<uint32_t>(std::lround(clip.frames[i].duration_ms * factor));
+        if (varied)
+            requested = wzh::MotionPhraseDuration(requested, seed, i);
         const Pose& from = poses[i];
         const Pose& to = poses[i + 1];
         const float travel = std::max(

@@ -75,6 +75,7 @@ protected:
     int output_volume_ = 70;
     float input_gain_ = 0.0;
     bool speaker_protection_enabled_ = false;
+    float speaker_makeup_gain_db_ = 0.0f;
     SpeakerProtection speaker_protection_;
     std::atomic<bool> output_processing_reset_pending_{true};
 #if CONFIG_AUDIO_PRODUCT_QUALITY

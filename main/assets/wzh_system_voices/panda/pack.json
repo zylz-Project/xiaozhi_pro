@@ -1,0 +1,367 @@
+{
+  "schema": 1,
+  "profile": "panda",
+  "provider": "import",
+  "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+  "requested_voice": "樱桃丸子",
+  "identity_confirmed": false,
+  "source_identity_verified": true,
+  "listening_confirmed": false,
+  "files": {
+    "0": {
+      "text": "零。",
+      "sha256": "37846db23a06b5b8097382d32890c30d3bc10d596951bc3fe2ea5fbaa90c36f5",
+      "source_sha256": "27878e8f7594a87628c8c2dcf94c5c140bd0f1b7028c33e4709a88d1efcbd3a0",
+      "duration_seconds": 0.8945,
+      "rms_dbfs": -19.42,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "零。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.888
+      },
+      "master": "masters/0.mp3"
+    },
+    "1": {
+      "text": "一。",
+      "sha256": "1cb4bdbfa0772983f2624df8ae0dbbbb6a929ff0752a612eb343c58868a424cd",
+      "source_sha256": "0f176536784368b1997aa840c4a731380cd8814c20a8d11d8ca2389cf3ecc938",
+      "duration_seconds": 0.7745,
+      "rms_dbfs": -19.6,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "一。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.768
+      },
+      "master": "masters/1.mp3"
+    },
+    "2": {
+      "text": "二。",
+      "sha256": "852180359dd613daca0f68883fb11fc8d4a3c5cff7dde15de5ff59bc53cb9ef6",
+      "source_sha256": "314a6ada5a201792823fc5447bf74b657b356abdc7d1d718ae2bd2667bd77b78",
+      "duration_seconds": 0.7025,
+      "rms_dbfs": -19.4,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "二。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.696
+      },
+      "master": "masters/2.mp3"
+    },
+    "3": {
+      "text": "三。",
+      "sha256": "3f5b722ffe0da2a54b3d08c86353a65d088a17a35d1aa32c953fd596796465e2",
+      "source_sha256": "0d2e6768f2d2b102a58cfbb32baa134dc4b52171a4efeafe1b1143a8c7bc2d25",
+      "duration_seconds": 0.7985,
+      "rms_dbfs": -19.48,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "三。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.792
+      },
+      "master": "masters/3.mp3"
+    },
+    "4": {
+      "text": "四。",
+      "sha256": "b9bd53b9ec50a46daef884c3d027c3ba870e2fce1c4e0baf79e40fe6df25b198",
+      "source_sha256": "029ff2c304cae8b9de9f92a24a524ddd5543a729cee05a9f4c78f1aacf335655",
+      "duration_seconds": 0.8945,
+      "rms_dbfs": -19.51,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "四。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.888
+      },
+      "master": "masters/4.mp3"
+    },
+    "5": {
+      "text": "五。",
+      "sha256": "f3c67699c4f1ff2c13cd2c8d505a344da81f92baa7b02e78ba68e218ff382b78",
+      "source_sha256": "833c4e674f70fa20d6628f9345d8554daccfe002df11b73358a1d879b15faa9c",
+      "duration_seconds": 0.9665,
+      "rms_dbfs": -19.31,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "五。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.96
+      },
+      "master": "masters/5.mp3"
+    },
+    "6": {
+      "text": "六。",
+      "sha256": "c3c1b5823629e98e4a80a9346cff0dcee5b704a8c236ae9af364cde924f470b0",
+      "source_sha256": "6cf8447562123908c88534a5eba1e5767c7d9d01506233c6ffe938c4ea8b3458",
+      "duration_seconds": 0.7745,
+      "rms_dbfs": -19.54,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "六。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.768
+      },
+      "master": "masters/6.mp3"
+    },
+    "7": {
+      "text": "七。",
+      "sha256": "c926661940461f48b724ef3a18a203b94365917edcc3acf6f97615a0cc9880db",
+      "source_sha256": "934e780e2748a68b30476480fe8d74050dae1d1ccc56046d237661d0d3cca801",
+      "duration_seconds": 0.8945,
+      "rms_dbfs": -19.51,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "七。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.888
+      },
+      "master": "masters/7.mp3"
+    },
+    "8": {
+      "text": "八。",
+      "sha256": "996fc5ec52e1ceacd1c5d334b4a5332fc4319c59ed1ee90621a3eb201297483b",
+      "source_sha256": "bc4817a85b859498f728e1682d08b59010317bcdfea684ee1807cbfe747cc645",
+      "duration_seconds": 0.7745,
+      "rms_dbfs": -19.45,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "八。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.768
+      },
+      "master": "masters/8.mp3"
+    },
+    "9": {
+      "text": "九。",
+      "sha256": "42426a37fad29fd2dc3e7b7997b92f9881f17c2776b741ee3738c821f3565fee",
+      "source_sha256": "a22a15cb456735e933ef1e2de619e4f2965fa1175c4733280538b9f4fdd38876",
+      "duration_seconds": 0.9905,
+      "rms_dbfs": -19.49,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "九。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.984
+      },
+      "master": "masters/9.mp3"
+    },
+    "wificonfig": {
+      "text": "请用手机帮我配网。",
+      "sha256": "a257e2bdab1ceff1ad4418cfbf6dba5b1e13294a0c4d50e671257775b250a9d8",
+      "source_sha256": "ce6bac8ea58897af2e3b2bc873cd82c8008c53a048ba20eeb9ae55d00f8e151d",
+      "duration_seconds": 2.2385,
+      "rms_dbfs": -19.51,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "请用手机帮我配网。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 2.232
+      },
+      "master": "masters/wificonfig.mp3"
+    },
+    "activation": {
+      "text": "请在小智控制台添加设备，验证码是：",
+      "sha256": "112e937d624a7264eefb19820f3e81cc7fab322ee72f9bbbdeb4262dd434c993",
+      "source_sha256": "631d7d5a12ac71f696a32127e2e6d67860cb70fe82ca39c39a59eff11840a8f6",
+      "duration_seconds": 3.9665,
+      "rms_dbfs": -20.66,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "请在小智控制台添加设备，验证码是：",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 3.96
+      },
+      "master": "masters/activation.mp3"
+    },
+    "welcome": {
+      "text": "你好呀，很高兴见到你！",
+      "sha256": "495c0601bf2e2d51cf86933dbcd79587837911635d709f4a416814717bf349ca",
+      "source_sha256": "233a0adaba30a667b6c64ad8b72c597c240aef86ec7609c0d892a03455b11d12",
+      "duration_seconds": 2.6945,
+      "rms_dbfs": -19.51,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "你好呀，很高兴见到你！",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 2.688
+      },
+      "master": "masters/welcome.mp3"
+    },
+    "success": {
+      "text": "我准备好啦！",
+      "sha256": "aa811c3f46aea6ed7e025d89a90dcd43d6a2c0beb5e7ad28532001d8c42c9f8a",
+      "source_sha256": "38475f48c8d5099c4bd04d09627f13da55ec98b39dc65ca1e1da2b644ce9e87c",
+      "duration_seconds": 1.3985,
+      "rms_dbfs": -19.5,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "我准备好啦！",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.392
+      },
+      "master": "masters/success.mp3"
+    },
+    "upgrade": {
+      "text": "正在更新，请勿断电。",
+      "sha256": "af31f7c95532811e54e483904d89b7307312fd18d20b72ae4fbcb62ef4bdeef6",
+      "source_sha256": "bb6068164c66cb3494ed234dcea633373b7dde3dcdae49140dfc0bf65ba1077c",
+      "duration_seconds": 2.7905,
+      "rms_dbfs": -19.65,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "正在更新，请勿断电。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 2.784
+      },
+      "master": "masters/upgrade.mp3"
+    },
+    "low_battery": {
+      "text": "我的电量不足啦，请帮我充充电吧！",
+      "sha256": "eb6913976d1ca9e2cac966438395c6dacf7a7183fd6f22f8a296d43334686fd8",
+      "source_sha256": "d637f2bc373048dd9f5a1275ee3b3d3619ff39d2e86760bb5984c8205f21dcab",
+      "duration_seconds": 3.4385,
+      "rms_dbfs": -19.64,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "catalog_preview_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "request_voice_verified": false,
+        "text": "我的电量不足啦，请帮我充充电吧！",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 3.432
+      },
+      "master": "masters/low_battery.mp3"
+    },
+    "power_off": {
+      "text": "我要休息啦，下次再一起玩吧！",
+      "sha256": "4820c965b47c01bd447fa70e0d52c9a2456c21b2875935f24496ac39184f8c88",
+      "source_sha256": "fc31b06bb39498ccca61a2a710d3aee1aa74b01805b5e1d64e52a4dcc8b604d3",
+      "duration_seconds": 3.1265,
+      "rms_dbfs": -19.51,
+      "tempo": 1.0,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "樱桃丸子",
+        "voice_id": "zh_female_yingtaowanzi_mars_bigtts",
+        "text": "我要休息啦，下次再一起玩吧！",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 3.12
+      },
+      "master": "masters/power_off.mp3"
+    }
+  }
+}

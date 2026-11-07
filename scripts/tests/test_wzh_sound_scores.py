@@ -73,7 +73,7 @@ int main(){
 '''.replace('#include <cstdio>','#include <cstdio>\n#include <string>'))
 
     def test_every_sensor_has_two_real_pack_files(self):
-        manifest = json.loads((ROOT/'docs/wzh_sound_pack_2026-10-19.json').read_text())
+        manifest = json.loads((ROOT/'docs/wzh/data/sound_pack.json').read_text())
         for product in ['crawling_panda','dinosaur']:
             entries = ['{'+json.dumps(f['name'],ensure_ascii=False)+'}' for f in manifest
                        if f['path'].startswith(product+'/animal/')]

@@ -2,6 +2,8 @@
 
 (English | [中文](README_zh.md) | [日本語](README_ja.md))
 
+Documentation: [index](docs/README.md) · [WZH products](docs/wzh/README.md).
+
 ## Introduction
 
 👉 [Human: Give AI a camera vs AI: Instantly finds out the owner hasn't washed hair for three days【bilibili】](https://www.bilibili.com/video/BV1bpjgzKEhd/)

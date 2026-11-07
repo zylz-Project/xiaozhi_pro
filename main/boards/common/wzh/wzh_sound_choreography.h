@@ -155,7 +155,8 @@ public:
                                                      : SoundPose{90, 90, 90, 0, 0};
         count_ = 0;
         tail_motion_.Cancel();
-        const unsigned variant = variant_ = variants_.Draw(sound, random);
+        const unsigned variant = variant_ =
+            variants_.Draw(sound, random, kVariantCount, mechanism == PetMechanism::kTail ? 4 : 1);
         auto seed = sound.score ? sound.score->seed : 0xabc123U;
         if (mechanism == PetMechanism::kTail && sound.kind != SoundKind::kAmbient) {
             tail_leading_side_ = !tail_leading_side_;

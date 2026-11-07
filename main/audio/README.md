@@ -80,6 +80,26 @@ short-term RMS guard trims dense music by up to 4 dB while leaving speech
 untouched, and a 1 ms look-ahead peak limiter holds peaks around -1.5 dBFS
 before the codec DAC. Other boards keep the untouched stream.
 
+2026-11-07 WZH maximum-volume correction: the V4-2.2 NS4150 input resistors
+R35/R37 are 30 kohm, giving 20 dB PA gain. WZH now passes that gain to ES8311's
+existing hardware compensation and uses a -3 dB maximum route target, with the
+original 0..80 curve and a gentler 80..100 segment. The stored UI value remains
+0..100, but the DAC level is lower at the same setting (23 dB at 100 relative
+to the previous uncorrected configuration). The curve is restored on every
+device reopen. Other boards retain the original constructor defaults and curve.
+This corrects gain staging; it is not measured acoustic acceptance. See
+`docs/wzh/audio/wzh_volume100_audio_2026-11-07.md` for research, registers and validation.
+
+2026-11-07 loudness follow-up: hardware feedback found volume 100 too quiet.
+WZH now adds 9 dB of makeup before the RMS guard and peak limiter. This profile
+uses RMS-before-limiter routing and the existing 1 ms FIR gain smoothing even
+without speech EQ, plus a 5 ms startup ramp. The 20 dB PA compensation, DAC
+ceiling and 0.84 PCM peak limit remain unchanged. The default is 0 dB on other
+boards, whose output matches the previous implementation in the offline cases.
+Existing speech samples gained 3.3..5.7 LU in the digital comparison; this is
+not measured speaker SPL or acoustic acceptance. See
+`docs/wzh/audio/wzh_loudness_recovery_2026-11-07.md` and the comparison WAV files.
+
 2026-11-04 music-quality revision: `AUDIO_SPEAKER_SMOOTH_LIMITER` optionally
 averages the peak-constrained gains over the existing 1 ms look-ahead. Both tail
 red panda variants enable it; other variants default off. The bounded Q20 FIR
@@ -89,7 +109,7 @@ seconds of decoded PCM: coded TOC bandwidth/channel flags, payload bitrate and
 pre-EQ rail samples. This observes all decoded Opus (including local sounds),
 retains no audio, and does not identify music from assistant text. Hardware
 listening and CPU/timing acceptance remain pending. See
-`docs/wzh_tailredpanda_music_quality_2026-11-04.md`.
+`docs/wzh/archive/2026-11/wzh_tailredpanda_music_quality_2026-11-04.md`.
 
 ## Tasks and power management
 
@@ -113,7 +133,13 @@ and provisioning semantics for other boards. Stop/quiet/rest/shutdown use the si
 
 Application owns prompt ordering and conversation generations. Entry prompts play
 after voice-processing initialization resets the decoder; exit prompts are queued
-after cancellation and before Idle admits local sound. The TTS-start handler resets
+after cancellation and before Idle admits local sound. WZH boards supply a distinct
+descending exit cue through the optional `Board::GetConversationExitSound()`;
+entry retains the original popup, and other boards retain the default cue.
+The exit asset is bundled only in WZH firmware. Silent stops and stale-session
+cancellation retain their existing behavior. See
+`docs/wzh/audio/wzh_conversation_sounds_2026-11-07.md` for validation and listening checks.
+The TTS-start handler resets
 the decoder before publishing Speaking, so a deferred state event cannot discard
 already accepted first packets. Scheduled TTS/STT/emotion/close work is rejected
 when its conversation has been superseded.
@@ -205,7 +231,7 @@ stored volume and speaker protection; they do not change official cloud music
 encoding. Container metadata remains local to `AudioStreamPacket`, with both
 transport wire formats unchanged. Full measurements, host/build validation and
 the pending listening/real-time acceptance are recorded in
-`docs/wzh_tailredpanda_product_audio_2026-11-04.md`.
+`docs/wzh/archive/2026-11/wzh_tailredpanda_product_audio_2026-11-04.md`.
 
 `AUDIO_SPEAKER_VOICE_CLARITY` is enabled in both tail-red-panda variants and
 defaults off elsewhere. It applies only to the existing protected speaker path.
@@ -225,17 +251,24 @@ unchanged. The ES8311 DAC reference still follows the processed playback.
 Offline comparisons of seven bundled Chinese prompts measured loudness changes
 of -0.16 to +0.43 LU and no int16 clipping. This is a small digital-signal
 comparison, not a loudspeaker listening or distortion test. See
-`docs/wzh_tailredpanda_audio_quality_2026-11-04.md` for research, validation and
+`docs/wzh/archive/2026-11/wzh_tailredpanda_audio_quality_2026-11-04.md` for research, validation and
 physical acceptance. Voice interruption remains an unaccepted experiment.
 
 ## Opt-in local voice interruption (2026-11-02)
+
+2026-11-07: `wzh-crawlpanda-barge-in` and `wzh-dinosaur-barge-in` now use the
+same reference capture and interruption route as the tail-red-panda trial.
+Their ordinary variants explicitly disable interruption and the neural frontend.
+Wake models, physical board selectors and pins retain each product's identity.
+See `docs/wzh/audio/wzh_voice_barge_in_2026-11-07.md` for builds, self-review and the
+remaining hardware acceptance checks.
 
 2026-11-04 voice-guard follow-up: in `USE_VOICE_BARGE_IN` builds, WakeNet events
 during Speaking/Listening re-arm detection without cancelling playback, resetting
 capture or clearing the reply gate. Conversation interruption must use confirmed
 near-end speech; standby wake-up and non-barge-in builds keep their previous
 behavior. This closes an alternate cancellation path, not the acoustic acceptance
-gap. See `docs/wzh_tailredpanda_voice_guard_2026-11-04.md`.
+gap. See `docs/wzh/archive/2026-11/wzh_tailredpanda_voice_guard_2026-11-04.md`.
 
 2026-11-04: hardware feedback found the NSNet2/VADNet candidate overran its
 32 ms budget, overflowed AFE input and starved CPU 1's idle task. The revised
@@ -251,16 +284,16 @@ disable automatic interruption admission while retaining normal AFE capture.
 Average/max post-processing time is logged every 64 input frames; this is not a
 measurement of total AFE CPU use. Speaker settings and watchdogs are preserved.
 This revised candidate still requires hardware timing and acoustic acceptance;
-see `docs/wzh_tailredpanda_barge_in_realtime_2026-11-04.md` and the earlier
-research in `docs/wzh_tailredpanda_neural_barge_in_2026-11-04.md`.
+see `docs/wzh/archive/2026-11/wzh_tailredpanda_barge_in_realtime_2026-11-04.md` and the earlier
+research in `docs/wzh/archive/2026-11/wzh_tailredpanda_neural_barge_in_2026-11-04.md`.
 
 Hardware feedback on 2026-11-03 found both self-interruption and missed speech
 in the experimental builds. The waveform correlation veto is a heuristic;
 decorrelated residual echo can pass it. This feature has not passed hardware
 acceptance. Current AEC/output gain changes are under live diagnostic testing.
 
-`USE_VOICE_BARGE_IN` is enabled only by the `wzh-tailredpanda-barge-in` test
-variant. ES8311 captures interleaved ADCL microphone / DACR reference through
+`USE_VOICE_BARGE_IN` is enabled by the three WZH `*-barge-in` test variants.
+ES8311 captures interleaved ADCL microphone / DACR reference through
 its existing I2S connection. The shared codec opens both physical slots, while
 `Write()` explicitly duplicates logical mono PCM into them. A single FD AFE
 provides local AEC, VAD, WakeNet and local MultiNet; ordinary builds keep their
@@ -294,8 +327,8 @@ using the existing auto protocol on both transports. Current-frame VAD reaches
 the detector before PCM; only VAD edges reach the UI. Normal TTS completion drops
 the monitoring prefix and returns to ordinary listening. Wake-word/manual exit,
 maintenance, no-reference and feature-disabled paths remain available.
-See `docs/wzh_tailredpanda_voice_barge_in_2026-11-03-v2.md` for the liveness
-fix and `docs/wzh_tailredpanda_voice_barge_in_2026-11-02.md` for protocol
+See `docs/wzh/archive/2026-11/wzh_tailredpanda_voice_barge_in_2026-11-03-v2.md` for the liveness
+fix and `docs/wzh/archive/2026-11/wzh_tailredpanda_voice_barge_in_2026-11-02.md` for protocol
 ordering requirements and physical-device acceptance checks.
 
 `AUDIO_DEBUG_PACKETIZED` adds a versioned XDBG trace to the existing optional

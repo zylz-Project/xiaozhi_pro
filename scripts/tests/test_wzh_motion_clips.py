@@ -24,7 +24,7 @@ def function_body(source, marker):
 
 class WzhMotionClipsTest(unittest.TestCase):
     def test_imported_frames_match_the_reference_snapshot_after_axis_adaptation(self):
-        manifest = json.loads((ROOT / "docs/wzh_reference_motion_manifest.json").read_text())
+        manifest = json.loads((ROOT / "docs/wzh/data/reference_motion_manifest.json").read_text())
         for board, metadata in manifest["products"].items():
             with self.subTest(board=board):
                 source = (ROOT / "main/boards" / board / metadata["header"]).read_text()

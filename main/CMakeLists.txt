@@ -896,6 +896,7 @@ if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_
     list(APPEND SOURCES ${WZH_COMMON_SOURCES})
     list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh)
     set(WZH_CONSOLE_FILES "assets/wzh_console.html")
+    set(WZH_CONVERSATION_SOUNDS "assets/wzh_sounds/conversation_exit.ogg")
 endif()
 
 # Select one audio engine for each chip family
@@ -1026,6 +1027,10 @@ endif()
 # 脚本模式下该选项报错。新增音效文件后重新构建（重新 configure）即可生效。
 file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
 
+if(CONFIG_WZH_SYSTEM_PROMPTS AND (CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_BOARD_TYPE_WZH_TAILREDPANDA))
+    include("${PROJECT_DIR}/scripts/cmake/wzh_system_prompts.cmake")
+endif()
+
 # If target chip is ESP32, exclude specific files to avoid build errors
 if(CONFIG_IDF_TARGET_ESP32)
     list(REMOVE_ITEM SOURCES "audio/codecs/box_audio_codec.cc"
@@ -1081,7 +1086,7 @@ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
     )
 endif()
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${WZH_CONSOLE_FILES}
+                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${WZH_CONSOLE_FILES} ${WZH_CONVERSATION_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES

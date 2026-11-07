@@ -20,8 +20,8 @@
 //   长按（按住过程中实时判断）触发关机序列，松开可取消；
 //   短按做双击检测切换对话并给提示音。
 //
-// 关机序列：关机提示音 → 舵机回中（板级回调）→ 断开舵机电源 →
-//           断开电源自锁 → 等待断电。
+// 关机序列：停止互动 → 活动舵机有限回中 → 断开舵机电源 →
+//           完整关机播报（有界等待）→ 断开电源自锁。
 class PandaPower {
 public:
     using ShutdownHook = std::function<void()>;
@@ -29,6 +29,7 @@ public:
         std::function<void(uint8_t code, uint8_t pressed_mask, uint8_t released_mask)>;
 
     bool Initialize();
+    bool IsShuttingDown() const { return shutting_down_.load(); }
     void RegisterServoOutput(wzh::ServoOutput* output) { servo_output_.store(output); }
     // 关机序列中、断电前调用：让板级把舵机放回安全姿态。
     void RegisterShutdownHook(ShutdownHook hook);
@@ -47,6 +48,7 @@ public:
     int touch_voltage_mv() const { return touch_voltage_mv_.load(); }
 
 private:
+    std::atomic<bool> shutting_down_{false};
     std::atomic<wzh::ServoOutput*> servo_output_{nullptr};
     wzh::StableBatteryProtection battery_protection_;
     temperature_sensor_handle_t temperature_ = nullptr;

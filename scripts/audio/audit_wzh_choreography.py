@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def audit():
-    manifest = json.loads((ROOT / 'docs/wzh_sound_pack_2026-10-19.json').read_text())
+    manifest = json.loads((ROOT / 'docs/wzh/data/sound_pack.json').read_text())
     cases = []
     for row in manifest:
         product = row['path'].split('/')[0]
@@ -144,7 +144,7 @@ int main(){
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=ROOT/'docs/wzh_sound_motion_audit_2026-10-19.json')
+    parser.add_argument('--output', type=Path, default=ROOT/'docs/wzh/archive/2026-10/wzh_sound_motion_audit_2026-10-19.json')
     args = parser.parse_args()
     manifest, rows = audit()
     args.output.write_text(json.dumps({'files':manifest, 'trajectories':rows}, ensure_ascii=False, separators=(',', ':'))+'\n')

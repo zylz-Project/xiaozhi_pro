@@ -20,6 +20,7 @@ APP_HARNESS = r'''
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cstring>
 #include "cJSON.h"
@@ -30,13 +31,14 @@ enum DeviceState{kDeviceStateIdle,kDeviceStateConnecting,kDeviceStateListening,k
 using ListeningMode=int;
 constexpr int kListeningModeManualStop=1,kListeningModeAutoStop=2,kListeningModeRealtime=3,kAbortReasonNone=0;
 enum class PowerSaveLevel{PERFORMANCE,LOW_POWER};
-namespace Lang{namespace Sounds{constexpr int OGG_POPUP=1;}namespace Strings{constexpr int SPEAKING=2,LISTENING=3;}}
+namespace Lang{namespace Sounds{constexpr std::string_view OGG_POPUP="entry";}namespace Strings{constexpr int SPEAKING=2,LISTENING=3;}}
 struct AudioStreamPacket{};
 struct TextGlyph{};
 struct TextGlyphPayload{static bool Parse(const cJSON*,std::vector<TextGlyph>&,uint8_t&){return false;}};
 std::vector<std::string> events;
 struct Audio{
     uint32_t generation=0;int packets=0,prompts=0,resets=0;
+    std::vector<std::string_view> prompt_sounds;
     bool voice=false,wake=false,playback_idle=true,processor_running=false;
     uint32_t GetPlaybackGeneration(){return generation;}
     void ResetDecoder(){++generation;++resets;packets=0;events.push_back("reset");}
@@ -55,7 +57,7 @@ struct Audio{
         if(send_packets>0){--send_packets;return std::make_unique<AudioStreamPacket>();}
         return nullptr;
     }
-    void PlaySound(int){++prompts;playback_idle=false;events.push_back("prompt");}
+    void PlaySound(std::string_view sound){++prompts;prompt_sounds.push_back(sound);playback_idle=false;events.push_back("prompt");}
 };
 struct Display{
     int messages=0,emotions=0;
@@ -66,6 +68,8 @@ struct Display{
 };
 struct Board{
     bool maintenance=false;bool IsAudioMaintenanceActive(){return maintenance;}
+    std::string_view exit_sound="exit";
+    std::string_view GetConversationExitSound() const{return exit_sound;}
     Display display;
     static Board& GetInstance(){static Board b;return b;}
     void SetPowerSaveLevel(PowerSaveLevel){}
@@ -209,6 +213,39 @@ int main(){
     }
     Application open;open.Install();open.protocol.opened=true;open.Button();open.Drain();
     assert(open.local_stops==1&&open.protocol.opens==0&&open.state==kDeviceStateListening);
+}
+''')
+
+    def test_distinct_exit_cue_silent_stop_and_legacy_fallback(self):
+        self.run_cpp(self.application()+r'''
+int main(){
+    auto&board=Board::GetInstance();
+    for(auto state:{kDeviceStateListening,kDeviceStateSpeaking,kDeviceStateConnecting}){
+        Application app;app.Install();app.Button();app.Drain();app.ListeningStateEvent();
+        assert(app.audio_service_.prompt_sounds==std::vector<std::string_view>{"entry"});
+        app.state=state;app.Button();app.Drain();
+        assert(app.audio_service_.prompt_sounds==std::vector<std::string_view>({"entry","exit"}));
+        app.StopInteraction(true);app.Drain(); // Already idle: do not repeat the exit cue.
+        assert(app.audio_service_.prompts==2);
+        app.Button();app.Drain();app.ListeningStateEvent();
+        assert(app.audio_service_.prompt_sounds.back()=="entry");
+    }
+    Application silent;silent.state=kDeviceStateSpeaking;silent.StopInteraction();silent.Drain();
+    assert(silent.audio_service_.prompts==0);
+    board.exit_sound={}; // Boards without a custom cue retain their original behavior.
+    Application legacy;legacy.state=kDeviceStateListening;legacy.StopInteraction(true);legacy.Drain();
+    assert(legacy.audio_service_.prompt_sounds==std::vector<std::string_view>{"entry"});
+}
+''')
+
+    def test_superseded_exit_does_not_queue_a_cue_into_the_new_session(self):
+        self.run_cpp(self.application()+r'''
+int main(){
+    Application app;app.Install();app.state=kDeviceStateSpeaking;
+    app.StopInteraction(true); // Cleanup and exit sound are still queued on the main task.
+    app.state=kDeviceStateIdle;app.Button();app.Drain();app.ListeningStateEvent();
+    assert(app.state==kDeviceStateListening&&!app.interaction_stopped_);
+    assert(app.audio_service_.prompt_sounds==std::vector<std::string_view>{"entry"});
 }
 ''')
 
@@ -429,6 +466,7 @@ int main(){
 #include <functional>
 #include <memory>
 #include <string_view>
+#include <optional>
 #include <vector>
 struct AudioStreamPacket{int sample_rate=0,frame_duration=0;std::vector<uint8_t>payload;};
 struct OggDemuxer{
@@ -444,11 +482,12 @@ struct AudioService{
   if(expected!=generation){++rejected;return false;}
   ++accepted;if(cancel)++generation;return true;
  }
- void PlaySound(const std::string_view&);
+ void PlaySound(const std::string_view&,std::optional<uint32_t> expected=std::nullopt);
 };
 '''+method+r'''
 int main(){
  AudioService ordinary;ordinary.PlaySound("opus");assert(ordinary.accepted==5&&ordinary.rejected==0);
+ AudioService stale;stale.PlaySound("opus",6);assert(stale.accepted==0&&stale.rejected==0);
  AudioService cancelled;cancelled.cancel=true;cancelled.PlaySound("opus");
  assert(cancelled.accepted==1&&cancelled.rejected==1);
 }

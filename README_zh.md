@@ -2,6 +2,8 @@
 
 （中文 | [English](README.md) | [日本語](README_ja.md)）
 
+文档入口：[全部文档](docs/README.md) · [WZH 三款产品](docs/wzh/README.md)。
+
 ## 介绍
 
 👉 [人类：给 AI 装摄像头 vs AI：当场发现主人三天没洗头【bilibili】](https://www.bilibili.com/video/BV1bpjgzKEhd/)

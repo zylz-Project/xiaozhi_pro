@@ -12,21 +12,22 @@ namespace wzh {
 template <unsigned Capacity>
 class SoundVariantSelector {
 public:
-    int Draw(const SoundPlayback& sound, uint32_t random, unsigned count = Capacity) {
+    int Draw(const SoundPlayback& sound, uint32_t random, unsigned count = Capacity,
+             unsigned group_width = 1) {
         if (!count || count > Capacity)
             return -1;
         for (auto& item : variations_) {
             if (item.used && item.score == sound.score &&
                 (sound.score ? (item.index < 32) == (sound.sound_index < 32)
                              : item.index == sound.sound_index))
-                return item.bag.Draw(count, random);
+                return last_variant_ = item.bag.Draw(count, random, last_variant_, group_width);
         }
         auto& item = variations_[replacement_++ % variations_.size()];
         item = {};
         item.used = true;
         item.score = sound.score;
         item.index = sound.sound_index;
-        return item.bag.Draw(count, random);
+        return last_variant_ = item.bag.Draw(count, random, last_variant_, group_width);
     }
 
 private:
@@ -38,6 +39,7 @@ private:
     };
     std::array<Variation, 64> variations_{};
     unsigned replacement_ = 0;
+    int last_variant_ = -1;
 };
 }  // namespace wzh
 #endif

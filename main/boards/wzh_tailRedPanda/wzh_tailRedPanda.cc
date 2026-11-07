@@ -20,6 +20,7 @@
 #include "wifi_board.h"
 #include "wifi_manager.h"
 #include "wzh_audio_hub.h"
+#include "wzh_conversation_sounds.h"
 #include "wzh_mcp_tools.h"
 #include "wzh_power_telemetry.h"
 #include "wzh_sensors.h"
@@ -140,14 +141,20 @@ public:
             codec_i2c_bus_, I2C_NUM_0, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT,
             AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR, false, false,
-            AUDIO_CODEC_PA_VOLTAGE, kDacReference);
+            AUDIO_CODEC_PA_VOLTAGE, kDacReference, AUDIO_CODEC_PA_GAIN_DB,
+            AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB);
         return &codec;
     }
 
     bool SupportsLocalInteraction() const override { return true; }
 
+    std::string_view GetConversationExitSound() const override {
+        return wzh::ConversationExitSound();
+    }
+
     bool IsAudioMaintenanceActive() override {
-        return web_console_.maintenance_active() || local_audio_.audio_store().IsWriting();
+        return power_.IsShuttingDown() || web_console_.maintenance_active() ||
+               local_audio_.audio_store().IsWriting();
     }
 
     // Local commands remain available during provisioning and cloud initialization.

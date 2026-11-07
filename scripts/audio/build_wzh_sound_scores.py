@@ -31,7 +31,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("audio_root", type=Path)
     parser.add_argument("--output", type=Path, default=ROOT / "main/boards/common/wzh/wzh_sound_scores.inc")
-    parser.add_argument("--manifest", type=Path, default=ROOT / "docs/wzh_sound_pack_2026-10-19.json")
+    parser.add_argument("--manifest", type=Path, default=ROOT / "docs/wzh/data/sound_pack.json")
     args = parser.parse_args()
     manifest, unique = [], {}
     for path in sorted(args.audio_root.rglob("*.opus")):

@@ -77,7 +77,7 @@ int main(){
             row = json.loads(line)
             row['board'] = board
             rows.append(row)
-    metadata = json.loads((ROOT/'docs/wzh_user_pairs_2026-10-20.json').read_text())
+    metadata = json.loads((ROOT/'docs/wzh/data/user_pairs.json').read_text())
     assert len(rows) == len(metadata) == 52
     for row, meta in zip(rows, metadata):
         assert row['board'] == meta['board']
@@ -85,7 +85,7 @@ int main(){
         row['validation_scope'] = 'source-only base paired trajectory; reference combinations covered by test_wzh_reference_expression.py'
         row['authored_time_scale'] = round(row['body_ms']/row['authored_motion_ms'], 4)
         row['return_ms'] = row['motion_with_return_ms']-row['body_ms']
-    target = ROOT/'docs/wzh_user_pair_motion_audit_2026-10-20.json'
+    target = ROOT/'docs/wzh/archive/2026-10/wzh_user_pair_motion_audit_2026-10-20.json'
     target.write_text(json.dumps(rows, ensure_ascii=False, indent=2)+'\n')
     print(f'{len(rows)} user-pair timelines passed bounds, finite output and neutral-return checks')
     for board in BOARDS:

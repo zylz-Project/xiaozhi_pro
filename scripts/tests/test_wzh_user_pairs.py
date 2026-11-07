@@ -24,7 +24,7 @@ class WzhUserPairsTest(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stderr)
 
     def test_all_52_embedded_audio_bytes_match_validated_archives(self):
-        rows=json.loads((ROOT/'docs/wzh_user_pairs_2026-10-20.json').read_text())
+        rows=json.loads((ROOT/'docs/wzh/data/user_pairs.json').read_text())
         self.assertEqual(len(rows),52)
         for board,count in [('wzh_crawlPanda',14),('wzh_tailRedPanda',14),('wzh_dinosaur',24)]:
             selected=[r for r in rows if r['board']==board]

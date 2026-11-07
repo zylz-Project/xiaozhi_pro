@@ -34,6 +34,7 @@ class WzhApplicationInteractionTest(unittest.TestCase):
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 enum DeviceState { kDeviceStateStarting, kDeviceStateIdle, kDeviceStateWifiConfiguring,
     kDeviceStateActivating, kDeviceStateSpeaking, kDeviceStateListening,
@@ -41,9 +42,9 @@ enum DeviceState { kDeviceStateStarting, kDeviceStateIdle, kDeviceStateWifiConfi
     kDeviceStateAudioTesting };
 using ListeningMode = int;
 constexpr int kAbortReasonNone = 0;
-namespace Lang{namespace Sounds{constexpr int OGG_POPUP=1;}}
+namespace Lang{namespace Sounds{constexpr std::string_view OGG_POPUP="entry";}}
 struct Audio {
-    void PlaySound(int){}
+    void PlaySound(std::string_view){}
     bool wake = false, afe = true, voice = true;
     int resets = 0;
     std::string GetLastWakeWord() { return "local:happy"; }
@@ -61,6 +62,7 @@ struct Protocol {
 };
 struct Board {
     bool maintenance=false;bool IsAudioMaintenanceActive(){return maintenance;}
+    std::string_view GetConversationExitSound() const{return {};}
     bool local = true;
     static Board& GetInstance() { static Board board; return board; }
     bool HandleLocalVoiceCommand(const std::string&) { return true; }

@@ -10,6 +10,109 @@ HEADER = ROOT/'main/audio/speaker_protection.h'
 
 
 class SpeakerProtectionTest(unittest.TestCase):
+    def test_loudness_makeup_raises_quiet_audio_and_keeps_extreme_pcm_bounded(self):
+        self.run_program(r'''
+#include <cassert>
+double Energy(const std::vector<int16_t>&pcm,size_t begin){
+ double value=0;for(size_t i=begin;i<pcm.size();++i)value+=double(pcm[i])*pcm[i];return value;
+}
+int main(){
+ for(int rate:{8000,12000,16000,24000,48000})for(bool clarity:{false,true}){
+  SpeakerProtection before,after;before.Configure(rate,clarity,clarity);
+  after.Configure(rate,clarity,clarity,9.0f);
+  std::vector<int16_t>quiet(rate);
+  for(int i=0;i<rate;++i)quiet[i]=std::lrint(500*std::sin(6.283185307179586*1000*i/rate));
+  auto boosted=quiet;before.Process(quiet);after.Process(boosted);
+  double increase=10*std::log10(Energy(boosted,rate/2)/Energy(quiet,rate/2));
+  assert(increase>8.95&&increase<9.05);
+  std::vector<int16_t>extreme(rate);uint32_t random=17;
+  for(int i=0;i<rate;++i){random=random*1664525U+1013904223U;extreme[i]=int16_t(random>>16);}
+  after.Reset();const auto*storage=extreme.data();auto capacity=extreme.capacity();
+  after.Process(extreme,3.9810717f); // +12 dB Opus header gain plus the new makeup.
+  assert(extreme.data()==storage&&extreme.capacity()==capacity);
+  for(int value:extreme)assert(std::abs(value)<=27525);
+ }
+}
+''')
+
+    def test_loudness_fragmentation_reset_and_disable_preserve_stream_boundaries(self):
+        self.run_program(r'''
+#include <cassert>
+int main(){
+ for(int rate:{8000,16000,24000,48000})for(bool clarity:{false,true}){
+  std::vector<int16_t>signal(rate);uint32_t random=83;
+  for(auto&value:signal){random=random*1664525U+1013904223U;value=int16_t(random>>16);}
+  SpeakerProtection whole,parts;whole.Configure(rate,clarity,false,9);parts.Configure(rate,clarity,false,9);
+  auto expected=signal;whole.Process(expected);std::vector<int16_t>actual;
+  for(size_t pos=0;pos<signal.size();){
+   size_t count=std::min<size_t>(1+pos%131,signal.size()-pos);
+   std::vector<int16_t>chunk(signal.begin()+pos,signal.begin()+pos+count);
+   parts.Process(chunk);actual.insert(actual.end(),chunk.begin(),chunk.end());pos+=count;
+  }
+  assert(actual==expected);
+  parts.Reset();std::vector<int16_t>silence(rate/10,0);parts.Process(silence);
+  for(int value:silence)assert(value==0);
+  parts.Configure(rate,clarity,clarity,0);SpeakerProtection original;original.Configure(rate,clarity,clarity);
+  auto a=signal,b=signal;parts.Process(a);original.Process(b);assert(a==b);
+ }
+}
+''')
+
+    def test_loudness_keeps_one_ms_latency_and_does_not_raise_gain_during_silence(self):
+        self.run_program(r'''
+#include <cassert>
+int main(){
+ for(int rate:{8000,16000,24000,48000}){
+  SpeakerProtection protection;protection.Configure(rate,false,false,9);
+  std::vector<int16_t>pulse(rate/10,0);const int onset=rate/100,delay=rate/1000;
+  pulse[onset]=32767;protection.Process(pulse);
+  for(int i=0;i<onset+delay;++i)assert(pulse[i]==0);
+  assert(std::abs(int(pulse[onset+delay]))>1000);
+  protection.Reset();std::vector<int16_t>silence(rate*2,0);protection.Process(silence);
+  for(int value:silence)assert(value==0);
+  // Fixed makeup does not turn into an AGC that keeps amplifying background.
+  std::vector<int16_t>low(rate*2);
+  for(size_t i=0;i<low.size();++i)low[i]=std::lrint(40*std::sin(6.283185307179586*1000*i/rate));
+  protection.Process(low);double early=0,late=0;
+  for(int i=rate/2;i<rate;++i){early+=double(low[i])*low[i];late+=double(low[i+rate])*low[i+rate];}
+  assert(std::abs(late/early-1)<.001);
+ }
+}
+''')
+
+    def test_codec_routes_makeup_through_every_existing_output_configuration(self):
+        source=(ROOT/'main/audio/audio_codec.cc').read_text()
+        method=queue_function(source,'void AudioCodec::EnableSpeakerProtection(')
+        for quality in [0,1]:
+            for clarity,smooth in [(0,0),(1,0),(1,1)]:
+                with self.subTest(quality=quality,clarity=clarity,smooth=smooth):
+                    self.run_program(f'''
+#define CONFIG_AUDIO_PRODUCT_QUALITY {quality}
+#define CONFIG_AUDIO_SPEAKER_VOICE_CLARITY {clarity}
+#define CONFIG_AUDIO_SPEAKER_SMOOTH_LIMITER {smooth}
+'''+r'''
+#include <cassert>
+#define ESP_LOGI(...) ((void)0)
+struct CapturedProtection{
+ int calls=0;float makeup=0;bool clarity=false,smooth=false;
+ void Configure(int rate,bool c,bool s,float gain){assert(rate==24000);++calls;clarity=c;smooth=s;makeup=gain;}
+};
+struct AudioCodec{
+ bool speaker_protection_enabled_=false;int output_sample_rate_=24000;
+ float speaker_makeup_gain_db_=9;CapturedProtection speaker_protection_;
+ std::vector<int16_t>finish_padding_;void EnableSpeakerProtection(bool);
+};
+'''+method+r'''
+int main(){
+ AudioCodec codec;codec.EnableSpeakerProtection(true);
+ assert(codec.speaker_protection_enabled_&&codec.speaker_protection_.calls==1);
+ assert(codec.speaker_protection_.makeup==9);
+ assert(codec.speaker_protection_.clarity==bool(CONFIG_AUDIO_SPEAKER_VOICE_CLARITY));
+ assert(codec.speaker_protection_.smooth==bool(CONFIG_AUDIO_SPEAKER_SMOOTH_LIMITER));
+ codec.EnableSpeakerProtection(false);assert(!codec.speaker_protection_enabled_&&codec.speaker_protection_.calls==1);
+}
+''')
+
     def test_smoothed_attack_reduces_pre_transient_steps_without_extra_latency(self):
         self.run_program(r'''
 #include <cassert>

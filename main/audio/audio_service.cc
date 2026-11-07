@@ -1123,10 +1123,13 @@ void AudioService::SetOutputAudioLevelListener(OutputAudioLevelListener listener
     output_audio_level_listener_ = std::move(listener);
 }
 
-void AudioService::PlaySound(const std::string_view& ogg) {
+void AudioService::PlaySound(const std::string_view& ogg,
+                             std::optional<uint32_t> expected_generation) {
     // Enqueue only. Speaker enabling belongs to AudioOutputTask when PCM is
     // actually ready, keeping local sound, prompts and TTS on one output path.
-    const uint32_t generation = GetPlaybackGeneration();
+    const uint32_t generation = expected_generation.value_or(GetPlaybackGeneration());
+    if (generation != GetPlaybackGeneration())
+        return;
     bool cancelled = false;
     const auto* buf = reinterpret_cast<const uint8_t*>(ogg.data());
     const size_t size = ogg.size();
@@ -1238,6 +1241,7 @@ bool AudioService::MarkPlaybackDrainedLocked() {
         return false;
     }
     playback_drained_notified_ = true;
+    playback_drained_count_.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 

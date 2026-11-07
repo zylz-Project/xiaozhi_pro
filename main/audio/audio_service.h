@@ -176,7 +176,15 @@ public:
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false,
                                  std::optional<uint32_t> expected_generation = std::nullopt);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
-    void PlaySound(const std::string_view& sound);
+    // A deferred prompt may bind to the session observed before its idle/state check.
+    void PlaySound(const std::string_view& sound,
+                   std::optional<uint32_t> expected_generation = std::nullopt);
+    // Monotonic natural-drain count. A deferred producer compares it with the
+    // value sampled at enqueue so a later ResetDecoder can distinguish "already
+    // finished" from "cancelled before completion".
+    uint32_t GetPlaybackDrainedCount() const {
+        return playback_drained_count_.load(std::memory_order_relaxed);
+    }
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
     void FinishPlayback();
@@ -239,6 +247,7 @@ private:
     bool decode_in_flight_ = false;
     bool output_in_flight_ = false;
     bool playback_drained_notified_ = true;
+    std::atomic<uint32_t> playback_drained_count_{0};
     uint32_t playback_generation_ = 0;
     AudioPlayoutBuffer playout_buffer_;
     bool buffered_playback_ = false;

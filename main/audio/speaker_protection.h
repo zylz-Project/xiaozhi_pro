@@ -14,7 +14,8 @@
 // near-full-scale material below clipping before it reaches the codec.
 class SpeakerProtection {
 public:
-    void Configure(int sample_rate, bool voice_clarity = false, bool smooth_limiter = false);
+    void Configure(int sample_rate, bool voice_clarity = false, bool smooth_limiter = false,
+                   float makeup_gain_db = 0.0f);
     void Process(std::vector<int16_t>& pcm, float source_gain = 1.0f);
     void Reset();
 
@@ -35,6 +36,8 @@ private:
     bool configured_ = false;
     bool voice_clarity_ = false;
     bool smooth_limiter_ = false;
+    bool loudness_makeup_ = false;
+    float makeup_gain_ = 1.0f;
     // Q20 gains make the moving sum exact, with no long-run float drift.
     static constexpr uint32_t kUnityGain = 1U << 20;
     std::vector<uint32_t> gain_window_;
@@ -94,7 +97,8 @@ private:
     float loudness_release_coeff_ = 0.0f;
 };
 
-inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity, bool smooth_limiter) {
+inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity, bool smooth_limiter,
+                                         float makeup_gain_db) {
     if (sample_rate <= 0) {
         return;
     }
@@ -113,7 +117,11 @@ inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity, bo
     // The speech profile is opt-in; unsupported low rates keep the original
     // protection. Do not place a 2.5 kHz filter beyond the Nyquist limit.
     voice_clarity_ = voice_clarity && sample_rate >= 8000;
-    startup_samples_ = voice_clarity_ ? static_cast<size_t>(sample_rate / 200) : 0;
+    loudness_makeup_ = makeup_gain_db > 0.0f && sample_rate >= 8000 && sample_rate <= 48000;
+    makeup_gain_ =
+        loudness_makeup_ ? std::pow(10.0f, std::clamp(makeup_gain_db, 0.0f, 12.0f) / 20.0f) : 1.0f;
+    startup_samples_ =
+        (voice_clarity_ || loudness_makeup_) ? static_cast<size_t>(sample_rate / 200) : 0;
     if (voice_clarity_) {
         clarity_filters_[0].Configure(sample_rate, 300.0f, -1.0f, 0.8f);
         clarity_filters_[1].Configure(sample_rate, 2500.0f, 2.0f, 0.8f);
@@ -130,7 +138,8 @@ inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity, bo
     // Averaging those L+1 gains therefore stays safe for the delayed sample,
     // while spreading an attack over the existing 1 ms instead of stepping it.
     // Bound the optional Q20 sum to 49 * 2^20 for the supported PCM rates.
-    smooth_limiter_ = smooth_limiter && voice_clarity_ && sample_rate <= 48000;
+    smooth_limiter_ =
+        ((smooth_limiter && voice_clarity_) || loudness_makeup_) && sample_rate <= 48000;
     gain_window_.assign(smooth_limiter_ ? lookahead + 1 : 0, kUnityGain);
     gain_scale_ = smooth_limiter_ ? 1.0f / (gain_window_.size() * kUnityGain) : 1.0f;
     release_coeff_ = static_cast<float>(1.0 - std::exp(-1.0 / (kReleaseSeconds * sample_rate)));
@@ -177,6 +186,9 @@ inline void SpeakerProtection::Process(std::vector<int16_t>& pcm, float source_g
             }
             high_passed *= kClarityMakeupGain;
         }
+        // Constant pre-limiter makeup fills unused headroom without a rising
+        // silence/noise gain. Both RMS control and peak limiting see this gain.
+        high_passed *= makeup_gain_;
 
         mean_square_ += (high_passed * high_passed - mean_square_) * rms_coeff_;
         if (rms_countdown_ == 0) {
@@ -194,7 +206,8 @@ inline void SpeakerProtection::Process(std::vector<int16_t>& pcm, float source_g
         // Limit the signal that will actually reach the DAC. Applying two
         // independent gains to the original peaks wastes loudness headroom.
         // Keep the original topology for boards without the opt-in profile.
-        const float limiter_input = voice_clarity_ ? high_passed * loudness_gain_ : high_passed;
+        const bool rms_before_limiter = voice_clarity_ || loudness_makeup_;
+        const float limiter_input = rms_before_limiter ? high_passed * loudness_gain_ : high_passed;
 
         const float delayed = lookahead_[position_];
         lookahead_[position_] = limiter_input;
@@ -228,7 +241,7 @@ inline void SpeakerProtection::Process(std::vector<int16_t>& pcm, float source_g
             gain_position_ = (gain_position_ + 1) % gain_window_.size();
             output_gain = static_cast<float>(gain_sum_) * gain_scale_;
         }
-        float out = delayed * output_gain * (voice_clarity_ ? 1.0f : loudness_gain_);
+        float out = delayed * output_gain * (rms_before_limiter ? 1.0f : loudness_gain_);
         if (startup_position_ < startup_samples_) {
             // Start the smoothstep on the first delayed sample, rather than
             // consuming the ramp while look-ahead is still emitting zeros.

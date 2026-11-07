@@ -412,14 +412,84 @@ int main(){
 ''')
 
     def test_test_variant_is_opt_in_and_keeps_the_physical_board(self):
-        config=json.loads((ROOT/'main/boards/wzh_tailRedPanda/config.json').read_text())
-        builds={b['name']:b for b in config['builds']}
-        ordinary=builds['wzh-tailredpanda'];trial=builds['wzh-tailredpanda-barge-in']
-        self.assertIn('CONFIG_USE_VOICE_BARGE_IN=n',ordinary['sdkconfig_append'])
-        self.assertIn('CONFIG_USE_VOICE_BARGE_IN=y',trial['sdkconfig_append'])
-        self.assertEqual(ordinary['default_wake_word'],trial['default_wake_word'])
-        self.assertEqual(config['type'],'wzh-tailredpanda')
-        self.assertIn('CONFIG_USE_SERVER_AEC=n',trial['sdkconfig_append'])
+        for board, identity, wake_word in [
+            ('wzh_crawlPanda', 'wzh-crawlpanda', 'wn9_nihaoxiaoan_tts2'),
+            ('wzh_dinosaur', 'wzh-dinosaur', 'wn9_xiaolongxiaolong_tts'),
+            ('wzh_tailRedPanda', 'wzh-tailredpanda', 'wn9l_ni3hao3xing1bao3_tts3'),
+        ]:
+            with self.subTest(board=board):
+                config=json.loads((ROOT/'main/boards'/board/'config.json').read_text())
+                builds={b['name']:b for b in config['builds']}
+                ordinary=builds[identity];trial=builds[identity+'-barge-in']
+                self.assertEqual(config['type'],identity)
+                self.assertEqual(config['target'],'esp32s3')
+                for build in [ordinary,trial]:
+                    self.assertEqual(build['default_wake_word'],wake_word)
+                    settings=build['sdkconfig_append']
+                    self.assertEqual(len(settings),len({s.split('=',1)[0] for s in settings}))
+                    for setting in ['CONFIG_WZH_OFFLINE_COMMANDS=y',
+                                    'CONFIG_USE_AFE_WAKE_WORD=y',
+                                    'CONFIG_USE_AUDIO_DEBUGGER=n',
+                                    'CONFIG_VOICE_BARGE_IN_SHADOW=n']:
+                        self.assertIn(setting,settings)
+                for setting in ['CONFIG_USE_VOICE_BARGE_IN=n',
+                                'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n']:
+                    self.assertIn(setting,ordinary['sdkconfig_append'])
+                for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
+                                'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y',
+                                'CONFIG_SR_NSN_NSNET2=y',
+                                'CONFIG_SR_NSN_WEBRTC=n',
+                                'CONFIG_SR_VADN_WEBRTC=y',
+                                'CONFIG_SR_VADN_VADNET1_MEDIUM=n',
+                                'CONFIG_USE_SERVER_AEC=n',
+                                'CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y',
+                                'CONFIG_ESP_CONSOLE_NONE=n',
+                                'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y']:
+                    self.assertIn(setting,trial['sdkconfig_append'])
+
+    def test_all_product_codecs_enable_reference_only_for_barge_in(self):
+        for board in ['wzh_crawlPanda','wzh_dinosaur','wzh_tailRedPanda']:
+            source=(ROOT/'main/boards'/board/(board+'.cc')).read_text()
+            method=queue_function(source,'AudioCodec* GetAudioCodec()')
+            config=(ROOT/'main/boards'/board/'config.h').read_text()
+            output_settings='\n'.join(line for line in config.splitlines() if line.startswith(
+                ('#define AUDIO_CODEC_PA_GAIN_DB ', '#define AUDIO_CODEC_MAX_VOLUME_DB ',
+                 '#define AUDIO_CODEC_SPEAKER_MAKEUP_DB ')))
+            for enabled in [0,1]:
+                with self.subTest(board=board,barge_in=enabled):
+                    self.run_cpp(f'#define CONFIG_USE_VOICE_BARGE_IN {enabled}\n'+output_settings+r'''
+#include <cassert>
+#include <cstdint>
+constexpr int I2C_NUM_0=0,AUDIO_INPUT_SAMPLE_RATE=24000,AUDIO_OUTPUT_SAMPLE_RATE=24000;
+constexpr int AUDIO_I2S_GPIO_MCLK=-1,AUDIO_I2S_GPIO_BCLK=48,AUDIO_I2S_GPIO_WS=13;
+constexpr int AUDIO_I2S_GPIO_DOUT=46,AUDIO_I2S_GPIO_DIN=14,AUDIO_CODEC_PA_PIN=-1;
+constexpr int AUDIO_CODEC_ES8311_ADDR=0x30;
+constexpr float AUDIO_CODEC_PA_VOLTAGE=3.3f;
+int codecs=0;
+struct AudioCodec{
+ bool reference=false;
+ virtual AudioCodec* GetAudioCodec(){return this;}
+};
+struct Es8311AudioCodec:AudioCodec{
+ Es8311AudioCodec(void*,int,int input_rate,int output_rate,int,int,int,int,int,int,
+                  uint8_t,bool,bool,float voltage,bool dac_reference=false,
+                  float pa_gain=0,float max_volume=0,float makeup=0){
+  ++codecs;reference=dac_reference;
+  assert(input_rate==24000&&output_rate==24000);
+  assert(voltage==3.3f&&pa_gain==20.0f&&max_volume==-3.0f);
+  assert(makeup==9.0f);
+ }
+};
+struct Product:AudioCodec{
+ void*codec_i2c_bus_=this;
+'''+method+r'''
+};
+int main(){
+ Product board;auto*codec=board.GetAudioCodec();
+ assert(codec==board.GetAudioCodec()&&codecs==1);
+ assert(codec->reference==static_cast<bool>(CONFIG_USE_VOICE_BARGE_IN));
+}
+''')
 
     def application(self):
         program=conversation_tests.WzhConversationToggleTest.application(self)
@@ -676,6 +746,9 @@ struct esp_codec_dev_cfg_t{int dev_type;void*codec_if;void*data_if;};
 struct esp_codec_dev_sample_info_t{
  int bits_per_sample;uint8_t channel;int channel_mask;uint32_t sample_rate;int mclk_multiple;
 };
+struct esp_codec_dev_vol_map_t{int vol;float db_value;};
+struct esp_codec_dev_vol_curve_t{esp_codec_dev_vol_map_t*vol_map;int count;};
+int esp_codec_dev_set_vol_curve(void*,esp_codec_dev_vol_curve_t*){return 0;}
 int creates=0,opens=0,closes=0,deletes=0;esp_codec_dev_sample_info_t configured{};
 void*esp_codec_dev_new(const esp_codec_dev_cfg_t*cfg){
  assert(cfg->dev_type==3);++creates;return &creates;
@@ -694,7 +767,7 @@ struct Es8311AudioCodec{
  bool input_enabled_=true,output_enabled_=true,pa_inverted_=false,input_reference_=false;
  void*dev_=nullptr;void*codec_if_=this;void*data_if_=this;
  int input_channels_=1,input_sample_rate_=24000,output_volume_=70,pa_pin_=GPIO_NUM_NC;
- float input_gain_=36;
+ float input_gain_=36,max_output_volume_db_=0;
  void UpdateDeviceState();
 };
 ''' + queue_function(source,'void Es8311AudioCodec::UpdateDeviceState(') + r'''

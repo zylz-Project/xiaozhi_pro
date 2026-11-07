@@ -59,7 +59,8 @@ public:
         // keeps the two panda yaw joints from looking like a faulty nod axis.
         gaze_energy_ +=
             (energy - gaze_energy_) * (1 - std::exp(-dt * (energy > gaze_energy_ ? 3.6f : 6.0f)));
-        const float t = std::min(.999f, float(now - phrase_ms_) / period_) * 4;
+        const float t =
+            wzh::MotionPhraseBeat(std::min(.999f, float(now - phrase_ms_) / period_), style_);
         const unsigned beat = static_cast<unsigned>(t);
         const auto& beat_intent = kPhrases[style_][beat];
         const auto& before = kPhrases[style_][beat ? beat - 1 : 3];
@@ -78,12 +79,12 @@ public:
         const float lift = before[2] + (beat_intent[2] - before[2]) * blend;
         const float emphasis = accent_ * .12f;
         const bool calm = intent == SpeechIntent::kComfort || intent == SpeechIntent::kSleep;
-        const float expression = calm                                 ? .78f
-                                 : intent == SpeechIntent::kJoy       ? 1.20f
-                                 : intent == SpeechIntent::kQuestion  ? 1.10f
-                                 : intent == SpeechIntent::kGreeting  ? 1.06f
-                                 : intent == SpeechIntent::kStory     ? .98f
-                                                                      : 1.04f;
+        const float expression = calm                                ? .78f
+                                 : intent == SpeechIntent::kJoy      ? 1.20f
+                                 : intent == SpeechIntent::kQuestion ? 1.10f
+                                 : intent == SpeechIntent::kGreeting ? 1.06f
+                                 : intent == SpeechIntent::kStory    ? .98f
+                                                                     : 1.04f;
         std::array<float, 5> goal{};
         if (mechanism == VoiceMechanism::kCrawl) {
             // A resting paw stays at rest. Opposite servo directions must not

@@ -48,7 +48,7 @@ def main():
               '        if (entry.bytes == size && entry.fingerprint == key) return entry.gain_q8;',
               '    return 0;', '}', '}  // namespace tail_audio_calibration', '']
     (ROOT/'main/boards/wzh_tailRedPanda/audio_calibration.inc').write_text('\n'.join(lines))
-    (ROOT/'docs/wzh_tailredpanda_audio_calibration_2026-11-04.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+    (ROOT/'docs/wzh/data/tailredpanda_audio_calibration.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
     print(json.dumps({'sources':len(entries),'gain_db_min':min(g for _,_,g in entries)/256,
                       'gain_db_max':max(g for _,_,g in entries)/256},indent=2))
 

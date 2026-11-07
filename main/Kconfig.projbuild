@@ -969,7 +969,8 @@ config USE_VOICE_BARGE_IN
         Detect sustained post-AEC speech during a reply and interrupt locally.
         Requires a codec providing microphone plus playback-reference channels.
         Uses auto listening and the server's standard STT-before-TTS ordering.
-        Enabled only in the dedicated WZH tail-red-panda test build by default.
+        Enabled by the dedicated WZH crawl-panda, dinosaur and tail-red-panda
+        barge-in test variants. Ordinary variants keep it disabled.
 
 config AUDIO_PRODUCT_QUALITY
     bool "Product audio quality: capture, container timing and smooth endings"
@@ -1193,6 +1194,28 @@ menu "WZH Product Configuration"
             help
                 跳过探测，直接按 NOR 初始化；芯片不符时初始化失败。
     endchoice
+
+    config WZH_SYSTEM_PROMPTS
+        bool "Use a prepared product system-voice pack"
+        depends on LANGUAGE_ZH_CN
+        default n
+        help
+            内置离线产品播报：恐龙使用 dinosaur 音包，两款熊猫共用 panda 音包。
+            先用 scripts/audio/prepare_wzh_system_prompts.py 制作完整音包。
+            默认关闭；素材缺失或未确认音色时不会偷偷替换现有声音。
+
+    config WZH_SYSTEM_PROMPT_ROOT
+        string "Prepared system-voice pack root (relative to project or absolute)"
+        depends on WZH_SYSTEM_PROMPTS
+        default "main/assets/wzh_system_voices"
+
+    config WZH_SYSTEM_PROMPT_ALLOW_ALTERNATIVE
+        bool "Allow explicitly selected alternative voices (e.g. Edge preview)"
+        depends on WZH_SYSTEM_PROMPTS
+        default n
+        help
+            Edge 的云希/晓晓不等于阳光青年/樱桃丸子。仅在接受替代声音后开启。
+            此选项不改变云端角色音色，也不代表获得音色的商用许可。
 
     config WZH_AUDIO_SYNC_ENABLE
         bool "Enable Audio Hub background sync"

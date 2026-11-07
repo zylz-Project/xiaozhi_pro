@@ -14,7 +14,7 @@ button{background:#1f6f5b;color:white;border-color:#1f6f5b;cursor:pointer}label{
 canvas{display:block;width:100%;height:180px;margin-top:12px}#clock{font-variant-numeric:tabular-nums;font-size:14px}.footnote{font-size:13px;color:#5e716b}
 </style>
 <body>
-<div class="eyebrow">WZH MOTION / 2026-11-05</div>
+<div class="eyebrow">WZH MOTION / COMMAND REPLAY</div>
 <h1>动作连贯性 · 改前与改后</h1>
 <p class="muted">来自生产 C++ 控制方法的关节命令回放。实线为改后，虚线为改前；速度和加速度由命令采样估算。此图不代表实测舵机位置或实机丝滑程度。</p>
 <section class="panel">
@@ -30,7 +30,7 @@ canvas{display:block;width:100%;height:180px;margin-top:12px}#clock{font-variant
 <canvas id="velocity" aria-label="速度对照"></canvas>
 <canvas id="acceleration" aria-label="加速度对照"></canvas>
 </section>
-<p class="footnote">默认按真实时间对照，可以看到为更大行程留出的时间。“对齐完成进度”仅便于比较形状。指令样本按原采样保持，不插入额外平滑；机械间隙、负载、供电和舵机内部控制不在该回放中。</p>
+<p class="footnote">默认按真实时间对照，可以看到各段节拍与完整动作耗时。“对齐完成进度”仅便于比较形状。指令样本按原采样保持，不插入额外平滑；机械间隙、负载、供电和舵机内部控制不在该回放中。</p>
 <script id="motion-data" type="application/json">__MOTION_DATA__</script>
 <script>
 'use strict';
@@ -53,6 +53,8 @@ function reset(){playing=false;$('play').textContent='播放';position=0;$('time
 function populate(){
  const keys=Object.keys(data.after).filter(k=>k.startsWith($('board').value+'|'));
  $('case').replaceChildren(...keys.map(key=>{const option=document.createElement('option');option.value=key;option.textContent=key.split('|')[1];return option;}));
+ const preferred=keys.find(k=>/curious_sniff|happy-invite|discover-canopy/.test(k))||keys.find(k=>!/:body[_-]/.test(k));
+ if(preferred)$('case').value=preferred;
  reset();
 }
 function rebuild(){

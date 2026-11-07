@@ -12,7 +12,9 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
                                    int input_sample_rate, int output_sample_rate, gpio_num_t mclk,
                                    gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din,
                                    gpio_num_t pa_pin, uint8_t es8311_addr, bool use_mclk,
-                                   bool pa_inverted, float pa_voltage, bool dac_reference) {
+                                   bool pa_inverted, float pa_voltage, bool dac_reference,
+                                   float pa_gain_db, float max_output_volume_db,
+                                   float speaker_makeup_gain_db) {
     duplex_ = true;  // 是否双工
     input_reference_ = dac_reference;
     input_channels_ = dac_reference ? 2 : 1;  // ADCL microphone, DACR digital reference.
@@ -20,6 +22,9 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     output_sample_rate_ = output_sample_rate;
     pa_pin_ = pa_pin;
     pa_inverted_ = pa_inverted;
+    // Keep the high-volume segment monotonic above its 80 / -10 dB anchor.
+    max_output_volume_db_ = std::clamp(max_output_volume_db, -10.0f, 0.0f);
+    speaker_makeup_gain_db_ = std::clamp(speaker_makeup_gain_db, 0.0f, 12.0f);
     // Close speaker/microphone placement needs ADC headroom for full duplex;
     // saturated echo cannot be reconstructed by a linear echo canceller.
     input_gain_ = dac_reference ? 6 : 36;
@@ -57,6 +62,7 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     es8311_cfg.use_mclk = use_mclk;
     es8311_cfg.hw_gain.pa_voltage = pa_voltage;
     es8311_cfg.hw_gain.codec_dac_voltage = 3.3;
+    es8311_cfg.hw_gain.pa_gain = pa_gain_db;
     es8311_cfg.pa_reverted = pa_inverted_;
     es8311_cfg.no_dac_ref = false;
     codec_if_ = es8311_codec_new(&es8311_cfg);
@@ -64,7 +70,8 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     if (codec_if_ == nullptr) {
         ESP_LOGE(TAG, "Failed to create Es8311AudioCodec");
     } else {
-        ESP_LOGI(TAG, "Es8311AudioCodec initialized");
+        ESP_LOGI(TAG, "ES8311 output: PA %.1f V, PA gain %.1f dB, maximum route %.1f dB",
+                 pa_voltage, pa_gain_db, max_output_volume_db_);
     }
 }
 
@@ -107,6 +114,14 @@ void Es8311AudioCodec::UpdateDeviceState() {
         };
         ESP_ERROR_CHECK(esp_codec_dev_open(dev_, &fs));
         ESP_ERROR_CHECK(esp_codec_dev_set_in_gain(dev_, input_gain_));
+        if (max_output_volume_db_ < 0.0f) {
+            // The vendor copies the curve. Reapply on every device recreation,
+            // before restoring the user's persisted 0..100 volume selection.
+            esp_codec_dev_vol_map_t points[] = {
+                {0, -50.0f}, {80, -10.0f}, {100, max_output_volume_db_}};
+            esp_codec_dev_vol_curve_t curve = {.vol_map = points, .count = 3};
+            ESP_ERROR_CHECK(esp_codec_dev_set_vol_curve(dev_, &curve));
+        }
         ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(dev_, output_volume_));
         if (input_reference_) {
             // Restore the requested mux after every open/resume, rather than
@@ -185,6 +200,7 @@ void Es8311AudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gp
 }
 
 void Es8311AudioCodec::SetOutputVolume(int volume) {
+    volume = std::clamp(volume, 0, 100);
     std::lock_guard<std::mutex> lock(data_if_mutex_);
     if (dev_ != nullptr) {
         ESP_ERROR_CHECK(esp_codec_dev_set_out_vol(dev_, volume));

@@ -1,0 +1,353 @@
+{
+  "schema": 1,
+  "profile": "dinosaur",
+  "provider": "import",
+  "voice_id": "zh_male_yangguangqingnian_moon_bigtts",
+  "requested_voice": "阳光青年",
+  "identity_confirmed": false,
+  "source_identity_verified": true,
+  "listening_confirmed": false,
+  "files": {
+    "0": {
+      "text": "零。",
+      "sha256": "b78b03b6ecfba70602779c60c5b0a7030d3aa1ccff37c11ba707dfc0f90df4b3",
+      "source_sha256": "b8448a258c0c9efd0348f77b727695e358bc30d2a4410ae76b04ce2d36680072",
+      "duration_seconds": 1.104208,
+      "rms_dbfs": -19.41,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "text": "零。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.032
+      },
+      "master": "masters/0.mp3"
+    },
+    "1": {
+      "text": "一。",
+      "sha256": "bd5ff233abb5243da5c6b72cdca24c32b69bd4174097e134d548c78b757b344a",
+      "source_sha256": "f137b835ae3748dd3d8178b33d267140eee7c1491f94e498b5910ae5fa2030f1",
+      "duration_seconds": 0.999667,
+      "rms_dbfs": -19.32,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "text": "一。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.936
+      },
+      "master": "masters/1.mp3"
+    },
+    "2": {
+      "text": "二。",
+      "sha256": "46fca6c95fe7418195a80ee8b786d41f70d49e5c25436d1e0f4cb8a536e60c89",
+      "source_sha256": "1a87b1944c8f94cdde92850a71e7ae130242e20c56b13532f5600dc37a1364cb",
+      "duration_seconds": 1.0785,
+      "rms_dbfs": -19.47,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "text": "二。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.008
+      },
+      "master": "masters/2.mp3"
+    },
+    "3": {
+      "text": "三。",
+      "sha256": "5132e864fea91a3a7ad90617e30c1d54a05382535366bde45d31b439f591c29d",
+      "source_sha256": "369a68f2a50556b79181a43344a4ac862a2ce5405f6b472be88300a7bddaf223",
+      "duration_seconds": 1.155583,
+      "rms_dbfs": -19.48,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "text": "三。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.08
+      },
+      "master": "masters/3.mp3"
+    },
+    "4": {
+      "text": "四。",
+      "sha256": "bf7cc31c8bb32279614992e1694c0dc3c7f2e6cd66e22c32f24ac8ffb242b9b5",
+      "source_sha256": "fbe81048c85dcd589fb37059d3cb9b1fc8994ccc9d72c5666fd2effb6d453175",
+      "duration_seconds": 1.129875,
+      "rms_dbfs": -19.47,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "text": "四。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.056
+      },
+      "master": "masters/4.mp3"
+    },
+    "5": {
+      "text": "五。",
+      "sha256": "585bcb33b701666fa34ea4977ea7b669868f94d50e67ca13fc370239caedac9a",
+      "source_sha256": "3fc9aed95d349452d38ff40bb80b72ba01e055b159e5e33b90a299493304a469",
+      "duration_seconds": 1.129875,
+      "rms_dbfs": -19.4,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "text": "五。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.056
+      },
+      "master": "masters/5.mp3"
+    },
+    "6": {
+      "text": "六。",
+      "sha256": "0b09966a0fa96d43c4080c923b5320fcdc77d914c18a32129e16835fba531611",
+      "source_sha256": "5c154b4e9b3773f30dddc6c3b68af7a9f987ad3b75d5e388d44b324c2480b6d9",
+      "duration_seconds": 1.0785,
+      "rms_dbfs": -19.43,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "text": "六。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.008
+      },
+      "master": "masters/6.mp3"
+    },
+    "7": {
+      "text": "七。",
+      "sha256": "71ce6c73a60fc651874a7a79d2926eb4614f562353c0fa6b64b3955d5dbdbc1a",
+      "source_sha256": "8e205f90f882d19f890132d7c124e7fc31bfbbc29caac617261274d48226d301",
+      "duration_seconds": 1.129875,
+      "rms_dbfs": -19.51,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "text": "七。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.056
+      },
+      "master": "masters/7.mp3"
+    },
+    "8": {
+      "text": "八。",
+      "sha256": "57e3e234387418ad994d3eccd68368e3700e0f41447ee9fde5de1c7587a4b2e4",
+      "source_sha256": "7555f02a7621f1d3977ce56e912b2818a4fba205ba7f8ec510f29233ee9ac233",
+      "duration_seconds": 1.025375,
+      "rms_dbfs": -19.41,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "八。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 0.96
+      },
+      "master": "masters/8.mp3"
+    },
+    "9": {
+      "text": "九。",
+      "sha256": "fbd8b3fb8f549a21b4499a1ded66f66fe665d900221b4a9a4c0bb72eb259a78a",
+      "source_sha256": "29fcc1299aff5d1edd64d0be92ef5ba91ec0a3f81846cd0130a060d8d7a506d0",
+      "duration_seconds": 1.260125,
+      "rms_dbfs": -19.44,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "九。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.176
+      },
+      "master": "masters/9.mp3"
+    },
+    "wificonfig": {
+      "text": "请用手机帮我配网。",
+      "sha256": "7ad6a1d9d5a6628fe13e0152e07ec895a2632fcd8ff0151ba53bd7f333cff0d0",
+      "source_sha256": "7cb7b5db02d933a6c1dafc254310cfec1f9260cd0ffc8555df3e178056228552",
+      "duration_seconds": 2.094708,
+      "rms_dbfs": -19.66,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "请用手机帮我配网。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.944
+      },
+      "master": "masters/wificonfig.mp3"
+    },
+    "activation": {
+      "text": "请在小智控制台添加设备，验证码是：",
+      "sha256": "08dae6dc8e0cc7eeb02441c211baeb250c38ce7401950ac94c2e5bf0a2b4a0d5",
+      "source_sha256": "fdb24f84abdc08642f88ecfd53ea1cc45954f90f321fbe6583aa8d89d9d4157b",
+      "duration_seconds": 3.339417,
+      "rms_dbfs": -19.65,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "请在小智控制台添加设备，验证码是：",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 3.072
+      },
+      "master": "masters/activation.mp3"
+    },
+    "welcome": {
+      "text": "你好呀，很高兴见到你！",
+      "sha256": "951949091974d884f6662ff93b30b50dbb51625119e26d6247c4b22fdfc92972",
+      "source_sha256": "bd3eb39cf788c90d73dd203b405b22c92ed9e04f28063b6a3091faf6aa1d6a5f",
+      "duration_seconds": 2.6945,
+      "rms_dbfs": -19.57,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "你好呀，很高兴见到你！",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 2.496
+      },
+      "master": "masters/welcome.mp3"
+    },
+    "success": {
+      "text": "我准备好啦！",
+      "sha256": "07795a8fc0a4f34d913a3a05204623b6c3e36869ad2656206537c00c0677c7fc",
+      "source_sha256": "b2ba62b2cd17a4fdc7ffc9c01d974fca5d99bb01b880e71a6bd6d14fe7f626e6",
+      "duration_seconds": 1.548042,
+      "rms_dbfs": -19.55,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "我准备好啦！",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 1.44
+      },
+      "master": "masters/success.mp3"
+    },
+    "upgrade": {
+      "text": "正在更新，请勿断电。",
+      "sha256": "0399e644a0d23a0efd66b627ca1a42a5220788e3ac764718735667cb1f3a6537",
+      "source_sha256": "b6886a3767bd474f74b93c46c1f05c8059476562f4ef119fcc8406ac71cde22f",
+      "duration_seconds": 2.956667,
+      "rms_dbfs": -19.6,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "正在更新，请勿断电。",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 2.736
+      },
+      "master": "masters/upgrade.mp3"
+    },
+    "low_battery": {
+      "text": "我的电量不足啦，请帮我充充电吧！",
+      "sha256": "dfd669507b1eb3f30c6103e09cea52bf2231747971d4e9d39b5dc3092b4458ec",
+      "source_sha256": "c3b580b57d43ccb0c5e87d1e3fd3567d36e00fa040a5a48684dca1f04922229b",
+      "duration_seconds": 2.982375,
+      "rms_dbfs": -19.71,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "我的电量不足啦，请帮我充充电吧！",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 2.76
+      },
+      "master": "masters/low_battery.mp3"
+    },
+    "power_off": {
+      "text": "我要休息啦，下次再一起玩吧！",
+      "sha256": "45638c590356a8fff930d8fdd54ce420784390d015e252fb89cd096bdac06ef7",
+      "source_sha256": "d609e10076214e766a8cce7c002fc5e7179ae1216199747eb2108900434eb0dc",
+      "duration_seconds": 2.956667,
+      "rms_dbfs": -20.0,
+      "tempo": 0.92,
+      "source_metadata": {
+        "provider": "volcengine-product-tts-web",
+        "source_page": "https://www.volcengine.com/product/tts",
+        "voice_label": "阳光青年",
+        "voice_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "catalog_preview_id": "%E9%98%B3%E5%85%89%E9%9D%92%E5%B9%B4",
+        "request_voice_verified": false,
+        "text": "我要休息啦，下次再一起玩吧！",
+        "codec": "mp3",
+        "sample_rate": "24000",
+        "duration_seconds": 2.736
+      },
+      "master": "masters/power_off.mp3"
+    }
+  }
+}

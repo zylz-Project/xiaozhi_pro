@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 
 #include "assets.h"
 #include "backlight.h"
@@ -76,6 +77,8 @@ public:
     virtual Display* GetDisplay();
     virtual Camera* GetCamera();
     virtual bool SupportsLocalInteraction() const { return false; }
+    // Optional bundled exit cue; empty keeps the application's default sound.
+    virtual std::string_view GetConversationExitSound() const { return {}; }
     // Optional, bounded lookup for trusted bundled source loudness calibration.
     virtual int16_t GetAudioSourceGainQ8(const uint8_t*, size_t) const { return 0; }
     virtual bool IsAudioMaintenanceActive() { return false; }
