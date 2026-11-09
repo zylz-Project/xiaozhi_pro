@@ -38,9 +38,11 @@ int nvs_commit(nvs_handle_t){if(failed)return 2;stored=pending;return ESP_OK;}
 int main(){using namespace voice_tts;std::vector<VoiceName> list;
  assert(LoadVoiceNames(list)&&list.empty());
  for(int i=0;i<10;i++)assert(SetVoiceName("id"+std::to_string(i),"声音"+std::to_string(i)));
- assert(!SetVoiceName("extra","超额"));assert(!SetVoiceName("id0","声音1"));
+ assert(!SetVoiceName("extra","超额"));assert(SetVoiceName("id0","声音1"));
+ assert(stored[3]=='2');assert(LoadVoiceNames(list));
  assert(!SetVoiceName("id0",std::string(49,'x')));assert(!SetVoiceName("id0","bad\n"));
- assert(SetVoiceName("id0","新名字"));assert(LoadVoiceNames(list)&&list.size()==10&&list[0].name=="新名字");
+ assert(SetVoiceName("id0","新名字"));assert(stored[3]=='1');
+ assert(LoadVoiceNames(list)&&list.size()==10&&list[0].name=="新名字");
  failed=true;assert(!RemoveVoiceName("id0"));failed=false;
  assert(LoadVoiceNames(list)&&list.size()==10);assert(RemoveVoiceName("id0"));
  assert(LoadVoiceNames(list)&&list.size()==9);assert(SetVoiceName("extra","新音色"));

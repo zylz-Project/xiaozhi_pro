@@ -1,8 +1,10 @@
 #ifndef WZH_WEB_CONSOLE_H_
 #define WZH_WEB_CONSOLE_H_
 
+#include <array>
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -17,13 +19,14 @@
 #include "wzh_developer_session.h"
 
 namespace wzh {
+class UserWebPortal;
 
-// 设备自建热点 + 本地管理页。
+// 设备用户门户（:80，常驻开放热点）与开发者管理页（:8080，局域网）。
 //
-// 与配网门户分离：配网仍在 80 端口（WifiConfigurationAp），本服务在
-// 8080 端口，并在 STA 已联网时额外开启一个 APSTA 热点。进入配网前由
-// WifiManager 的 before-config 回调调用 Stop()，避免与配网 AP 争用
-// WIFI_AP_DEF 网络接口。
+// WZH 常驻门户模式下，:80 与 SoftAP 由 WifiConfigurationAp 持有，用户
+// 页面通过 SetPortalRegistrar 注册到同一 server；本服务只负责 :8080，
+// 并拒绝 AP 网段客户端。非持久路径保留旧行为：自建 APSTA 热点，进入
+// 配网前由 WifiManager 的 before-config 回调调用 Stop()。
 class WebConsole {
 public:
     struct Options {
@@ -54,9 +57,12 @@ public:
         std::function<bool(uint8_t*, size_t)> voice_upload;
         std::function<bool(const std::string&)> voice_device_record;
         std::function<void(cJSON*)> voice_status_extra;
+        std::function<bool()> begin_factory_reset;
+        std::function<bool()> factory_reset_prepared;
+        std::function<void()> end_factory_reset;
     };
 
-    WebConsole() = default;
+    WebConsole();
     ~WebConsole();
 
     void Configure(Options options);
@@ -74,6 +80,12 @@ private:
     bool EnsureAp();
     void DestroyAp();
 
+    struct RouteSlot {
+        WebConsole* owner = nullptr;
+        esp_err_t (*handler)(httpd_req_t*) = nullptr;
+    };
+    static esp_err_t GuardedDispatch(httpd_req_t* req);
+    static esp_err_t GuardedError(httpd_req_t* req, httpd_err_code_t error);
     static esp_err_t HandleRoot(httpd_req_t* req);
     static esp_err_t HandleStatus(httpd_req_t* req);
     static esp_err_t HandleAudio(httpd_req_t* req);
@@ -88,6 +100,8 @@ private:
     static esp_err_t HandleDeveloperLogout(httpd_req_t* req);
     static esp_err_t HandleDeveloperStatus(httpd_req_t* req);
     static esp_err_t HandleDeveloperVolume(httpd_req_t* req);
+    static esp_err_t HandleDeveloperOta(httpd_req_t* req);
+    static esp_err_t HandleDeveloperFactoryReset(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceConfig(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceManage(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceUpload(httpd_req_t* req);
@@ -107,6 +121,9 @@ private:
     void AddHubStatus(cJSON* root);
 
     Options options_;
+    std::unique_ptr<UserWebPortal> user_portal_;
+    std::array<RouteSlot, 24> routes_{};
+    size_t route_count_ = 0;
     std::mutex lifecycle_mutex_;
     std::atomic<bool> started_{false};
     esp_netif_t* ap_netif_ = nullptr;
@@ -115,6 +132,7 @@ private:
     std::string ap_password_;
     DeveloperSession developer_;
     std::atomic<bool> maintenance_active_{false};
+    std::atomic<bool> factory_reset_prepared_{false};
     std::atomic<bool> hub_maintenance_reserved_{false};
     std::mutex job_mutex_;
     bool erase_ok_ = false;

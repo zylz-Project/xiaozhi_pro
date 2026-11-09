@@ -227,7 +227,7 @@ int xTaskCreate(void(*callback)(void*),const char*,int,void*,int,void*){entry=ca
 void vTaskDelay(unsigned);
 constexpr int kDeviceStateIdle=0;
 struct Audio {
- uint32_t generation=0,until=0,drained=0;int low=0,off=0,resets=0;bool stalled=false;
+ uint32_t generation=0,until=0,drained=0;int low=0,off=0,wifi=0,resets=0;bool stalled=false;
  void settle(){if(!stalled&&until&&clock_ms>=until){++drained;until=0;}}
  void EnableWakeWordDetection(bool){}
  void EnableVoiceProcessing(bool){}
@@ -238,7 +238,8 @@ struct Audio {
  void ResetDecoder(){settle();++generation;++resets;until=0;}
  void PlaySound(std::string_view sound,std::optional<uint32_t> expected={}){
   if(expected&&*expected!=generation)return;
-  if(sound=="off"){
+  if(sound=="wifi"){++wifi;until=clock_ms+500;}
+  else if(sound=="off"){
    ++off;until=clock_ms+1200;
    // Simulate an application-side reset landing right after enqueue.
    if(cancel_shutdown_after_play){cancel_shutdown_after_play=false;++generation;++resets;until=0;}
@@ -256,7 +257,7 @@ struct Board {
  static Board& GetInstance(){static Board board;return board;}
  bool IsAudioMaintenanceActive(){return maintenance;}
 };
-namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_OFF="off",OGG_LOW_BATTERY="low";}}
+namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi";}}
 #include "''' + str(ROOT/'main/boards/common/wzh/wzh_system_prompts.cc') + r'''"
 void run_worker(unsigned turns=1){
  worker_turns=turns;inside_worker=true;try{entry(nullptr);}catch(StopWorker&){}inside_worker=false;
@@ -273,6 +274,13 @@ void vTaskDelay(unsigned ms){
 int main(){
  auto& app=Application::GetInstance();auto& audio=app.audio;
  wzh::StartSystemPrompts();assert(entry);
+ // Startup audio and asynchronous queue resets must finish before the prompt.
+ audio.until=1000;wzh::RequestWifiSetupPrompt();clock_ms=700;run_worker();assert(audio.wifi==0);
+ audio.ResetDecoder();clock_ms=1100;run_worker();assert(audio.wifi==1);
+ clock_ms=1700;run_worker();assert(audio.wifi==1);
+ wzh::RequestWifiSetupPrompt();app.state=1;run_worker();app.state=0;
+ clock_ms=2500;run_worker();assert(audio.wifi==1);
+ clock_ms=0;audio.until=0;
  wzh::ObserveSystemPromptBattery(true,true);
  app.state=1;run_worker();assert(audio.low==0);
  app.state=0;Board::GetInstance().maintenance=true;run_worker();assert(audio.low==0);

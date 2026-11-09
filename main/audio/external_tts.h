@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <utility>
 
 // Optional board capability. All calls must be nonblocking; completion may run
 // on a worker thread and must be scheduled onto the application task.
@@ -11,6 +12,11 @@ public:
     virtual ~ExternalTts() = default;
     virtual bool Ready() = 0;
     virtual bool Begin(uint32_t playback_generation, std::function<void(bool)> completion) = 0;
+    virtual bool ReadyForVoice(const std::string& voice) { return voice.empty() && Ready(); }
+    virtual bool BeginWithVoice(uint32_t generation, const std::string& voice,
+                                std::function<void(bool)> completion) {
+        return voice.empty() && Begin(generation, std::move(completion));
+    }
     virtual bool Enqueue(const std::string& text) = 0;
     // A board may recognize a server control caption that requires returning
     // to the original audio stream. Default keeps existing boards unchanged.

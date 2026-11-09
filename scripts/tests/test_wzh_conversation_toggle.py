@@ -105,7 +105,7 @@ public:
     Protocol*protocol_=&protocol;
     std::atomic<bool>external_tts_selected_{false},voice_enrollment_active_{false};
     std::atomic<bool>voice_selection_reply_guard_{false},external_voice_preview_active_{false};
-    std::atomic<bool>voice_enrollment_reconnecting_{false};
+    std::atomic<bool>voice_enrollment_reconnecting_{false},barge_in_reconnecting_{false};
     std::atomic<int>external_voice_preview_status_{0};
     std::atomic<int64_t>voice_enrollment_resume_guard_until_us_{0};
     std::atomic<uint32_t>external_tts_turn_{0},external_tts_callback_token_{0};

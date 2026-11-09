@@ -71,7 +71,8 @@ public:
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
     bool IsVoiceEnrollmentActive() const { return voice_enrollment_active_.load(); }
     bool RequestDeviceVoiceEnrollment(const std::string& name);
-    bool RequestExternalVoicePreview();
+    const char* DeviceVoiceEnrollmentStatus() const;
+    bool RequestExternalVoicePreview(const std::string& voice = {});
     bool IsExternalVoicePreviewActive() const { return external_voice_preview_active_.load(); }
     const char* ExternalVoicePreviewStatus() const;
 
@@ -183,12 +184,15 @@ private:
     std::atomic<bool> tts_start_pending_{false};
     std::atomic<bool> external_tts_selected_{false};
     std::atomic<bool> voice_enrollment_active_{false};
+    std::atomic<int> device_voice_enrollment_status_{0};
+    std::atomic<uint32_t> device_voice_enrollment_generation_{0};
     // Block late server speech for a local voice-selection turn until the next user transcript.
     std::atomic<bool> voice_selection_reply_guard_{false};
     std::atomic<bool> external_voice_preview_active_{false};
     // 0 idle, 1 requested/playing, 2 complete, 3 failed, 4 cancelled.
     std::atomic<int> external_voice_preview_status_{0};
     std::atomic<bool> voice_enrollment_reconnecting_{false};
+    std::atomic<bool> barge_in_reconnecting_{false};
     // A delayed server goodbye may arrive immediately after enrollment ends.
     std::atomic<int64_t> voice_enrollment_resume_guard_until_us_{0};
     std::atomic<uint32_t> external_tts_turn_{0};
@@ -223,6 +227,9 @@ private:
     void ClearEarlyAudio();
     void ConfigureWakeWordForListening();
     void ResumeAfterVoiceEnrollment(uint32_t generation);
+#if CONFIG_USE_VOICE_BARGE_IN
+    bool ReconnectAfterVoiceInterruption(uint32_t generation);
+#endif
 
     // Activation task (runs in background)
     void ActivationTask();

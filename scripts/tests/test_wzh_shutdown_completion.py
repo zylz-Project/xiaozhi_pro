@@ -60,7 +60,7 @@ struct Board {
  static Board& GetInstance(){static Board b;return b;}
  bool IsAudioMaintenanceActive(){return true;}
 };
-namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_OFF="off",OGG_LOW_BATTERY="low";}}
+namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi";}}
 #include "PRODUCTION_SOURCE"
 void run_application(){
  if(!drive_app||clock_ms<app_ready_ms)return;

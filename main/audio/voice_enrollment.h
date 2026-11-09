@@ -4,6 +4,38 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
+
+// Match only explicit enrollment commands, allowing common ASR punctuation.
+inline bool IsVoiceEnrollmentRequest(std::string_view text) {
+    constexpr std::string_view whitespace[] = {" ", "\t", "\r", "\n", "　"};
+    constexpr std::string_view suffixes[] = {" ", "\t", "\r", "\n", "　", "。", "！",
+                                             "!", "？", "?",  "，", ",",  "."};
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto prefix : whitespace) {
+            if (text.substr(0, prefix.size()) == prefix) {
+                text.remove_prefix(prefix.size());
+                changed = true;
+                break;
+            }
+        }
+    }
+    changed = true;
+    while (changed) {
+        changed = false;
+        for (auto suffix : suffixes) {
+            if (text.size() >= suffix.size() &&
+                text.substr(text.size() - suffix.size()) == suffix) {
+                text.remove_suffix(suffix.size());
+                changed = true;
+                break;
+            }
+        }
+    }
+    return text == "复刻音色" || text == "我想复刻音色" || text == "帮我复刻音色";
+}
 
 // Optional board-owned enrollment. Capture runs on the audio task and must be bounded.
 class VoiceEnrollment {

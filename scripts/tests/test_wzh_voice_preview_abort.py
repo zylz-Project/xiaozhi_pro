@@ -19,9 +19,9 @@ enum AbortReason{kAbortReasonNone};
 struct External {int cancels=0;void Cancel(){++cancels;}};
 struct Board {External external;static Board& GetInstance(){static Board b;return b;}
  External* GetExternalTts(){return &external;}};
-struct Protocol {int aborts=0;void SendAbortSpeaking(AbortReason){++aborts;}};
+struct Protocol {int aborts=0;bool IsAudioChannelOpened(){return true;}void SendAbortSpeaking(AbortReason){++aborts;}};
 struct Application {
- std::atomic<bool> external_voice_preview_active_{false},external_tts_selected_{false},voice_enrollment_reconnecting_{false};
+ std::atomic<bool> external_voice_preview_active_{false},external_tts_selected_{false},voice_enrollment_reconnecting_{false},barge_in_reconnecting_{false};
  std::atomic<int> external_voice_preview_status_{0},external_tts_turn_{0};
  std::shared_ptr<Protocol> protocol_=std::make_shared<Protocol>();bool aborted_=false;
  void AbortSpeaking(AbortReason);

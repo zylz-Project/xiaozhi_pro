@@ -28,12 +28,13 @@ class WzhDeveloperConsoleTest(unittest.TestCase):
     def console(self):
         source=(COMMON/'wzh_web_console.cc').read_text()
         header=(COMMON/'wzh_web_console.h').read_text()
-        cls=queue_function(header,'class WebConsole').replace('private:','public:')+';'
+        cls=queue_function(header,'class WebConsole').replace('private:','public:').replace('std::unique_ptr<UserWebPortal> user_portal_;','void* user_portal_ = nullptr;').replace('    WebConsole();','    WebConsole() = default;')+';'
         methods='\n'.join(queue_function(source,marker) for marker in [
             'const char* HttpStatusText(', 'bool WebConsole::ReadJsonBody(',
             'esp_err_t WebConsole::SendJson(', 'esp_err_t WebConsole::SendError(',
             'bool WebConsole::RequireDeveloper(', 'esp_err_t WebConsole::HandleDeveloperLogin(',
             'esp_err_t WebConsole::HandleDeveloperLogout(', 'esp_err_t WebConsole::HandleDeveloperVolume(',
+            'esp_err_t WebConsole::HandleDeveloperVoiceConfig(',
             'esp_err_t WebConsole::HandleDeveloperCenter(', 'esp_err_t WebConsole::HandleDeveloperErase(',
             'esp_err_t WebConsole::HandleStop(', 'void WebConsole::StartErase(',
             'void WebConsole::EraseTaskEntry(', 'void WebConsole::EraseTask(', 'void WebConsole::FinishErase('])
@@ -46,11 +47,12 @@ class WzhDeveloperConsoleTest(unittest.TestCase):
 #include <cassert>
 #include <initializer_list>
 #define ESP_LOGI(...) ((void)0)
-int stored=70;
-struct Settings{Settings(const char*,bool){}int GetInt(const char*,int){return stored;}};
-struct AudioCodec{int output_volume_=70;void Start();};
+int stored=70;bool present=true;
+struct Settings{Settings(const char*,bool){}int GetInt(const char*,int fallback){return present?stored:fallback;}};
+struct AudioCodec{int output_volume_=100;void Start();};
 '''+method+r'''
 int main(){
+    present=false;AudioCodec fresh;fresh.Start();assert(fresh.output_volume_==100);present=true;
     for(int value:{-10,0,1,70,100,150}){
         stored=value;AudioCodec codec;codec.Start();assert(codec.output_volume_==std::clamp(value,0,100));
     }
@@ -116,6 +118,21 @@ int main(){
 }
 ''')
 
+    def test_developer_device_record_requires_auth_and_forwards_name(self):
+        self.run_cpp(self.console()+r'''
+int main(){
+    WebConsole console; bool called=false; std::string name;
+    console.options_.voice_device_record=[&](const std::string& value){called=true;name=value;return true;};
+    std::array<uint8_t,16> random{};assert(console.developer_.Unlock("1",random,clock_us/1000));
+    auto locked=Request(console,"{\"kind\":\"device_record\",\"value\":\"妈妈\"}",false);
+    WebConsole::HandleDeveloperVoiceConfig(&locked);assert(locked.status=="403 Forbidden"&&!called);
+    auto ok=Request(console,"{\"kind\":\"device_record\",\"value\":\"妈妈\"}",true);
+    WebConsole::HandleDeveloperVoiceConfig(&ok);assert(called&&name=="妈妈"&&ok.status=="200 OK");
+    called=false;auto bad=Request(console,"{\"kind\":\"device_record\"}",true);
+    WebConsole::HandleDeveloperVoiceConfig(&bad);assert(!called&&bad.status=="400 Bad Request");
+}
+''')
+
     def test_erase_is_confirmed_deferred_exclusive_and_waits_for_reader(self):
         self.run_cpp(self.console()+r'''
 int main(){
@@ -177,7 +194,7 @@ HARNESS = r'''
 #include <vector>
 #include "cJSON.h"
 #include "wzh_developer_session.h"
-using esp_err_t=int;using httpd_handle_t=void*;struct esp_netif_t{};
+using esp_err_t=int;using httpd_handle_t=void*;using httpd_err_code_t=int;struct esp_netif_t{};
 constexpr int ESP_OK=0,ESP_FAIL=-1,HTTPD_RESP_USE_STRLEN=-1,HTTPD_SOCK_ERR_TIMEOUT=-2,pdPASS=1;
 constexpr size_t kMaxBody=1024;
 int64_t clock_us=1000000;

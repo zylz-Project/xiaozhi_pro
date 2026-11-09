@@ -142,6 +142,16 @@ bool RestorePreviousAliVoice() {
     std::memcpy(pair.previous, saved, sizeof(pair.previous));
     return SavePair(pair);
 }
+bool ClearAliVoiceSelection() {
+    std::lock_guard<std::mutex> lock(voice_pair_mutex);
+    VoicePair current;
+    if (!LoadPairOrLegacy(current))
+        return false;
+    VoicePair empty;
+    if (!SavePair(empty))
+        return false;
+    return SaveValue(kAliVoice, "", 128);
+}
 bool ForgetPreviousAliVoice(const std::string& voice) {
     std::lock_guard<std::mutex> lock(voice_pair_mutex);
     VoicePair pair;

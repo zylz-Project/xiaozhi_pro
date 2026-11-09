@@ -145,7 +145,8 @@ public:
     bool BeginVoiceInterruption();
     bool IsVoiceInterruptionMonitoring();
     bool IsVoiceInterruptionPending(uint32_t token);
-    bool CommitVoiceInterruption(uint32_t token);
+    bool CommitVoiceInterruption(uint32_t token, bool retain_first_packets = false);
+    void ReleaseVoiceInterruptionBuffer();
 #endif
     bool IsIdle();
     bool IsPlaybackIdle();
@@ -271,6 +272,7 @@ private:
     FixedQueue<std::unique_ptr<AudioStreamPacket>, kBargePrerollPackets> barge_preroll_;
     uint32_t capture_generation_ = 0;
     bool capture_enabled_ = false;
+    bool retain_interruption_prefix_ = false;  // Protected by audio_queue_mutex_.
     void QueueVoicePacket(std::unique_ptr<AudioStreamPacket> packet, uint32_t generation);
     uint32_t reference_log_frames_ = 0;
     uint32_t reference_active_frames_ = 0, reference_clipped_frames_ = 0;

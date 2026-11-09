@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "application.h"
+#include "board.h"
 #include "voice_config.h"
 #include "voice_identity.h"
 #include "voice_names.h"
@@ -39,7 +40,8 @@ const char* StatusName(VoiceOperation op) {
 bool VoiceWeb::Command(const std::string& action, const std::string& id, const std::string& name) {
     if (action != "list" && action != "select" && action != "rename" && action != "delete")
         return false;
-    if (id.size() > 128 || name.size() > 48 ||
+    if (id.size() > 128 || name.size() > 48 || VoiceResetActive() ||
+        Board::GetInstance().IsAudioMaintenanceActive() ||
         Application::GetInstance().IsVoiceEnrollmentActive() ||
         Application::GetInstance().IsExternalVoicePreviewActive())
         return false;
@@ -60,7 +62,9 @@ bool VoiceWeb::Command(const std::string& action, const std::string& id, const s
     return true;
 }
 bool VoiceWeb::Upload(uint8_t* data, size_t length) {
-    if (!data || length < 2 || Application::GetInstance().IsVoiceEnrollmentActive() ||
+    if (!data || length < 2 || VoiceResetActive() ||
+        Board::GetInstance().IsAudioMaintenanceActive() ||
+        Application::GetInstance().IsVoiceEnrollmentActive() ||
         Application::GetInstance().IsExternalVoicePreviewActive())
         return false;
     const size_t name_length = data[0];
@@ -130,8 +134,15 @@ void VoiceWeb::Run() {
         result = RenameManagedVoice(id, name);
     else if (action == "select")
         result = SelectManagedVoice(id);
-    else if (action == "delete")
-        result = DeleteManagedVoice(id);
+    else if (action == "delete") {
+        // A selected clone must be replaced before its cloud record is deleted.
+        if (id == LoadAliVoice())
+            result = SelectManagedVoice(kBuiltinVoices[0].id);
+        else
+            result = VoiceOperation::kOk;
+        if (result == VoiceOperation::kOk)
+            result = DeleteManagedVoice(id);
+    }
     free(data);
     std::vector<ManagedVoice> list;
     auto listed = ListManagedVoices(list);
@@ -157,13 +168,20 @@ void VoiceWeb::AddStatus(cJSON* out) {
     cJSON* array = cJSON_AddArrayToObject(out, "voice_catalog");
     if (!array)
         return;
-    auto add = [array](const char* id, const char* name, bool builtin) {
+    const auto description = [](const std::string& id) -> const char* {
+        for (const auto& builtin : kBuiltinVoices)
+            if (id == builtin.id)
+                return builtin.description;
+        return "";
+    };
+    auto add = [array, &description](const std::string& id, const std::string& name, bool builtin) {
         auto* item = cJSON_CreateObject();
         if (!item)
             return false;
-        if (!cJSON_AddStringToObject(item, "id", id) ||
-            !cJSON_AddStringToObject(item, "name", name) ||
+        if (!cJSON_AddStringToObject(item, "id", id.c_str()) ||
+            !cJSON_AddStringToObject(item, "name", name.c_str()) ||
             !cJSON_AddBoolToObject(item, "builtin", builtin) ||
+            !cJSON_AddStringToObject(item, "description", builtin ? description(id) : "") ||
             !cJSON_AddItemToArray(array, item)) {
             cJSON_Delete(item);
             return false;
@@ -172,7 +190,7 @@ void VoiceWeb::AddStatus(cJSON* out) {
     };
     if (have_list_) {
         for (const auto& voice : voices_)
-            if (!add(voice.id.c_str(), voice.name.c_str(), voice.builtin))
+            if (!add(voice.id, voice.name, voice.builtin))
                 break;
     } else {
         for (const auto& voice : kBuiltinVoices)

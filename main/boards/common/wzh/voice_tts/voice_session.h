@@ -16,6 +16,9 @@ class VoiceSession final : public ExternalTts {
 public:
     bool Ready() override;
     bool Begin(uint32_t playback_generation, std::function<void(bool)> completion) override;
+    bool ReadyForVoice(const std::string& voice) override;
+    bool BeginWithVoice(uint32_t playback_generation, const std::string& voice,
+                        std::function<void(bool)> completion) override;
     bool Enqueue(const std::string& text) override;
     bool ShouldUseServerAudio(const std::string& text) const override;
     bool ShouldResumeExternalAudio(const std::string& text) const override;

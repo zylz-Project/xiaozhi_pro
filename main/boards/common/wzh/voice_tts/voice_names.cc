@@ -7,6 +7,7 @@
 namespace voice_tts {
 namespace {
 constexpr uint32_t kVersion = 0x314e5650;
+constexpr uint32_t kVersionDuplicateNames = 0x324e5650;
 constexpr size_t kLimit = 10;
 struct Entry {
     char id[129];
@@ -72,7 +73,8 @@ bool Read(Record& record) {
         record.version = kVersion;
         return true;
     }
-    if (result != ESP_OK || size != sizeof(record) || record.version != kVersion ||
+    if (result != ESP_OK || size != sizeof(record) ||
+        (record.version != kVersion && record.version != kVersionDuplicateNames) ||
         record.count > kLimit)
         return false;
     for (size_t i = 0; i < record.count; ++i) {
@@ -82,16 +84,22 @@ bool Read(Record& record) {
             return false;
         for (size_t j = 0; j < i; ++j)
             if (!std::strcmp(e.id, record.entries[j].id) ||
-                !std::strcmp(e.name, record.entries[j].name))
+                (record.version == kVersion && !std::strcmp(e.name, record.entries[j].name)))
                 return false;
     }
     return true;
 }
 bool Write(const Record& record) {
+    Record stored = record;
+    stored.version = kVersion;
+    for (size_t i = 0; i < stored.count; ++i)
+        for (size_t j = 0; j < i; ++j)
+            if (!std::strcmp(stored.entries[i].name, stored.entries[j].name))
+                stored.version = kVersionDuplicateNames;
     nvs_handle_t nvs = 0;
     if (nvs_open("voice_tts", NVS_READWRITE, &nvs) != ESP_OK)
         return false;
-    auto result = nvs_set_blob(nvs, "voice_names", &record, sizeof(record));
+    auto result = nvs_set_blob(nvs, "voice_names", &stored, sizeof(stored));
     if (result == ESP_OK)
         result = nvs_commit(nvs);
     nvs_close(nvs);
@@ -122,8 +130,6 @@ bool SetVoiceName(const std::string& id, const std::string& name) {
     for (size_t i = 0; i < record.count; ++i) {
         if (id == record.entries[i].id)
             slot = i;
-        else if (name == record.entries[i].name)
-            return false;
     }
     if (slot == record.count) {
         if (record.count == kLimit)

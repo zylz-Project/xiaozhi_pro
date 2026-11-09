@@ -59,6 +59,10 @@ int main(){
  assert(voice_tts::SaveAliVoice("other") && voice_tts::LoadPreviousAliVoice()=="newvoice");
  assert(!voice_tts::ForgetPreviousAliVoice("other"));
  assert(voice_tts::ForgetPreviousAliVoice("newvoice") && voice_tts::LoadPreviousAliVoice().empty());
+ assert(voice_tts::SaveAliKey("keep-key"));
+ assert(voice_tts::ClearAliVoiceSelection());
+ assert(voice_tts::LoadAliVoice().empty()&&voice_tts::LoadPreviousAliVoice().empty());
+ assert(voice_tts::LoadAliKey()=="keep-key"&&stored.count("ali_voice")==0);
  stored["ali_pair"]={'b','a','d'};assert(voice_tts::LoadAliVoice().empty());
  assert(!voice_tts::SaveAliVoice("must-not-overwrite-corrupt"));
  assert(stored["ali_pair"].size()==3);

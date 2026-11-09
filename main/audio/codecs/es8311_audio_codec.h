@@ -36,7 +36,8 @@ public:
                      gpio_num_t dout, gpio_num_t din, gpio_num_t pa_pin, uint8_t es8311_addr,
                      bool use_mclk = true, bool pa_inverted = false, float pa_voltage = 5.0f,
                      bool dac_reference = false, float pa_gain_db = 0.0f,
-                     float max_output_volume_db = 0.0f, float speaker_makeup_gain_db = 0.0f);
+                     float max_output_volume_db = 0.0f, float speaker_makeup_gain_db = 0.0f,
+                     int default_output_volume = 70);
     virtual ~Es8311AudioCodec();
 
     virtual void SetOutputVolume(int volume) override;

@@ -18,6 +18,7 @@ class VoiceWebTest(unittest.TestCase):
 class Application { public: static Application& GetInstance(){static Application a;return a;}
 bool IsVoiceEnrollmentActive()const{return false;}bool IsExternalVoicePreviewActive()const{return false;} };
 ''')
+            (p/'board.h').write_text('#pragma once\nclass Board { public: static Board& GetInstance(){static Board b;return b;} bool IsAudioMaintenanceActive()const{return false;} };\n')
             (p/'test.cc').write_text(r'''
 #include "voice_web.h"
 #include "voice_names.h"
@@ -31,15 +32,17 @@ void(*worker)(void*)=nullptr;void* worker_arg=nullptr;
 int xTaskCreate(void(*f)(void*),const char*,int,void* a,int,void**){worker=f;worker_arg=a;return 1;}
 void vTaskDelete(void*){}
 namespace voice_tts {
-std::string recorded_name;size_t recorded_samples=0;
+std::string recorded_name,current_voice;size_t recorded_samples=0;std::vector<std::string> actions;
+std::string LoadAliVoice(){return current_voice;}
+bool VoiceResetActive(){return false;}
 bool IsValidVoiceName(const std::string& n){return !n.empty()&&n.find('\0')==std::string::npos;}
 VoiceOperation EnrollManagedVoice(const int16_t* pcm,size_t n,const std::string& name,const std::function<bool()>& cancelled,std::string& id){
  if(cancelled())return VoiceOperation::kCancelled;
  assert(pcm[0]==1234);recorded_samples=n;recorded_name=name;id="id";return VoiceOperation::kOk;}
 VoiceOperation ListManagedVoices(std::vector<ManagedVoice>& v){v={{"id","name",false}};return VoiceOperation::kOk;}
 VoiceOperation RenameManagedVoice(const std::string&,const std::string&){return VoiceOperation::kOk;}
-VoiceOperation DeleteManagedVoice(const std::string&){return VoiceOperation::kOk;}
-VoiceOperation SelectManagedVoice(const std::string&){return VoiceOperation::kOk;}
+VoiceOperation DeleteManagedVoice(const std::string& id){actions.push_back("delete:"+id);return VoiceOperation::kOk;}
+VoiceOperation SelectManagedVoice(const std::string& id){actions.push_back("select:"+id);current_voice=id;return VoiceOperation::kOk;}
 }
 int main(){using namespace voice_tts;VoiceWeb web;
  uint8_t bad[2]={1,'x'};assert(!web.Upload(bad,sizeof(bad)));
@@ -62,6 +65,8 @@ int main(){using namespace voice_tts;VoiceWeb web;
  assert(!std::strcmp(cJSON_GetObjectItem(root,"voice_management_status")->valuestring,"cancelled"));
  cJSON_Delete(root);
  assert(!web.Command("unexpected","",""));assert(web.Command("list","",""));assert(!web.Cancel());worker(worker_arg);
+ current_voice="id";assert(web.Command("delete","id",""));worker(worker_arg);
+ assert(actions.size()==2&&actions[0]=="select:longanhuan_v3.1"&&actions[1]=="delete:id");
 }
 ''')
             json=ROOT/'managed_components/espressif__cjson/cJSON';voice=ROOT/'main/boards/common/wzh/voice_tts'

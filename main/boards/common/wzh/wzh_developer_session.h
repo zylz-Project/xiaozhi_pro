@@ -11,8 +11,18 @@ namespace wzh {
 class DeveloperSession {
 public:
     bool Unlock(std::string_view password, const std::array<uint8_t, 16>& random, uint32_t now) {
-        if (password != "1")
+        if (IsLocked(now))
             return false;
+        if (password != "1") {
+            if (++failures_ >= 5) {
+                failures_ = 0;
+                lock_started_ = now;
+                locked_ = true;
+            }
+            return false;
+        }
+        failures_ = 0;
+        locked_ = false;
         static constexpr char hex[] = "0123456789abcdef";
         for (size_t i = 0; i < random.size(); ++i) {
             token_[i * 2] = hex[random[i] >> 4];
@@ -27,6 +37,7 @@ public:
         return active_ && now - since_ < kLifetimeMs && token.size() == 32 &&
                token == token_.data();
     }
+    bool IsLocked(uint32_t now) const { return locked_ && now - lock_started_ < 60000; }
     void Lock() {
         active_ = false;
         token_.fill(0);
@@ -37,6 +48,9 @@ public:
 private:
     std::array<char, 33> token_{};
     bool active_ = false;
+    bool locked_ = false;
+    unsigned failures_ = 0;
+    uint32_t lock_started_ = 0;
     uint32_t since_ = 0;
 };
 }  // namespace wzh

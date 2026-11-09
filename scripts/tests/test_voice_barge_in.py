@@ -330,6 +330,7 @@ int main(){
             'bool AudioService::IsVoiceInterruptionMonitoring(',
             'bool AudioService::IsVoiceInterruptionPending(',
             'bool AudioService::CommitVoiceInterruption(',
+            'void AudioService::ReleaseVoiceInterruptionBuffer(',
             'void AudioService::QueueVoicePacket(',
             'void AudioService::PushTaskToEncodeQueue('))
         self.run_cpp('#define CONFIG_USE_VOICE_BARGE_IN 1\n' + HEADER + r'''
@@ -350,7 +351,7 @@ struct Codec{bool reference=true;bool input_reference(){return reference;}int ou
 struct Engine{bool ready=true;bool CanMonitorVoiceInterruption(){return ready;}};
 struct AudioService{
  Engine engine;Engine*audio_engine_=&engine;
- Codec codec;Codec*codec_=&codec;bool device_aec_enabled_=true,capture_enabled_=true,running=true;
+ Codec codec;Codec*codec_=&codec;bool device_aec_enabled_=true,capture_enabled_=true,running=true,retain_interruption_prefix_=false;
  bool IsAudioProcessorRunning(){return running;}
  std::mutex audio_queue_mutex_;VoiceBargeIn voice_barge_in_;uint32_t capture_generation_=0;
  FixedQueue<AudioTask,2>audio_encode_queue_;
@@ -362,7 +363,8 @@ struct AudioService{
  FixedQueue<std::unique_ptr<AudioStreamPacket>,12>barge_preroll_;
  struct{std::function<void()>on_send_queue_available;std::function<void(uint32_t)>on_voice_interruption;}callbacks_;
  bool BeginVoiceInterruption();bool IsVoiceInterruptionMonitoring();
- bool IsVoiceInterruptionPending(uint32_t);bool CommitVoiceInterruption(uint32_t);
+ bool IsVoiceInterruptionPending(uint32_t);bool CommitVoiceInterruption(uint32_t,bool=false);
+ void ReleaseVoiceInterruptionBuffer();
  void QueueVoicePacket(std::unique_ptr<AudioStreamPacket>,uint32_t);
 };
 ''' + methods + r'''
@@ -396,11 +398,18 @@ int main(){
  assert(detections==1);
  assert(service.IsVoiceInterruptionPending(token));
  assert(!service.CommitVoiceInterruption(token+1)&&notifications==0);
- assert(service.CommitVoiceInterruption(token)&&notifications==1);
+ assert(service.CommitVoiceInterruption(token,true)&&notifications==1);
  assert(!service.IsVoiceInterruptionMonitoring()&&service.barge_preroll_.empty());
  auto packet=std::make_unique<AudioStreamPacket>();packet->number=20;
  service.QueueVoicePacket(std::move(packet),generation);
- for(int i=8;i<=20;++i){assert(service.audio_send_queue_.front()->number==i);service.audio_send_queue_.pop_front();}
+ for(int i=21;i<60;++i){auto p=std::make_unique<AudioStreamPacket>();p->number=i;
+  service.QueueVoicePacket(std::move(p),generation);}
+ assert(service.audio_send_queue_.size()==40&&service.audio_send_queue_.front()->number==8);
+ service.ReleaseVoiceInterruptionBuffer();
+ auto last=std::make_unique<AudioStreamPacket>();last->number=99;
+ service.QueueVoicePacket(std::move(last),generation);
+ for(int i=9;i<=47;++i){assert(service.audio_send_queue_.front()->number==i);service.audio_send_queue_.pop_front();}
+ assert(service.audio_send_queue_.front()->number==99);service.audio_send_queue_.pop_front();
  assert(service.audio_send_queue_.empty());
  assert(service.BeginVoiceInterruption());assert(!service.IsVoiceInterruptionPending(token));
  service.QueueVoicePacket(std::make_unique<AudioStreamPacket>(),generation); // Old encoder completion.
@@ -411,7 +420,7 @@ int main(){
 }
 ''')
 
-    def test_test_variant_is_opt_in_and_keeps_the_physical_board(self):
+    def test_default_and_barge_in_variants_enable_interruption_on_the_same_board(self):
         for board, identity, wake_word in [
             ('wzh_crawlPanda', 'wzh-crawlpanda', 'wn9_nihaoxiaoan_tts2'),
             ('wzh_dinosaur', 'wzh-dinosaur', 'wn9_xiaolongxiaolong_tts'),
@@ -432,9 +441,16 @@ int main(){
                                     'CONFIG_USE_AUDIO_DEBUGGER=n',
                                     'CONFIG_VOICE_BARGE_IN_SHADOW=n']:
                         self.assertIn(setting,settings)
-                for setting in ['CONFIG_USE_VOICE_BARGE_IN=n',
-                                'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n']:
-                    self.assertIn(setting,ordinary['sdkconfig_append'])
+                for build in [ordinary, trial]:
+                    for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
+                                    'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y',
+                                    'CONFIG_SR_NSN_NSNET2=y',
+                                    'CONFIG_SR_NSN_WEBRTC=n',
+                                    'CONFIG_SR_VADN_WEBRTC=y',
+                                    'CONFIG_SR_VADN_VADNET1_MEDIUM=n',
+                                    'CONFIG_USE_SERVER_AEC=n',
+                                    'CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y']:
+                        self.assertIn(setting,build['sdkconfig_append'])
                 for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
                                 'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y',
                                 'CONFIG_SR_NSN_NSNET2=y',
@@ -473,11 +489,11 @@ struct AudioCodec{
 struct Es8311AudioCodec:AudioCodec{
  Es8311AudioCodec(void*,int,int input_rate,int output_rate,int,int,int,int,int,int,
                   uint8_t,bool,bool,float voltage,bool dac_reference=false,
-                  float pa_gain=0,float max_volume=0,float makeup=0){
+                  float pa_gain=0,float max_volume=0,float makeup=0,int default_volume=70){
   ++codecs;reference=dac_reference;
   assert(input_rate==24000&&output_rate==24000);
-  assert(voltage==3.3f&&pa_gain==20.0f&&max_volume==-3.0f);
-  assert(makeup==9.0f);
+  assert(voltage==3.3f&&pa_gain==20.0f&&max_volume==-2.0f);
+  assert(makeup==12.0f&&default_volume==100);
  }
 };
 struct Product:AudioCodec{
@@ -504,10 +520,11 @@ int main(){
     bool IsVoiceInterruptionPending(uint32_t token){
         return monitoring&&interruption_pending&&token==interruption_token;
     }
-    bool CommitVoiceInterruption(uint32_t token){
+    bool CommitVoiceInterruption(uint32_t token,bool = false){
         if(!commit_allowed||!IsVoiceInterruptionPending(token))return false;
         monitoring=interruption_pending=false;send_packets=3;events.push_back("commit");return true;
     }
+    void ReleaseVoiceInterruptionBuffer(){}
     uint32_t generation=0;''')
         program=program.replace('void EnableVoiceProcessing(bool enabled){voice=enabled;if(enabled)ResetDecoder();}',
             'void EnableVoiceProcessing(bool enabled){voice=processor_running=enabled;if(enabled)ResetDecoder();else monitoring=interruption_pending=false;}')
@@ -515,6 +532,7 @@ int main(){
     BargeInReplyGate barge_in_reply_gate_;
     std::atomic<uint32_t>pending_voice_interruption_{0};
     void HandleVoiceInterruptionEvent();
+    bool ReconnectAfterVoiceInterruption(uint32_t){return false;}
     std::atomic<bool>interaction_stopped_{false};''')
         program=program.replace('void SendStartListening(int){++listens;}',
             'void SendStartListening(int){++listens;events.push_back("listen");}')
@@ -661,7 +679,6 @@ int main(){
  assert(app.aborts==0&&!app.barge_in_reply_gate_.blocked());
  app.interaction_stopped_=true;app.pending_voice_interruption_=token;
  app.HandleVoiceInterruptionEvent();assert(app.aborts==0);app.interaction_stopped_=false;
- app.protocol.opened=false;app.HandleVoiceInterruptionEvent();assert(app.aborts==0);app.protocol.opened=true;
  // Reference may expire between precheck and locked acceptance. Nothing should stop in that case.
  app.audio_service_.commit_allowed=false;int resets=app.audio_service_.resets;
  app.HandleVoiceInterruptionEvent();
@@ -678,6 +695,67 @@ int main(){
  app.Drain();app.IdleStateEvent();
  assert(app.state==kDeviceStateIdle&&!app.barge_in_reply_gate_.blocked()&&!app.audio_service_.voice);
  app.HandleVoiceInterruptionEvent();assert(app.state==kDeviceStateIdle);
+}
+''',use_json=True)
+
+    def test_wake_word_and_interruption_in_same_event_batch(self):
+        source=(ROOT/'main/application.cc').read_text()
+        interruption=queue_function(source,'if (bits & MAIN_EVENT_VOICE_INTERRUPTION)')
+        wake=queue_function(source,'if (bits & MAIN_EVENT_WAKE_WORD_DETECTED)')
+        self.run_cpp(r'''
+#include <cassert>
+constexpr unsigned MAIN_EVENT_VOICE_INTERRUPTION=1,MAIN_EVENT_WAKE_WORD_DETECTED=2;
+int interrupted=0,woken=0;
+void HandleVoiceInterruptionEvent(){++interrupted;}
+void HandleWakeWordDetectedEvent(){++woken;}
+int main(){unsigned bits=MAIN_EVENT_VOICE_INTERRUPTION|MAIN_EVENT_WAKE_WORD_DETECTED;
+'''+interruption+wake+r'''
+assert(interrupted==1&&woken==1);}
+''')
+
+    def test_closed_channel_reconnect_preserves_prefix_and_cancellation(self):
+        source=(ROOT/'main/application.cc').read_text()
+        program=self.application().replace(
+            'Protocol*protocol_=&protocol;',
+            'std::shared_ptr<Protocol> protocol_{&protocol, [](Protocol*){}};')
+        program=program.replace('bool ReconnectAfterVoiceInterruption(uint32_t){return false;}',
+                                'bool ReconnectAfterVoiceInterruption(uint32_t);')
+        program=program.replace('class Application;', r'''
+constexpr unsigned MAIN_EVENT_SEND_AUDIO=2;
+constexpr int pdPASS=1;
+std::function<void()> worker;
+int xTaskCreate(void(*fn)(void*),const char*,int,void*arg,int,void*){
+ worker=[fn,arg](){fn(arg);};return pdPASS;
+}
+void vTaskDelete(void*){}
+class Application;''')
+        program += queue_function(source,'bool Application::ReconnectAfterVoiceInterruption(')
+        self.run_cpp(program+r'''
+int main(){
+ Application app;app.Install();app.state=kDeviceStateSpeaking;app.protocol.opened=false;
+ app.audio_service_.voice=true;app.audio_service_.processor_running=true;
+ app.audio_service_.monitoring=true;app.audio_service_.interruption_pending=true;
+ app.pending_voice_interruption_=app.audio_service_.interruption_token;
+ app.HandleVoiceInterruptionEvent();
+ assert(app.aborts==1&&app.state==kDeviceStateListening&&app.barge_in_reconnecting_);
+ assert(app.audio_service_.send_packets==3&&app.protocol.listens==0&&worker);
+ worker();worker=nullptr;app.Drain();
+ assert(!app.barge_in_reconnecting_&&app.protocol.opened&&app.protocol.listens==1);
+ assert(app.audio_service_.send_packets==3&&(pending_bits&MAIN_EVENT_SEND_AUDIO));
+ Application stopped;stopped.Install();stopped.state=kDeviceStateSpeaking;
+ stopped.audio_service_.voice=true;stopped.audio_service_.monitoring=true;
+ stopped.audio_service_.interruption_pending=true;
+ stopped.pending_voice_interruption_=stopped.audio_service_.interruption_token;
+ stopped.HandleVoiceInterruptionEvent();assert(stopped.barge_in_reconnecting_);
+ stopped.StopInteraction();worker();worker=nullptr;stopped.Drain();
+ assert(!stopped.barge_in_reconnecting_&&!stopped.protocol.opened&&stopped.protocol.listens==0);
+ Application failed;failed.Install();failed.state=kDeviceStateSpeaking;
+ failed.protocol.open_succeeds=false;failed.audio_service_.voice=true;
+ failed.audio_service_.monitoring=true;failed.audio_service_.interruption_pending=true;
+ failed.pending_voice_interruption_=failed.audio_service_.interruption_token;
+ failed.HandleVoiceInterruptionEvent();worker();worker=nullptr;failed.Drain();
+ assert(!failed.barge_in_reconnecting_&&failed.state==kDeviceStateIdle);
+ assert(!failed.audio_service_.voice&&failed.audio_service_.send_packets==0);
 }
 ''',use_json=True)
 

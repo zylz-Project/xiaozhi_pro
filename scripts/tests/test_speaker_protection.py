@@ -35,6 +35,29 @@ int main(){
 }
 ''')
 
+    def test_wzh_12db_louder_than_previous_profile_and_bounded(self):
+        self.run_program(r'''
+#include <cassert>
+int main(){
+ for(int rate:{8000,16000,24000,48000})for(bool clarity:{false,true}){
+  std::vector<int16_t> input(rate);
+  for(int i=0;i<rate;++i)input[i]=std::lrint(300*std::sin(6.283185307179586*1000*i/rate));
+  auto previous=input, louder=input;SpeakerProtection a,b;
+  a.Configure(rate,clarity,clarity,9);b.Configure(rate,clarity,clarity,12);
+  a.Process(previous);b.Process(louder);double x=0,y=0;
+  for(int i=rate/2;i<rate;++i){x+=double(previous[i])*previous[i];y+=double(louder[i])*louder[i];}
+  assert(10*std::log10(y/x)>2.95&&10*std::log10(y/x)<3.05);
+  uint32_t random=42;for(auto& v:input){random=random*1664525U+1013904223U;v=int16_t(random>>16);}
+  auto reference=input;b.Reset();b.Process(reference,3.9810717f);
+  b.Reset();std::vector<int16_t> chunks;
+  for(size_t pos=0;pos<input.size();){size_t n=std::min<size_t>(1+pos%137,input.size()-pos);
+   std::vector<int16_t> part(input.begin()+pos,input.begin()+pos+n);b.Process(part,3.9810717f);
+   chunks.insert(chunks.end(),part.begin(),part.end());pos+=n;}
+  assert(reference==chunks);for(auto v:reference)assert(std::abs(int(v))<=27525);
+ }
+}
+''')
+
     def test_loudness_fragmentation_reset_and_disable_preserve_stream_boundaries(self):
         self.run_program(r'''
 #include <cassert>

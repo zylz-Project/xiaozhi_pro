@@ -107,7 +107,7 @@ struct Es8311AudioCodec:AudioCodec{
  void*dev_=nullptr;std::mutex data_if_mutex_;
  void CreateDuplexChannels(int,int,int,int,int){}void ResetCodec(){}
  Es8311AudioCodec(void*,i2c_port_t,int,int,gpio_num_t,gpio_num_t,gpio_num_t,gpio_num_t,
-                  gpio_num_t,gpio_num_t,uint8_t,bool,bool,float,bool,float,float,float=0);
+                  gpio_num_t,gpio_num_t,uint8_t,bool,bool,float,bool,float,float,float=0,int=70);
  void UpdateDeviceState();void SetOutputVolume(int);
 };
 ''' + '\n'.join(queue_function(source, marker) for marker in [
@@ -115,32 +115,47 @@ struct Es8311AudioCodec:AudioCodec{
             'void Es8311AudioCodec::UpdateDeviceState(',
             'void Es8311AudioCodec::SetOutputVolume('])
 
+    def test_all_wzh_boards_use_the_same_protected_loudness_profile(self):
+        for board in ('wzh_crawlPanda', 'wzh_tailRedPanda', 'wzh_dinosaur'):
+            config = (ROOT / 'main/boards' / board / 'config.h').read_text()
+            self.assertIn('#define AUDIO_CODEC_PA_GAIN_DB 20.0f', config)
+            self.assertIn('#define AUDIO_CODEC_MAX_VOLUME_DB -2.0f', config)
+            self.assertIn('#define AUDIO_CODEC_SPEAKER_MAKEUP_DB 12.0f', config)
+            source = (ROOT / 'main/boards' / board / (board + '.cc')).read_text()
+            self.assertIn('AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB, 100', source)
+
     def test_wzh_pa_gain_top_end_curve_mute_and_restore_after_reopen(self):
         self.run_cpp(self.program() + r'''
 int main(){
  for(bool reference:{false,true}){
   Es8311AudioCodec codec(nullptr,0,24000,24000,-1,48,13,46,14,-1,0x30,
-                          false,false,3.3f,reference,20.0f,-3.0f,9.0f);
+                          false,false,3.3f,reference,20.0f,-2.0f,12.0f,100);
+  assert(codec.output_volume_==100);
   assert(configured_chip.hw_gain.pa_gain==20&&configured_chip.hw_gain.pa_voltage==3.3f);
   assert(chip_instance.hw_gain==20&&codec.input_gain_==(reference?6:36));
-  assert(codec.speaker_makeup_gain_db_==9.0f);
+  assert(codec.speaker_makeup_gain_db_==12.0f);
   codec.SetOutputVolume(100);assert(codec.persisted==100&&!codec.dev_);
   int start=curve_calls;codec.output_enabled_=true;codec.UpdateDeviceState();
-  assert(curve_calls==start+1&&last_reg==145); // Actual ES8311 -23 dB register.
+  assert(curve_calls==start+1&&last_reg==147); // Actual ES8311 -22 dB register.
   int previous=-1;
+  esp_codec_dev_vol_map_t old_points[]={{0,-50.0f},{80,-10.0f},{100,-3.0f}};
+  esp_codec_dev_vol_curve_t old_curve{old_points,3};
   for(int volume=0;volume<=100;++volume){
    codec.SetOutputVolume(volume);assert(codec.persisted==volume&&codec.output_volume_==volume);
+   const int old_reg=esp_codec_dev_vol_calc_reg(&vol_range,_get_vol_db(&old_curve,volume)-chip_instance.hw_gain);
+   assert(last_reg>=old_reg&&last_reg-old_reg<=2);
+   if(volume<=80)assert(last_reg==old_reg);
    assert(last_reg>=previous);previous=last_reg;
    if(volume==0)assert(last_reg==0);
    if(volume==70)assert(last_reg==121); // -15 dB target - 20 dB PA gain.
    if(volume==80)assert(last_reg==131);
-   if(volume==90)assert(last_reg==138);
+   if(volume==90)assert(last_reg==139);
   }
   codec.output_enabled_=false;codec.UpdateDeviceState();assert(!codec.dev_);
   codec.output_enabled_=true;codec.UpdateDeviceState();
-  assert(curve_calls==start+2&&last_reg==145&&codec.output_volume_==100);
+  assert(curve_calls==start+2&&last_reg==147&&codec.output_volume_==100);
   codec.SetOutputVolume(-1);assert(last_reg==0&&codec.persisted==0);
-  codec.SetOutputVolume(101);assert(last_reg==145&&codec.persisted==100);
+  codec.SetOutputVolume(101);assert(last_reg==147&&codec.persisted==100);
   codec.output_enabled_=false;codec.UpdateDeviceState();
  }
 }
@@ -152,6 +167,7 @@ int main(){
  Es8311AudioCodec codec(nullptr,0,24000,24000,-1,48,13,46,14,-1,0x30,
                          false,false,5.0f,false,0.0f,0.0f);
  assert(configured_chip.hw_gain.pa_gain==0);
+ assert(codec.output_volume_==70);
  assert(codec.speaker_makeup_gain_db_==0);
  codec.output_enabled_=true;codec.UpdateDeviceState();assert(curve_calls==0);
  for(int volume=0;volume<=100;++volume){

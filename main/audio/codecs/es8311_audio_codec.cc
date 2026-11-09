@@ -14,8 +14,9 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
                                    gpio_num_t pa_pin, uint8_t es8311_addr, bool use_mclk,
                                    bool pa_inverted, float pa_voltage, bool dac_reference,
                                    float pa_gain_db, float max_output_volume_db,
-                                   float speaker_makeup_gain_db) {
+                                   float speaker_makeup_gain_db, int default_output_volume) {
     duplex_ = true;  // 是否双工
+    output_volume_ = std::clamp(default_output_volume, 0, 100);
     input_reference_ = dac_reference;
     input_channels_ = dac_reference ? 2 : 1;  // ADCL microphone, DACR digital reference.
     input_sample_rate_ = input_sample_rate;

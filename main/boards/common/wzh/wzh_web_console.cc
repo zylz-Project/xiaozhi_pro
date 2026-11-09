@@ -1,4 +1,9 @@
 #include "wzh_web_console.h"
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include "wzh_user_web.h"
+#include "wzh_voice_services.h"
+#include "wzh_web_peer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +22,7 @@
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <nvs.h>
 
 #include "application.h"
 #include "audio_codec.h"
@@ -96,9 +102,53 @@ const char* HttpStatusText(int status) {
 
 }  // namespace
 
+WebConsole::WebConsole() = default;
 WebConsole::~WebConsole() { Stop(); }
 
-void WebConsole::Configure(Options options) { options_ = std::move(options); }
+void WebConsole::Configure(Options options) {
+    options_ = std::move(options);
+    options_.begin_factory_reset = [this]() {
+        auto& app = Application::GetInstance();
+        const auto state = app.GetDeviceState();
+        if ((state != kDeviceStateIdle && state != kDeviceStateListening &&
+             state != kDeviceStateSpeaking && state != kDeviceStateConnecting) ||
+            app.IsVoiceEnrollmentActive() || app.IsExternalVoicePreviewActive() ||
+            Board::GetInstance().IsAudioMaintenanceActive() || VoiceManagementBusy() ||
+            (options_.hub && options_.hub->job_running()) || !options_.player ||
+            maintenance_active_.exchange(true))
+            return false;
+        factory_reset_prepared_.store(false);
+        if (state != kDeviceStateIdle)
+            app.StopInteraction();
+        app.Schedule([this]() {
+            if (options_.maintenance)
+                options_.maintenance(true);
+            if (options_.player)
+                options_.player->SetMaintenance(true);
+            factory_reset_prepared_.store(true);
+        });
+        return true;
+    };
+    options_.factory_reset_prepared = [this]() {
+        return factory_reset_prepared_.load() && options_.player && options_.player->WorkerIdle() &&
+               Application::GetInstance().GetDeviceState() == kDeviceStateIdle;
+    };
+    options_.end_factory_reset = [this]() {
+        Application::GetInstance().Schedule([this]() {
+            if (options_.player)
+                options_.player->SetMaintenance(false);
+            maintenance_active_.store(false);
+            factory_reset_prepared_.store(false);
+            if (options_.maintenance)
+                options_.maintenance(false);
+        });
+    };
+    user_portal_ = std::make_unique<UserWebPortal>(options_);
+    WifiManager::GetInstance().SetPortalRegistrar(
+        [this](httpd_handle_t server, WifiConfigurationAp* portal) {
+            return user_portal_ && user_portal_->Register(server, portal);
+        });
+}
 
 bool WebConsole::Start() {
     if (started_.exchange(true)) {
@@ -136,10 +186,13 @@ void WebConsole::StartTask() {
         started_.store(false);
         return;
     }
-    if (!EnsureAp()) {
+    const bool persistent = WifiManager::GetInstance().IsPersistentPortalActive();
+    if (!persistent && !EnsureAp()) {
         started_.store(false);
         return;
     }
+    if (persistent)
+        ap_ssid_ = WifiManager::GetInstance().GetApSsid();
     if (options_.hub != nullptr) {
         // NVS/Wi-Fi are initialized by now; load server/token for the status page.
         options_.hub->EnsureInitialized();
@@ -149,8 +202,7 @@ void WebConsole::StartTask() {
         started_.store(false);
         return;
     }
-    ESP_LOGI(TAG, "管理页 http://192.168.4.1:%d/  热点=%s 密码=%s", kConsolePort, ap_ssid_.c_str(),
-             ap_password_.c_str());
+    ESP_LOGI(TAG, "管理页服务已启动，端口=%d", kConsolePort);
 }
 
 bool WebConsole::EnsureAp() {
@@ -229,11 +281,71 @@ void WebConsole::DestroyAp() {
     ap_netif_ = nullptr;
 }
 
+esp_err_t WebConsole::GuardedDispatch(httpd_req_t* req) {
+    auto* route = static_cast<RouteSlot*>(req->user_ctx);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
+        uint32_t ip = 0;
+        if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip)) {
+            return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
+        }
+    }
+    req->user_ctx = route->owner;
+    if (WifiManager::GetInstance().IsPersistentPortalActive() && req->method == HTTP_POST) {
+        const size_t host_len = httpd_req_get_hdr_value_len(req, "Host");
+        const size_t origin_len = httpd_req_get_hdr_value_len(req, "Origin");
+        // Browsers always attach Origin to a cross-site POST; a missing Origin
+        // is a CLI/tool request and cannot be a CSRF. Cookie auth is further
+        // protected by SameSite=Strict.
+        if (origin_len) {
+            char host[128] = {}, origin[144] = {};
+            const bool valid =
+                host_len > 0 && host_len < sizeof(host) && origin_len < sizeof(origin) &&
+                httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host)) == ESP_OK &&
+                httpd_req_get_hdr_value_str(req, "Origin", origin, sizeof(origin)) == ESP_OK &&
+                std::string(origin) == std::string("http://") + host;
+            if (!valid) {
+                req->user_ctx = route;
+                return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Invalid origin");
+            }
+        }
+    }
+    if (WifiManager::GetInstance().IsPersistentPortalActive() && std::strcmp(req->uri, "/") != 0 &&
+        std::strcmp(req->uri, "/api/developer/login") != 0 &&
+        !route->owner->RequireDeveloper(req)) {
+        req->user_ctx = route;
+        return ESP_OK;
+    }
+    if (WifiManager::GetInstance().IsPersistentPortalActive() && req->method == HTTP_POST &&
+        (route->owner->maintenance_active() ||
+         (route->owner->user_portal_ && route->owner->user_portal_->ResetActive())) &&
+        std::strcmp(req->uri, "/api/developer/login") != 0 &&
+        std::strcmp(req->uri, "/api/developer/logout") != 0) {
+        req->user_ctx = route;
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        return httpd_resp_send(req, "Maintenance active", HTTPD_RESP_USE_STRLEN);
+    }
+    const auto result = route->handler(req);
+    req->user_ctx = route;
+    return result;
+}
+
+esp_err_t WebConsole::GuardedError(httpd_req_t* req, httpd_err_code_t error) {
+    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
+        uint32_t ip = 0;
+        if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip))
+            return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
+    }
+    return httpd_resp_send_err(req, error, nullptr);
+}
+
 bool WebConsole::StartHttpServer() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = kConsolePort;
     config.ctrl_port = kConsoleCtrlPort;
     config.max_uri_handlers = 24;
+    if (WifiManager::GetInstance().IsPersistentPortalActive())
+        config.max_open_sockets = 3;
     config.recv_wait_timeout = 3;
     config.stack_size = 8192;
     config.lru_purge_enable = true;
@@ -245,12 +357,23 @@ bool WebConsole::StartHttpServer() {
         return false;
     }
 
+    if (httpd_register_err_handler(server_, HTTPD_404_NOT_FOUND, GuardedError) != ESP_OK ||
+        httpd_register_err_handler(server_, HTTPD_405_METHOD_NOT_ALLOWED, GuardedError) != ESP_OK) {
+        httpd_stop(server_);
+        server_ = nullptr;
+        return false;
+    }
+    route_count_ = 0;
     auto add = [this](const char* uri, httpd_method_t method, esp_err_t (*handler)(httpd_req_t*)) {
+        if (route_count_ >= routes_.size())
+            return false;
+        auto& route = routes_[route_count_++];
+        route = {this, handler};
         httpd_uri_t entry = {};
         entry.uri = uri;
         entry.method = method;
-        entry.handler = handler;
-        entry.user_ctx = this;
+        entry.handler = GuardedDispatch;
+        entry.user_ctx = &route;
         return httpd_register_uri_handler(server_, &entry) == ESP_OK;
     };
 
@@ -267,6 +390,10 @@ bool WebConsole::StartHttpServer() {
                     add("/api/developer/logout", HTTP_POST, HandleDeveloperLogout) &&
                     add("/api/developer/status", HTTP_GET, HandleDeveloperStatus) &&
                     add("/api/developer/volume", HTTP_POST, HandleDeveloperVolume) &&
+                    add("/api/developer/ota", HTTP_GET, HandleDeveloperOta) &&
+                    add("/api/developer/ota", HTTP_POST, HandleDeveloperOta) &&
+                    add("/api/developer/factory-reset", HTTP_GET, HandleDeveloperFactoryReset) &&
+                    add("/api/developer/factory-reset", HTTP_POST, HandleDeveloperFactoryReset) &&
                     add("/api/developer/voice-config", HTTP_POST, HandleDeveloperVoiceConfig) &&
                     add("/api/developer/voice-manage", HTTP_POST, HandleDeveloperVoiceManage) &&
                     add("/api/developer/voice-upload", HTTP_POST, HandleDeveloperVoiceUpload) &&
@@ -713,11 +840,36 @@ esp_err_t WebConsole::HandleHubUpdate(httpd_req_t* req) {
 }
 
 bool WebConsole::RequireDeveloper(httpd_req_t* req) {
-    const size_t size = httpd_req_get_hdr_value_len(req, "X-Developer-Token");
     char token[33] = {};
-    if (size != 32 ||
-        httpd_req_get_hdr_value_str(req, "X-Developer-Token", token, sizeof(token)) != ESP_OK ||
-        !developer_.Check(token, esp_timer_get_time() / 1000)) {
+    const size_t size = httpd_req_get_hdr_value_len(req, "X-Developer-Token");
+    bool valid = size == 32 && httpd_req_get_hdr_value_str(req, "X-Developer-Token", token,
+                                                           sizeof(token)) == ESP_OK;
+    if (!valid) {
+        const size_t cookie_len = httpd_req_get_hdr_value_len(req, "Cookie");
+        if (cookie_len && cookie_len <= 512) {
+            std::string cookie(cookie_len + 1, '\0');
+            if (httpd_req_get_hdr_value_str(req, "Cookie", cookie.data(), cookie.size()) ==
+                ESP_OK) {
+                size_t pos = 0;
+                while (pos < cookie_len) {
+                    while (pos < cookie_len && (cookie[pos] == ' ' || cookie[pos] == ';'))
+                        ++pos;
+                    const auto end = cookie.find(';', pos);
+                    const auto part = std::string_view(cookie).substr(
+                        pos, end == std::string::npos ? cookie_len - pos : end - pos);
+                    if (part.size() == 41 && part.substr(0, 9) == "dev_sess=") {
+                        std::memcpy(token, part.data() + 9, 32);
+                        valid = true;
+                        break;
+                    }
+                    if (end == std::string::npos)
+                        break;
+                    pos = end + 1;
+                }
+            }
+        }
+    }
+    if (!valid || !developer_.Check(token, esp_timer_get_time() / 1000)) {
         SendError(req, 403, "developer_locked");
         return false;
     }
@@ -736,11 +888,20 @@ esp_err_t WebConsole::HandleDeveloperLogin(httpd_req_t* req) {
         cJSON_IsString(password) &&
         self->developer_.Unlock(password->valuestring, random, esp_timer_get_time() / 1000);
     cJSON_Delete(body);
+    if (!ok && self->developer_.IsLocked(esp_timer_get_time() / 1000)) {
+        httpd_resp_set_hdr(req, "Retry-After", "60");
+        httpd_resp_set_status(req, "429 Too Many Requests");
+        return httpd_resp_send(req, "{\"ok\":false,\"error\":\"rate_limited\"}",
+                               HTTPD_RESP_USE_STRLEN);
+    }
     if (!ok)
         return SendError(req, 403, "invalid_password");
     cJSON* out = cJSON_CreateObject();
     if (!out)
         return httpd_resp_send_500(req);
+    const std::string cookie = std::string("dev_sess=") + self->developer_.token() +
+                               "; HttpOnly; SameSite=Strict; Path=/; Max-Age=1800";
+    httpd_resp_set_hdr(req, "Set-Cookie", cookie.c_str());
     cJSON_AddStringToObject(out, "token", self->developer_.token());
     cJSON_AddNumberToObject(out, "expires_in_s", DeveloperSession::kLifetimeMs / 1000);
     const auto result = SendJson(req, out);
@@ -753,6 +914,8 @@ esp_err_t WebConsole::HandleDeveloperLogout(httpd_req_t* req) {
     if (!self->RequireDeveloper(req))
         return ESP_OK;
     self->developer_.Lock();
+    httpd_resp_set_hdr(req, "Set-Cookie",
+                       "dev_sess=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
 }
 
@@ -936,6 +1099,65 @@ esp_err_t WebConsole::HandleDeveloperVolume(httpd_req_t* req) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_status(req, "202 Accepted");
     return httpd_resp_send(req, "{\"accepted\":true}", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebConsole::HandleDeveloperOta(httpd_req_t* req) {
+    auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
+    if (req->method == HTTP_GET) {
+        nvs_handle_t nvs = 0;
+        char value[256] = {};
+        size_t size = sizeof(value);
+        if (nvs_open("wifi", NVS_READONLY, &nvs) == ESP_OK) {
+            if (nvs_get_str(nvs, "ota_url", value, &size) != ESP_OK)
+                value[0] = 0;
+            nvs_close(nvs);
+        }
+        cJSON* out = cJSON_CreateObject();
+        if (!out)
+            return httpd_resp_send_500(req);
+        cJSON_AddBoolToObject(out, "ok", true);
+        cJSON_AddStringToObject(out, "url", value);
+        auto result = SendJson(req, out);
+        cJSON_Delete(out);
+        return result;
+    }
+    cJSON* body = nullptr;
+    if (!ReadJsonBody(req, &body))
+        return SendError(req, 400, "invalid_json");
+    const auto* item = cJSON_GetObjectItemCaseSensitive(body, "url");
+    const std::string url = cJSON_IsString(item) && item->valuestring ? item->valuestring : "";
+    const bool valid =
+        cJSON_IsString(item) && url.size() < 256 &&
+        (url.empty() || url.rfind("https://", 0) == 0 || url.rfind("http://", 0) == 0) &&
+        url.find_first_of("\r\n \t") == std::string::npos;
+    cJSON_Delete(body);
+    if (!valid)
+        return SendError(req, 400, "invalid_url");
+    nvs_handle_t nvs = 0;
+    if (nvs_open("wifi", NVS_READWRITE, &nvs) != ESP_OK)
+        return SendError(req, 500, "save_failed");
+    auto result =
+        url.empty() ? nvs_erase_key(nvs, "ota_url") : nvs_set_str(nvs, "ota_url", url.c_str());
+    if (result == ESP_ERR_NVS_NOT_FOUND && url.empty())
+        result = ESP_OK;
+    if (result == ESP_OK)
+        result = nvs_commit(nvs);
+    nvs_close(nvs);
+    if (result != ESP_OK)
+        return SendError(req, 500, "save_failed");
+    return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebConsole::HandleDeveloperFactoryReset(httpd_req_t* req) {
+    auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
+    if (!self->user_portal_ || !WifiManager::GetInstance().IsPersistentPortalActive())
+        return SendError(req, 409, "reset_unavailable");
+    return req->method == HTTP_GET ? self->user_portal_->FactoryResetStatus(req)
+                                   : self->user_portal_->StartFactoryReset(req);
 }
 
 esp_err_t WebConsole::HandleDeveloperCenter(httpd_req_t* req) {

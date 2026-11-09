@@ -164,7 +164,9 @@ private:
 };
 }  // namespace
 
-bool VoiceSession::Ready() {
+bool VoiceSession::Ready() { return ReadyForVoice(""); }
+
+bool VoiceSession::ReadyForVoice(const std::string& voice) {
     if (bypass_next_.exchange(false)) {
         ESP_LOGW(kTag, "External speech unavailable: one-turn fallback after earlier failure");
         return false;
@@ -174,7 +176,7 @@ bool VoiceSession::Ready() {
         ESP_LOGW(kTag, "External speech unavailable: previous task is still stopping");
         return false;
     }
-    if (LoadAliKey().empty() || LoadAliVoice().empty()) {
+    if (LoadAliKey().empty() || (voice.empty() && LoadAliVoice().empty())) {
         ESP_LOGW(kTag, "External speech unavailable: provider configuration incomplete");
         return false;
     }
@@ -189,10 +191,15 @@ bool VoiceSession::Ready() {
 }
 
 bool VoiceSession::Begin(uint32_t playback_generation, std::function<void(bool)> completion) {
+    return BeginWithVoice(playback_generation, "", std::move(completion));
+}
+
+bool VoiceSession::BeginWithVoice(uint32_t playback_generation, const std::string& voice_override,
+                                  std::function<void(bool)> completion) {
     std::lock_guard<std::mutex> lock(mutex_);
     const std::string provider = "ali";
     const auto key = LoadAliKey();
-    const auto voice = LoadAliVoice();
+    const auto voice = voice_override.empty() ? LoadAliVoice() : voice_override;
     if ((task_ && (!stopping_ || pending_)) || !completion || key.empty() || voice.empty())
         return false;
     if (task_) {

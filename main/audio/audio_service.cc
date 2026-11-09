@@ -239,6 +239,7 @@ void AudioService::Stop() {
 #endif
 #if CONFIG_USE_VOICE_BARGE_IN
         capture_enabled_ = false;
+        retain_interruption_prefix_ = false;
         ++capture_generation_;
         voice_barge_in_.Cancel();
         barge_preroll_.clear();
@@ -1083,6 +1084,7 @@ void AudioService::EnableVoiceProcessing(bool enable) {
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         capture_enabled_ = false;
+        retain_interruption_prefix_ = false;
         ++capture_generation_;
         voice_barge_in_.Cancel();
         barge_preroll_.clear();
@@ -1361,7 +1363,7 @@ bool AudioService::IsVoiceInterruptionPending(uint32_t token) {
            voice_barge_in_.pending(token, esp_timer_get_time(), codec_->output_volume() == 0);
 }
 
-bool AudioService::CommitVoiceInterruption(uint32_t token) {
+bool AudioService::CommitVoiceInterruption(uint32_t token, bool retain_first_packets) {
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         if (!capture_enabled_ ||
@@ -1371,6 +1373,7 @@ bool AudioService::CommitVoiceInterruption(uint32_t token) {
         // The input/AFE pipeline stays running: already encoded prefix packets
         // precede the current in-flight packet without a reset or warmup gap.
         audio_send_queue_.clear();
+        retain_interruption_prefix_ = retain_first_packets;
         while (!barge_preroll_.empty()) {
             audio_send_queue_.push_back(std::move(barge_preroll_.front()));
             barge_preroll_.pop_front();
@@ -1380,6 +1383,11 @@ bool AudioService::CommitVoiceInterruption(uint32_t token) {
         callbacks_.on_send_queue_available();
     }
     return true;
+}
+
+void AudioService::ReleaseVoiceInterruptionBuffer() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    retain_interruption_prefix_ = false;
 }
 #endif
 
@@ -1399,6 +1407,9 @@ void AudioService::QueueVoicePacket(std::unique_ptr<AudioStreamPacket> packet,
             barge_preroll_.push_back(std::move(packet));
         } else {
             if (audio_send_queue_.full()) {
+                // During reconnection keep the start of the interrupted utterance.
+                if (retain_interruption_prefix_)
+                    return;
                 audio_send_queue_.pop_front();
             }
             audio_send_queue_.push_back(std::move(packet));

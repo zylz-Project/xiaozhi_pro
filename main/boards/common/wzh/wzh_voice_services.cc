@@ -1,8 +1,10 @@
 #include "wzh_voice_services.h"
 
 #include "application.h"
+#include "board.h"
 #include "voice_tts/ali_voice_enrollment.h"
 #include "voice_tts/voice_config.h"
+#include "voice_tts/voice_manager.h"
 #include "voice_tts/voice_names.h"
 #include "voice_tts/voice_session.h"
 #include "voice_tts/voice_web.h"
@@ -16,7 +18,8 @@ voice_tts::VoiceWeb& Management() {
 
 bool CanChangeVoice() {
     auto& app = Application::GetInstance();
-    return !Management().Busy() && !app.IsVoiceEnrollmentActive() &&
+    return !voice_tts::VoiceResetActive() && !Board::GetInstance().IsAudioMaintenanceActive() &&
+           !Management().Busy() && !app.IsVoiceEnrollmentActive() &&
            !app.IsExternalVoicePreviewActive();
 }
 }  // namespace
@@ -39,7 +42,8 @@ void ConfigureVoiceConsole(WebConsole::Options& options) {
         return Management().Command(action, id, name);
     };
     options.voice_upload = [](uint8_t* data, size_t length) {
-        return Management().Upload(data, length);
+        return !Application::GetInstance().IsVoiceEnrollmentActive() &&
+               Management().Upload(data, length);
     };
     options.voice_device_record = [](const std::string& name) {
         return !Management().Busy() && voice_tts::IsValidVoiceName(name) &&

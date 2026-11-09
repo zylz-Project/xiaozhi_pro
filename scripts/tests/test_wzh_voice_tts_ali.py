@@ -14,7 +14,7 @@ class AliProviderTest(unittest.TestCase):
         if not shutil.which('g++'):
             self.skipTest('C++ compiler required')
         source_file = (ROOT/'main/boards/common/wzh/voice_tts/voice_session.cc').read_text()
-        begin = queue_function(source_file, 'bool VoiceSession::Begin(')
+        begin = queue_function(source_file, 'bool VoiceSession::Begin(') + '\n' + queue_function(source_file, 'bool VoiceSession::BeginWithVoice(')
         source = r'''
 #include <atomic>
 #include <cassert>
@@ -46,6 +46,7 @@ struct VoiceSession {
  std::string provider_,api_key_,voice_id_;
  static void TaskEntry(void*){}
  bool Begin(uint32_t,std::function<void(bool)>);
+ bool BeginWithVoice(uint32_t,const std::string&,std::function<void(bool)>);
 };
 ''' + begin + r'''
 }
@@ -54,6 +55,8 @@ int main(){
  assert(session.Begin(7,[](bool){}));ali="new-key";voice="voice-B";
  assert(session.provider_=="ali" && session.api_key_=="ali-key" && session.voice_id_=="voice-A");
  assert(!session.Begin(8,[](bool){}));
+ VoiceSession preview;assert(preview.BeginWithVoice(9,"audition",[](bool){}));
+ assert(preview.voice_id_=="audition"&&voice=="voice-B");
  VoiceSession failed;fail_create=true;assert(!failed.Begin(8,[](bool){}));assert(failed.api_key_.empty());
 }
 '''

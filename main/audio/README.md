@@ -91,7 +91,7 @@ before the codec DAC. Other boards keep the untouched stream.
 
 2026-11-07 WZH maximum-volume correction: the V4-2.2 NS4150 input resistors
 R35/R37 are 30 kohm, giving 20 dB PA gain. WZH now passes that gain to ES8311's
-existing hardware compensation and uses a -3 dB maximum route target, with the
+existing hardware compensation and used a -3 dB maximum route target, with the
 original 0..80 curve and a gentler 80..100 segment. The stored UI value remains
 0..100, but the DAC level is lower at the same setting (23 dB at 100 relative
 to the previous uncorrected configuration). The curve is restored on every
@@ -99,8 +99,21 @@ device reopen. Other boards retain the original constructor defaults and curve.
 This corrects gain staging; it is not measured acoustic acceptance. See
 `docs/wzh/audio/wzh_volume100_audio_2026-11-07.md` for research, registers and validation.
 
+2026-11-09 second loudness adjustment: the WZH high-volume route now ends at
+-2 dB instead of -3 dB; the 0–80 curve and digital peak/RMS guards are
+unchanged. At volume 100 the ES8311 DAC target changes from -23 to -22 dB
+with the 20 dB PA compensation. This is a 1 dB nominal increase, not a measured
+SPL or guarantee against analog clipping. Real-device playback, power, heat,
+voice interruption and distortion testing is required on all three products.
+
+2026-11-09 follow-up: WZH board profiles use 12 dB pre-limiter makeup instead of
+9 dB. That revision kept the DAC maximum and peak/RMS protection unchanged. A comparison of
+12 bundled voice prompts measured +0.5 to +1.5 LU digitally, with sample peaks
+at or below 27524. This is a trial pending speaker, power and interruption tests
+on each device; it does not establish acoustic distortion or sound pressure.
+
 2026-11-07 loudness follow-up: hardware feedback found volume 100 too quiet.
-WZH now adds 9 dB of makeup before the RMS guard and peak limiter. This profile
+That revision added 9 dB of makeup before the RMS guard and peak limiter. This profile
 uses RMS-before-limiter routing and the existing 1 ms FIR gain smoothing even
 without speech EQ, plus a 5 ms startup ramp. The 20 dB PA compensation, DAC
 ceiling and 0.84 PCM peak limit remain unchanged. The default is 0 dB on other

@@ -1,40 +1,42 @@
 #include "wifi_board.h"
 
-#include "display.h"
 #include "application.h"
-#include "system_info.h"
-#include "settings.h"
 #include "assets/lang_config.h"
+#include "display.h"
+#include "settings.h"
+#include "system_info.h"
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+#include "wzh/wzh_system_prompts.h"
+#endif
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <esp_network.h>
 #include <esp_log.h>
 #include <esp_mac.h>
+#include <esp_network.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <utility>
 
 #include <material_symbols.h>
+#include <ssid_manager.h>
 #include <wifi_manager.h>
 #include <wifi_station.h>
-#include <ssid_manager.h>
 #ifdef CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
 #include "blufi.h"
 #endif
 
-static const char *TAG = "WifiBoard";
+static const char* TAG = "WifiBoard";
 
 // Connection timeout in seconds (Kconfig, default 60).
 static constexpr int CONNECT_TIMEOUT_SEC = CONFIG_WIFI_CONNECT_TIMEOUT_SEC;
 
 WifiBoard::WifiBoard() {
     // Create connection timeout timer
-    esp_timer_create_args_t timer_args = {
-        .callback = OnWifiConnectTimeout,
-        .arg = this,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "wifi_connect_timer",
-        .skip_unhandled_events = true
-    };
+    esp_timer_create_args_t timer_args = {.callback = OnWifiConnectTimeout,
+                                          .arg = this,
+                                          .dispatch_method = ESP_TIMER_TASK,
+                                          .name = "wifi_connect_timer",
+                                          .skip_unhandled_events = true};
     esp_timer_create(&timer_args, &connect_timer_);
 }
 
@@ -45,9 +47,7 @@ WifiBoard::~WifiBoard() {
     }
 }
 
-std::string WifiBoard::GetBoardType() {
-    return "wifi";
-}
+std::string WifiBoard::GetBoardType() { return "wifi"; }
 
 void WifiBoard::StartNetwork() {
     auto& wifi_manager = WifiManager::GetInstance();
@@ -55,23 +55,33 @@ void WifiBoard::StartNetwork() {
     // Initialize WiFi manager
     WifiManagerConfig config;
     config.ssid_prefix = wifi_ssid_prefix_;
-#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
-    /* WZH 产品：配网页默认中文（页面右上角仍可切换语言）；睡眠开关对
-     * 无屏玩具无效，隐藏以免用户困惑。OTA 地址保留，便于将来自建升级服务。 */
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    /* WZH 产品：用户配网页默认中文；睡眠开关对无屏玩具无效，隐藏以免
+     * 用户困惑。OTA 地址不再出现在用户页面，改由开发者管理台维护。 */
     config.language = "zh-CN";
     config.show_sleep_config = false;
+    config.persistent_portal = true;
+    config.station_scan_min_interval_seconds = 5;
+    config.station_scan_max_interval_seconds = 60;
 #else
     config.language = Lang::CODE;
     config.show_sleep_config = true;
 #endif
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    config.show_ota_config = false;
+#else
     config.show_ota_config = true;
+#endif
 
     // Set a DHCP hostname so the router shows a friendly name instead of "espressif".
     // Uses the same "<prefix>-<last 2 MAC bytes>" scheme as the config AP SSID.
     uint8_t mac[6];
     if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
         char hostname[32];
-        snprintf(hostname, sizeof(hostname), "%s-%02X%02X", config.ssid_prefix.c_str(), mac[4], mac[5]);
+        snprintf(hostname, sizeof(hostname), "%s-%02X%02X", config.ssid_prefix.c_str(), mac[4],
+                 mac[5]);
         config.station_hostname = hostname;
     }
     wifi_manager.Initialize(config);
@@ -80,7 +90,11 @@ void WifiBoard::StartNetwork() {
     wifi_manager.SetEventCallback([this](WifiEvent event, const std::string& data) {
         switch (event) {
             case WifiEvent::Scanning:
-                OnNetworkEvent(NetworkEvent::Scanning);
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+                if (!WifiManager::GetInstance().IsConnected())
+#endif
+                    OnNetworkEvent(NetworkEvent::Scanning);
                 break;
             case WifiEvent::Connecting:
                 OnNetworkEvent(NetworkEvent::Connecting, data);
@@ -100,7 +114,35 @@ void WifiBoard::StartNetwork() {
         }
     });
 
-    // Try to connect or enter config mode
+    // WZH keeps the user portal available independently of the STA connection.
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    wifi_manager.StartPersistentPortal();
+    if (wifi_manager.IsPersistentPortalActive()) {
+        wifi_manager.StartStation();
+        Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+        // The always-on portal no longer enters the legacy config state, so
+        // explicitly announce provisioning when no network has been saved.
+        if (SsidManager::GetInstance().GetSsidList().empty()) {
+#if CONFIG_WZH_SYSTEM_PROMPTS
+            Application::GetInstance().Schedule([]() {
+                auto& wifi = WifiManager::GetInstance();
+                std::string hint = Lang::Strings::CONNECT_TO_HOTSPOT;
+                hint += wifi.GetApSsid();
+                hint += Lang::Strings::ACCESS_VIA_BROWSER;
+                hint += wifi.GetApWebUrl();
+                Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(),
+                                                 "gear", {});
+            });
+            wzh::RequestWifiSetupPrompt();
+#else
+            EnterWifiConfigMode();
+#endif
+        }
+        return;
+    }
+#endif
+    // Other boards retain the original exclusive provisioning path.
     TryWifiConnect();
 }
 
@@ -190,10 +232,11 @@ void WifiBoard::StartWifiConfigMode() {
         hint += Lang::Strings::ACCESS_VIA_BROWSER;
         hint += wifi_manager.GetApWebUrl();
 
-        Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "gear", Lang::Sounds::OGG_WIFICONFIG);
+        Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "gear",
+                                         Lang::Sounds::OGG_WIFICONFIG);
     });
 #elif CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
-    auto &blufi = Blufi::GetInstance();
+    auto& blufi = Blufi::GetInstance();
     // initialize esp-blufi protocol
     blufi.init();
 #endif
@@ -204,32 +247,53 @@ void WifiBoard::EnterWifiConfigMode() {
     GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
 
     auto& app = Application::GetInstance();
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
+        app.Schedule([]() {
+            auto& wifi = WifiManager::GetInstance();
+            std::string hint = Lang::Strings::CONNECT_TO_HOTSPOT;
+            hint += wifi.GetApSsid();
+            hint += Lang::Strings::ACCESS_VIA_BROWSER;
+            hint += wifi.GetApWebUrl();
+            Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "gear",
+                                             Lang::Sounds::OGG_WIFICONFIG);
+        });
+        return;
+    }
+#endif
     auto state = app.GetDeviceState();
 
-    if (state == kDeviceStateSpeaking || state == kDeviceStateListening || state == kDeviceStateIdle) {
+    if (state == kDeviceStateSpeaking || state == kDeviceStateListening ||
+        state == kDeviceStateIdle) {
         // Reset protocol (close audio channel, reset protocol)
         Application::GetInstance().ResetProtocol();
 
-        xTaskCreate([](void* arg) {
-            auto* board = static_cast<WifiBoard*>(arg);
+        xTaskCreate(
+            [](void* arg) {
+                auto* board = static_cast<WifiBoard*>(arg);
 
-            // Wait for 1 second to allow speaking to finish gracefully
-            vTaskDelay(pdMS_TO_TICKS(1000));
+                // Wait for 1 second to allow speaking to finish gracefully
+                vTaskDelay(pdMS_TO_TICKS(1000));
 
-            // Stop any ongoing connection attempt
-            esp_timer_stop(board->connect_timer_);
-            WifiManager::GetInstance().StopStation();
+                // Stop any ongoing connection attempt
+                esp_timer_stop(board->connect_timer_);
+                WifiManager::GetInstance().StopStation();
 
-            // Enter config mode
-            board->StartWifiConfigMode();
+                // Enter config mode
+                board->StartWifiConfigMode();
 
-            vTaskDelete(NULL);
-        }, "wifi_cfg_delay", 4096, this, 2, NULL);
+                vTaskDelete(NULL);
+            },
+            "wifi_cfg_delay", 4096, this, 2, NULL);
         return;
     }
 
     if (state != kDeviceStateStarting) {
-        ESP_LOGE(TAG, "EnterWifiConfigMode called but device state is not starting or speaking, device state: %d", state);
+        ESP_LOGE(TAG,
+                 "EnterWifiConfigMode called but device state is not starting or speaking, device "
+                 "state: %d",
+                 state);
         return;
     }
 
@@ -240,9 +304,7 @@ void WifiBoard::EnterWifiConfigMode() {
     StartWifiConfigMode();
 }
 
-bool WifiBoard::IsInWifiConfigMode() const {
-    return WifiManager::GetInstance().IsConfigMode();
-}
+bool WifiBoard::IsInWifiConfigMode() const { return WifiManager::GetInstance().IsConfigMode(); }
 
 NetworkInterface* WifiBoard::GetNetwork() {
     static EspNetwork network;

@@ -2,6 +2,7 @@
 
 #include <esp_mac.h>
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 
 #include "ali_enrollment.h"
@@ -13,6 +14,7 @@
 namespace voice_tts {
 namespace {
 std::mutex operations;
+std::atomic<bool> reset_active{false};
 constexpr auto kNeverCancel = [] { return false; };
 std::string DevicePrefix() {
     uint8_t mac[6];
@@ -48,23 +50,23 @@ VoiceOperation LoadRemote(std::vector<std::string>& ids, std::vector<VoiceName>&
         *prefix_out = prefix;
     return VoiceOperation::kOk;
 }
-bool NameAllowed(const std::string& name, const std::string& id,
-                 const std::vector<VoiceName>& names) {
-    if (!IsValidVoiceName(name))
-        return false;
-    for (const auto& builtin : kBuiltinVoices)
-        if (name == builtin.name)
-            return false;
-    for (const auto& entry : names)
-        if (entry.name == name && entry.id != id)
-            return false;
-    return true;
+bool NameAllowed(const std::string& name, const std::string&, const std::vector<VoiceName>&) {
+    return IsValidVoiceName(name);
 }
 }  // namespace
+
+bool BeginVoiceReset() {
+    bool expected = false;
+    return reset_active.compare_exchange_strong(expected, true);
+}
+void EndVoiceReset() { reset_active.store(false); }
+bool VoiceResetActive() { return reset_active.load(); }
 
 VoiceOperation ListManagedVoices(std::vector<ManagedVoice>& result) {
     std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
     if (!lock.owns_lock())
+        return VoiceOperation::kBusy;
+    if (reset_active.load())
         return VoiceOperation::kBusy;
     std::vector<std::string> ids;
     std::vector<VoiceName> names;
@@ -91,6 +93,8 @@ VoiceOperation EnrollManagedVoice(const int16_t* samples, size_t count, const st
     std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
     if (!lock.owns_lock())
         return VoiceOperation::kBusy;
+    if (reset_active.load())
+        return VoiceOperation::kBusy;
     created.clear();
     std::vector<std::string> ids;
     std::vector<VoiceName> names;
@@ -113,7 +117,9 @@ VoiceOperation EnrollManagedVoice(const int16_t* samples, size_t count, const st
     if (label.empty()) {
         for (int i = 1; i <= 100; ++i) {
             const auto candidate = "我的音色" + std::to_string(i);
-            if (NameAllowed(candidate, "", names)) {
+            if (NameAllowed(candidate, "", names) &&
+                std::none_of(names.begin(), names.end(),
+                             [&](const VoiceName& entry) { return entry.name == candidate; })) {
                 label = candidate;
                 break;
             }
@@ -142,6 +148,8 @@ VoiceOperation RenameManagedVoice(const std::string& id, const std::string& name
     std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
     if (!lock.owns_lock())
         return VoiceOperation::kBusy;
+    if (reset_active.load())
+        return VoiceOperation::kBusy;
     std::vector<std::string> ids;
     std::vector<VoiceName> names;
     const auto status = LoadRemote(ids, names, kNeverCancel);
@@ -154,6 +162,8 @@ VoiceOperation RenameManagedVoice(const std::string& id, const std::string& name
 VoiceOperation DeleteManagedVoice(const std::string& id) {
     std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
     if (!lock.owns_lock())
+        return VoiceOperation::kBusy;
+    if (reset_active.load())
         return VoiceOperation::kBusy;
     std::vector<std::string> ids;
     std::vector<VoiceName> names;
@@ -169,9 +179,80 @@ VoiceOperation DeleteManagedVoice(const std::string& id) {
     const bool names_ok = RemoveVoiceName(id);
     return previous_ok && names_ok ? VoiceOperation::kOk : VoiceOperation::kSave;
 }
+VoiceOperation ResetManagedVoices(const std::function<bool()>& cancelled,
+                                  const std::function<void(size_t, size_t)>& progress,
+                                  const std::function<void()>& clearing_local) {
+    std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
+    if (!lock.owns_lock())
+        return VoiceOperation::kBusy;
+    std::vector<std::string> ids;
+    std::vector<VoiceName> names;
+    std::string key, prefix;
+    auto status = LoadRemote(ids, names, cancelled, &key, &prefix);
+    if (status != VoiceOperation::kOk)
+        return status;
+    int unresolved = -1;
+    if (!LoadVoiceReservation(unresolved))
+        return VoiceOperation::kSave;
+    if (unresolved >= 0)
+        return VoiceOperation::kUncertain;
+    size_t completed = 0;
+    size_t total = ids.size();
+    if (progress)
+        progress(completed, total);
+    // Provider list is bounded to 11 IDs per fetch. Re-list after each batch so
+    // no matching cloud voice is missed even if a prior client exceeded limits.
+    while (!ids.empty()) {
+        for (const auto& id : ids) {
+            if (cancelled())
+                return VoiceOperation::kCancelled;
+            bool removed = false;
+            for (int attempt = 0; attempt < 2 && !removed && !cancelled(); ++attempt) {
+                removed = DeleteAliVoice(key, prefix, id, cancelled, 5000);
+                if (!removed) {
+                    std::vector<std::string> remaining;
+                    if (ListAliVoices(key, prefix, cancelled, remaining) && remaining.size() < 11 &&
+                        std::find(remaining.begin(), remaining.end(), id) == remaining.end())
+                        removed = true;  // Already absent (including a prior successful retry).
+                }
+            }
+            if (!removed)
+                return cancelled() ? VoiceOperation::kCancelled : VoiceOperation::kNetwork;
+            // Commit local reconciliation immediately after each confirmed cloud deletion.
+            if (id == LoadAliVoice() && !SaveAliVoice(kBuiltinVoices[0].id))
+                return VoiceOperation::kSave;
+            if (!ForgetPreviousAliVoice(id) || !RemoveVoiceName(id))
+                return VoiceOperation::kSave;
+            if (++completed > 64)
+                return VoiceOperation::kNetwork;
+            if (progress)
+                progress(completed, total);
+        }
+        ids.clear();
+        if (!ListAliVoices(key, prefix, cancelled, ids))
+            return cancelled() ? VoiceOperation::kCancelled : VoiceOperation::kNetwork;
+        total = completed + ids.size();
+        if (progress)
+            progress(completed, total);
+    }
+    // Clean stale local entries left by previously interrupted cloud operations.
+    if (clearing_local)
+        clearing_local();
+    if (!LoadVoiceNames(names))
+        return VoiceOperation::kSave;
+    for (const auto& entry : names)
+        if (!RemoveVoiceName(entry.id))
+            return VoiceOperation::kSave;
+    if (!ClearAliVoiceSelection() || !SaveVoiceReservation(-1))
+        return VoiceOperation::kSave;
+    return VoiceOperation::kOk;
+}
+
 VoiceOperation SelectManagedVoice(const std::string& id) {
     std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
     if (!lock.owns_lock())
+        return VoiceOperation::kBusy;
+    if (reset_active.load())
         return VoiceOperation::kBusy;
     if (!Builtin(id)) {
         std::vector<std::string> ids;
@@ -188,6 +269,8 @@ VoiceOperation SelectManagedVoice(const std::string& id) {
 VoiceOperation SelectKnownVoice(const std::string& id, const std::function<bool()>& cancelled) {
     std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
     if (!lock.owns_lock())
+        return VoiceOperation::kBusy;
+    if (reset_active.load())
         return VoiceOperation::kBusy;
     if (!Builtin(id)) {
         std::vector<VoiceName> names;

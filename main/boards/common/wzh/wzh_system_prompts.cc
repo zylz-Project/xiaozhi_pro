@@ -25,6 +25,10 @@ std::mutex gate_mutex;
 LowBatteryPromptGate battery_gate;
 std::atomic<bool> worker_started{false};
 std::atomic<bool> shutting_down{false};
+#if CONFIG_WZH_SYSTEM_PROMPTS
+std::atomic<bool> wifi_setup_requested{false};
+std::atomic<uint32_t> wifi_setup_requested_ms{0};
+#endif
 std::atomic<uint32_t> shutdown_serial{0};
 std::atomic<uint32_t> shutdown_ready{0};
 std::atomic<uint32_t> shutdown_requested{0};
@@ -82,7 +86,19 @@ void Worker(void*) {
             }
         }
 #if CONFIG_WZH_SYSTEM_PROMPTS
-        else if (!shutting_down.load() && !low_generation) {
+        else if (!shutting_down.load() && wifi_setup_requested.load()) {
+            const auto now = esp_log_timestamp();
+            const auto elapsed = now - wifi_setup_requested_ms.load();
+            if (elapsed >= 15000 || app.GetDeviceState() != kDeviceStateIdle) {
+                wifi_setup_requested.store(false);
+            } else if (elapsed >= 500 && audio.IsPlaybackIdle() &&
+                       !audio.IsAudioProcessorRunning() &&
+                       !Board::GetInstance().IsAudioMaintenanceActive()) {
+                wifi_setup_requested.store(false);
+                ESP_LOGI(kTag, "Playing first Wi-Fi setup prompt");
+                audio.PlaySound(Lang::Sounds::OGG_WIFICONFIG, audio.GetPlaybackGeneration());
+            }
+        } else if (!shutting_down.load() && !low_generation) {
             // Capture BEFORE the state/idle checks: entering conversation in
             // between invalidates this generation and cancels the old prompt.
             const auto generation = audio.GetPlaybackGeneration();
@@ -116,6 +132,13 @@ void StartSystemPrompts() {
         if (!started)
             ESP_LOGE(kTag, "Cannot start prompt worker; safety and shutdown remain available");
     }
+}
+
+void RequestWifiSetupPrompt() {
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    wifi_setup_requested_ms.store(esp_log_timestamp());
+    wifi_setup_requested.store(true);
+#endif
 }
 
 void ObserveSystemPromptBattery(bool ready, bool low) {

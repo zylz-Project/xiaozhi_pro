@@ -12,4 +12,5 @@ bool SaveAliVoice(const std::string& voice);
 bool CommitAliVoice(const std::string& voice);
 bool RestorePreviousAliVoice();
 bool ForgetPreviousAliVoice(const std::string& voice);
+bool ClearAliVoiceSelection();
 }  // namespace voice_tts

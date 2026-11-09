@@ -33,6 +33,8 @@ private:
 // Calls from the power task never enqueue/decode audio. A single worker owns
 // prompt production; the application/audio tasks keep their normal priorities.
 void StartSystemPrompts();
+// First provisioning prompt waits for startup audio and initialization cleanup.
+void RequestWifiSetupPrompt();
 void ObserveSystemPromptBattery(bool ready, bool low);
 void BeginSystemPromptShutdown();
 // Power task only; bounded wait includes production AND final PCM drain. The

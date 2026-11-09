@@ -15,7 +15,7 @@ class VoiceHandoffTest(unittest.TestCase):
             self.skipTest('C++ compiler required')
         text = (ROOT / 'main/boards/common/wzh/voice_tts/voice_session.cc').read_text()
         methods = '\n'.join(queue_function(text, 'bool VoiceSession::'+name+'(')
-                            for name in ['Ready', 'Begin', 'Enqueue'])
+                            for name in ['Ready', 'ReadyForVoice', 'Begin', 'BeginWithVoice', 'Enqueue'])
         methods += '\n' + '\n'.join(queue_function(text, 'void VoiceSession::'+name+'(')
                                       for name in ['Finish', 'Cancel', 'CompleteWorker'])
         code = r'''
@@ -55,7 +55,10 @@ struct VoiceSession {
  uint32_t playback_generation_=0;bool finished_=false,failed_=false,had_text_=false,overflow_=false;
  size_t queued_bytes_=0;std::string provider_,api_key_,voice_id_;
  static void TaskEntry(void*){}
- bool Ready();bool Begin(uint32_t,std::function<void(bool)>);bool Enqueue(const std::string&);
+ bool Ready();bool ReadyForVoice(const std::string&);
+ bool Begin(uint32_t,std::function<void(bool)>);
+ bool BeginWithVoice(uint32_t,const std::string&,std::function<void(bool)>);
+ bool Enqueue(const std::string&);
  void Finish();void Cancel();void CompleteWorker(uint32_t);
 };
 ''' + methods + r'''

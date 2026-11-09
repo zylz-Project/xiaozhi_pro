@@ -217,7 +217,7 @@ dialog::backdrop{background:#16292488}dialog h2{margin-top:0}dialog label{displa
 
   <section class="card hero">
     <div class="hero-main">
-      <span class="eyebrow">本地管理页 · 设备热点</span>
+      <span class="eyebrow">开发者管理页 · 局域网</span>
       <div class="product-line">
         <h1 id="productName">读取中…</h1>
         <span class="state-pill" id="statePill"><i></i><span id="stateText">连接中</span></span>
@@ -335,10 +335,13 @@ dialog::backdrop{background:#16292488}dialog h2{margin-top:0}dialog label{displa
         <button class="dev-tab" id="devTabVoice" type="button" role="tab" aria-controls="voiceKeyPanel" aria-selected="false" tabindex="-1" hidden>音色复刻</button>
       </div>
       <div id="devGeneral" role="tabpanel" aria-labelledby="devTabGeneral">
+      <div class="field"><label for="otaUrl">OTA 版本服务地址</label><input id="otaUrl" type="url" maxlength="255" placeholder="留空使用固件默认地址"></div>
+      <div class="dev-ops"><button class="btn" id="otaLoad">读取 OTA 地址</button><button class="btn" id="otaSave">保存 OTA 地址</button><span class="dev-small" id="otaResult"></span></div>
       <div class="dev-grid">
         <div><h3>扬声器音量</h3><div class="dev-control"><input id="devVolume" type="range" min="0" max="100" value="70" aria-label="扬声器音量"><output id="devVolumeValue">70%</output><button class="btn primary" id="devVolumeSave">应用音量</button></div><p class="dev-small">0 为静音，应用后保存，重启仍保留。</p></div>
         <div><h3>声音与动作联动</h3><div id="devVoice">等待真实声音…</div><div class="dev-meter"><i id="devLevel"></i></div><div class="dev-ops"><button class="btn" id="devDemo">随机展示一段</button><button class="btn" id="devCenter">停止并归中</button></div><p class="dev-small">展示使用现有动物音和配套动作；保护生效时暂停动作。</p></div>
       </div>
+      <div class="dev-ops"><button class="btn danger" id="devFactoryReset">恢复出厂设置</button><span class="dev-small" id="devFactoryStatus"></span></div>
       <div class="dev-ops"><button class="btn ghost" id="devExport">导出诊断和音频目录</button><span class="dev-small" id="devMemory">正在读取诊断…</span></div>
       <p class="dev-small" id="devPlayback">播放缓冲读取中…</p>
       <div class="dev-danger"><h3>外置音频 Flash</h3><p>清空外置 Flash 的音效和目录，预置调校配套保留。外置音频可手动重新导入；设备固件、小智绑定和 Wi-Fi 配置保留。对话或更新进行中无法擦除。</p><button class="btn danger" id="devErase">擦除外置 Flash 音频</button></div>
@@ -350,24 +353,24 @@ dialog::backdrop{background:#16292488}dialog h2{margin-top:0}dialog label{displa
         <p class="dev-small" id="aliCurrentVoice">当前音色：读取中…</p>
         <p class="dev-small" id="aliEnrollmentStatus" role="status">复刻状态：未开始</p>
         <p class="dev-small" id="aliPreviousVoice" style="overflow-wrap:anywhere">上一个音色：无</p>
-        <div class="dev-ops"><button class="btn" id="aliVoiceRestore" disabled>切回上一个音色</button><button class="btn" id="aliVoicePreview">试听当前音色</button><button class="btn" id="voiceCancel" disabled>取消录音或试听</button><span class="dev-small" id="aliVoicePreviewStatus"></span></div>
+        <div class="dev-ops"><button class="btn" id="aliVoiceRestore" disabled>切回上一个音色</button><button class="btn" id="aliVoicePreview">试听当前音色</button><button class="btn" id="voiceCancel" disabled>取消声音任务或试听</button><span class="dev-small" id="aliVoicePreviewStatus"></span></div>
         <p class="dev-small">空闲时可试听当前音色；切回后再次点击“切回”可恢复刚才的音色。</p>
         <h3>音色管理</h3>
         <p class="dev-small">系统音色每台设备都可使用；本设备最多保留 10 个专属音色。新音色创建成功后会用于聊天，也可以切回上一个声音。删除会同时删除阿里云中的对应音色。</p>
         <div class="dev-ops"><button class="btn" id="voiceCatalogRefresh">刷新音色列表</button><span class="dev-small" id="voiceCatalogStatus">请先刷新</span></div>
         <div id="voiceCatalog" aria-live="polite"></div>
-        <h3>录制并创建音色</h3>
+        <h3>录制或上传录音并创建音色</h3>
         <p class="dev-small">请在安静环境中自然朗读 5～20 秒：你好，我正在录制自己的声音。今天的天气很好，希望未来的每一天都充满快乐。</p>
         <div class="field"><label for="voiceName">音色名称</label><input id="voiceName" type="text" maxlength="16" autocomplete="off" placeholder="例如：妈妈的声音"></div>
         <div class="dev-ops"><button class="btn primary" id="voiceDeviceRecord">用设备麦克风录音</button><span class="dev-small">设备空闲时点击，听提示后靠近设备从一数到二十。</span></div>
-        <p class="dev-small">也可以用当前浏览器录音或选择音频文件上传：</p>
-        <div class="dev-ops"><button class="btn" id="voiceRecordStart">开始录音</button><button class="btn" id="voiceRecordStop" disabled>结束录音</button></div>
-        <p class="dev-small" id="voiceRecordStatus">也可以选择系统录音或已有音频文件。</p>
-        <div class="field"><label for="voiceFile">选择或录制音频文件</label><input id="voiceFile" type="file" accept="audio/*" capture="user"></div>
+        <p class="dev-small">用手机/电脑麦克风录音，或选择已有的音频文件上传：</p>
+        <div class="dev-ops"><button class="btn" id="voiceRecordStart">用浏览器麦克风录音</button><button class="btn" id="voiceRecordStop" disabled>结束录音</button></div>
+        <p class="dev-small" id="voiceRecordStatus">无法直接录音时，请选择手机/电脑里已有的音频文件。</p>
+        <div class="field"><label for="voiceFile">选择录音文件（手机可用系统录音）</label><input id="voiceFile" type="file" accept="audio/*" capture="user"></div>
         <audio id="voiceRecordPreview" controls hidden></audio>
         <div class="dev-ops"><button class="btn primary" id="voiceCreate" disabled>上传并创建音色</button></div>
         <details class="voice-settings" id="voiceSettingsDetails" open><summary>阿里服务设置</summary>
-        <p class="dev-small">管理页使用 HTTP，设备存储未加密，请仅在可信热点配置测试 Key。配置后下一个对话回复生效；配置不完整时使用官方原声。</p>
+        <p class="dev-small">管理页使用 HTTP，设备存储未加密，请仅在可信局域网配置测试 Key。配置后下一个对话回复生效；配置不完整时使用官方原声。</p>
         <div class="field"><label for="aliKey">阿里百炼 API Key（保存后不显示）</label><input id="aliKey" type="password" autocomplete="off" maxlength="256"></div>
         <div class="dev-ops"><button class="btn" id="aliKeySave">保存阿里 Key</button><button class="btn" id="aliKeyDelete">删除阿里 Key</button><span id="aliKeyStatus" class="dev-small"></span></div>
         </details>
@@ -380,7 +383,7 @@ dialog::backdrop{background:#16292488}dialog h2{margin-top:0}dialog label{displa
     <div class="card-head">
       <div>
         <h2 class="card-title">本地接口</h2>
-        <p class="card-sub">同一热点下访问 <code>http://192.168.4.1:8080</code>；写入调试接口需要开发者令牌</p>
+        <p class="card-sub">通过局域网访问设备 IP 的 8080 端口；开发接口需要开发者会话</p>
       </div>
     </div>
     <div class="card-body api-grid">
@@ -398,9 +401,9 @@ POST /api/developer/center
 POST /api/developer/demo
 POST /api/developer/flash/erase {"confirm":"ERASE"}</div>
       <div>
-        <div class="code">curl http://192.168.4.1:8080/api/audio
+        <div class="code">curl http://设备局域网IP:8080/api/audio
 
-curl -X POST http://192.168.4.1:8080/api/audio/play \
+curl -X POST http://设备局域网IP:8080/api/audio/play \
   -H 'Content-Type: application/json' \
   -d '{"name":"熊猫撒娇声音"}'</div>
         <p class="api-note">页面与 MCP 共用同一份设备目录；不会另建一套对话协议，也不会把 Hub token 下发给浏览器。</p>
@@ -428,7 +431,7 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 
-<dialog id="developerDialog"><form id="developerLoginForm"><h2>进入开发者模式</h2><p>解锁专属音色、音量、动作检查和 Flash 维护。普通音频浏览与小智对话无需进入。</p><label for="developerPassword">开发者密码</label><input id="developerPassword" type="password" autocomplete="off" required><p class="form-error" id="developerError" role="alert"></p><div class="dialog-actions"><button type="button" class="btn ghost" id="developerCancel">取消</button><button type="submit" class="btn primary" id="developerLogin">进入</button></div></form></dialog>
+<dialog id="developerDialog"><form id="developerLoginForm"><h2>进入开发者模式</h2><p>登录后可使用音频库、音色管理、设备调试和 Flash 维护。</p><label for="developerPassword">开发者密码</label><input id="developerPassword" type="password" autocomplete="off" required><p class="form-error" id="developerError" role="alert"></p><div class="dialog-actions"><button type="button" class="btn ghost" id="developerCancel">取消</button><button type="submit" class="btn primary" id="developerLogin">进入</button></div></form></dialog>
 <dialog id="eraseDialog"><form id="eraseForm"><h2>清空外置音频 Flash？</h2><p id="eraseDetail">全部本地音频和目录将被删除，无法撤销。</p><p>擦除期间请保持供电。此操作不会擦除设备固件、小智绑定或 Wi-Fi 配置。</p><label for="eraseConfirm">输入 ERASE 确认清空</label><input id="eraseConfirm" autocomplete="off" spellcheck="false" required><p class="form-error" id="eraseError" role="alert"></p><div class="dialog-actions"><button type="button" class="btn ghost" id="eraseCancel">取消</button><button type="submit" class="btn danger" id="eraseSubmit" disabled>确认擦除</button></div></form></dialog>
 
 <script>
@@ -444,6 +447,7 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
   var hubPoll = null;
   var statusPoll = null;
   var developerToken = "";
+  var loginPrompted = false;
   var developerData = null;
   var developerTab = "general";
   var volumeDirty = false;
@@ -600,7 +604,7 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
     $('wifiDetail').textContent = wifi.connected
       ? ((wifi.ip || '—') + ' · ' + (wifi.rssi || '—') + ' dBm')
       : '仅热点可用';
-    $('apInfo').innerHTML = '设备热点 <code>' + escapeHtml(wifi.ap_ssid || '—') + '</code> · 管理页 <code>192.168.4.1:8080</code>';
+    $('apInfo').innerHTML = '设备热点 <code>' + escapeHtml(wifi.ap_ssid || '—') + '</code> · 局域网管理页 <code>' + escapeHtml(wifi.ip || '—') + ':8080</code>';
     setNet(wifi.connected ? '已联网 · 热点可用' : '设备热点 · 未连路由器', wifi.connected ? 'on' : 'off');
 
     $('temp').textContent = (s.temperature_c === undefined || s.temperature_c === null)
@@ -616,7 +620,7 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
 
     $('diagState').textContent = STATE_LABEL[state] || state;
     $('diagUptime').textContent = formatUptime(s.uptime_s);
-    $('diagAp').textContent = (wifi.ap_ssid || '—') + ' · 192.168.4.1:8080';
+    $('diagAp').textContent = (wifi.ap_ssid || '—') + ' · ' + (wifi.ip || '局域网 IP') + ':8080';
     $('diagIp').textContent = wifi.ip || '—';
     $('diagWrite').textContent = flash.writing ? '写入中' : '空闲';
     var hub = s.hub || {};
@@ -876,6 +880,11 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
       renderStatus();
       if (developerToken) await refreshDeveloper();
     } catch (e) {
+      if (e.message === 'developer_locked') {
+        setNet('需要开发者登录', 'off');
+        promptDeveloperLogin();
+        return;
+      }
       setNet('设备连接中断，正在重试…', 'off');
       $('batteryVoltage').textContent = '— V';
       $('batteryVoltage').title = '设备连接中断';
@@ -898,7 +907,8 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
       audioFiles = (data.paired || []).concat(data.files || []);
       renderAudio();
     } catch (e) {
-      $('audioRows').innerHTML = '<div class="empty">读取目录失败</div>';
+      $('audioRows').innerHTML = '<div class="empty">' +
+        (e.message === 'developer_locked' ? '登录后显示音频库' : '读取目录失败') + '</div>';
     }
   }
 
@@ -940,6 +950,15 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
   });
 
 
+  function promptDeveloperLogin() {
+    if (loginPrompted || developerToken || !$('developerDialog')) return;
+    loginPrompted = true;
+    $('developerError').textContent = '请先输入开发者密码。';
+    $('developerPassword').value = '';
+    if (!$('developerDialog').open) $('developerDialog').showModal();
+    $('developerPassword').focus();
+  }
+
   function lockDeveloper() {
     voiceCaptureGeneration++;
     if (voiceRecording && voiceRecording.state !== 'inactive') {
@@ -964,6 +983,29 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
     if ($('eraseDialog').open) $('eraseDialog').close();
   }
 
+  $('devFactoryReset').addEventListener('click', async function () {
+    var confirmText = prompt('将删除本机云端音色并清除 Wi-Fi，然后重启。请输入“确定恢复出厂设置”');
+    if (confirmText === null || confirmText.trim() !== '确定恢复出厂设置') return;
+    try {
+      await developerRequest('factory-reset', {confirm: confirmText.trim()});
+      $('devFactoryStatus').textContent = '正在恢复，请保持供电';
+      var timer = setInterval(async function () {
+        try { var data = await developerRequest('factory-reset');
+          var phases = {checking:'正在检查设备状态…',deleting_cloud:'正在删除云端音色…',clearing_local:'正在清理本地音色记录…',clearing_wifi:'正在清除网络配置…',rebooting:'设备正在重启…',failed:'恢复失败'};
+          $('devFactoryStatus').textContent = data.error ? data.error.message : (phases[data.phase] || '恢复进度：' + data.phase);
+          if (data.phase === 'failed') clearInterval(timer);
+        } catch (e) { clearInterval(timer); $('devFactoryStatus').textContent = '设备正在重启，请重新连接设备热点'; }
+      }, 1000);
+    } catch (e) { $('devFactoryStatus').textContent = '未开始恢复，请检查网络和设备状态'; }
+  });
+  $('otaLoad').addEventListener('click', async function () {
+    try { var data = await developerRequest('ota'); $('otaUrl').value = data.url || ''; $('otaResult').textContent = '已读取'; }
+    catch (e) { $('otaResult').textContent = '读取失败，请重试'; }
+  });
+  $('otaSave').addEventListener('click', async function () {
+    try { await developerRequest('ota', {url: $('otaUrl').value.trim()}); $('otaResult').textContent = '已保存，下一次版本检查生效'; }
+    catch (e) { $('otaResult').textContent = '保存失败，请检查地址'; }
+  });
   function developerRequest(path, payload) {
     return getJson('/api/developer/' + path, {
       method: payload === undefined ? 'GET' : 'POST',
@@ -973,7 +1015,15 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
   }
 
   var voiceRecording = null, voiceStream = null, voiceChunks = [], voiceBlob = null, voiceRecordTimer = null, voicePreviewUrl = '', voiceCatalogSignature = '', voiceUploadWorking = false, voiceCaptureGeneration = 0;
-  if (!window.isSecureContext)
+  var appleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (appleMobile) {
+    // iOS Safari may treat audio/* and capture as video-only. Let Files show
+    // voice memos saved to disk; the browser mic is optional.
+    $('voiceFile').removeAttribute('accept');
+    $('voiceFile').removeAttribute('capture');
+    $('voiceRecordStatus').textContent = '请先在语音备忘录中录音并存储到“文件”，再选择上传。';
+  } else if (!window.isSecureContext)
     $('voiceRecordStatus').textContent = '当前 HTTP 页面可能无法直接使用麦克风，请用下方系统录音或选择音频文件。';
   function showVoiceBlob(blob) {
     voiceBlob = blob;
@@ -1153,8 +1203,8 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
     var previewNames = {idle:'',playing:'正在试听…',complete:'试听完成',failed:'试听失败，请检查网络与阿里配置',cancelled:'试听已取消'};
     $('aliVoicePreviewStatus').textContent = previewNames[d.voice_preview_status] || '';
     $('aliVoicePreview').disabled = d.state !== 'idle' || d.voice_preview_status === 'playing';
-    var voiceBusy = ['prompt','recording','processing'].includes(d.voice_enrollment_status);
-    $('voiceCancel').disabled = !voiceBusy && d.voice_preview_status !== 'playing' && !d.voice_management_cancellable;
+    var voiceBusy = ['prompt','recording','processing'].includes(d.voice_enrollment_status) || !!d.voice_management_cancellable;
+    $('voiceCancel').disabled = !voiceBusy && d.voice_preview_status !== 'playing';
     renderVoiceCatalog(d);
     var running = !!(d.erase && d.erase.running);
     if (!volumeDirty && document.activeElement !== $('devVolume') && audio.volume !== undefined) {
@@ -1246,12 +1296,16 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
     try {
       var result = await postJson('/api/developer/login', { password: $('developerPassword').value });
       developerToken = result.token;
+      loginPrompted = false;
       $('developerPassword').value = '';
       $('developerDialog').close();
       $('developerPanel').hidden = false;
       $('developerApi').hidden = false;
       $('developerOpen').textContent = '开发工作台';
       await refreshDeveloper();
+      await refreshStatus();
+      await refreshAudio();
+      await loadDiff();
       $('developerPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
       toast('已进入开发者模式，有效期 30 分钟');
     } catch (e) {
@@ -1263,6 +1317,7 @@ curl -X POST http://192.168.4.1:8080/api/audio/play \
   $('developerClose').addEventListener('click', async function () {
     try { await developerRequest('logout', {}); } catch (e) { /* local lock still applies */ }
     lockDeveloper();
+    loginPrompted = true;
     toast('已退出开发者模式；已开始的维护任务继续执行');
   });
   $('devVolume').addEventListener('input', function () {

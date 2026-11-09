@@ -15,5 +15,5 @@ bool CreateAliVoice(const std::string& key, const int16_t* samples, size_t count
 bool ListAliVoices(const std::string& key, const std::string& prefix,
                    const std::function<bool()>& cancelled, std::vector<std::string>& voices);
 bool DeleteAliVoice(const std::string& key, const std::string& prefix, const std::string& voice,
-                    const std::function<bool()>& cancelled);
+                    const std::function<bool()>& cancelled, int timeout_ms = 30000);
 }  // namespace voice_tts

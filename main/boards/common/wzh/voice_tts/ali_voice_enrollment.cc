@@ -246,10 +246,16 @@ void AliVoiceEnrollment::RunSelection(uint32_t generation, const std::string& te
             selection_deadline_us_.store(0);
             std::string chosen;
             size_t longest = 0;
+            bool ambiguous = false;
             auto match = [&](const std::string& name, const std::string& id) {
-                if (name.size() > longest && text.find(name) != std::string::npos) {
+                if (text.find(name) == std::string::npos)
+                    return;
+                if (name.size() > longest) {
                     chosen = id;
                     longest = name.size();
+                    ambiguous = false;
+                } else if (name.size() == longest && id != chosen) {
+                    ambiguous = true;
                 }
             };
             for (const auto& builtin : kBuiltinVoices)
@@ -258,6 +264,8 @@ void AliVoiceEnrollment::RunSelection(uint32_t generation, const std::string& te
                 match(entry.name, entry.id);
             if (text.find("取消") != std::string::npos) {
                 ok = Speak("好的，保持现在的音色。", generation);
+            } else if (ambiguous) {
+                ok = Speak("有多个相同名称的音色，请在设备页面选择。", generation);
             } else if (!chosen.empty()) {
                 const auto result = SelectKnownVoice(chosen, cancelled);
                 if (result == VoiceOperation::kOk)

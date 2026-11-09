@@ -54,11 +54,11 @@ bool OwnedVoice(const std::string& voice, const std::string& prefix) {
     return true;
 }
 
-Client Open(const std::string& key, size_t length) {
+Client Open(const std::string& key, size_t length, int timeout_ms = 30000) {
     esp_http_client_config_t config{};
     config.url = kUrl;
     config.method = HTTP_METHOD_POST;
-    config.timeout_ms = 30000;
+    config.timeout_ms = timeout_ms;
     config.crt_bundle_attach = esp_crt_bundle_attach;
     config.disable_auto_redirect = true;
     Client client(esp_http_client_init(&config));
@@ -299,7 +299,7 @@ bool ListAliVoices(const std::string& key, const std::string& prefix,
 }
 
 bool DeleteAliVoice(const std::string& key, const std::string& prefix, const std::string& voice,
-                    const std::function<bool()>& cancelled) {
+                    const std::function<bool()>& cancelled, int timeout_ms) {
     if (key.empty() || key.size() > 256 || key.find_first_of("\r\n") != std::string::npos ||
         !ValidPrefix(prefix) || !OwnedVoice(voice, prefix) || cancelled())
         return false;
@@ -313,7 +313,7 @@ bool DeleteAliVoice(const std::string& key, const std::string& prefix, const std
                                                          cJSON_free);
     if (!payload)
         return false;
-    Client client = Open(key, std::strlen(payload.get()));
+    Client client = Open(key, std::strlen(payload.get()), timeout_ms);
     if (!client || !Write(client.get(), payload.get(), std::strlen(payload.get()), cancelled))
         return false;
     Json response = Response(client.get(), cancelled, nullptr);
