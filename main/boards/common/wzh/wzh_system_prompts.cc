@@ -24,9 +24,11 @@ constexpr const char* kTag = "SystemPrompts";
 std::mutex gate_mutex;
 LowBatteryPromptGate battery_gate;
 std::atomic<bool> worker_started{false};
+std::atomic<bool> startup_network_ready{false};
 std::atomic<bool> shutting_down{false};
 #if CONFIG_WZH_SYSTEM_PROMPTS
 std::atomic<bool> wifi_setup_requested{false};
+std::atomic<bool> wifi_setup_producing{false};
 std::atomic<uint32_t> wifi_setup_requested_ms{0};
 #endif
 std::atomic<uint32_t> shutdown_serial{0};
@@ -94,9 +96,13 @@ void Worker(void*) {
             } else if (elapsed >= 500 && audio.IsPlaybackIdle() &&
                        !audio.IsAudioProcessorRunning() &&
                        !Board::GetInstance().IsAudioMaintenanceActive()) {
+                // Keep startup greeting out until this producer has enqueued
+                // the prompt; IsPlaybackIdle alone has a pre-enqueue gap.
+                wifi_setup_producing.store(true);
                 wifi_setup_requested.store(false);
                 ESP_LOGI(kTag, "Playing first Wi-Fi setup prompt");
                 audio.PlaySound(Lang::Sounds::OGG_WIFICONFIG, audio.GetPlaybackGeneration());
+                wifi_setup_producing.store(false);
             }
         } else if (!shutting_down.load() && !low_generation) {
             // Capture BEFORE the state/idle checks: entering conversation in
@@ -138,6 +144,18 @@ void RequestWifiSetupPrompt() {
 #if CONFIG_WZH_SYSTEM_PROMPTS
     wifi_setup_requested_ms.store(esp_log_timestamp());
     wifi_setup_requested.store(true);
+#endif
+}
+
+void MarkStartupNetworkReady() { startup_network_ready.store(true); }
+
+bool StartupGreetingAudioReady() {
+    if (!worker_started.load() || !startup_network_ready.load() || shutting_down.load())
+        return false;
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    return !wifi_setup_requested.load() && !wifi_setup_producing.load();
+#else
+    return true;
 #endif
 }
 

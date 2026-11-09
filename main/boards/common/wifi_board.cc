@@ -139,11 +139,16 @@ void WifiBoard::StartNetwork() {
             EnterWifiConfigMode();
 #endif
         }
+        wzh::MarkStartupNetworkReady();
         return;
     }
 #endif
     // Other boards retain the original exclusive provisioning path.
     TryWifiConnect();
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    wzh::MarkStartupNetworkReady();
+#endif
 }
 
 void WifiBoard::TryWifiConnect() {

@@ -12,6 +12,7 @@
 #include "application.h"
 #include "assets/lang_config.h"
 #include "config.h"
+#include "wzh_fast_battery_start.h"
 #include "wzh_power_startup.h"
 #include "wzh_system_prompts.h"
 #include "wzh_touch_input.h"
@@ -267,6 +268,8 @@ void PandaPower::Task() {
     int click_count = 0;
     uint32_t last_battery_sample_ms = 0;
     bool battery_settled = false;
+    uint32_t last_fast_battery_sample_ms = 0;
+    wzh::FastBatteryStart fast_battery;
     wzh::TouchInputFilter touch_filter(TOUCH_STABLE_SAMPLES);
 
     vTaskDelay(pdMS_TO_TICKS(1200));  // 等待音频服务就绪
@@ -443,7 +446,42 @@ void PandaPower::Task() {
         battery_rest_voltage_.ObserveLoad(battery_loaded, now);
         battery_load_active_.store(battery_loaded);
         battery_rest_ready_.store(battery_rest_voltage_.RestReady(now));
-        // The high-impedance divider needs its original 15 s startup settling.
+        // Probe early without changing low-voltage state. Only a calibrated,
+        // conservative five-sample qualification can release the startup lock;
+        // otherwise the original 15 s + one-second confirmation path runs.
+        if (!battery_settled && now < 15000 &&
+            now - last_fast_battery_sample_ms >= wzh::FastBatteryStart::kProbeIntervalMs) {
+            last_fast_battery_sample_ms = now;
+            int measured_mv = 0;
+            const bool valid =
+                battery_adc_cali_ != nullptr &&
+                wzh::ReadFastBatteryProbe(
+                    [this](int& raw) {
+                        return adc_oneshot_read(adc_, BATTERY_ADC_CHANNEL, &raw) == ESP_OK;
+                    },
+                    [this](int raw, int& mv) {
+                        return battery_adc_cali_ != nullptr &&
+                               adc_cali_raw_to_voltage(battery_adc_cali_, raw, &mv) == ESP_OK;
+                    },
+                    measured_mv);
+            if (fast_battery.Observe(now, valid, measured_mv, BATTERY_RECOVER_MV)) {
+                if (auto* output = servo_output_.load()) {
+                    if (wzh::CommitFastBatteryStart(
+                            fast_battery, battery_protection_, battery_rest_voltage_.RestReady(now),
+                            BATTERY_LOW_MV, BATTERY_RECOVER_MV, BATTERY_CRITICAL_MV)) {
+                        battery_live_mv_.store(measured_mv);
+                        battery_protection_mv_.store(battery_protection_.millivolts());
+                        battery_sample_valid_.store(true);
+                        output->SetFault(wzh::kLowBattery, false);
+                        output->SetFault(wzh::kBatteryPending, false);
+                        battery_settled = true;
+                        last_battery_sample_ms = now;
+                        ESP_LOGI(TAG, "Fast battery startup qualified at %lu ms, %d mV",
+                                 static_cast<unsigned long>(now), measured_mv);
+                    }
+                }
+            }
+        }
         if ((battery_settled || now >= 15000) &&
             now - last_battery_sample_ms >= BATTERY_READ_INTERVAL_MS) {
             battery_settled = true;

@@ -35,6 +35,10 @@ private:
 void StartSystemPrompts();
 // First provisioning prompt waits for startup audio and initialization cleanup.
 void RequestWifiSetupPrompt();
+// Wait until network startup has decided whether to request first-time setup.
+void MarkStartupNetworkReady();
+// Wait for the startup chime and any first-setup prompt to be queued.
+bool StartupGreetingAudioReady();
 void ObserveSystemPromptBattery(bool ready, bool low);
 void BeginSystemPromptShutdown();
 // Power task only; bounded wait includes production AND final PCM drain. The

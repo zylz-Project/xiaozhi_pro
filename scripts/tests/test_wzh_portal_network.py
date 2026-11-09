@@ -56,7 +56,8 @@ struct Application{
  void Alert(const char*,const char*,const char*,std::string){}
 };
 namespace Lang{namespace Strings{constexpr auto CONNECT_TO_HOTSPOT="ssid",ACCESS_VIA_BROWSER="url",WIFI_CONFIG_MODE="setup";}}
-namespace wzh{int prompts=0;void RequestWifiSetupPrompt(){++prompts;}}
+namespace wzh{int prompts=0,ready=0;void RequestWifiSetupPrompt(){++prompts;}
+void MarkStartupNetworkReady(){++ready;}}
 struct WifiBoard{
  std::string wifi_ssid_prefix_="WZH";int prompts=0,fallbacks=0;
  void OnNetworkEvent(NetworkEvent,const std::string& = ""){}
@@ -65,12 +66,12 @@ struct WifiBoard{
 };
 '''+method+r'''
 int main(){
- WifiBoard first;first.StartNetwork();assert(wzh::prompts==1&&first.fallbacks==0);
+ WifiBoard first;first.StartNetwork();assert(wzh::prompts==1&&wzh::ready==1&&first.fallbacks==0);
  assert(Application::GetInstance().state==kDeviceStateIdle);
  SsidManager::GetInstance().saved=true;
- WifiBoard configured;configured.StartNetwork();assert(wzh::prompts==1&&configured.fallbacks==0);
+ WifiBoard configured;configured.StartNetwork();assert(wzh::prompts==1&&wzh::ready==2&&configured.fallbacks==0);
  WifiManager::GetInstance().active=false;
- WifiBoard legacy;legacy.StartNetwork();assert(wzh::prompts==1&&legacy.fallbacks==1);
+ WifiBoard legacy;legacy.StartNetwork();assert(wzh::prompts==1&&wzh::ready==3&&legacy.fallbacks==1);
 }
 '''
         with tempfile.TemporaryDirectory() as d:

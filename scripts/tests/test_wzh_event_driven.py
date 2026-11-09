@@ -28,6 +28,7 @@ HARNESS = r'''
 #include <cstdlib>
 #include <iterator>
 #include "wzh_pet_behavior.h"
+#include "wzh_startup_greeting.h"
 #include "wzh_sound_choreography.h"
 #include "wzh_quiet_center.h"
 #include "wzh_speech_intent.h"
@@ -38,6 +39,13 @@ int irnd(int){return 0;}
 constexpr uint32_t kIdleTestDurationMs = 60000U;
 int scenario = 0, auto_sounds = 0, stops = 0;
 int animations = 0, sounds = 0, writes = 0, releases = 0, invites = 0;
+int startup_sounds = 0;uint32_t startup_at=0;
+namespace wzh { bool StartupGreetingAudioReady(){return scenario>=8 && (scenario!=10 || clock_ms>=61000);} }
+constexpr int kDeviceStateIdle=0;
+struct AudioService { bool IsAudioProcessorRunning(){return false;} };
+struct Application { static Application& GetInstance(){static Application app;return app;}
+ int GetDeviceState(){return kDeviceStateIdle;} bool IsVoiceEnrollmentActive(){return scenario==13 && clock_ms>=40000 && clock_ms<43000;}
+ bool IsExternalVoicePreviewActive(){return false;} AudioService& GetAudioService(){static AudioService a;return a;} };
 bool inject = false, injected = false, inject_interaction = false;
 struct Finished {};
 uint32_t esp_log_timestamp() { return clock_ms; }
@@ -110,6 +118,7 @@ struct ActionRequest {
 };
 ActionRequest pending;
 bool queued = false;
+unsigned uxQueueMessagesWaiting(void*){return queued?1:0;}
 void xQueueReset(void*) { queued = false; }
 int xQueueReceive(void*, ActionRequest* out, int) {
     if (!queued) return 0;
@@ -128,6 +137,8 @@ struct Audio {
         ++auto_sounds;return true;
     }
     int SoundCountByCategory(const char*) { return 12; }
+    int FindSoundIndex(const char*) { return 32; }
+    bool PlayIndex(int) { if(!Start())return false; ++startup_sounds; startup_at=clock_ms; return true; }
     bool Playing() { return end>clock_ms; }
     void StopPlayback() { end=0; ++stops; }
     wzh::MotionData GetMotionData() {
@@ -143,7 +154,7 @@ struct Audio {
 struct Output {
     bool powered() const { return rail; }
     bool rail=false;
-    bool blocked() { return scenario==7&&clock_ms<60000; }
+    bool blocked() { return (scenario==7&&clock_ms<60000)||(scenario>=8&&scenario!=14&&clock_ms<47000)||(scenario==14&&clock_ms<36000); }
     void Release() { ++releases; rail=false; }
     void SetFault(int, bool) {}
 };
@@ -163,6 +174,7 @@ public:
     std::atomic<bool> flash_performance_active_{false}, sky_roar_active_{false};
     int last_sky_roar_clip_index_=0;
     std::atomic<uint32_t> intent_generation_{0};
+    std::atomic<int64_t> last_request_us_{0};
     std::atomic<wzh::PetPriority> running_priority_{wzh::PetPriority::kSensor};
     std::atomic<float> output_audio_level_{0}, output_audio_attack_{0};
     std::atomic<int64_t> output_audio_updated_us_{0};
@@ -185,6 +197,17 @@ public:
     void SetConversationActive(bool);
     void TriggerAction(Action, bool, wzh::PetPriority) { ++invites; }
     void PollInteraction(uint32_t now) {
+        if (scenario==12 && now>=40000 && !injected) {
+            injected=true;SetConversationActive(true);
+        }
+        if (scenario==12 && now>=43000 && conversation_active_.load())
+            SetConversationActive(false);
+        if (scenario==9 && now>=46000) last_request_us_.store(int64_t(now)*1000);
+        if (scenario==11 && now>=48000 && !injected) {
+            injected=queued=true;last_request_us_.store(int64_t(now)*1000);
+            pending.created_ms=now;pending.interaction=wzh::PetInteraction::kTouch1;
+            pending.is_body=true;pending.generation=intent_generation_.load();
+        }
         if (((scenario==3&&now>=39500) || scenario==5) && !injected) {
             injected=queued=true;pending.created_ms=now;
             pending.interaction=wzh::PetInteraction::kTouch1;pending.is_body=true;
@@ -243,6 +266,10 @@ int main(int argc, char** argv) {
     if(scenario==4){assert(auto_sounds>=1&&sounds==auto_sounds&&stops>=1);}
     if(scenario==5){assert(sounds>=1&&auto_sounds<=1&&writes>100);}
     if(scenario==7){assert(auto_sounds>=1);}
+    if(scenario==8){assert(startup_sounds==1);}
+    if(scenario==9||scenario==10||scenario==12||scenario==13){assert(startup_sounds==0);}
+    if(scenario==11){assert(startup_sounds==1&&stops>=1);}
+    if(scenario==14){assert(startup_sounds==1&&startup_at-30000<10000);}
 }
 '''
 
@@ -261,7 +288,7 @@ class WzhEventDrivenTest(unittest.TestCase):
                 methods += '\n'+function_body(source,'int PandaController::ChooseOfflineSoundClip(').replace(cls+'::','Controller::')
             task=function_body(source,'void '+cls+'::Task()').replace(cls+'::','Controller::')
             conversation=function_body(source,'void '+cls+'::SetConversationActive(').replace(cls+'::','Controller::')
-            for scenario in range(8):
+            for scenario in range(15):
                 with self.subTest(board=board,scenario=scenario), tempfile.TemporaryDirectory() as directory:
                     harness=HARNESS.replace('__REFERENCE_HEADER__',str(ROOT/'main/boards/wzh_dinosaur/dinosaur_reference_motion.h')).replace('__AXES__', '5' if stem=='dinosaur' else '3').replace('__TASK__',task).replace('__CONVERSATION__',conversation).replace('__SOUND_METHODS__',methods)
                     if scenario==5:

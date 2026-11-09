@@ -1,6 +1,8 @@
 #include "dinosaur_controller.h"
 #include "wzh_body_commands.h"
 #include "wzh_pet_feedback.h"
+#include "wzh_startup_greeting.h"
+#include "wzh_system_prompts.h"
 
 #include <algorithm>
 #include <array>
@@ -2371,6 +2373,7 @@ bool DinosaurController::UpdateSoundMotion(uint32_t now) {
 
 void DinosaurController::Task() {
     // Audio-first periodic scores, with explicit interactions taking priority.
+    wzh::StartupGreetingGate startup(static_cast<uint32_t>(esp_timer_get_time() / 1000));
     while (true) {
         const uint32_t now_ms = esp_timer_get_time() / 1000;
         if (stop_audio_requested_.exchange(false) && audio_ != nullptr) {
@@ -2387,6 +2390,12 @@ void DinosaurController::Task() {
         }
         PollInteraction(now_ms);
         const auto pet_state = pet_.Get(now_ms);
+        // Remember preemption even while battery protection blocks movement.
+        startup.Due(now_ms, false,
+                    conversation_active_.load() || shutdown_requested_.load() ||
+                        last_request_us_.load() > 0 || pet_state.mode != wzh::PetMode::kNormal ||
+                        Application::GetInstance().IsVoiceEnrollmentActive() ||
+                        Application::GetInstance().IsExternalVoicePreviewActive());
         if (shutdown_requested_.load()) {
             xQueueReset(action_queue_);
             ParkForShutdown();
@@ -2473,6 +2482,28 @@ void DinosaurController::Task() {
             if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
                 autonomous_playback_ = false;
             const bool offline = !conversation_active_.load();
+            // Built-in roar plus its five-axis authored sound choreography.
+            // Battery protection and setup prompts retain priority.
+            const bool startup_interrupted = conversation_active_.load() ||
+                                             shutdown_requested_.load() ||
+                                             last_request_us_.load() > 0;
+            const bool startup_ready =
+                audio_ != nullptr && pet_state.local_sound && !local_motion &&
+                !request_active_.load() && !audio_->Playing() &&
+                uxQueueMessagesWaiting(action_queue_) == 0 && wzh::StartupGreetingAudioReady() &&
+                Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
+                !Application::GetInstance().GetAudioService().IsAudioProcessorRunning();
+            if (startup.Due(now_ms, startup_ready, startup_interrupted) &&
+                audio_->PlayIndex(audio_->FindSoundIndex("叫声音效合集 (79)"))) {
+                startup.Accepted();
+                autonomous_playback_ = true;
+                running_generation_ = intent_generation_.load();
+                running_speech_bound_ = false;
+                request_gain_ = 1.0f;
+                idle_breathing_ = false;
+                autoplay_.Busy(now_ms, esp_random());
+                ESP_LOGI(TAG, "Startup greeting queued");
+            }
             if (autoplay_.Due(now_ms,
                               offline && pet_state.local_sound &&
                                   (!servo_output_.powered() || idle_breathing_) && !local_motion &&
