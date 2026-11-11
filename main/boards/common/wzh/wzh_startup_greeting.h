@@ -18,9 +18,10 @@ public:
             pending_ = false;
             return false;
         }
-        return elapsed >= 2000 && ready;
+        return ready;
     }
     void Accepted() { pending_ = false; }
+    bool Pending() const { return pending_; }
 
 private:
     uint32_t start_ms_;

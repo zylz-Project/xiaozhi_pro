@@ -24,6 +24,10 @@ public:
         noise_rms_ = 40.0f;
         residual_rms_ = 0.0f;
         correlation_ = -1.0f;
+        required_speech_samples_ = 2880;
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        confirmed_at_us_ = -1;
+#endif
         echo_reference_.Reset();
         last_input_us_ = last_reference_us_ = last_clipped_us_ = -1;
         return token_;
@@ -69,7 +73,7 @@ public:
                !fresh(last_clipped_us_, 240000);
     }
     bool Observe(const int16_t* pcm, size_t samples, bool vad_speech, int64_t now_us,
-                 bool muted = false) {
+                 bool muted = false, size_t min_speech_samples = 2880) {
         if (!monitoring_ || pcm == nullptr || samples == 0) {
             return false;
         }
@@ -78,7 +82,16 @@ public:
             return false;
         }
         if (confirmed_) {
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+            if (confirmed_at_us_ < 0 || now_us < confirmed_at_us_ ||
+                now_us - confirmed_at_us_ > 3000000) {
+                ResetCandidate();
+            } else {
+                return false;
+            }
+#else
             return false;
+#endif
         }
         uint64_t square_sum = 0;
         for (size_t i = 0; i < samples; ++i) {
@@ -116,10 +129,14 @@ public:
             return false;
         }
         speech_samples_ += samples;
-        if (speech_samples_ < 2880) {
+        required_speech_samples_ = std::max<size_t>(2880, min_speech_samples);
+        if (speech_samples_ < required_speech_samples_) {
             return false;
         }
         confirmed_ = true;
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        confirmed_at_us_ = now_us;
+#endif
         return true;
     }
     bool Commit(uint32_t token, int64_t now_us, bool muted = false) {
@@ -131,28 +148,43 @@ public:
     }
     bool monitoring() const { return monitoring_; }
     bool pending(uint32_t token, int64_t now_us, bool muted = false) const {
-        return monitoring_ && confirmed_ && token == token_ && ReferenceReady(now_us, muted);
+        if (!monitoring_ || !confirmed_ || token != token_ || !ReferenceReady(now_us, muted))
+            return false;
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        return confirmed_at_us_ >= 0 && now_us >= confirmed_at_us_ &&
+               now_us - confirmed_at_us_ <= 3000000;
+#else
+        return true;
+#endif
     }
     uint32_t token() const { return token_; }
     float residual_rms() const { return residual_rms_; }
     float threshold() const { return std::clamp(noise_rms_ * 3.0f, 160.0f, 480.0f); }
     float correlation() const { return correlation_; }
     int settling_ms() const { return elapsed_samples_ * 1000 / 16000; }
+    int required_speech_ms() const { return required_speech_samples_ * 1000 / 16000; }
 
 private:
     uint32_t token_ = 0;
     bool monitoring_ = false, confirmed_ = false;
     size_t elapsed_samples_ = 0, speech_samples_ = 0, speech_gap_samples_ = 0;
+    size_t required_speech_samples_ = 2880;
     float noise_rms_ = 40.0f;
     float residual_rms_ = 0.0f, correlation_ = -1.0f;
     EchoReferenceGuard echo_reference_;
     int64_t last_input_us_ = -1, last_reference_us_ = -1, last_clipped_us_ = -1;
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    int64_t confirmed_at_us_ = -1;
+#endif
 
     void ResetCandidate() {
         if (confirmed_) {
             ++token_;  // Invalidate an already queued main-task event.
         }
         confirmed_ = false;
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        confirmed_at_us_ = -1;
+#endif
         speech_samples_ = speech_gap_samples_ = 0;
     }
 };

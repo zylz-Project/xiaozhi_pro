@@ -119,7 +119,7 @@ struct Power {
  int adc_=0;void* battery_adc_cali_=this;Output output;std::atomic<Output*> servo_output_{&output};
  wzh::FastBatteryStart fast_battery;wzh::StableBatteryProtection battery_protection_;
  wzh::BatteryRestVoltage battery_rest_voltage_;bool battery_settled=false;
- uint32_t last_fast_battery_sample_ms=0,last_battery_sample_ms=0;
+ uint32_t last_fast_battery_sample_ms=0,last_fast_battery_log_ms=0,last_battery_sample_ms=0;
  std::atomic<int> battery_live_mv_{0},battery_protection_mv_{0};std::atomic<bool> battery_sample_valid_{false};
  void Tick(uint32_t now){
 ''' + branch + r'''

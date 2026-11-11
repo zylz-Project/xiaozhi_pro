@@ -112,6 +112,8 @@ public:
     bool Initialize(DinosaurAudio* audio);
     void RegisterMcpTools();
     wzh::ServoOutput& servo_output() { return servo_output_; }
+    bool ServoPoweredForBargeIn() const { return servo_output_.powered(); }
+    int64_t LastServoCommandMovementUs() const { return last_servo_command_movement_us_.load(); }
     void SetConversationActive(bool active);
     void SetSpeaking(bool speaking);
     void SetMaintenance(bool blocked);
@@ -155,6 +157,7 @@ private:
     std::atomic<uint32_t> expression_since_{0};
     uint32_t last_output_ms_ = 0;
     uint32_t last_pose_log_ms_ = 0;
+    std::atomic<int64_t> last_servo_command_movement_us_{0};
     float output_angles_[5] = {70, 90, 90, 90, 90};
     void PollInteraction(uint32_t now);
     bool MotionInterrupted() const;

@@ -1345,6 +1345,12 @@ void PandaController::Task() {
     uint32_t now_ms = esp_log_timestamp();
     TickType_t motion_tick = xTaskGetTickCount();
     wzh::StartupGreetingGate startup(now_ms);
+    const uint32_t startup_origin_ms = now_ms;
+    bool startup_sound_pending = false;
+    bool startup_sound_started = false;
+    static constexpr const char* kStartupSounds[] = {"a可爱_熊猫宝宝_叫声哼唧", "熊猫撒娇声音", "挠痒痒笑声"};
+    static constexpr int kStartupClips[] = {C_BABY_PADDLE, C_BABY_CALL, C_PLAYFUL_PAW_DRUM};
+    const unsigned startup_variant = esp_random() % std::size(kStartupSounds);
     // Audio-first autonomous scores yield immediately to touch, voice and protection.
     while (true) {
         if (shutdown_requested_.load()) {
@@ -1367,6 +1373,21 @@ void PandaController::Task() {
         }
         PollInteraction(now_ms);
         const auto pet_state = pet_.Get(now_ms);
+        if (startup_sound_pending &&
+            (conversation_active_.load() || shutdown_requested_.load() ||
+             last_request_us_.load() > 0 || pet_state.mode != wzh::PetMode::kNormal ||
+             !pet_state.motion || now_ms - startup_origin_ms >= 30000 ||
+             Application::GetInstance().IsVoiceEnrollmentActive() ||
+             Application::GetInstance().IsExternalVoicePreviewActive())) {
+            startup_sound_pending = false;
+        }
+        if (startup_sound_started &&
+            (conversation_active_.load() || shutdown_requested_.load() ||
+             last_request_us_.load() > 0 || !pet_state.motion ||
+             Application::GetInstance().IsVoiceEnrollmentActive() ||
+             Application::GetInstance().IsExternalVoicePreviewActive())) {
+            startup_sound_started = false;
+        }
         // Remember preemption even while battery protection blocks movement.
         startup.Due(now_ms, false,
                     conversation_active_.load() || shutdown_requested_.load() ||
@@ -1379,6 +1400,8 @@ void PandaController::Task() {
             running_speech_bound_ = false;
         }
         const bool offline = !conversation_active_.load();
+        if (!startup.Pending() && !startup_sound_pending && !startup_sound_started)
+            wzh::MarkStartupGreetingComplete();
         if (servo_output_.blocked() || !pet_state.motion) {
             CancelSoundMotion();
             autoplay_.Busy(now_ms, esp_random());
@@ -1458,27 +1481,39 @@ void PandaController::Task() {
         const bool local_motion = UpdateSoundMotion(now_ms);
         if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
             autonomous_playback_ = false;
-        // Reuse the built-in sound and its authored product-specific motion.
-        // Defer to startup/setup prompts and the normal battery/servo gate.
+        // Motion starts as soon as the safety gate permits; setup audio never delays it.
         const bool startup_interrupted = conversation_active_.load() ||
                                          shutdown_requested_.load() || last_request_us_.load() > 0;
-        const bool startup_ready =
-            audio_ != nullptr && pet_state.local_sound && !request_active_.load() &&
-            !clip_active_ && !local_motion && !audio_->Playing() &&
-            uxQueueMessagesWaiting(action_queue_) == 0 && wzh::StartupGreetingAudioReady() &&
-            Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
-            !Application::GetInstance().GetAudioService().IsAudioProcessorRunning();
-        if (startup.Due(now_ms, startup_ready, startup_interrupted) &&
-            audio_->PlayIndex(audio_->FindSoundIndex("a可爱_熊猫宝宝_叫声哼唧"))) {
+        const bool startup_ready = !request_active_.load() && !clip_active_ && !local_motion &&
+                                   uxQueueMessagesWaiting(action_queue_) == 0;
+        if (startup.Due(now_ms, startup_ready, startup_interrupted)) {
             startup.Accepted();
-            autonomous_playback_ = true;
             running_generation_ = intent_generation_.load();
             running_speech_bound_ = false;
+            StartClip(kStartupClips[startup_variant], now_ms);
+            startup_sound_pending = true;
             autoplay_.Busy(now_ms, esp_random());
-            ESP_LOGI(TAG, "Startup greeting queued");
+            ESP_LOGI(TAG, "Startup gesture started");
+        }
+        // Queue the matching sound once setup audio is ready; never hold up motion.
+        if (startup_sound_pending && audio_ != nullptr && pet_state.local_sound &&
+            wzh::StartupGreetingAudioReady() && !audio_->Playing() &&
+            Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
+            !Application::GetInstance().GetAudioService().IsAudioProcessorRunning() &&
+            audio_->PlayIndex(audio_->FindSoundIndex(kStartupSounds[startup_variant]))) {
+            startup_sound_pending = false;
+            startup_sound_started = true;
+            autonomous_playback_ = true;
+        }
+        if (!startup.Pending() && !startup_sound_pending &&
+            (!startup_sound_started ||
+             (!local_motion && !clip_active_ && audio_ != nullptr && !audio_->Playing() &&
+              Application::GetInstance().GetAudioService().IsPlaybackIdle()))) {
+            wzh::MarkStartupGreetingComplete();
         }
         if (autoplay_.Due(now_ms,
-                          offline && pet_state.local_sound && !servo_output_.powered() &&
+                          offline && pet_state.local_sound && !startup_sound_pending &&
+                              !servo_output_.powered() &&
                               !clip_active_ && !request_active_.load() && !local_motion &&
                               (audio_ == nullptr || !audio_->Playing()),
                           esp_random())) {

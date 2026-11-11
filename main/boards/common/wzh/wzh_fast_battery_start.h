@@ -24,6 +24,12 @@ public:
     static constexpr int kMaxSpreadMv = 120;
     static constexpr size_t kSamples = 5;
 
+    static float RequiredMillivolts(uint32_t now_ms, int recover_mv) {
+        const float residual = std::exp(-static_cast<float>(now_ms) / kMaxTimeConstantMs);
+        return recover_mv + kAdcErrorMarginMv +
+               (kMaxInitialBatteryMv - recover_mv) * residual;
+    }
+
     bool Observe(uint32_t now_ms, bool valid, int measured_mv, int recover_mv) {
         if (!valid || now_ms < kMinBootMs || measured_mv <= 0 || measured_mv > 4600 ||
             (count_ && now_ms - last_ms_ > kMaxSampleGapMs)) {
@@ -35,9 +41,7 @@ public:
         // Worst case: the capacitor initially held 4.4 V (battery-referred),
         // the divider settles no faster than tau=6 s, and ADC overreads by
         // 200 mV. Require even that lower bound to reach recovery voltage.
-        const float residual = std::exp(-static_cast<float>(now_ms) / kMaxTimeConstantMs);
-        const float required =
-            recover_mv + kAdcErrorMarginMv + (kMaxInitialBatteryMv - recover_mv) * residual;
+        const float required = RequiredMillivolts(now_ms, recover_mv);
         if (measured_mv < required) {
             count_ = 0;
             return false;

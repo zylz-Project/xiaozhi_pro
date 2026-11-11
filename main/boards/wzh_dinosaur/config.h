@@ -22,8 +22,8 @@
 #define AUDIO_CODEC_PA_VOLTAGE 3.3f
 // NS4150: R35/R37=30k, Av=300k/30k=10 (+20 dB). Reserve top-end headroom.
 #define AUDIO_CODEC_PA_GAIN_DB 20.0f
-#define AUDIO_CODEC_MAX_VOLUME_DB -2.0f
-#define AUDIO_CODEC_SPEAKER_MAKEUP_DB 12.0f
+#define AUDIO_CODEC_MAX_VOLUME_DB -0.5f
+#define AUDIO_CODEC_SPEAKER_MAKEUP_DB 21.0f
 #define AUDIO_CODEC_ES8311_ADDR ES8311_CODEC_DEFAULT_ADDR
 
 #define BOOT_BUTTON_GPIO GPIO_NUM_0
@@ -78,6 +78,8 @@
 //   IO8  tail_ud:   55°=最低安全位，90°=默认，180°=最高
 // 注意：尾左右的 0/180 物理方向与头、颈左右相反；旧工程动作表的
 // tail_ud 还使用 0=上、125=下的内部坐标，输出前才做 180-angle。
+// 恐龙测试开关：1 = 全程禁止舵机供电；0 = 正常舵机控制。
+#define DINOSAUR_SERVO_POWER_TEST_OFF 0
 #define SERVO_POWER_GPIO GPIO_NUM_4
 #define SERVO_HEAD_TURN_GPIO GPIO_NUM_15
 #define SERVO_NECK_LEAN_GPIO GPIO_NUM_16

@@ -32,7 +32,7 @@ enum DeviceState{kDeviceStateIdle,kDeviceStateConnecting,kDeviceStateListening,k
 using ListeningMode=int;
 constexpr int kListeningModeManualStop=1,kListeningModeAutoStop=2,kListeningModeRealtime=3,kAbortReasonNone=0;
 enum class PowerSaveLevel{PERFORMANCE,LOW_POWER};
-namespace Lang{namespace Sounds{constexpr std::string_view OGG_POPUP="entry";}namespace Strings{constexpr int SPEAKING=2,LISTENING=3;}}
+namespace Lang{namespace Sounds{constexpr std::string_view OGG_POPUP="entry",OGG_EXCLAMATION="error";}namespace Strings{constexpr int SPEAKING=2,LISTENING=3;constexpr const char* ERROR="error";}}
 struct AudioStreamPacket{};
 struct TextGlyph{};
 struct TextGlyphPayload{static bool Parse(const cJSON*,std::vector<TextGlyph>&,uint8_t&){return false;}};
@@ -69,7 +69,8 @@ struct Display{
 };
 struct Board{
     ExternalTts* GetExternalTts(){return nullptr;}
-    VoiceEnrollment* GetVoiceEnrollment(){return nullptr;}
+    VoiceEnrollment* enrollment=nullptr;
+    VoiceEnrollment* GetVoiceEnrollment(){return enrollment;}
     void SetVoiceEnrollmentRecording(bool){}
     bool maintenance=false;bool IsAudioMaintenanceActive(){return maintenance;}
     std::string_view exit_sound="exit";
@@ -110,7 +111,9 @@ public:
     std::atomic<int64_t>voice_enrollment_resume_guard_until_us_{0};
     std::atomic<uint32_t>external_tts_turn_{0},external_tts_callback_token_{0};
     bool server_music_active_=false;
-    void ResumeAfterVoiceEnrollment(uint32_t){}
+    int voice_resumes=0,alerts=0;
+    void ResumeAfterVoiceEnrollment(uint32_t){++voice_resumes;voice_enrollment_active_=false;}
+    void Alert(const char*,const char*,const char*,std::string_view){++alerts;}
     std::atomic<bool>interaction_stopped_{false};
     std::atomic<uint32_t>interaction_generation_{0},protocol_generation_{0};
     bool play_popup_on_listening_=false,pending_listening_start_=false,aborted_=false;
@@ -185,6 +188,29 @@ class WzhConversationToggleTest(unittest.TestCase):
             result=subprocess.run([str(exe)],capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stderr)
 
+    def test_recognized_cloning_intercepts_and_blocks_old_reply_even_without_key(self):
+        self.run_cpp(self.application()+r'''
+struct Enrollment:VoiceEnrollment {
+ bool configured=true;int starts=0;
+ bool IsConfigured() const override{return configured;}
+ bool Start(std::function<void(bool)>,std::function<void(bool)>) override{++starts;return true;}
+ bool Capture(const int16_t*,size_t,bool) override{return false;}
+ void Cancel() override{}
+};
+int main(){
+ auto& board=Board::GetInstance();Enrollment enrollment;board.enrollment=&enrollment;
+ Application app;app.state=kDeviceStateListening;app.protocol.opened=true;
+ app.Tts(R"({"type":"stt","text":"复刻音色。"})");
+ assert(app.voice_enrollment_active_&&app.voice_selection_reply_guard_);
+ app.Drain();assert(enrollment.starts==1&&app.aborts==1&&app.protocol.closes==1&&app.alerts==0);
+ app.voice_enrollment_active_=false;app.voice_selection_reply_guard_=false;
+ app.state=kDeviceStateListening;app.protocol.opened=true;enrollment.configured=false;
+ app.Tts(R"({"type":"stt","text":"帮我复刻音色"})");
+ assert(app.voice_enrollment_active_&&app.voice_selection_reply_guard_);
+ app.Drain();assert(enrollment.starts==1&&app.alerts==1&&app.voice_resumes==1);
+ board.enrollment=nullptr;
+}
+''')
     def application(self):
         source=(ROOT/'main/application.cc').read_text()
         methods='\n'.join(queue_function(source,'void Application::'+name+'(') for name in [
@@ -193,7 +219,8 @@ class WzhConversationToggleTest(unittest.TestCase):
             'ClearEarlyAudio'])
         audio=queue_function(source,'protocol_->OnIncomingAudio(')
         closed=queue_function(source,'protocol_->OnAudioChannelClosed(')
-        begin=source.index('        if (strcmp(type->valuestring, "tts") == 0)')
+        guard=source.index('        if (voice_selection_reply_guard_.load()')
+        begin=source.index('        if (strcmp(type->valuestring, "tts") == 0)', guard)
         end=source.index(' else if (strcmp(type->valuestring, "mcp")',begin)
         tts=source[begin:end]
         handle=source.index('void Application::HandleStateChangedEvent')

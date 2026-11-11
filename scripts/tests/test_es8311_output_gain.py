@@ -13,6 +13,29 @@ VENDOR = ROOT / 'managed_components/espressif__esp_codec_dev'
 class Es8311OutputGainTest(unittest.TestCase):
     run_cpp = runtime_tests.FirmwareRuntimeOptimizationsTest.run_cpp
 
+    def test_vendor_microphone_gain_steps(self):
+        chip = (VENDOR / 'device/es8311/es8311.c').read_text()
+        self.run_cpp(r'''
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+constexpr int ESP_CODEC_DEV_INVALID_ARG=-1,ESP_CODEC_DEV_WRONG_STATE=-2,ESP_CODEC_DEV_OK=0;
+constexpr int ESP_CODEC_DEV_WRITE_FAIL=-3,ES8311_ADC_REG16=0x16;
+struct audio_codec_if_t{};struct audio_codec_es8311_t:audio_codec_if_t{bool is_open=true;};
+enum es8311_mic_gain_t {ES8311_MIC_GAIN_0DB,ES8311_MIC_GAIN_6DB,ES8311_MIC_GAIN_12DB,
+ ES8311_MIC_GAIN_18DB,ES8311_MIC_GAIN_24DB,ES8311_MIC_GAIN_30DB,ES8311_MIC_GAIN_36DB,
+ ES8311_MIC_GAIN_42DB};
+int value=-1;int es8311_write_reg(audio_codec_es8311_t*,int reg,uint8_t gain){
+ assert(reg==ES8311_ADC_REG16);value=gain;return 0;}
+''' + queue_function(chip, 'static int es8311_set_mic_gain(') + r'''
+int main(){audio_codec_es8311_t codec;
+ assert(es8311_set_mic_gain(&codec,6.0f)==0&&value==1);
+ assert(es8311_set_mic_gain(&codec,12.0f)==0&&value==2);
+ assert(es8311_set_mic_gain(&codec,18.0f)==0&&value==3);
+ assert(es8311_set_mic_gain(&codec,42.0f)==0&&value==7);
+}
+''')
+
     def program(self):
         source = CODEC.read_text()
         volume = (VENDOR / 'esp_codec_dev_vol.c').read_text()
@@ -52,7 +75,7 @@ struct es8311_codec_cfg_t{
 struct audio_codec_if_t{};
 struct audio_codec_es8311_t:audio_codec_if_t{bool is_open=false;float hw_gain=0;};
 audio_codec_es8311_t chip_instance;es8311_codec_cfg_t configured_chip;
-int last_reg=0,curve_calls=0,volume_calls=0;
+int last_reg=0,curve_calls=0,volume_calls=0;float last_input_gain=-1;
 void*audio_codec_new_i2s_data(audio_codec_i2s_cfg_t*){return &chip_instance;}
 void*audio_codec_new_i2c_ctrl(audio_codec_i2c_cfg_t*){return &chip_instance;}
 void*audio_codec_new_gpio(){return &chip_instance;}
@@ -77,7 +100,7 @@ void*esp_codec_dev_new(esp_codec_dev_cfg_t*){return new Device;}
 int esp_codec_dev_open(void*handle,esp_codec_dev_sample_info_t*){
  static_cast<Device*>(handle)->opened=true;chip_instance.is_open=true;return 0;
 }
-int esp_codec_dev_set_in_gain(void*,float){return 0;}
+int esp_codec_dev_set_in_gain(void*,float gain){last_input_gain=gain;return 0;}
 int esp_codec_dev_set_vol_curve(void*handle,esp_codec_dev_vol_curve_t*curve){
  auto*dev=static_cast<Device*>(handle);assert(dev->opened&&curve->count==3);
  dev->points.assign(curve->vol_map,curve->vol_map+curve->count);++curve_calls;return 0;
@@ -107,7 +130,7 @@ struct Es8311AudioCodec:AudioCodec{
  void*dev_=nullptr;std::mutex data_if_mutex_;
  void CreateDuplexChannels(int,int,int,int,int){}void ResetCodec(){}
  Es8311AudioCodec(void*,i2c_port_t,int,int,gpio_num_t,gpio_num_t,gpio_num_t,gpio_num_t,
-                  gpio_num_t,gpio_num_t,uint8_t,bool,bool,float,bool,float,float,float=0,int=70);
+                  gpio_num_t,gpio_num_t,uint8_t,bool,bool,float,bool,float,float,float=0,int=70,float=6.0f);
  void UpdateDeviceState();void SetOutputVolume(int);
 };
 ''' + '\n'.join(queue_function(source, marker) for marker in [
@@ -115,47 +138,51 @@ struct Es8311AudioCodec:AudioCodec{
             'void Es8311AudioCodec::UpdateDeviceState(',
             'void Es8311AudioCodec::SetOutputVolume('])
 
-    def test_all_wzh_boards_use_the_same_protected_loudness_profile(self):
+    def test_wzh_boards_use_their_protected_loudness_profiles(self):
         for board in ('wzh_crawlPanda', 'wzh_tailRedPanda', 'wzh_dinosaur'):
             config = (ROOT / 'main/boards' / board / 'config.h').read_text()
             self.assertIn('#define AUDIO_CODEC_PA_GAIN_DB 20.0f', config)
-            self.assertIn('#define AUDIO_CODEC_MAX_VOLUME_DB -2.0f', config)
-            self.assertIn('#define AUDIO_CODEC_SPEAKER_MAKEUP_DB 12.0f', config)
+            maximum, makeup = ('-0.5f', '21.0f')
+            self.assertIn(f'#define AUDIO_CODEC_MAX_VOLUME_DB {maximum}', config)
+            self.assertIn(f'#define AUDIO_CODEC_SPEAKER_MAKEUP_DB {makeup}', config)
             source = (ROOT / 'main/boards' / board / (board + '.cc')).read_text()
             self.assertIn('AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB, 100', source)
+            if board != 'wzh_dinosaur':
+                self.assertIn('#define AUDIO_CODEC_REFERENCE_MIC_GAIN_DB 18.0f', config)
+                self.assertIn('AUDIO_CODEC_REFERENCE_MIC_GAIN_DB', source)
 
     def test_wzh_pa_gain_top_end_curve_mute_and_restore_after_reopen(self):
         self.run_cpp(self.program() + r'''
 int main(){
  for(bool reference:{false,true}){
   Es8311AudioCodec codec(nullptr,0,24000,24000,-1,48,13,46,14,-1,0x30,
-                          false,false,3.3f,reference,20.0f,-2.0f,12.0f,100);
+                          false,false,3.3f,reference,20.0f,-0.5f,21.0f,100,18.0f);
   assert(codec.output_volume_==100);
   assert(configured_chip.hw_gain.pa_gain==20&&configured_chip.hw_gain.pa_voltage==3.3f);
-  assert(chip_instance.hw_gain==20&&codec.input_gain_==(reference?6:36));
-  assert(codec.speaker_makeup_gain_db_==12.0f);
+  assert(chip_instance.hw_gain==20&&codec.input_gain_==(reference?18:36));
+  assert(codec.speaker_makeup_gain_db_==21.0f);
   codec.SetOutputVolume(100);assert(codec.persisted==100&&!codec.dev_);
   int start=curve_calls;codec.output_enabled_=true;codec.UpdateDeviceState();
-  assert(curve_calls==start+1&&last_reg==147); // Actual ES8311 -22 dB register.
+  assert(curve_calls==start+1&&last_reg==150&&last_input_gain==(reference?18:36)); // -20.5 dB.
   int previous=-1;
   esp_codec_dev_vol_map_t old_points[]={{0,-50.0f},{80,-10.0f},{100,-3.0f}};
   esp_codec_dev_vol_curve_t old_curve{old_points,3};
   for(int volume=0;volume<=100;++volume){
    codec.SetOutputVolume(volume);assert(codec.persisted==volume&&codec.output_volume_==volume);
    const int old_reg=esp_codec_dev_vol_calc_reg(&vol_range,_get_vol_db(&old_curve,volume)-chip_instance.hw_gain);
-   assert(last_reg>=old_reg&&last_reg-old_reg<=2);
+   assert(last_reg>=old_reg&&last_reg-old_reg<=5);
    if(volume<=80)assert(last_reg==old_reg);
    assert(last_reg>=previous);previous=last_reg;
    if(volume==0)assert(last_reg==0);
    if(volume==70)assert(last_reg==121); // -15 dB target - 20 dB PA gain.
    if(volume==80)assert(last_reg==131);
-   if(volume==90)assert(last_reg==139);
+   if(volume==90)assert(last_reg==140);
   }
   codec.output_enabled_=false;codec.UpdateDeviceState();assert(!codec.dev_);
   codec.output_enabled_=true;codec.UpdateDeviceState();
-  assert(curve_calls==start+2&&last_reg==147&&codec.output_volume_==100);
+  assert(curve_calls==start+2&&last_reg==150&&codec.output_volume_==100&&last_input_gain==(reference?18:36));
   codec.SetOutputVolume(-1);assert(last_reg==0&&codec.persisted==0);
-  codec.SetOutputVolume(101);assert(last_reg==147&&codec.persisted==100);
+  codec.SetOutputVolume(101);assert(last_reg==150&&codec.persisted==100);
   codec.output_enabled_=false;codec.UpdateDeviceState();
  }
 }

@@ -121,6 +121,14 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
 
     char* vad_model_name =
         models_ == nullptr ? nullptr : esp_srmodel_filter(models_, ESP_VADN_PREFIX, nullptr);
+#if CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
+    vadnet_ready_ = vad_model_name != nullptr;
+    if (!vadnet_ready_) {
+        ESP_LOGE(TAG, "VADNet model missing: interruption disabled, capture remains available");
+    } else {
+        ESP_LOGI(TAG, "Experimental FD AEC + VADNet enabled; NSNet2 uplink disabled");
+    }
+#endif
 #if CONFIG_USE_VOICE_BARGE_IN
     afe_config_t* afe_config =
         afe_config_init(input_format.c_str(), models_, AFE_TYPE_FD, AFE_MODE_HIGH_PERF);
@@ -290,6 +298,12 @@ bool AfeAudioEngine::InitializeWakeWordDetectors(char* wakenet_model_name,
     if (kUseMultiNetWakeWord || (kUseWakeNet && kUseLocalCommands)) {
         if (multinet_model_name == nullptr) {
             ESP_LOGE(TAG, "Configured MultiNet model is missing from assets");
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+            if (kUseWakeNet) {
+                ESP_LOGW(TAG, "MultiNet keywords unavailable; keep WakeNet and conversation");
+                return true;
+            }
+#endif
             return false;
         }
         custom_wake_word_ = std::make_unique<CustomWakeWord>();
@@ -298,6 +312,12 @@ bool AfeAudioEngine::InitializeWakeWordDetectors(char* wakenet_model_name,
         if (!custom_wake_word_->Initialize(codec_, models_, kUseWakeNet)) {
             ESP_LOGE(TAG, "Failed to initialize MultiNet commands");
             custom_wake_word_.reset();
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+            if (kUseWakeNet) {
+                ESP_LOGW(TAG, "MultiNet keywords unavailable; keep WakeNet and conversation");
+                return true;
+            }
+#endif
             wake_detector_ = WakeDetector::kNone;
             return false;
         }
@@ -510,7 +530,7 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
 #endif
     if (result->wakeup_state != WAKENET_DETECTED) {
         if (custom_wake_word_ != nullptr) {
-#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND || CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
             // The secondary recognizer serves offline commands. Running it
             // alongside full-duplex neural capture exhausted the S3 fetch task.
             if (IsVoiceProcessingEnabled()) {
@@ -562,8 +582,10 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result, uint32_
     }
     if (output_reset_pending_.exchange(false)) {
         output_buffer_.clear();
-#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND || CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
         output_all_speech_ = true;
+#endif
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
         neural_frontend_.Reset();
 #endif
     }
@@ -608,6 +630,11 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result, uint32_
         return;
     }
 #endif
+#if CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
+    EmitNeuralChunk(result->data, result->data_size / sizeof(int16_t),
+                    result->vad_state == VAD_SPEECH, generation);
+    return;
+#endif
     if (vad_state_change_callback_) {
 #if CONFIG_USE_VOICE_BARGE_IN
         // Publish the authoritative frame state before its PCM. AudioService
@@ -643,7 +670,7 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result, uint32_
     }
 }
 
-#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND || CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
 void AfeAudioEngine::EmitNeuralChunk(const int16_t* pcm, size_t samples, bool speech,
                                      uint32_t generation) {
     if (frame_samples_ <= 0 || output_buffer_.size() > static_cast<size_t>(frame_samples_)) {
@@ -660,8 +687,8 @@ void AfeAudioEngine::EmitNeuralChunk(const int16_t* pcm, size_t samples, bool sp
         pcm += count;
         samples -= count;
         if (output_buffer_.size() == static_cast<size_t>(frame_samples_)) {
-            // Require every contributing VAD chunk to be speech. A new
-            // 10 ms result must not label an older 60 ms packet as speech.
+            // Require every contributing VAD chunk to be speech. A newer
+            // result must not label an older 60 ms packet as speech.
             if (vad_state_change_callback_) {
                 vad_state_change_callback_(output_all_speech_);
             }

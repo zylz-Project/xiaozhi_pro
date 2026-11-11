@@ -14,7 +14,8 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
                                    gpio_num_t pa_pin, uint8_t es8311_addr, bool use_mclk,
                                    bool pa_inverted, float pa_voltage, bool dac_reference,
                                    float pa_gain_db, float max_output_volume_db,
-                                   float speaker_makeup_gain_db, int default_output_volume) {
+                                   float speaker_makeup_gain_db, int default_output_volume,
+                                   float reference_mic_gain_db) {
     duplex_ = true;  // 是否双工
     output_volume_ = std::clamp(default_output_volume, 0, 100);
     input_reference_ = dac_reference;
@@ -25,10 +26,10 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     pa_inverted_ = pa_inverted;
     // Keep the high-volume segment monotonic above its 80 / -10 dB anchor.
     max_output_volume_db_ = std::clamp(max_output_volume_db, -10.0f, 0.0f);
-    speaker_makeup_gain_db_ = std::clamp(speaker_makeup_gain_db, 0.0f, 12.0f);
+    speaker_makeup_gain_db_ = std::clamp(speaker_makeup_gain_db, 0.0f, 21.0f);
     // Close speaker/microphone placement needs ADC headroom for full duplex;
     // saturated echo cannot be reconstructed by a linear echo canceller.
-    input_gain_ = dac_reference ? 6 : 36;
+    input_gain_ = dac_reference ? std::clamp(reference_mic_gain_db, 0.0f, 42.0f) : 36.0f;
 
     assert(input_sample_rate_ == output_sample_rate_);
     CreateDuplexChannels(mclk, bclk, ws, dout, din);

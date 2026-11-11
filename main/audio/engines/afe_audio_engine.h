@@ -42,6 +42,8 @@ public:
     bool CanMonitorVoiceInterruption() const override {
 #if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
         return afe_data_ != nullptr && neural_frontend_.Ready();
+#elif CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
+        return afe_data_ != nullptr && vadnet_ready_;
 #else
         return afe_data_ != nullptr;
 #endif
@@ -77,15 +79,20 @@ private:
 #if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
     static constexpr size_t kProcessingTaskStackSize = 8192;
     NeuralAudioFrontend neural_frontend_;
-    bool output_all_speech_ = true;
     uint32_t neural_budget_misses_ = 0;
     int64_t last_neural_budget_log_us_ = -5000000;
-    bool local_commands_suspended_ = false;
     uint32_t neural_timing_frames_ = 0;
     int64_t neural_timing_sum_us_ = 0, neural_timing_max_us_ = 0;
-    void EmitNeuralChunk(const int16_t* pcm, size_t samples, bool speech, uint32_t generation);
 #else
     static constexpr size_t kProcessingTaskStackSize = 4096;
+#endif
+#if CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
+    bool vadnet_ready_ = false;
+#endif
+#if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND || CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
+    bool output_all_speech_ = true;
+    bool local_commands_suspended_ = false;
+    void EmitNeuralChunk(const int16_t* pcm, size_t samples, bool speech, uint32_t generation);
 #endif
     StackType_t* processing_task_stack_ = nullptr;
     StaticTask_t* processing_task_buffer_ = nullptr;

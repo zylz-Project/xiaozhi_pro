@@ -21,8 +21,8 @@ using wzh::StartupGreetingGate;
 int main(){
  for(uint32_t origin:{0U,UINT32_MAX-1000}){
   StartupGreetingGate gate(origin);
-  assert(!gate.Due(origin+1999,true,false));
-  assert(!gate.Due(origin+18000,false,false)); // battery, audio, setup, or maintenance busy
+  assert(gate.Due(origin,true,false));
+  assert(!gate.Due(origin+18000,false,false)); // battery or motion blocked
   assert(gate.Due(origin+18020,true,false));
   assert(gate.Due(origin+18040,true,false)); // a rejected queue attempt can retry
   gate.Accepted();assert(!gate.Due(origin+18060,true,false));
@@ -39,13 +39,20 @@ int main(){
     def test_three_product_cues_use_authored_bounded_motion(self):
         cases = [
             ('wzh_crawlPanda', 'panda_controller.cc', 'a可爱_熊猫宝宝_叫声哼唧', 'kCrawl'),
+            ('wzh_crawlPanda', 'panda_controller.cc', '熊猫撒娇声音', 'kCrawl'),
+            ('wzh_crawlPanda', 'panda_controller.cc', '挠痒痒笑声', 'kCrawl'),
             ('wzh_tailRedPanda', 'panda_controller.cc', '熊猫撒娇声音', 'kTail'),
+            ('wzh_tailRedPanda', 'panda_controller.cc', '可爱的熊猫幼崽发声', 'kTail'),
+            ('wzh_tailRedPanda', 'panda_controller.cc', '挠痒痒笑声', 'kTail'),
             ('wzh_dinosaur', 'dinosaur_controller.cc', '叫声音效合集 (79)', 'kDinosaur'),
+            ('wzh_dinosaur', 'dinosaur_controller.cc', '叫声音效合集 (13)', 'kDinosaur'),
+            ('wzh_dinosaur', 'dinosaur_controller.cc', '叫声音效合集 (5)', 'kDinosaur'),
         ]
         for board, controller, name, mechanism in cases:
             with self.subTest(board=board):
                 source=(ROOT/'main/boards'/board/controller).read_text()
-                self.assertIn('FindSoundIndex("'+name+'")',source)
+                self.assertIn('"'+name+'"',source)
+                self.assertIn('FindSoundIndex(kStartupSounds[startup_variant])', source)
                 self.assertIn('wzh::StartupGreetingAudioReady()',source)
                 self.assertIn('last_request_us_.load() > 0',source)
                 self.assertLess(source.index('if (servo_output_.blocked() || !pet_state.motion)'),
@@ -91,9 +98,9 @@ std::atomic<bool> wifi_setup_requested{false}, wifi_setup_producing{false};
 }
 int main(){using namespace wzh;
  assert(!StartupGreetingAudioReady());
- worker_started=true;assert(!StartupGreetingAudioReady());
- startup_network_ready=true;wifi_setup_requested=true;assert(!StartupGreetingAudioReady());
- wifi_setup_producing=true;wifi_setup_requested=false;assert(!StartupGreetingAudioReady());
+ worker_started=true;assert(StartupGreetingAudioReady());
+ startup_network_ready=true;wifi_setup_requested=true;assert(StartupGreetingAudioReady());
+ wifi_setup_producing=true;wifi_setup_requested=false;assert(StartupGreetingAudioReady());
  wifi_setup_producing=false;assert(StartupGreetingAudioReady());
  shutting_down=true;assert(!StartupGreetingAudioReady());
 }
@@ -104,4 +111,4 @@ int main(){using namespace wzh;
         branch=source[source.index('wifi_setup_producing.store(true)'):]
         self.assertLess(branch.index('wifi_setup_producing.store(true)'),branch.index('wifi_setup_requested.store(false)'))
         self.assertLess(branch.index('audio.PlaySound(Lang::Sounds::OGG_WIFICONFIG'),branch.index('wifi_setup_producing.store(false)'))
-        self.assertIn('!wifi_setup_requested.load() && !wifi_setup_producing.load()',source)
+        self.assertIn('!startup_greeting_complete.load() && elapsed < 30000', source)

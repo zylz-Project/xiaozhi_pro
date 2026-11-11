@@ -100,7 +100,9 @@ void Application::Initialize() {
 #if CONFIG_USE_VOICE_BARGE_IN
     callbacks.on_voice_interruption = [this](uint32_t token) {
         pending_voice_interruption_.store(token);
+#if !CONFIG_WZH_DINO_KEYWORD_BARGE_IN
         xEventGroupSetBits(event_group_, MAIN_EVENT_VOICE_INTERRUPTION);
+#endif
     };
 #endif
     audio_service_.SetCallbacks(callbacks);
@@ -276,7 +278,16 @@ void Application::Run() {
                 if (interaction_stopped_.load() || voice_enrollment_active_.load()) {
                     continue;
                 }
-                if (protocol_ && !protocol_->SendAudio(std::move(packet))) {
+                const bool sent = protocol_ && protocol_->SendAudio(std::move(packet));
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+                if (official_probe_active_.load() && !official_probe_sent_stop_) {
+                    if (sent)
+                        ++official_probe_packets_sent_;
+                    else
+                        ++official_probe_packets_failed_;
+                }
+#endif
+                if (protocol_ && !sent) {
                     // Drop the remaining packets. Leaving them in the queue would
                     // stall the Opus codec task (it waits for queue space), which in
                     // turn deadlocks the whole audio input pipeline, as no new
@@ -313,6 +324,9 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+            ServiceOfficialAsrProbe();
+#endif
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
@@ -359,6 +373,10 @@ void Application::HandleNetworkConnectedEvent() {
 }
 
 void Application::HandleNetworkDisconnectedEvent() {
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+    if (official_probe_active_.exchange(false))
+        audio_service_.EnableVoiceProcessing(false);
+#endif
     voice_selection_reply_guard_.store(false);
     if (external_voice_preview_active_.exchange(false))
         external_voice_preview_status_.store(4);
@@ -718,6 +736,30 @@ void Application::InitializeProtocol() {
             ESP_LOGW(TAG, "Incoming JSON message has no type");
             return;
         }
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+        if (official_probe_active_.load()) {
+            if (strcmp(type->valuestring, "stt") == 0) {
+                const auto* text = cJSON_GetObjectItem(root, "text");
+                if (cJSON_IsString(text) && text->valuestring != nullptr && text->valuestring[0]) {
+                    ESP_LOGI(TAG, "Official ASR probe transcript playback_busy=%d: %s",
+                             !audio_service_.IsPlaybackIdle(), text->valuestring);
+                    official_probe_stt_received_.store(true);
+                } else {
+                    ESP_LOGI(TAG, "Official ASR probe received empty transcript");
+                }
+                return;
+            }
+            if (strcmp(type->valuestring, "tts") == 0) {
+                const auto* state = cJSON_GetObjectItem(root, "state");
+                ESP_LOGI(TAG, "Official ASR probe server TTS: %s",
+                         cJSON_IsString(state) && state->valuestring ? state->valuestring : "unknown");
+            }
+            if (strcmp(type->valuestring, "mcp") == 0) {
+                ESP_LOGW(TAG, "Official ASR probe: ignoring device MCP command");
+                return;
+            }
+        }
+#endif
         if (voice_enrollment_active_.load() &&
             (strcmp(type->valuestring, "tts") == 0 || strcmp(type->valuestring, "stt") == 0 ||
              strcmp(type->valuestring, "llm") == 0))
@@ -927,7 +969,8 @@ void Application::InitializeProtocol() {
                 return;
             const auto generation = interaction_generation_.load();
             auto text = cJSON_GetObjectItem(root, "text");
-            if (cJSON_IsString(text)) {
+            if (cJSON_IsString(text) && text->valuestring != nullptr) {
+                ESP_LOGI(TAG, ">> %s", text->valuestring);
 #if CONFIG_USE_VOICE_BARGE_IN
                 if (text->valuestring[0] != '\0') {
                     barge_in_reply_gate_.OnTranscript();
@@ -937,21 +980,25 @@ void Application::InitializeProtocol() {
                 auto* enrollment = Board::GetInstance().GetVoiceEnrollment();
                 const auto current_state = GetDeviceState();
                 const bool clone_request = IsVoiceEnrollmentRequest(recognized);
-                const bool selection_request =
-                    recognized == "切换音色" || recognized == "切换音色。" ||
-                    recognized == "切换音色！" || recognized == "切换音色!";
+                const bool selection_request = IsVoiceSelectionRequest(recognized);
                 const bool selection_pending = enrollment && enrollment->SelectionPending();
+                const bool voice_operation_configured =
+                    !enrollment || !(clone_request || selection_request || selection_pending) ||
+                    enrollment->IsConfigured();
+                if (!voice_operation_configured) {
+                    ESP_LOGW(TAG, "Voice operation requested but Ali API key is not configured");
+                }
                 if (enrollment &&
                     (current_state == kDeviceStateListening ||
                      current_state == kDeviceStateSpeaking) &&
                     (clone_request || selection_request || selection_pending)) {
                     if (voice_enrollment_active_.exchange(true))
                         return;
-                    if (!clone_request)
-                        voice_selection_reply_guard_.store(true);
+                    voice_selection_reply_guard_.store(true);
                     voice_enrollment_resume_guard_until_us_ = 0;
                     const auto token = interaction_generation_.fetch_add(1) + 1;
-                    Schedule([this, enrollment, token, clone_request, recognized]() {
+                    Schedule([this, enrollment, token, clone_request, selection_pending, recognized,
+                              voice_operation_configured]() {
                         if (!voice_enrollment_active_.load() || interaction_stopped_.load() ||
                             token != interaction_generation_.load())
                             return;
@@ -968,6 +1015,15 @@ void Application::InitializeProtocol() {
                             protocol_->CloseAudioChannel();
                         }
                         SetDeviceState(kDeviceStateSpeaking);
+                        if (!voice_operation_configured) {
+                            Alert(Lang::Strings::ERROR,
+                                  "音色服务未配置，请在设备管理页面设置阿里百炼 API Key。",
+                                  "warning", Lang::Sounds::OGG_EXCLAMATION);
+                            ResumeAfterVoiceEnrollment(token);
+                            return;
+                        }
+                        ESP_LOGI(TAG, "Local voice operation: %s",
+                                 clone_request ? "enrollment" : "selection");
                         auto capture = [this, token](bool enable) {
                             Schedule([this, token, enable]() {
                                 if (voice_enrollment_active_.load() &&
@@ -993,7 +1049,8 @@ void Application::InitializeProtocol() {
                         };
                         const bool started =
                             clone_request ? enrollment->Start(capture, completion)
-                                          : enrollment->StartSelection(recognized, completion);
+                                          : enrollment->StartSelection(
+                                                selection_pending ? recognized : "切换音色", completion);
                         if (!started) {
                             ESP_LOGW(TAG,
                                      "Voice operation unavailable: check Ali settings or memory");
@@ -1009,7 +1066,6 @@ void Application::InitializeProtocol() {
                 if (!TextGlyphPayload::Parse(root, glyphs, bpp)) {
                     glyphs.clear();
                 }
-                ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([this, display, generation, message = std::string(text->valuestring),
                           glyphs = std::move(glyphs), bpp]() {
                     if (interaction_stopped_.load() || generation != interaction_generation_.load())
@@ -1328,14 +1384,29 @@ void Application::HandleWakeWordDetectedEvent() {
     auto wake_word = audio_service_.GetLastWakeWord();
 #if CONFIG_USE_VOICE_BARGE_IN
     if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        const bool keyword =
+            wake_word == "local:interrupt" || wake_word == "local:stop" || wake_word == "小龙小龙";
+        if (keyword && audio_service_.IsVoiceInterruptionMonitoring()) {
+            const auto token = pending_voice_interruption_.load();
+            if (audio_service_.IsVoiceInterruptionPending(token)) {
+                ESP_LOGI(TAG, "Dino keyword interruption accepted: %s", wake_word.c_str());
+                HandleVoiceInterruptionEvent();
+            } else {
+                ESP_LOGI(TAG, "Dino keyword ignored: no recent near-end voice candidate");
+            }
+        }
+#endif
         // WakeNet can recognize the device's own spoken wake phrase. During an
         // active conversation it must not bypass reference/AEC/near-end checks,
         // reset capture, or reopen a blocked old reply. Keep ordinary standby
         // wake-up; confirmed voice interruption owns cancellation in conversation.
         // Also cover Listening while buffered playback or its wake event drains.
         audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
+#if !CONFIG_WZH_DINO_KEYWORD_BARGE_IN
         ESP_LOGI(TAG,
                  "Conversation wake word ignored: interruption requires near-end confirmation");
+#endif
         return;
     }
 #endif
@@ -1769,6 +1840,9 @@ void Application::ResumeAfterVoiceEnrollment(uint32_t generation) {
 }
 
 void Application::StopInteraction(bool play_exit_sound) {
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+    official_probe_active_.store(false);
+#endif
     voice_selection_reply_guard_.store(false);
     if (external_voice_preview_active_.exchange(false))
         external_voice_preview_status_.store(4);
@@ -1844,6 +1918,10 @@ const char* Application::ExternalVoicePreviewStatus() const {
 }
 
 bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+    if (official_probe_active_.load())
+        return false;
+#endif
     const auto state = GetDeviceState();
     const bool conversation = state == kDeviceStateListening || state == kDeviceStateSpeaking;
     if (name.empty() || name.size() > 48 || (state != kDeviceStateIdle && !conversation) ||
@@ -2251,6 +2329,64 @@ bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
     return true;
 }
 
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+void Application::BeginOfficialAsrProbe(uint32_t token) {
+    if (official_probe_used_ || !protocol_ || !protocol_->IsAudioChannelOpened())
+        return;
+    official_probe_used_ = true;
+    official_probe_sent_stop_ = false;
+    official_probe_packets_sent_ = 0;
+    official_probe_packets_failed_ = 0;
+    official_probe_stt_received_.store(false);
+    official_probe_started_us_ = esp_timer_get_time();
+    official_probe_active_.store(true);
+    // The official service does not advertise an ASR-only probe. Manual mode
+    // may alter the remote turn despite no local abort.
+    protocol_->SendStartListening(kListeningModeManualStop);
+    if (!audio_service_.CommitVoiceInterruption(token, false)) {
+        official_probe_active_.store(false);
+        protocol_->SendStopListening();
+        ESP_LOGW(TAG, "Official ASR probe: candidate expired before capture");
+        return;
+    }
+    ESP_LOGI(TAG, "Official ASR probe: started; local playback not aborted");
+}
+
+void Application::ServiceOfficialAsrProbe() {
+    if (!official_probe_active_.load())
+        return;
+    const int64_t elapsed_us = esp_timer_get_time() - official_probe_started_us_;
+    if (!official_probe_sent_stop_ && elapsed_us >= 2000000) {
+        official_probe_sent_stop_ = true;
+        audio_service_.EnableVoiceProcessing(false);
+        if (protocol_ && protocol_->IsAudioChannelOpened())
+            protocol_->SendStopListening();
+        ESP_LOGI(TAG, "Official ASR probe: sent listen stop; audio packets sent=%lu failed=%lu",
+                 static_cast<unsigned long>(official_probe_packets_sent_),
+                 static_cast<unsigned long>(official_probe_packets_failed_));
+    }
+    if (elapsed_us >= 6000000 || interaction_stopped_.load() || !protocol_ ||
+        !protocol_->IsAudioChannelOpened()) {
+        if (!official_probe_sent_stop_) {
+            official_probe_sent_stop_ = true;
+            audio_service_.EnableVoiceProcessing(false);
+        }
+        const bool received = official_probe_stt_received_.load();
+        official_probe_active_.store(false);
+        ESP_LOGI(TAG, "Official ASR probe ended: transcript=%d state=%d", received,
+                 static_cast<int>(GetDeviceState()));
+        if (!interaction_stopped_.load() && protocol_ && protocol_->IsAudioChannelOpened() &&
+            GetDeviceState() == kDeviceStateListening) {
+            if (audio_service_.IsPlaybackIdle()) {
+                StartListeningAudio();
+            } else {
+                pending_listening_start_ = true;
+            }
+        }
+    }
+}
+#endif
+
 void Application::HandleVoiceInterruptionEvent() {
     if (voice_enrollment_active_.load() || voice_enrollment_reconnecting_.load() ||
         barge_in_reconnecting_.load())
@@ -2262,6 +2398,20 @@ void Application::HandleVoiceInterruptionEvent() {
          !(state == kDeviceStateListening && pending_listening_start_)) ||
         !audio_service_.IsVoiceInterruptionPending(token))
         return;
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+    BeginOfficialAsrProbe(token);
+#else
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    const auto diagnostic = audio_service_.GetBargeInDiagnostics(token);
+    bool servo_powered = false;
+    int64_t last_servo_command_us = 0;
+    const bool servo_known =
+        Board::GetInstance().GetBargeInServoDiagnostics(servo_powered, last_servo_command_us);
+    const int64_t now_us = esp_timer_get_time();
+    const int64_t servo_age_ms = last_servo_command_us > 0 && now_us >= last_servo_command_us
+                                     ? (now_us - last_servo_command_us) / 1000
+                                     : -1;
+#endif
     const bool channel_open = protocol_ && protocol_->IsAudioChannelOpened();
     if (!channel_open)
         barge_in_reconnecting_.store(true);
@@ -2276,6 +2426,15 @@ void Application::HandleVoiceInterruptionEvent() {
     pending_listening_start_ = play_popup_on_listening_ = entry_prompt_before_listening_ = false;
     SetDeviceState(kDeviceStateListening);
     AbortSpeaking(kAbortReasonNone);
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    ESP_LOGI(TAG,
+             "Dino barge candidate token=%lu valid=%d vad=%d residual=%d threshold=%d "
+             "echo_corr=%d%% required_ms=%d servo_known=%d powered=%d command_age_ms=%lld",
+             static_cast<unsigned long>(token), diagnostic.pending, diagnostic.vad,
+             diagnostic.residual, diagnostic.threshold, diagnostic.correlation_percent,
+             diagnostic.required_speech_ms,
+             servo_known, servo_powered, static_cast<long long>(servo_age_ms));
+#endif
     ConfigureWakeWordForListening();
     if (channel_open) {
         protocol_->SendStartListening(listening_mode_);
@@ -2288,5 +2447,6 @@ void Application::HandleVoiceInterruptionEvent() {
         SetDeviceState(kDeviceStateIdle);
     }
     ESP_LOGI(TAG, "Voice interruption: reply cancelled, post-AEC prefix retained");
+#endif
 }
 #endif

@@ -122,7 +122,15 @@ int main() {
     output.Initialize(4, channels, 3);
     assert(!power && stops == 3);
     assert(output.blocked() && !output.Write(angles, 3));
+    // The dinosaur-only test lock must survive ordinary battery/maintenance
+    // fault transitions and prevent PWM writes from enabling servo power.
+    const auto test_off = static_cast<wzh::MotionFault>(1U << 9);
+    output.SetFault(test_off, true);
     output.SetFault(wzh::kBatteryPending, false);
+    output.SetFault(wzh::kMaintenance, true);
+    output.SetFault(wzh::kMaintenance, false);
+    assert(output.blocked() && !output.Write(angles, 3) && !power);
+    output.SetFault(test_off, false);
     assert(output.Write(angles, 3) && power && output.powered());
     float fractional[] = {90,90,150};
     assert(output.WriteDegrees(fractional,3));const auto duty0=first_duty;

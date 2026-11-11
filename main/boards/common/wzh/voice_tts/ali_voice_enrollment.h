@@ -17,6 +17,7 @@ public:
     void Cancel() override;
     const char* Status() const override;
     const char* Failure() const override;
+    bool IsConfigured() const override;
     bool SelectionPending() const override;
     bool StartSelection(const std::string& text, std::function<void(bool)> complete) override;
 

@@ -1,12 +1,13 @@
 #ifndef WZH_SYSTEM_PROMPTS_H_
 #define WZH_SYSTEM_PROMPTS_H_
 
+#include <cstdint>
 #include <functional>
 
 namespace wzh {
 
-// Once per confirmed low-battery episode. Invalid ADC samples suppress playback
-// but do not re-arm it; only stable protection recovery starts a new episode.
+// Remind at most once per 10 minutes while low voltage persists. Invalid ADC
+// samples suppress playback without clearing the current episode.
 class LowBatteryPromptGate {
 public:
     void Observe(bool ready, bool low) {
@@ -14,10 +15,13 @@ public:
         if (ready && !low)
             announced_ = false;
     }
-    bool Take() {
-        if (!ready_low_ || announced_)
+    static constexpr uint32_t kRepeatIntervalMs = 10U * 60U * 1000U;
+    bool Take(uint32_t now_ms) {
+        if (!ready_low_ ||
+            (announced_ && now_ms - last_announcement_ms_ < kRepeatIntervalMs))
             return false;
         announced_ = true;
+        last_announcement_ms_ = now_ms;
         return true;
     }
     void RetryAfterInterruption() {
@@ -28,6 +32,7 @@ public:
 private:
     bool ready_low_ = false;
     bool announced_ = false;
+    uint32_t last_announcement_ms_ = 0;
 };
 
 // Calls from the power task never enqueue/decode audio. A single worker owns
@@ -37,8 +42,10 @@ void StartSystemPrompts();
 void RequestWifiSetupPrompt();
 // Wait until network startup has decided whether to request first-time setup.
 void MarkStartupNetworkReady();
-// Wait for the startup chime and any first-setup prompt to be queued.
+// Startup audio can begin once the shared audio worker is available.
 bool StartupGreetingAudioReady();
+// Release the first setup prompt after the one-shot greeting has finished.
+void MarkStartupGreetingComplete();
 void ObserveSystemPromptBattery(bool ready, bool low);
 void BeginSystemPromptShutdown();
 // Power task only; bounded wait includes production AND final PCM drain. The

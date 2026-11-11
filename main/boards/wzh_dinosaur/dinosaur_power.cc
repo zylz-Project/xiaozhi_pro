@@ -244,9 +244,11 @@ void DinosaurPower::ReadBattery(uint32_t now) {
         battery_voltage_mv_.store(rest_mv);
         battery_rest_updated_ms_.store(battery_rest_voltage_.updated_ms());
         // Approximate UI percentage; protection never uses this estimate.
-        battery_level_.store(std::clamp((rest_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
-                                            (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
-                                        0, 100));
+        const int level = std::clamp((rest_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
+                                         (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
+                                     0, 100);
+        battery_level_.store(level);
+        battery_warning_.Observe(level);
     }
 }
 
@@ -269,6 +271,7 @@ void DinosaurPower::Task() {
     uint32_t last_battery_sample_ms = 0;
     bool battery_settled = false;
     uint32_t last_fast_battery_sample_ms = 0;
+    uint32_t last_fast_battery_log_ms = 0;
     wzh::FastBatteryStart fast_battery;
     wzh::TouchInputFilter touch_filter(TOUCH_STABLE_SAMPLES);
 
@@ -464,6 +467,16 @@ void DinosaurPower::Task() {
                                adc_cali_raw_to_voltage(battery_adc_cali_, raw, &mv) == ESP_OK;
                     },
                     measured_mv);
+            if (now - last_fast_battery_log_ms >= 3000) {
+                last_fast_battery_log_ms = now;
+                ESP_LOGI(TAG,
+                         "Fast battery probe: %lu ms calibration=%s valid=%s measured=%d mV "
+                         "required=%d mV",
+                         static_cast<unsigned long>(now), battery_adc_cali_ ? "yes" : "no",
+                         valid ? "yes" : "no", measured_mv,
+                         static_cast<int>(std::ceil(
+                             wzh::FastBatteryStart::RequiredMillivolts(now, BATTERY_RECOVER_MV))));
+            }
             if (fast_battery.Observe(now, valid, measured_mv, BATTERY_RECOVER_MV)) {
                 if (auto* output = servo_output_.load()) {
                     if (wzh::CommitFastBatteryStart(
@@ -484,11 +497,15 @@ void DinosaurPower::Task() {
         }
         if ((battery_settled || now >= 15000) &&
             now - last_battery_sample_ms >= BATTERY_READ_INTERVAL_MS) {
+            if (!battery_settled) {
+                ESP_LOGI(TAG, "Fast battery probe did not qualify; using normal battery checks");
+            }
             battery_settled = true;
             last_battery_sample_ms = now;
             ReadBattery(now);
 #if CONFIG_WZH_SYSTEM_PROMPTS
-            wzh::ObserveSystemPromptBattery(battery_protection_.ready(), battery_protection_.low());
+            wzh::ObserveSystemPromptBattery(battery_protection_.ready(),
+                                            battery_protection_.low() || battery_warning_.low());
 #endif
             if (last_battery_log_ms == 0 || now - last_battery_log_ms >= 30000) {
                 ESP_LOGI(TAG, "Battery rest=%dmV live=%dmV level=%d%% valid=%d load=%d",

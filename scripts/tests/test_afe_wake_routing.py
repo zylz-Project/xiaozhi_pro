@@ -39,6 +39,7 @@ class AfeWakeRoutingTest(unittest.TestCase):
 #include <vector>
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGW(...) ((void)0)
 constexpr bool kUseWakeNet = USE_WN, kUseMultiNetWakeWord = USE_MN, kUseLocalCommands = LOCAL;
 using EventBits_t = unsigned;
 void xEventGroupSetBits(unsigned* group, unsigned bits) { *group |= bits; }
@@ -49,15 +50,17 @@ struct afe_fetch_result_t {
 };
 const char* esp_srmodel_get_wake_words(void*, char*) { return "小龙小龙"; }
 struct CustomWakeWord {
+    static bool init_ok;
     bool running = false, local_only = false;
     int feeds = 0, stops = 0;
     std::function<void(const std::string&)> callback;
     void OnWakeWordDetected(std::function<void(const std::string&)> cb) { callback = cb; }
-    bool Initialize(void*, void*, bool local) { local_only = local; return true; }
+    bool Initialize(void*, void*, bool local) { local_only = local; return init_ok; }
     void Start() { running = true; }
     void Stop() { running = false; ++stops; }
     void FeedMono(const int16_t*, size_t) { assert(running); ++feeds; }
 };
+bool CustomWakeWord::init_ok = true;
 struct AfeAudioEngine {
     enum class WakeDetector { kNone, kWakeNet, kMultiNet };
     static constexpr unsigned kWakeWordEnabled = 1;
@@ -127,6 +130,14 @@ int main() {
         assert(engine.custom_wake_word_->feeds == expected_feeds);
     }
 #endif
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    if (needs_mn) {
+        engine.bits |= 2; // Keep keyword recognition running during speech capture.
+        engine.HandleWakeWordResult(&result);
+        assert(engine.custom_wake_word_->feeds == ++expected_feeds);
+        engine.bits &= ~2;
+    }
+#endif
     if (kUseWakeNet) {
         result.wakeup_state = WAKENET_DETECTED;
         result.wakenet_model_index = 99;
@@ -151,6 +162,15 @@ int main() {
     if (needs_mn) {
         assert(!engine.custom_wake_word_->running);
         AfeAudioEngine missing;
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        if (kUseWakeNet) {
+            assert(missing.InitializeWakeWordDetectors(wn, nullptr));
+            assert(missing.HasWakeWord()&&!missing.custom_wake_word_);
+            AfeAudioEngine failed;CustomWakeWord::init_ok=false;
+            assert(failed.InitializeWakeWordDetectors(wn, mn));
+            assert(failed.HasWakeWord()&&!failed.custom_wake_word_);
+        } else
+#endif
         assert(!missing.InitializeWakeWordDetectors(wn, nullptr));
     }
 }
@@ -161,6 +181,9 @@ int main() {
                     self.compile_and_run(program, [f'-DUSE_WN={wn}', f'-DUSE_MN={mn}',
                                                    f'-DLOCAL={local}',
                                                    f'-DCONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND={neural}'])
+        self.compile_and_run(program, ['-DUSE_WN=1', '-DUSE_MN=0', '-DLOCAL=1',
+                                       '-DCONFIG_WZH_DINO_KEYWORD_BARGE_IN=1',
+                                       '-DCONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=0'])
 
     def test_multinet_callback_can_stop_and_rearm_without_stale_audio(self):
         source = (ROOT / 'main/audio/wake_words/custom_wake_word.cc').read_text()

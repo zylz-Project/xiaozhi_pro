@@ -88,6 +88,18 @@ public:
     virtual void SetVoiceEnrollmentRecording(bool) {}
     virtual bool KeepAudioOutputEnabled() const { return false; }
     virtual bool IsAudioMaintenanceActive() { return false; }
+#if CONFIG_USE_VOICE_BARGE_IN
+    // Boards may request a longer local speech candidate, in 16 kHz samples.
+    virtual size_t GetBargeInMinimumSpeechSamples() const { return 2880; }
+#endif
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    // Diagnostic only: commanded movement is not physical position feedback.
+    virtual bool GetBargeInServoDiagnostics(bool& powered, int64_t& last_command_us) const {
+        powered = false;
+        last_command_us = 0;
+        return false;
+    }
+#endif
     // Return true when the board consumes a recognized phrase locally.
     virtual bool HandleLocalVoiceCommand(const std::string&) { return false; }
     virtual NetworkInterface* GetNetwork() = 0;

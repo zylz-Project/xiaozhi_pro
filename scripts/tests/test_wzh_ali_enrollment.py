@@ -10,6 +10,67 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class AliEnrollmentTest(unittest.TestCase):
+    def test_first_enrollment_prompt_uses_builtin_without_changing_selected_voice(self):
+        if not shutil.which('g++'):
+            self.skipTest('g++ required')
+        source = (ROOT / 'main/boards/common/wzh/voice_tts/ali_voice_enrollment.cc').read_text()
+        methods = queue_function(source, 'bool AliVoiceEnrollment::IsConfigured(') + '\n' + \
+            queue_function(source, 'bool AliVoiceEnrollment::Speak(')
+        program = r'''
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <functional>
+#include <mutex>
+#include <string>
+int64_t esp_timer_get_time(){return 0;}
+#define pdTRUE 1
+#define pdMS_TO_TICKS(x) (x)
+void ulTaskNotifyTake(int,int){}
+void xTaskNotifyGive(void*){}
+std::string key, selected;
+std::string LoadAliKey(){return key;}
+std::string LoadAliVoice(){return selected;}
+struct BuiltinVoice{const char* id;};
+const BuiltinVoice kBuiltinVoices[]={{"builtin"}};
+struct AudioService{uint32_t GetPlaybackGeneration(){return 42;}};
+struct Application{AudioService audio;static Application& GetInstance(){static Application a;return a;}
+ AudioService& GetAudioService(){return audio;}};
+struct ExternalTts {
+ std::string ready_voice, begun_voice;std::function<void(bool)> callback;
+ bool ReadyForVoice(const std::string& v){ready_voice=v;return true;}
+ bool BeginWithVoice(uint32_t gen,const std::string& v,std::function<void(bool)> done){
+  assert(gen==42);begun_voice=v;callback=done;return true;}
+ bool Enqueue(const char*){return true;}
+ void Finish(){callback(true);}
+ void Cancel(){}
+};
+struct Board{ExternalTts external;static Board& GetInstance(){static Board b;return b;}
+ ExternalTts* GetExternalTts(){return &external;}};
+struct AliVoiceEnrollment{
+ std::atomic<bool> active_{true},prompt_done_{false},prompt_ok_{false};
+ std::atomic<uint32_t> generation_{1};std::mutex mutex_;void* task_=nullptr;
+ bool IsConfigured() const;bool Speak(const char*,uint32_t);
+};
+''' + methods + r'''
+int main(){
+ AliVoiceEnrollment a;assert(!a.IsConfigured());key="key";assert(a.IsConfigured());
+ assert(a.Speak("prompt",1));auto& e=Board::GetInstance().external;
+ assert(e.ready_voice=="builtin"&&e.begun_voice=="builtin"&&selected.empty());
+ selected="cloned";assert(a.Speak("prompt",1));
+ assert(e.ready_voice.empty()&&e.begun_voice.empty()&&selected=="cloned");
+ assert(!a.Speak("prompt",2));
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'test.cc'
+            path.write_text(program)
+            exe = path.with_suffix('')
+            result = subprocess.run(['g++', '-std=c++17', '-pthread', '-Wall', '-Wextra',
+                                     '-Werror', str(path), '-o', str(exe)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            subprocess.run([str(exe)], check=True, timeout=10)
+
     def test_capture_stops_after_speech_and_silence_without_overflow(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')

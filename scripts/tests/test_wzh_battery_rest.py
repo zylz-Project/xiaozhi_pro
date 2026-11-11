@@ -16,6 +16,20 @@ class WzhBatteryRestTest(unittest.TestCase):
     def run_cpp(self, program):
         output.WzhMotionOutputTest.run_cpp(self, program)
 
+    def test_low_battery_warning_hysteresis_and_real_thresholds(self):
+        self.run_cpp(r'''
+#include <cassert>
+#include "wzh_battery_voltage.h"
+int main() {
+    wzh::BatteryWarningLevel warning;
+    warning.Observe(19); assert(!warning.low());
+    warning.Observe(18); assert(warning.low());
+    warning.Observe(22); assert(warning.low());
+    warning.Observe(23); assert(!warning.low());
+    warning.Observe(0); assert(warning.low());
+}
+''')
+
     def test_rest_reading_holds_during_short_actions_and_speech_and_rejects_spikes(self):
         self.run_cpp(r'''
 #include <cassert>
@@ -130,6 +144,7 @@ struct Power{
     Output out;std::atomic<Output*>servo_output_{&out};
     wzh::StableBatteryProtection battery_protection_;
     wzh::BatteryRestVoltage battery_rest_voltage_;
+    wzh::BatteryWarningLevel battery_warning_;
     std::atomic<int>battery_voltage_mv_{0},battery_live_mv_{0},battery_level_{0},battery_protection_mv_{0};
     std::atomic<bool>battery_sample_valid_{false},battery_load_active_{false},battery_rest_ready_{false};
     std::atomic<uint32_t>battery_rest_updated_ms_{0};

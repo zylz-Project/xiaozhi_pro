@@ -874,6 +874,15 @@ choice WAKE_WORD_TYPE
 
 endchoice
 
+config WZH_ALLOW_CROSS_PRODUCT_WAKE_MODEL
+    bool "Allow another WZH product's wake phrase"
+    depends on USE_AFE_WAKE_WORD && (BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA)
+    default n
+    help
+        Allow an intentionally selected wake model normally used by another
+        WZH product. Keep disabled to catch stale menuconfig settings when
+        switching products in the IDE. Other custom models are unaffected.
+
 config WZH_OFFLINE_COMMANDS
     bool "WZH local motion keywords"
     depends on (BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA) && (USE_CUSTOM_WAKE_WORD || USE_AFE_WAKE_WORD)
@@ -1011,6 +1020,46 @@ config VOICE_BARGE_IN_NEURAL_FRONTEND
         Process post-AEC mono through NSNet2 and then WebRTC VAD before interruption
         detection. Requires NSNet2 in the assets. Extra latency, CPU and
         memory must be measured on the device. Does not change speaker volume.
+
+config WZH_DINO_KEYWORD_BARGE_IN
+    bool "Dinosaur keyword-confirmed voice interruption"
+    depends on BOARD_TYPE_WZH_DINOSAUR && USE_VOICE_BARGE_IN && WZH_OFFLINE_COMMANDS
+    depends on !VOICE_BARGE_IN_NEURAL_FRONTEND && !VOICE_BARGE_IN_VADNET_EXPERIMENT
+    default n
+    help
+        Require a locally recognized interruption command as well as a recent
+        near-end voice candidate before interrupting playback. This is a
+        fixed-vocabulary test; ordinary speech alone will not interrupt.
+
+config WZH_DINOSAUR_MOTION_BARGE_GUARD
+    bool "Experimental dinosaur movement-aware interruption duration"
+    default n
+    depends on BOARD_TYPE_WZH_DINOSAUR && USE_VOICE_BARGE_IN
+    help
+        Require 300 ms rather than 180 ms of VAD when a recent servo movement
+        command is present. This is a heuristic and may miss short speech.
+        It does not provide server transcript confirmation.
+
+config VOICE_BARGE_IN_VADNET_EXPERIMENT
+    bool "Experimental AFE VADNet interruption detector"
+    default n
+    depends on USE_VOICE_BARGE_IN && SR_VADN_VADNET1_MEDIUM
+    depends on !VOICE_BARGE_IN_NEURAL_FRONTEND
+    depends on IDF_TARGET_ESP32S3
+    help
+        Use AFE VADNet without the NSNet2 uplink frontend. This is an
+        unvalidated comparison and does not transcribe speech. It changes
+        uplink denoising; verify load, audio quality, wake and interruption.
+
+config WZH_DINO_OFFICIAL_ASR_PROBE
+    bool "Dinosaur official-service ASR probe (diagnostic only)"
+    default n
+    depends on BOARD_TYPE_WZH_DINOSAUR && VOICE_BARGE_IN_VADNET_EXPERIMENT
+    help
+        Once per boot, send a bounded speech candidate to the current official
+        service without locally aborting the ongoing playback. This experiment
+        can change the server conversation; it is not a product interruption
+        mode and does not guarantee the original reply survives.
 
 config USE_AUDIO_DEBUGGER
     bool "Enable Audio Debugger"

@@ -187,19 +187,25 @@ class PromptWorkerTest(unittest.TestCase):
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_low_battery_rearms_only_after_real_recovery(self):
+    def test_low_battery_repeats_after_ten_minutes_and_handles_recovery(self):
         self.compile_run(r'''
 #include <cassert>
+#include <cstdint>
 #include "wzh_system_prompts.h"
 int main(){
  wzh::LowBatteryPromptGate gate;
- gate.Observe(false,true);assert(!gate.Take());
- gate.Observe(true,true);assert(gate.Take()&&!gate.Take());
- gate.RetryAfterInterruption();assert(gate.Take()&&!gate.Take());
- gate.Observe(false,false);gate.RetryAfterInterruption();
- gate.Observe(true,true);assert(!gate.Take());
- gate.Observe(true,false);assert(!gate.Take());
- gate.Observe(true,true);assert(gate.Take());
+ gate.Observe(false,true);assert(!gate.Take(0));
+ gate.Observe(true,true);assert(gate.Take(100)&&!gate.Take(100));
+ assert(!gate.Take(600099));assert(gate.Take(600100));
+ gate.Observe(false,false);assert(!gate.Take(1200100));
+ gate.Observe(true,true);assert(gate.Take(1200100));
+ gate.RetryAfterInterruption();assert(gate.Take(1200200));
+ gate.Observe(true,false);assert(!gate.Take(1200300));
+ gate.Observe(true,true);assert(gate.Take(1200400));
+ wzh::LowBatteryPromptGate wrap;wrap.Observe(true,true);
+ const uint32_t start=UINT32_MAX-100;
+ assert(wrap.Take(start));assert(!wrap.Take(start+599999U));
+ assert(wrap.Take(start+600000U));
 }
 ''')
 
@@ -212,6 +218,7 @@ int main(){
 #include <optional>
 #include <string_view>
 #define CONFIG_WZH_SYSTEM_PROMPTS 1
+#define CONFIG_BOARD_TYPE_WZH_CRAWLPANDA 1
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGI(...) ((void)0)
@@ -276,7 +283,8 @@ int main(){
  wzh::StartSystemPrompts();assert(entry);
  // Startup audio and asynchronous queue resets must finish before the prompt.
  audio.until=1000;wzh::RequestWifiSetupPrompt();clock_ms=700;run_worker();assert(audio.wifi==0);
- audio.ResetDecoder();clock_ms=1100;run_worker();assert(audio.wifi==1);
+ audio.ResetDecoder();clock_ms=1100;run_worker();assert(audio.wifi==0);
+ wzh::MarkStartupGreetingComplete();run_worker();assert(audio.wifi==1);
  clock_ms=1700;run_worker();assert(audio.wifi==1);
  wzh::RequestWifiSetupPrompt();app.state=1;run_worker();app.state=0;
  clock_ms=2500;run_worker();assert(audio.wifi==1);
@@ -296,9 +304,14 @@ int main(){
  clock_ms+=1000;drive_worker=false;run_worker();assert(audio.low==4);
  clock_ms+=1000;audio.ResetDecoder();run_worker();assert(audio.low==4);
  run_worker();assert(audio.low==4);
+ // Continued low voltage repeats only once the interval has elapsed and
+ // the device is idle, even if the deadline passed during conversation.
+ clock_ms+=600000;app.state=1;run_worker();assert(audio.low==4);
+ app.state=0;run_worker();assert(audio.low==5);run_worker();assert(audio.low==5);
+ clock_ms+=1000;run_worker();
  drive_worker=true;
  wzh::BeginSystemPromptShutdown();wzh::ObserveSystemPromptBattery(true,false);
- wzh::ObserveSystemPromptBattery(true,true);run_worker();assert(audio.low==4);
+ wzh::ObserveSystemPromptBattery(true,true);run_worker();assert(audio.low==5);
  int battery_checks=0;const auto started=clock_ms;
  assert(wzh::PlayShutdownPromptAndWait([&](){++battery_checks;}));
  assert(audio.off==1&&clock_ms-started>=1200&&battery_checks>=1);

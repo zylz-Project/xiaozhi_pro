@@ -25,7 +25,7 @@ from datetime import datetime
 # Pack model functions (from pack_model.py)
 # =============================================================================
 
-def wzh_offline_commands(product=None):
+def wzh_offline_commands(product=None, keyword_barge=False):
     """Pack the same per-product body vocabulary used by firmware/MCP aliases."""
     phrases = [
         ('kai xin', 'happy'), ('sa jiao', 'affection'),
@@ -38,6 +38,11 @@ def wzh_offline_commands(product=None):
     masks = {'crawl': 1, 'tail': 2, 'dinosaur': 4, None: 7}
     if product not in masks:
         raise ValueError(f'Unknown WZH local-command product: {product}')
+    if product == 'dinosaur' and keyword_barge:
+        phrases.extend((phrase, 'interrupt') for phrase in (
+            'ting', 'ting yi xia', 'deng yi xia', 'bie shuo hua',
+            'bie shuo le', 'xian bie shuo', 'ni hao', 'wo you wen ti',
+            'wo yao shuo hua'))
     catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            'main', 'boards', 'common', 'wzh', 'wzh_body_phrases.inc')
     pattern = re.compile(r'WZH_BODY_PHRASE\((\d+), "([a-z_]+)", "([^"]+)", "([a-z ]+)"\)')
@@ -81,7 +86,8 @@ def read_local_command_config(sdkconfig_path):
     selected = [product for selector, product in products if values.get(selector) == 'y']
     if len(selected) > 1:
         raise ValueError('Local motion commands require exactly one WZH product')
-    return {'threshold': threshold / 100.0, 'product': selected[0] if selected else None}
+    return {'threshold': threshold / 100.0, 'product': selected[0] if selected else None,
+            'keyword_barge': values.get('CONFIG_WZH_DINO_KEYWORD_BARGE_IN') == 'y'}
 
 
 def make_multinet_model_info(model_names, custom_config, local_config):
@@ -93,7 +99,8 @@ def make_multinet_model_info(model_names, custom_config, local_config):
     if local_config:
         if get_language_from_multinet_models(model_names) != 'cn':
             raise ValueError('WZH offline commands require a Chinese MultiNet model')
-        commands.extend(wzh_offline_commands(local_config.get('product')))
+        commands.extend(wzh_offline_commands(local_config.get('product'),
+                                             local_config.get('keyword_barge', False)))
     if not commands:
         return None
     # ESP-SR's installed MultiNet interface permits at most 400 phrases.

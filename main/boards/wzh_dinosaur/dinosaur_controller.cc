@@ -1468,6 +1468,14 @@ void DinosaurController::InitializeServos() {
     }
     servo_output_.Initialize(SERVO_POWER_GPIO, kServoChannels, std::size(kServoChannels),
                              (1U << SERVO_DUTY_RES) - 1);
+#if DINOSAUR_SERVO_POWER_TEST_OFF
+    // A board-local fault bit keeps all later PWM writes from powering servos.
+    constexpr auto kServoPowerTestOff = static_cast<wzh::MotionFault>(1U << 9);
+    servo_output_.SetFault(kServoPowerTestOff, true);
+    // There will be no startup gesture in this mode; do not delay setup audio.
+    wzh::MarkStartupGreetingComplete();
+    ESP_LOGW(TAG, "Dinosaur servo power disabled for testing");
+#endif
     SetPose(current_pose_);
     ESP_LOGI(TAG,
              "Motion revision: stories-v4 / roar-onset-v3; tilt=IO17 lean=IO16 head=IO15 "
@@ -1597,6 +1605,9 @@ void DinosaurController::SetPose(const Pose& requested) {
         targets[i] = output_angles_[i] + (targets[i] - output_angles_[i]) * mix;
     }
     if (servo_output_.WriteDegrees(targets, std::size(targets))) {
+        // Track commanded movement, not physical motion or measured motor noise.
+        if (travel * mix >= 0.1f)
+            last_servo_command_movement_us_.store(esp_timer_get_time());
         for (size_t i = 0; i < std::size(targets); ++i) {
             output_angles_[i] = targets[i];
         }
@@ -2373,7 +2384,15 @@ bool DinosaurController::UpdateSoundMotion(uint32_t now) {
 
 void DinosaurController::Task() {
     // Audio-first periodic scores, with explicit interactions taking priority.
-    wzh::StartupGreetingGate startup(static_cast<uint32_t>(esp_timer_get_time() / 1000));
+    const uint32_t startup_origin_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+    wzh::StartupGreetingGate startup(startup_origin_ms);
+    bool startup_sound_pending = false;
+    bool startup_sound_started = false;
+    static constexpr const char* kStartupSounds[] = {
+        "叫声音效合集 (79)", "叫声音效合集 (13)", "叫声音效合集 (5)"};
+    static constexpr DinoAction kStartupActions[] = {
+        DinoAction::kHappy, DinoAction::kDiscover, DinoAction::kProud};
+    const unsigned startup_variant = esp_random() % std::size(kStartupSounds);
     while (true) {
         const uint32_t now_ms = esp_timer_get_time() / 1000;
         if (stop_audio_requested_.exchange(false) && audio_ != nullptr) {
@@ -2390,6 +2409,21 @@ void DinosaurController::Task() {
         }
         PollInteraction(now_ms);
         const auto pet_state = pet_.Get(now_ms);
+        if (startup_sound_pending &&
+            (conversation_active_.load() || shutdown_requested_.load() ||
+             last_request_us_.load() > 0 || pet_state.mode != wzh::PetMode::kNormal ||
+             !pet_state.motion || now_ms - startup_origin_ms >= 30000 ||
+             Application::GetInstance().IsVoiceEnrollmentActive() ||
+             Application::GetInstance().IsExternalVoicePreviewActive())) {
+            startup_sound_pending = false;
+        }
+        if (startup_sound_started &&
+            (conversation_active_.load() || shutdown_requested_.load() ||
+             last_request_us_.load() > 0 || !pet_state.motion ||
+             Application::GetInstance().IsVoiceEnrollmentActive() ||
+             Application::GetInstance().IsExternalVoicePreviewActive())) {
+            startup_sound_started = false;
+        }
         // Remember preemption even while battery protection blocks movement.
         startup.Due(now_ms, false,
                     conversation_active_.load() || shutdown_requested_.load() ||
@@ -2400,6 +2434,8 @@ void DinosaurController::Task() {
             xQueueReset(action_queue_);
             ParkForShutdown();
         }
+        if (!startup.Pending() && !startup_sound_pending && !startup_sound_started)
+            wzh::MarkStartupGreetingComplete();
         if (servo_output_.blocked() || !pet_state.motion) {
             idle_breathing_ = false;
             CancelSoundMotion();
@@ -2482,30 +2518,52 @@ void DinosaurController::Task() {
             if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
                 autonomous_playback_ = false;
             const bool offline = !conversation_active_.load();
-            // Built-in roar plus its five-axis authored sound choreography.
-            // Battery protection and setup prompts retain priority.
+            // Start the gesture when the safety gate opens, independently of audio.
             const bool startup_interrupted = conversation_active_.load() ||
                                              shutdown_requested_.load() ||
                                              last_request_us_.load() > 0;
-            const bool startup_ready =
-                audio_ != nullptr && pet_state.local_sound && !local_motion &&
-                !request_active_.load() && !audio_->Playing() &&
-                uxQueueMessagesWaiting(action_queue_) == 0 && wzh::StartupGreetingAudioReady() &&
-                Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
-                !Application::GetInstance().GetAudioService().IsAudioProcessorRunning();
-            if (startup.Due(now_ms, startup_ready, startup_interrupted) &&
-                audio_->PlayIndex(audio_->FindSoundIndex("叫声音效合集 (79)"))) {
+            const bool startup_ready = !local_motion && !request_active_.load() &&
+                                       uxQueueMessagesWaiting(action_queue_) == 0;
+            if (startup.Due(now_ms, startup_ready, startup_interrupted)) {
                 startup.Accepted();
-                autonomous_playback_ = true;
                 running_generation_ = intent_generation_.load();
                 running_speech_bound_ = false;
                 request_gain_ = 1.0f;
                 idle_breathing_ = false;
+                startup_sound_pending = true;
+                if (audio_ != nullptr && pet_state.local_sound &&
+                    wzh::StartupGreetingAudioReady() && !audio_->Playing() &&
+                    Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
+                    !Application::GetInstance().GetAudioService().IsAudioProcessorRunning() &&
+                    audio_->PlayIndex(audio_->FindSoundIndex(kStartupSounds[startup_variant]))) {
+                    startup_sound_pending = false;
+                    startup_sound_started = true;
+                    autonomous_playback_ = true;
+                }
                 autoplay_.Busy(now_ms, esp_random());
-                ESP_LOGI(TAG, "Startup greeting queued");
+                ESP_LOGI(TAG, "Startup gesture started");
+                if (!startup_sound_started)
+                    RunAction(kStartupActions[startup_variant], 0, false,
+                              PickSoundClip(kStartupActions[startup_variant]));
+            }
+            // Queue the matching sound after higher-priority setup audio is ready.
+            if (startup_sound_pending && audio_ != nullptr && pet_state.local_sound &&
+                wzh::StartupGreetingAudioReady() && !audio_->Playing() &&
+                Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
+                !Application::GetInstance().GetAudioService().IsAudioProcessorRunning() &&
+                audio_->PlayIndex(audio_->FindSoundIndex(kStartupSounds[startup_variant]))) {
+                startup_sound_pending = false;
+                startup_sound_started = true;
+                autonomous_playback_ = true;
+            }
+            if (!startup.Pending() && !startup_sound_pending &&
+                (!startup_sound_started ||
+                 (!local_motion && audio_ != nullptr && !audio_->Playing() &&
+                  Application::GetInstance().GetAudioService().IsPlaybackIdle()))) {
+                wzh::MarkStartupGreetingComplete();
             }
             if (autoplay_.Due(now_ms,
-                              offline && pet_state.local_sound &&
+                              offline && pet_state.local_sound && !startup_sound_pending &&
                                   (!servo_output_.powered() || idle_breathing_) && !local_motion &&
                                   (audio_ == nullptr || !audio_->Playing()),
                               esp_random())) {

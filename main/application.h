@@ -175,6 +175,18 @@ private:
     BargeInReplyGate barge_in_reply_gate_;
     void HandleVoiceInterruptionEvent();
 #endif
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+    // Main task owns the one-shot state; network callbacks only set atomics.
+    std::atomic<bool> official_probe_active_{false};
+    std::atomic<bool> official_probe_stt_received_{false};
+    int64_t official_probe_started_us_ = 0;
+    uint32_t official_probe_packets_sent_ = 0;
+    uint32_t official_probe_packets_failed_ = 0;
+    bool official_probe_sent_stop_ = false;
+    bool official_probe_used_ = false;
+    void BeginOfficialAsrProbe(uint32_t token);
+    void ServiceOfficialAsrProbe();
+#endif
     // A TTS start arrives before its first audio packets, but the state change
     // runs on the main task. Keep a bounded prefix so the first syllable is
     // not dropped while the start transition is pending.

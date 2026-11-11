@@ -85,6 +85,64 @@ struct Output {
 
 
 class NeuralAudioFrontendTest(unittest.TestCase):
+    def test_vadnet_missing_model_fails_closed_for_barge_in(self):
+        source=(ENGINE/'afe_audio_engine.h').read_text()
+        method=queue_function(source, 'bool CanMonitorVoiceInterruption() const')
+        program = r'''
+#define CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND 0
+#define CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT 1
+#include <cassert>
+struct Base{virtual bool CanMonitorVoiceInterruption()const{return false;}};
+struct Engine : Base{void* afe_data_=nullptr;bool vadnet_ready_=false;
+''' + method + r'''
+};
+int main(){Engine e;assert(!e.CanMonitorVoiceInterruption());e.afe_data_=&e;
+ assert(!e.CanMonitorVoiceInterruption());e.vadnet_ready_=true;assert(e.CanMonitorVoiceInterruption());}
+'''
+        import test_wzh_fluent_motion
+        test_wzh_fluent_motion.WzhFluentMotionTest.run_cpp(self, program)
+
+    def test_vadnet_afe_frames_require_speech_for_whole_packet_and_fence_stale_turns(self):
+        source = (ENGINE/'afe_audio_engine.cc').read_text()
+        program = r'''
+#define CONFIG_USE_VOICE_BARGE_IN 1
+#define CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND 0
+#define CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT 1
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <functional>
+#include <vector>
+enum {VAD_SILENCE, VAD_SPEECH};
+struct afe_fetch_result_t{int16_t* data;int data_size;int vad_state;};
+struct AfeAudioEngine{
+ std::atomic<uint32_t>control_generation_{0};std::atomic<bool>output_reset_pending_{false};
+ std::vector<int16_t>output_buffer_;bool output_all_speech_=true;int frame_samples_=960;
+ std::function<void(bool)>vad_state_change_callback_;
+ std::function<void(std::vector<int16_t>&&)>output_callback_;
+ void HandleVoiceResult(const afe_fetch_result_t*,uint32_t);
+ void EmitNeuralChunk(const int16_t*,size_t,bool,uint32_t);
+};
+''' + queue_function(source, 'void AfeAudioEngine::HandleVoiceResult(') + \
+            queue_function(source, 'void AfeAudioEngine::EmitNeuralChunk(') + r'''
+int main(){
+ AfeAudioEngine engine;int packets=0;std::vector<bool> detected;
+ engine.vad_state_change_callback_=[&](bool speech){detected.push_back(speech);};
+ engine.output_callback_=[&](std::vector<int16_t>&& pcm){assert(pcm.size()==960);++packets;};
+ std::vector<int16_t> pcm(320,400);afe_fetch_result_t r{pcm.data(),640,VAD_SPEECH};
+ engine.HandleVoiceResult(&r,0);engine.HandleVoiceResult(&r,0);r.vad_state=VAD_SILENCE;
+ engine.HandleVoiceResult(&r,0);assert(packets==1&&!detected[0]);
+ r.vad_state=VAD_SPEECH;for(int i=0;i<3;++i)engine.HandleVoiceResult(&r,0);
+ assert(packets==2&&detected[1]);
+ engine.HandleVoiceResult(&r,0);engine.control_generation_=1;engine.output_reset_pending_=true;
+ engine.HandleVoiceResult(&r,0);assert(packets==2);
+ for(int i=0;i<3;++i){engine.HandleVoiceResult(&r,1);}assert(packets==3&&detected[2]);
+}
+'''
+        import test_wzh_fluent_motion
+        test_wzh_fluent_motion.WzhFluentMotionTest.run_cpp(self, program)
+
     def run_frontend(self, program):
         compiler = shutil.which('g++')
         if not compiler:

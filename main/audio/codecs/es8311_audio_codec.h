@@ -37,7 +37,7 @@ public:
                      bool use_mclk = true, bool pa_inverted = false, float pa_voltage = 5.0f,
                      bool dac_reference = false, float pa_gain_db = 0.0f,
                      float max_output_volume_db = 0.0f, float speaker_makeup_gain_db = 0.0f,
-                     int default_output_volume = 70);
+                     int default_output_volume = 70, float reference_mic_gain_db = 6.0f);
     virtual ~Es8311AudioCodec();
 
     virtual void SetOutputVolume(int volume) override;

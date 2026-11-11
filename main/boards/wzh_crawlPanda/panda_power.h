@@ -66,6 +66,7 @@ private:
     std::atomic<int> touch_code_{0};
     std::atomic<int> touch_voltage_mv_{-1};
     wzh::BatteryRestVoltage battery_rest_voltage_;
+    wzh::BatteryWarningLevel battery_warning_;
     std::atomic<int> battery_live_mv_{0};
     std::atomic<int> battery_protection_mv_{0};
     std::atomic<bool> battery_sample_valid_{false};

@@ -410,6 +410,7 @@ struct DinosaurController{
     float audio_motion_level_=0,audio_motion_emphasis_=0,audio_motion_phase_=0,audio_motion_direction_=1;
     bool audio_motion_active_=false;int64_t audio_motion_last_update_us_=0;
     uint32_t last_output_ms_=0,last_pose_log_ms_=0,interrupt_at=UINT32_MAX;
+    std::atomic<int64_t> last_servo_command_movement_us_{0};
     float output_angles_[5]={70,90,90,90,90};
     Pose current_pose_{70,90,90,90,90},last_output_pose_{70,90,90,90,90};
     bool MotionInterrupted()const{return clock_ms>=interrupt_at;}
@@ -564,11 +565,14 @@ struct DinosaurController{
     graceful.PlayClip(long_neck,graceful.current_pose_,false,1.4f,1,0);
     assert(clock_ms>=10820&&clock_ms<11360); // 133 deg/s active beat, still finite and synchronized.
     assert(graceful.last_output_pose_.neck_tilt>=179);
+    assert(graceful.last_servo_command_movement_us_.load()>0);
     clock_ms=10000;c.interrupt_at=10500;
     c.PlayClip(kBodyClips[0],c.current_pose_,false,1.4f,1,0);
     assert(clock_ms==10500);
     auto count=c.servo_output_.samples.size();c.servo_output_.locked=true;
+    const auto last_command=c.last_servo_command_movement_us_.load();
     c.SetPose({0,0,0,55,0});assert(c.servo_output_.samples.size()==count);
+    assert(c.last_servo_command_movement_us_.load()==last_command);
     // Real production audio motion: all five axes must visibly respond, with
     // several direction changes rather than a single slow drift over 15 sec.
     DinosaurController talking;Audio audio;talking.audio_=&audio;talking.speaking_=true;

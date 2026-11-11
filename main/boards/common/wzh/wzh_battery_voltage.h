@@ -53,6 +53,22 @@ private:
     int voltage_ = 0;
 };
 
+// Experience warning only; never used to disable motion or cut power.
+// The percentage comes from the existing rested-voltage display estimate.
+class BatteryWarningLevel {
+public:
+    void Observe(int level) {
+        if (level <= 18)
+            low_ = true;
+        else if (level >= 23)
+            low_ = false;
+    }
+    bool low() const { return low_; }
+
+private:
+    bool low_ = false;
+};
+
 // UI estimate only. Protection must continue to use every valid live reading,
 // including while servos/audio draw current. Owned by the power task, no heap.
 class BatteryRestVoltage {

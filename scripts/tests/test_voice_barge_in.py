@@ -35,6 +35,93 @@ inline void FeedBargeReference(VoiceBargeIn&detector,int64_t now,float rms=1000,
 class VoiceBargeInTest(unittest.TestCase):
     run_cpp = runtime_tests.FirmwareRuntimeOptimizationsTest.run_cpp
 
+    def test_dinosaur_vadnet_trial_uses_one_neural_model_and_no_audio_debugger(self):
+        builds = json.loads((ROOT/'main/boards/wzh_dinosaur/config.json').read_text())['builds']
+        trial = next(b for b in builds if b['name'] == 'wzh-dinosaur-vadnet-test')
+        options = set(trial['sdkconfig_append'])
+        for setting in ('CONFIG_USE_VOICE_BARGE_IN=y', 'CONFIG_SR_VADN_VADNET1_MEDIUM=y',
+                        'CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT=y', 'CONFIG_SR_NSN_NSNET2=n',
+                        'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n', 'CONFIG_USE_AUDIO_DEBUGGER=n',
+                        'CONFIG_VOICE_BARGE_IN_SHADOW=n'):
+            self.assertIn(setting, options)
+
+    def test_motion_guard_requires_five_frames_without_changing_default(self):
+        self.run_cpp(HEADER + r'''
+#include <cassert>
+int main(){
+ VoiceBargeIn detector;auto speech=BargeWave(1500);int64_t now=0;
+ detector.Begin();
+ auto frame=[&](size_t required){
+  now+=60000;FeedBargeReference(detector,now);
+  return detector.Observe(speech.data(),speech.size(),true,now,false,required);
+ };
+ for(int i=0;i<5;i++)assert(!frame(4800)); // 300 ms reference settling
+ for(int i=0;i<4;i++)assert(!frame(4800));
+ assert(frame(4800));assert(detector.required_speech_ms()==300);
+ detector.Cancel();detector.Begin();
+ for(int i=0;i<5;i++)assert(!frame(2880));
+ assert(!frame(2880));assert(!frame(2880));assert(frame(2880));
+ assert(detector.required_speech_ms()==180);
+}
+''')
+
+    def test_dinosaur_motion_guard_uses_recent_powered_command_only(self):
+        source=(ROOT/'main/boards/wzh_dinosaur/wzh_dinosaur.cc').read_text()
+        method=queue_function(source,'size_t GetBargeInMinimumSpeechSamples() const')
+        self.run_cpp(r'''
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+int64_t now_us=2000000;
+int64_t esp_timer_get_time(){return now_us;}
+struct Controller {
+ int64_t last=0;bool powered=false;
+ int64_t LastServoCommandMovementUs()const{return last;}
+ bool ServoPoweredForBargeIn()const{return powered;}
+};
+struct Base{virtual size_t GetBargeInMinimumSpeechSamples()const{return 2880;}};
+struct Dinosaur : Base {Controller controller_;
+''' + method + r'''
+};
+int main(){
+ Dinosaur d;assert(d.GetBargeInMinimumSpeechSamples()==2880);
+ d.controller_.last=now_us-14000;assert(d.GetBargeInMinimumSpeechSamples()==2880);
+ d.controller_.powered=true;assert(d.GetBargeInMinimumSpeechSamples()==4800);
+ d.controller_.last=now_us-150000;assert(d.GetBargeInMinimumSpeechSamples()==4800);
+ d.controller_.last=now_us-150001;assert(d.GetBargeInMinimumSpeechSamples()==2880);
+ d.controller_.last=now_us+1;assert(d.GetBargeInMinimumSpeechSamples()==2880);
+}
+''')
+
+    def test_dinosaur_diagnostic_snapshot_is_read_only_and_token_bound(self):
+        method = queue_function((AUDIO/'audio_service.cc').read_text(),
+                                'AudioService::BargeInDiagnostics AudioService::GetBargeInDiagnostics(')
+        self.run_cpp(HEADER + r'''
+#include <cassert>
+#include <mutex>
+#include <atomic>
+int64_t now_us = 10000000;
+int64_t esp_timer_get_time(){return now_us;}
+struct Codec {int output_volume(){return 70;}};
+struct AudioService {
+ struct BargeInDiagnostics {bool pending=false,vad=false;int residual=0,threshold=0,correlation_percent=-100,required_speech_ms=180;};
+ std::mutex audio_queue_mutex_;VoiceBargeIn voice_barge_in_;std::atomic<bool> voice_detected_{true};
+ bool capture_enabled_=true;Codec codec;Codec* codec_=&codec;
+ BargeInDiagnostics GetBargeInDiagnostics(uint32_t);
+};
+'''+method+r'''
+int main(){
+ AudioService audio;const auto token=audio.voice_barge_in_.Begin();
+ for(int i=0;i<12;++i){now_us+=60000;FeedBargeReference(audio.voice_barge_in_,now_us);
+  auto pcm=BargeWave(2000);audio.voice_barge_in_.Observe(pcm.data(),pcm.size(),true,now_us);}
+ auto snapshot=audio.GetBargeInDiagnostics(token);
+ assert(snapshot.pending&&snapshot.vad&&snapshot.residual>0&&snapshot.threshold>=160);
+ assert(!audio.GetBargeInDiagnostics(token+1).pending);
+ assert(audio.GetBargeInDiagnostics(token).pending); // Observation never commits.
+ audio.capture_enabled_=false;assert(!audio.GetBargeInDiagnostics(token).pending);
+}
+''')
+
     def test_post_aec_speech_duration_noise_guard_and_generation(self):
         self.run_cpp(HEADER + r'''
 #include <cassert>
@@ -349,6 +436,8 @@ struct AudioTask{AudioTaskType type;std::vector<int16_t>pcm;uint32_t timestamp=0
 struct AudioStreamPacket{int number=0;};
 struct Codec{bool reference=true;bool input_reference(){return reference;}int output_volume(){return 70;}};
 struct Engine{bool ready=true;bool CanMonitorVoiceInterruption(){return ready;}};
+struct Board{static Board& GetInstance(){static Board board;return board;}
+ size_t GetBargeInMinimumSpeechSamples() const{return 2880;}};
 struct AudioService{
  Engine engine;Engine*audio_engine_=&engine;
  Codec codec;Codec*codec_=&codec;bool device_aec_enabled_=true,capture_enabled_=true,running=true,retain_interruption_prefix_=false;
@@ -443,18 +532,21 @@ int main(){
                         self.assertIn(setting,settings)
                 for build in [ordinary, trial]:
                     for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
-                                    'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y',
-                                    'CONFIG_SR_NSN_NSNET2=y',
-                                    'CONFIG_SR_NSN_WEBRTC=n',
                                     'CONFIG_SR_VADN_WEBRTC=y',
                                     'CONFIG_SR_VADN_VADNET1_MEDIUM=n',
                                     'CONFIG_USE_SERVER_AEC=n',
                                     'CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y']:
                         self.assertIn(setting,build['sdkconfig_append'])
+                    if board == 'wzh_dinosaur':
+                        expected = ['CONFIG_WZH_DINO_KEYWORD_BARGE_IN=y',
+                                    'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n',
+                                    'CONFIG_SR_NSN_NSNET2=n', 'CONFIG_SR_NSN_WEBRTC=y']
+                    else:
+                        expected = ['CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y',
+                                    'CONFIG_SR_NSN_NSNET2=y', 'CONFIG_SR_NSN_WEBRTC=n']
+                    for setting in expected:
+                        self.assertIn(setting, build['sdkconfig_append'])
                 for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
-                                'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y',
-                                'CONFIG_SR_NSN_NSNET2=y',
-                                'CONFIG_SR_NSN_WEBRTC=n',
                                 'CONFIG_SR_VADN_WEBRTC=y',
                                 'CONFIG_SR_VADN_VADNET1_MEDIUM=n',
                                 'CONFIG_USE_SERVER_AEC=n',
@@ -470,7 +562,7 @@ int main(){
             config=(ROOT/'main/boards'/board/'config.h').read_text()
             output_settings='\n'.join(line for line in config.splitlines() if line.startswith(
                 ('#define AUDIO_CODEC_PA_GAIN_DB ', '#define AUDIO_CODEC_MAX_VOLUME_DB ',
-                 '#define AUDIO_CODEC_SPEAKER_MAKEUP_DB ')))
+                 '#define AUDIO_CODEC_SPEAKER_MAKEUP_DB ', '#define AUDIO_CODEC_REFERENCE_MIC_GAIN_DB ')))
             for enabled in [0,1]:
                 with self.subTest(board=board,barge_in=enabled):
                     self.run_cpp(f'#define CONFIG_USE_VOICE_BARGE_IN {enabled}\n'+output_settings+r'''
@@ -489,11 +581,17 @@ struct AudioCodec{
 struct Es8311AudioCodec:AudioCodec{
  Es8311AudioCodec(void*,int,int input_rate,int output_rate,int,int,int,int,int,int,
                   uint8_t,bool,bool,float voltage,bool dac_reference=false,
-                  float pa_gain=0,float max_volume=0,float makeup=0,int default_volume=70){
+                  float pa_gain=0,float max_volume=0,float makeup=0,int default_volume=70,
+                  float mic_gain=6.0f){
   ++codecs;reference=dac_reference;
   assert(input_rate==24000&&output_rate==24000);
-  assert(voltage==3.3f&&pa_gain==20.0f&&max_volume==-2.0f);
-  assert(makeup==12.0f&&default_volume==100);
+  assert(voltage==3.3f&&pa_gain==20.0f&&max_volume==AUDIO_CODEC_MAX_VOLUME_DB);
+  assert(makeup==AUDIO_CODEC_SPEAKER_MAKEUP_DB&&default_volume==100);
+#ifdef AUDIO_CODEC_REFERENCE_MIC_GAIN_DB
+  assert(mic_gain==AUDIO_CODEC_REFERENCE_MIC_GAIN_DB);
+#else
+  assert(mic_gain==6.0f);
+#endif
  }
 };
 struct Product:AudioCodec{
@@ -587,6 +685,38 @@ int main(){
  assert(app.state==kDeviceStateSpeaking&&app.audio_service_.packets==1);
 }
 ''',use_json=True)
+
+    def test_dinosaur_keyword_runs_real_abort_and_reply_fence(self):
+        source = (ROOT/'main/application.cc').read_text()
+        wake = queue_function(source, 'void Application::HandleWakeWordDetectedEvent(')
+        wake = wake[:wake.index('    if (!protocol_)')] + '}\n'
+        program = self.application()
+        program = program.replace('bool BeginVoiceInterruption(){',
+                                  'std::string keyword;std::string GetLastWakeWord(){return keyword;}\n    bool BeginVoiceInterruption(){')
+        program = program.replace('ExternalTts* GetExternalTts(){return nullptr;}',
+                                  'bool HandleLocalVoiceCommand(const std::string&){return true;}\n    bool SupportsLocalInteraction(){return true;}\n    ExternalTts* GetExternalTts(){return nullptr;}')
+        program = program.replace('void HandleVoiceInterruptionEvent();',
+                                  'void HandleVoiceInterruptionEvent();void HandleWakeWordDetectedEvent();')
+        self.run_cpp('#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n'+program+wake+r'''
+int main(){
+ Application app;app.Install();app.protocol.opened=true;app.state=kDeviceStateSpeaking;
+ app.audio_service_.voice=true;app.audio_service_.monitoring=true;
+ app.audio_service_.interruption_pending=true;
+ app.pending_voice_interruption_=app.audio_service_.interruption_token;
+ app.audio_service_.keyword="local:happy";app.HandleWakeWordDetectedEvent();
+ assert(app.aborts==0&&app.audio_service_.monitoring&&!app.barge_in_reply_gate_.blocked());
+ app.audio_service_.interruption_pending=false;app.audio_service_.keyword="local:interrupt";
+ app.HandleWakeWordDetectedEvent();assert(app.aborts==0&&app.audio_service_.monitoring);
+ app.audio_service_.interruption_pending=true;
+ app.audio_service_.keyword="local:interrupt";events.clear();
+ app.HandleWakeWordDetectedEvent();
+ assert(app.aborts==1&&app.state==kDeviceStateListening&&app.barge_in_reply_gate_.blocked());
+ assert(!app.audio_service_.monitoring&&app.audio_service_.send_packets==3);
+ assert(events.size()>=4&&events.front()=="commit"&&events[1]=="reset"&&events.back()=="listen");
+ app.Tts(R"({"type":"stt","text":"我有问题"})");
+ assert(!app.barge_in_reply_gate_.blocked());
+}
+''', use_json=True)
 
     def test_wake_word_cannot_bypass_near_end_checks_or_clear_reply_gate_in_conversation(self):
         source=(ROOT/'main/application.cc').read_text()

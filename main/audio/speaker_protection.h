@@ -119,7 +119,7 @@ inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity, bo
     voice_clarity_ = voice_clarity && sample_rate >= 8000;
     loudness_makeup_ = makeup_gain_db > 0.0f && sample_rate >= 8000 && sample_rate <= 48000;
     makeup_gain_ =
-        loudness_makeup_ ? std::pow(10.0f, std::clamp(makeup_gain_db, 0.0f, 12.0f) / 20.0f) : 1.0f;
+        loudness_makeup_ ? std::pow(10.0f, std::clamp(makeup_gain_db, 0.0f, 21.0f) / 20.0f) : 1.0f;
     startup_samples_ =
         (voice_clarity_ || loudness_makeup_) ? static_cast<size_t>(sample_rate / 200) : 0;
     if (voice_clarity_) {

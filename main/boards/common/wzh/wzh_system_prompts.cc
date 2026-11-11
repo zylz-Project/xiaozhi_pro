@@ -25,6 +25,12 @@ std::mutex gate_mutex;
 LowBatteryPromptGate battery_gate;
 std::atomic<bool> worker_started{false};
 std::atomic<bool> startup_network_ready{false};
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+std::atomic<bool> startup_greeting_complete{false};
+#else
+std::atomic<bool> startup_greeting_complete{true};
+#endif
 std::atomic<bool> shutting_down{false};
 #if CONFIG_WZH_SYSTEM_PROMPTS
 std::atomic<bool> wifi_setup_requested{false};
@@ -91,13 +97,18 @@ void Worker(void*) {
         else if (!shutting_down.load() && wifi_setup_requested.load()) {
             const auto now = esp_log_timestamp();
             const auto elapsed = now - wifi_setup_requested_ms.load();
-            if (elapsed >= 15000 || app.GetDeviceState() != kDeviceStateIdle) {
+            // Startup feedback owns audio first. Bound the wait even when the
+            // controller, hardware or greeting audio cannot become ready.
+            if (!startup_greeting_complete.load() && elapsed < 30000) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
+            if (elapsed >= 45000 || app.GetDeviceState() != kDeviceStateIdle) {
                 wifi_setup_requested.store(false);
             } else if (elapsed >= 500 && audio.IsPlaybackIdle() &&
                        !audio.IsAudioProcessorRunning() &&
                        !Board::GetInstance().IsAudioMaintenanceActive()) {
-                // Keep startup greeting out until this producer has enqueued
-                // the prompt; IsPlaybackIdle alone has a pre-enqueue gap.
+                // Reserve this producer until the setup prompt is enqueued.
                 wifi_setup_producing.store(true);
                 wifi_setup_requested.store(false);
                 ESP_LOGI(kTag, "Playing first Wi-Fi setup prompt");
@@ -114,7 +125,7 @@ void Worker(void*) {
                 bool play = false;
                 {
                     std::lock_guard<std::mutex> lock(gate_mutex);
-                    play = !shutting_down.load() && battery_gate.Take();
+                    play = !shutting_down.load() && battery_gate.Take(esp_log_timestamp());
                 }
                 if (play) {
                     low_generation = generation;
@@ -150,14 +161,10 @@ void RequestWifiSetupPrompt() {
 void MarkStartupNetworkReady() { startup_network_ready.store(true); }
 
 bool StartupGreetingAudioReady() {
-    if (!worker_started.load() || !startup_network_ready.load() || shutting_down.load())
-        return false;
-#if CONFIG_WZH_SYSTEM_PROMPTS
-    return !wifi_setup_requested.load() && !wifi_setup_producing.load();
-#else
-    return true;
-#endif
+    return worker_started.load() && !shutting_down.load();
 }
+
+void MarkStartupGreetingComplete() { startup_greeting_complete.store(true); }
 
 void ObserveSystemPromptBattery(bool ready, bool low) {
     std::lock_guard<std::mutex> lock(gate_mutex);

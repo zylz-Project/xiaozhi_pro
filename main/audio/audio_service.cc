@@ -1,4 +1,5 @@
 #include "audio_service.h"
+#include "board.h"
 #include <esp_log.h>
 #include <algorithm>
 #include <cmath>
@@ -899,6 +900,10 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
 
     uint32_t dropped_total = 0;
 #if CONFIG_USE_VOICE_BARGE_IN
+    const size_t min_barge_speech_samples = type == kAudioTaskTypeEncodeToSendQueue
+        ? Board::GetInstance().GetBargeInMinimumSpeechSamples() : 2880;
+#endif
+#if CONFIG_USE_VOICE_BARGE_IN
     uint32_t interruption_token = 0;
     bool interruption = false;
 #endif
@@ -911,9 +916,9 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
                 return;
             }
             task.capture_generation = capture_generation_;
-            interruption =
-                voice_barge_in_.Observe(task.pcm.data(), task.pcm.size(), voice_detected_.load(),
-                                        esp_timer_get_time(), codec_->output_volume() == 0);
+            interruption = voice_barge_in_.Observe(
+                task.pcm.data(), task.pcm.size(), voice_detected_.load(), esp_timer_get_time(),
+                codec_->output_volume() == 0, min_barge_speech_samples);
             interruption_token = voice_barge_in_.token();
         }
 #endif
@@ -1362,6 +1367,18 @@ bool AudioService::IsVoiceInterruptionPending(uint32_t token) {
     return capture_enabled_ &&
            voice_barge_in_.pending(token, esp_timer_get_time(), codec_->output_volume() == 0);
 }
+
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+AudioService::BargeInDiagnostics AudioService::GetBargeInDiagnostics(uint32_t token) {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    return {capture_enabled_ &&
+                voice_barge_in_.pending(token, esp_timer_get_time(), codec_->output_volume() == 0),
+            voice_detected_.load(), static_cast<int>(voice_barge_in_.residual_rms()),
+            static_cast<int>(voice_barge_in_.threshold()),
+            static_cast<int>(voice_barge_in_.correlation() * 100),
+            voice_barge_in_.required_speech_ms()};
+}
+#endif
 
 bool AudioService::CommitVoiceInterruption(uint32_t token, bool retain_first_packets) {
     {

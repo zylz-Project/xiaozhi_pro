@@ -145,6 +145,17 @@ public:
     bool BeginVoiceInterruption();
     bool IsVoiceInterruptionMonitoring();
     bool IsVoiceInterruptionPending(uint32_t token);
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    struct BargeInDiagnostics {
+        bool pending = false;
+        bool vad = false;
+        int residual = 0;
+        int threshold = 0;
+        int correlation_percent = -100;
+        int required_speech_ms = 180;
+    };
+    BargeInDiagnostics GetBargeInDiagnostics(uint32_t token);
+#endif
     bool CommitVoiceInterruption(uint32_t token, bool retain_first_packets = false);
     void ReleaseVoiceInterruptionBuffer();
 #endif
@@ -268,7 +279,13 @@ private:
     std::atomic<bool> voice_detected_{false};
 #if CONFIG_USE_VOICE_BARGE_IN
     VoiceBargeIn voice_barge_in_;
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    // MultiNet reports after hearing the phrase; retain its beginning while
+    // still fitting the bounded send queue (40 packets).
+    static constexpr size_t kBargePrerollPackets = 32;  // 1.92 s compressed post-AEC audio.
+#else
     static constexpr size_t kBargePrerollPackets = 12;  // 720 ms, compressed post-AEC audio.
+#endif
     FixedQueue<std::unique_ptr<AudioStreamPacket>, kBargePrerollPackets> barge_preroll_;
     uint32_t capture_generation_ = 0;
     bool capture_enabled_ = false;

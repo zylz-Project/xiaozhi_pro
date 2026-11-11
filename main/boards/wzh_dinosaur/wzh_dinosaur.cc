@@ -1,5 +1,6 @@
 #include <driver/i2c_master.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -146,6 +147,24 @@ public:
     }
 
     bool SupportsLocalInteraction() const override { return true; }
+
+#if CONFIG_USE_VOICE_BARGE_IN && CONFIG_WZH_DINOSAUR_MOTION_BARGE_GUARD
+    size_t GetBargeInMinimumSpeechSamples() const override {
+        const int64_t last_command_us = controller_.LastServoCommandMovementUs();
+        const int64_t now_us = esp_timer_get_time();
+        if (controller_.ServoPoweredForBargeIn() && last_command_us > 0 &&
+            now_us >= last_command_us && now_us - last_command_us <= 150000) {
+            return 4800;  // 300 ms at 16 kHz; experimental, not speech confirmation.
+        }
+        return 2880;
+    }
+#endif
+
+    bool GetBargeInServoDiagnostics(bool& powered, int64_t& last_command_us) const override {
+        powered = controller_.ServoPoweredForBargeIn();
+        last_command_us = controller_.LastServoCommandMovementUs();
+        return true;
+    }
 
     ExternalTts* GetExternalTts() override { return wzh::ProductExternalTts(); }
 

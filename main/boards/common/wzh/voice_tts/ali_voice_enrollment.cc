@@ -37,7 +37,7 @@ bool AliVoiceEnrollment::StartNamed(const std::string& name,
         error_.store(Error::kBusy);
         return false;
     }
-    if (!capture_switch || !complete || LoadAliKey().empty() || LoadAliVoice().empty() ||
+    if (!capture_switch || !complete || LoadAliKey().empty() ||
         (!name.empty() && !IsValidVoiceName(name))) {
         error_.store(Error::kConfig);
         phase_.store(Phase::kFailed);
@@ -185,12 +185,16 @@ bool AliVoiceEnrollment::SelectionPending() const {
     return deadline && esp_timer_get_time() < deadline;
 }
 
+bool AliVoiceEnrollment::IsConfigured() const {
+    return !LoadAliKey().empty();
+}
+
 bool AliVoiceEnrollment::StartSelection(const std::string& text,
                                         std::function<void(bool)> complete) {
     if (text.empty() || text.size() > 512 || !complete)
         return false;
     std::lock_guard<std::mutex> lock(mutex_);
-    if (task_ || LoadAliKey().empty() || LoadAliVoice().empty())
+    if (task_ || LoadAliKey().empty())
         return false;
     selection_text_ = text;
     selection_task_ = true;
@@ -297,11 +301,16 @@ void AliVoiceEnrollment::RunSelection(uint32_t generation, const std::string& te
 bool AliVoiceEnrollment::Speak(const char* text, uint32_t generation) {
     auto* external = Board::GetInstance().GetExternalTts();
     auto& audio = Application::GetInstance().GetAudioService();
-    if (!external || !active_.load() || !external->Ready() || generation != generation_.load())
+    // First-time enrollment may have a Key but no selected voice yet. Use a
+    // built-in voice only for the prompt without persisting a selection.
+    const std::string prompt_voice = LoadAliVoice().empty() ? kBuiltinVoices[0].id : "";
+    if (!external || !active_.load() || !external->ReadyForVoice(prompt_voice) ||
+        generation != generation_.load())
         return false;
     prompt_done_.store(false);
     prompt_ok_.store(false);
-    if (!external->Begin(audio.GetPlaybackGeneration(), [this, generation](bool ok) {
+    if (!external->BeginWithVoice(audio.GetPlaybackGeneration(), prompt_voice,
+                                  [this, generation](bool ok) {
             if (generation != generation_.load())
                 return;
             prompt_ok_.store(ok);

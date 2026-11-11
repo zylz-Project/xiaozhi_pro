@@ -39,10 +39,10 @@ int irnd(int){return 0;}
 constexpr uint32_t kIdleTestDurationMs = 60000U;
 int scenario = 0, auto_sounds = 0, stops = 0;
 int animations = 0, sounds = 0, writes = 0, releases = 0, invites = 0;
-int startup_sounds = 0;uint32_t startup_at=0;
-namespace wzh { bool StartupGreetingAudioReady(){return scenario>=8 && (scenario!=10 || clock_ms>=61000);} }
+int startup_sounds = 0, startup_gestures = 0;uint32_t startup_at=0, gesture_at=0;
+namespace wzh { void MarkStartupGreetingComplete(){} bool StartupGreetingAudioReady(){return scenario>=8 && (scenario!=10 || clock_ms>=61000) && (scenario!=15 || clock_ms>=50000);} }
 constexpr int kDeviceStateIdle=0;
-struct AudioService { bool IsAudioProcessorRunning(){return false;} };
+struct AudioService { bool IsAudioProcessorRunning(){return false;} bool IsPlaybackIdle(){return true;} };
 struct Application { static Application& GetInstance(){static Application app;return app;}
  int GetDeviceState(){return kDeviceStateIdle;} bool IsVoiceEnrollmentActive(){return scenario==13 && clock_ms>=40000 && clock_ms<43000;}
  bool IsExternalVoicePreviewActive(){return false;} AudioService& GetAudioService(){static AudioService a;return a;} };
@@ -61,6 +61,7 @@ void vTaskDelayUntil(TickType_t* next,uint32_t dt){*next+=dt;vTaskDelay(*next>cl
 constexpr int pdTRUE = 1;
 constexpr int kTickMs = 20, kIdleUpdateMs = 20;
 constexpr int BODY_COUNT = 6, C_PLAYFUL_CRAWL = 19, C_PLAYFUL_CRAWL_BOTH = 20;
+constexpr int C_BABY_PADDLE = 11, C_PLAYFUL_WELCOME = 33, C_BABY_CALL=12, C_PLAYFUL_PAW_DRUM=13, C_BABY_WIGGLE=14, C_PLAYFUL_RIBBON=15;
 constexpr int SERVO_HEAD_DEFAULT = 90, SERVO_LEFT_ARM_DEFAULT = 90, SERVO_RIGHT_ARM_DEFAULT = 90;
 constexpr int SERVO_TAIL_LR_DEFAULT = 90, SERVO_TAIL_UD_DEFAULT = 90;
 constexpr int SERVO_NECK_TILT_DEFAULT = 70, SERVO_NECK_LEAN_DEFAULT = 90, SERVO_HEAD_TURN_DEFAULT = 90;
@@ -263,13 +264,15 @@ int main(int argc, char** argv) {
     if(scenario==0){assert(auto_sounds>=3&&auto_sounds<=20&&writes>100);}
     if(scenario==1||scenario==2||scenario==6){assert(auto_sounds==0&&sounds==0);}
     if(scenario==3){assert(auto_sounds>=1&&sounds>auto_sounds);}
-    if(scenario==4){assert(auto_sounds>=1&&sounds==auto_sounds&&stops>=1);}
+    if(scenario==4){assert(sounds==auto_sounds&&stops>=1);}
     if(scenario==5){assert(sounds>=1&&auto_sounds<=1&&writes>100);}
     if(scenario==7){assert(auto_sounds>=1);}
-    if(scenario==8){assert(startup_sounds==1);}
-    if(scenario==9||scenario==10||scenario==12||scenario==13){assert(startup_sounds==0);}
-    if(scenario==11){assert(startup_sounds==1&&stops>=1);}
-    if(scenario==14){assert(startup_sounds==1&&startup_at-30000<10000);}
+    if(scenario==8){assert(startup_sounds==1&&startup_gestures==1&&startup_at==gesture_at);}
+    if(scenario==9||scenario==12||scenario==13){assert(startup_sounds==0 && startup_gestures==0);}
+    if(scenario==10){assert(startup_sounds==0 && startup_gestures==1 && gesture_at==47000);}
+    if(scenario==11){assert(startup_gestures==1&&(startup_sounds==0||stops>=1));}
+    if(scenario==14){assert(startup_gestures==1&&gesture_at-30000<10000&&startup_sounds==1);}
+    if(scenario==15){assert(startup_gestures==1&&gesture_at==47000&&startup_sounds==1&&startup_at>=50000);}
 }
 '''
 
@@ -287,8 +290,9 @@ class WzhEventDrivenTest(unittest.TestCase):
             if board=='wzh_crawlPanda':
                 methods += '\n'+function_body(source,'int PandaController::ChooseOfflineSoundClip(').replace(cls+'::','Controller::')
             task=function_body(source,'void '+cls+'::Task()').replace(cls+'::','Controller::')
+            task=task.replace('ESP_LOGI(TAG, "Startup gesture started");', '++startup_gestures; gesture_at=now_ms;')
             conversation=function_body(source,'void '+cls+'::SetConversationActive(').replace(cls+'::','Controller::')
-            for scenario in range(15):
+            for scenario in range(16):
                 with self.subTest(board=board,scenario=scenario), tempfile.TemporaryDirectory() as directory:
                     harness=HARNESS.replace('__REFERENCE_HEADER__',str(ROOT/'main/boards/wzh_dinosaur/dinosaur_reference_motion.h')).replace('__AXES__', '5' if stem=='dinosaur' else '3').replace('__TASK__',task).replace('__CONVERSATION__',conversation).replace('__SOUND_METHODS__',methods)
                     if scenario==5:

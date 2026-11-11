@@ -526,6 +526,9 @@
 </style>
 </head>
 <body>
+<aside><strong>2026-11-11 恐龙扬声器同步熊猫：</strong>限幅前补偿 21 dB、音量 100 输出目标 −0.5 dB；麦克风与关键词打断不变，尚待实机检查音质、供电和打断表现。<a href="../../../docs/wzh/audio/pandas_loudness_2026-11-11.md">音量对照</a>。</aside>
+<aside><strong>2026-11-11 恐龙关键词打断测试：</strong>普通及 barge-in 构建保留 FD AEC，需近端候选与指定关键词共同满足才停止说话；暂停额外 NSNet2，词表外的说话不会触发。尚待实机验收。<a href="../../../docs/wzh/audio/dinosaur_keyword_barge_2026-11-11.md">方案与验证</a>。</aside>
+<aside><strong>2026-11-11 官方 ASR 探测：</strong>仅诊断 <code>wzh-dinosaur-official-asr-probe</code>，单次发送短时语音观察服务端文字和播放事件顺序，可能影响当前服务端对话，并非文字确认打断的实现。先前 VADNet 与 300 ms 对照记录见<a href="../../../docs/wzh/audio/dinosaur_barge_in_research_2026-11-10.md">调研方案</a>。</aside>
 <aside><strong>2026-11-07 响度恢复候选：</strong>根据音量 100 偏小的反馈，新增限幅前 9dB 补偿和 RMS→平滑峰值保护，保留 DAC／PCM 最大上限。现有语音数字响度增加 3.3～5.7 LU；实机音质待验收。<a href="../../../docs/wzh/audio/wzh_loudness_recovery_2026-11-07.md">对比与自审</a>。</aside>
 <aside><strong>2026-11-07 最大音量修正：</strong>补齐 NS4150 的 20dB 功放增益补偿，为音量 100 保留 3dB 目标余量；同一设置下输出会变轻，实机响度与失真待验收。<a href="../../../docs/wzh/audio/wzh_volume100_audio_2026-11-07.md">调研、实施与自审</a>。</aside>
 <aside><strong>2026-11-07 对话提示音：</strong>进入保留原提示，主动退出改为独立下降双音，普通版与人声打断版均适用；快速切换取消旧提示，停止／休息／关机沿用原规则。<a href="../../../docs/wzh/audio/wzh_conversation_sounds_2026-11-07.md">实现与验证</a>。</aside>
