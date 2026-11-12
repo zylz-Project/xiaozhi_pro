@@ -899,7 +899,14 @@ if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_
     list(APPEND SOURCES ${WZH_COMMON_SOURCES})
     list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh)
     list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/voice_tts)
-    set(WZH_CONSOLE_FILES "assets/wzh_console.html" "assets/wzh_user_web.html")
+    file(GLOB_RECURSE WZH_UI_INPUTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/wzh_ui/*")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${WZH_UI_INPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/pack_wzh_ui.py")
+    execute_process(COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/pack_wzh_ui.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/wzh_ui" "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_pack.bin"
+        "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_manifest.inc" COMMAND_ERROR_IS_FATAL ANY)
+    list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}")
+    set(WZH_CONSOLE_FILES "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_pack.bin")
     set(WZH_CONVERSATION_SOUNDS "assets/wzh_sounds/conversation_exit.ogg")
 endif()
 

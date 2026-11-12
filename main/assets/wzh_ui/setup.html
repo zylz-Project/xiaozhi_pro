@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<script src="js/viewport.js"></script>
+<meta name="theme-color" content="#f6eadc">
+<title>连接网络 · 爬爬熊猫</title>
+<link rel="stylesheet" href="css/panda.css">
+<script src="js/theme.js"></script>
+<script src="js/product.js"></script>
+<link rel="stylesheet" href="css/guide.css">
+<link rel="stylesheet" href="css/setup.css">
+<link rel="stylesheet" href="css/deploy.css">
+<style>.notes,.statebar{display:none!important}</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2.2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.6 12S6 5.8 12 5.8 21.4 12 21.4 12 18 18.2 12 18.2 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M4.5 9.3a11.5 11.5 0 0 1 15 0"/><path d="M7.4 12.4a7.5 7.5 0 0 1 9.2 0"/><path d="M10.2 15.5a3.8 3.8 0 0 1 3.6 0"/><circle cx="12" cy="18.3" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.8 19.5h18.4L12 3Z"/><path d="M12 9v4.5"/><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4 20 4.4-1 10.2-10.2a2.2 2.2 0 0 0-3.1-3.1L5.3 15.9 4 20Z"/><path d="m13.8 7.4 3.1 3.1"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/></symbol>
+</svg>
+
+<div class="page">
+  <main class="stage">
+    <section class="phone-col">
+      <div class="phone-label"><span class="tag rec">01</span><b>配网</b><em>首配 / 换网 / 离线</em></div>
+      <div class="phone b setup-phone" id="setupPhone" data-mode="first" data-theme="milk">
+        <div class="wallpaper"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
+        <div class="statusbar">
+          <span class="status-time">9:41</span>
+          <span class="status-pill"><i class="status-dot amber" id="setupDot"></i><span id="setupStatus">配网中</span></span>
+        </div>
+
+        <div class="phone-content">
+          <div class="appbar">
+            <button class="back" id="setupBack" type="button" aria-label="返回设备详情"><svg class="ico" viewBox="0 0 24 24"><use href="#i-back"></use></svg></button>
+            <div class="appbar-title" id="setupTitle">连接爬爬熊猫</div>
+            <span class="appbar-spacer"></span>
+            <span class="tiny-pill" id="hotspotName" data-p-hot>CrawlPanda-1A2B</span>
+            <button class="guide-open" type="button" data-guide-open aria-label="查看使用引导"><img data-p-img="face" src="assets/crawlPanda_icon.webp" alt=""></button>
+          </div>
+
+          <div class="setup-body">
+            <section class="setup-scene" aria-label="窗边的小玩具和 Wi-Fi 萤火虫">
+              <span class="room-glow" aria-hidden="true"></span>
+              <div class="win" aria-hidden="true">
+                <span class="sun"></span>
+                <span class="cloud c1"></span><span class="cloud c2"></span>
+                <span class="hill h1"></span><span class="hill h2"></span>
+              </div>
+              <span class="curtain left" aria-hidden="true"></span><span class="curtain right" aria-hidden="true"></span>
+              <span class="ledge" aria-hidden="true"></span>
+              <span class="cushion" aria-hidden="true"></span>
+              <span class="plant" aria-hidden="true"><i></i><i></i><i></i><span class="pot"></span></span>
+              <div class="setup-panda" aria-hidden="true"><img data-p-img="side" src="assets/crawlPanda_侧面.webp" alt=""></div>
+              <div class="wifi-arc" aria-hidden="true"></div>
+              <div class="wifi-orbit" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+              <div class="scene-dust" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="scene-note"><span class="scene-live"><i></i></span><b>它已经在窗边等你了</b><em>只差一步，连上就好</em></div>
+            </section>
+
+            <section class="setup-sheet" aria-label="网络配置">
+              <div class="sheet-grab" aria-hidden="true"></div>
+              <div class="setup-banner" id="setupBanner" hidden>
+                <svg class="ico" viewBox="0 0 24 24"><use href="#i-alert"></use></svg>
+                <span id="setupBannerText"><b>上次没有连上。</b>检查 Wi-Fi 密码，或换一个 2.4GHz 网络再试。</span>
+              </div>
+
+              <div class="setup-intro">
+                <div class="intro-top">
+                  <p class="kicker" id="setupKicker">FIRST CONNECTION · 第一次配网</p>
+                  <span class="step-count">01 / 03</span>
+                </div>
+                <h1 id="setupHeading">连上家里的 Wi-Fi</h1>
+                <p class="sub" id="setupSub">只支持 2.4GHz。选一个网络，输入密码就好。</p>
+                <div class="setup-flow" aria-label="配网步骤">
+                  <span class="on"><b>1</b>连热点</span>
+                  <span class="on"><b>2</b>选网络</span>
+                  <span><b>3</b>输密码</span>
+                </div>
+              </div>
+
+              <div class="current-net" id="currentNet" hidden>
+                <span class="cn-ico"><svg class="ico" viewBox="0 0 24 24"><use href="#i-wifi"></use></svg></span>
+                <div class="cn-copy">
+                  <small>当前网络</small>
+                  <b class="cn-title" id="currentSsid">Home</b>
+                  <span class="cn-sub" id="currentSub">2.4GHz · 已保存</span>
+                </div>
+                <span class="chip live" id="currentChip">在线</span>
+              </div>
+
+              <div class="net-card">
+                <div class="net-head">
+                  <h2 id="netHeading">附近的网络</h2>
+                  <span class="scan-meta" id="scanMeta">4 个 · 刚刚</span>
+                  <button class="scan-btn" id="scanBtn" type="button" aria-label="重新扫描网络"><svg class="ico" viewBox="0 0 24 24"><use href="#i-refresh"></use></svg></button>
+                </div>
+                <div class="net-list" id="netList" role="list">
+                  <button class="net-row" type="button" role="listitem" data-ssid="Home" data-band="2.4G" data-secure="1" data-signal="4">
+                    <span class="net-sig" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
+                    <span class="net-copy"><b>Home <span class="net-tag">推荐</span><svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></b><small>2.4GHz · 信号很强</small></span>
+                    <span class="net-band">2.4G</span>
+                    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
+                  </button>
+                  <button class="net-row" type="button" role="listitem" data-ssid="PandaLab" data-band="2.4G" data-secure="1" data-signal="3">
+                    <span class="net-sig" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+                    <span class="net-copy"><b>PandaLab <svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></b><small>2.4GHz · 信号良好</small></span>
+                    <span class="net-band">2.4G</span>
+                    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
+                  </button>
+                  <button class="net-row" type="button" role="listitem" data-ssid="Xiaomi_2.4G" data-band="2.4G" data-secure="1" data-signal="2">
+                    <span class="net-sig" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i></span>
+                    <span class="net-copy"><b>Xiaomi_2.4G <svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></b><small>2.4GHz · 信号一般</small></span>
+                    <span class="net-band">2.4G</span>
+                    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
+                  </button>
+                  <button class="net-row is-5g" type="button" role="listitem" data-ssid="TP-LINK_5G" data-band="5G" data-secure="1" data-signal="4">
+                    <span class="net-sig" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
+                    <span class="net-copy"><b>TP-LINK_5G <svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></b><small>5GHz · 这台设备不支持</small></span>
+                    <span class="net-band">5G</span>
+                    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
+                  </button>
+                </div>
+              </div>
+
+              <button class="manual-ssid" id="manualSsidBtn" type="button">
+                <svg class="ico" viewBox="0 0 24 24"><use href="#i-pencil"></use></svg>
+                找不到？手动输入网络名称
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
+              </button>
+              <p class="fineprint">只支持 2.4GHz Wi-Fi。换网失败会自动回到原来的网络，已保存的凭据不会删除。</p>
+            </section>
+          </div>
+        </div>
+
+        <div class="layer" id="pwLayer" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+          <div class="sheet">
+            <div class="grab"></div>
+            <div class="sheet-head">
+              <div><h2 id="pwTitle">连接到 Home</h2><p id="pwSub">输入这个 Wi-Fi 的密码</p></div>
+              <button class="sheet-close" type="button" data-close="pwLayer" aria-label="关闭"><svg class="ico" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            </div>
+            <span class="pw-ssid"><svg class="ico" viewBox="0 0 24 24" style="width:12px;height:12px"><use href="#i-wifi"></use></svg><span id="pwSsid">Home</span> · 2.4GHz</span>
+            <label class="field" for="pwInput">
+              <span>Wi-Fi 密码</span>
+              <div class="input-wrap">
+                <input id="pwInput" type="password" inputmode="text" autocomplete="current-password" placeholder="至少 8 位" spellcheck="false">
+                <button class="peek" id="pwPeek" type="button" aria-label="显示密码"><svg class="ico" viewBox="0 0 24 24"><use href="#i-eye"></use></svg></button>
+              </div>
+            </label>
+            <p class="form-error" id="pwError" role="alert" aria-live="polite"></p>
+            <div class="connect-status" id="connectStatus"><svg class="ico" viewBox="0 0 24 24"><use href="#i-refresh"></use></svg><span>连上后会跳回设备页面</span></div>
+            <div class="sheet-actions">
+              <button class="btn ghost" type="button" data-close="pwLayer">取消</button>
+              <button class="btn primary" id="pwConnect" type="button">连接</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="layer" id="manualLayer" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
+          <div class="sheet">
+            <div class="grab"></div>
+            <div class="sheet-head">
+              <div><h2 id="manualTitle">手动输入网络</h2><p>适合隐藏 SSID 或列表里没有的网络</p></div>
+              <button class="sheet-close" type="button" data-close="manualLayer" aria-label="关闭"><svg class="ico" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            </div>
+            <label class="field" for="manualSsid"><span>网络名称（SSID）</span><input id="manualSsid" type="text" autocomplete="off" placeholder="例如 Home" spellcheck="false"></label>
+            <label class="field" for="manualPw">
+              <span>Wi-Fi 密码</span>
+              <div class="input-wrap">
+                <input id="manualPw" type="password" autocomplete="current-password" placeholder="至少 8 位">
+                <button class="peek" id="manualPeek" type="button" aria-label="显示密码"><svg class="ico" viewBox="0 0 24 24"><use href="#i-eye"></use></svg></button>
+              </div>
+            </label>
+            <p class="form-error" id="manualError" role="alert" aria-live="polite"></p>
+            <div class="sheet-actions">
+              <button class="btn ghost" type="button" data-close="manualLayer">取消</button>
+              <button class="btn primary" id="manualConnect" type="button">连接</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </div>
+      <p class="notes"><b>原型说明：</b>三条路径共用同一页：<code>?mode=first</code>（默认）、<code>?mode=change</code>、<code>?mode=offline</code>。5GHz 网络会提示不支持；密码含 <code>wrong</code> 会模拟失败。</p>
+    </section>
+  </main>
+</div>
+
+<script src="js/guide-config.js?v=2"></script>
+<script src="js/guide.js"></script>
+<script src="js/setup.js"></script>
+</body>
+</html>

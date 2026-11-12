@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<script src="js/viewport.js"></script>
+<meta name="theme-color" content="#f6eadc">
+<title>爬爬熊猫 · 设备详情</title>
+<script src="js/theme.js"></script>
+<script src="js/product.js"></script>
+<link rel="stylesheet" href="css/index.css">
+<link rel="stylesheet" href="css/guide.css">
+<link rel="stylesheet" href="css/deploy.css">
+<style>.notes,.statebar{display:none!important}</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M9 21h6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 9a4 4 0 0 1 0 6"/><path d="M18 6a8 8 0 0 1 0 12"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.6 13.1 13.1 20.6a2 2 0 0 1-2.8 0L3 13.3V3h10.3l7.3 7.3a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.2"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.5h.01"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-temp" viewBox="0 0 24 24"><path d="M10 14.8V5a2 2 0 1 1 4 0v9.8a4 4 0 1 1-4 0Z"/><path d="M12 9v7"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5"/><path d="M15 3v5"/><path d="M7 8h10v2a5 5 0 0 1-5 5v0a5 5 0 0 1-5-5V8Z"/><path d="M12 15v6"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 4v6h6"/><path d="M5.6 15a7 7 0 1 0 .7-7.5L4 10"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 18v-3"/><path d="M9 18v-6"/><path d="M14 18v-9"/><path d="M19 18V6"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M4 9a12 12 0 0 1 16 0"/><path d="M7 12a8 8 0 0 1 10 0"/><path d="M10 15a4 4 0 0 1 4 0"/><circle cx="12" cy="18" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2.8" y="7.2" width="16.4" height="9.6" rx="2.2"/><path d="M21.4 10.6v2.8"/><path d="M5.5 9.6h11.4v4.8H5.5z" fill="currentColor" stroke="none" opacity=".16"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13 6 4 4"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.3" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.2 4.2L19 6.5"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+</svg>
+
+<div class="page">
+  <main class="stage">
+    <section class="phone-col">
+      <div class="phone-label"><span class="tag rec">PANDA</span><b>连续控制台</b><span class="rec-word">默认</span><em>单机预览 · 布局与材质可切换</em></div>
+      <div class="phone b" data-kind="c" data-theme="milk" data-state="idle">
+        <div class="wallpaper">
+          <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i><i class="blob b5"></i>
+        </div>
+        <div class="statusbar">
+          <span class="status-time">9:41</span>
+          <span class="status-pill"><i class="status-dot"></i><span class="status-text">在线</span></span>
+        </div>
+        <div class="brand"><b data-p-name>爬爬熊猫</b><span data-p-en>CRAWL PANDA</span></div>
+        <div class="orb-wrap">
+          <div class="orb-aurora"></div>
+          <div class="orb-glow"></div>
+          <div class="orb">
+            <div class="orb-voice" aria-hidden="true"></div>
+            <img class="panda" data-p-img="head" src="assets/crawlPanda_icon.webp" alt="玩具头像">
+            <div class="orb-bubbles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="orb-foam" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="contact-shadow"></div>
+        </div>
+        <div class="sheet">
+          <button class="handle" type="button" aria-label="展开更多设置" aria-expanded="false"><span></span></button>
+          <div class="sheet-main">
+            <div class="sheet-head"><h2>设备状态</h2><span class="sheet-state">待机</span></div>
+            <div class="metrics" role="group" aria-label="设备指标">
+              <div class="metric">
+                <small><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-battery"></use></svg>电量</small>
+                <b>86<span>%</span></b>
+                <em class="is-charging"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bolt"></use></svg>充电中</em>
+              </div>
+              <div class="metric">
+                <small><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-temp"></use></svg>温度</small>
+                <b>41<span>°C</span></b>
+                <em>正常</em>
+              </div>
+              <div class="metric metric-net">
+                <small><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wifi"></use></svg>网络</small>
+                <b class="ssid" data-metric-net>Home</b>
+                <em data-metric-sub><span data-metric-band>2.4G</span><span class="signal-bars" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span data-metric-signal>强</span></em>
+              </div>
+            </div>
+            <div class="volume-row">
+              <span class="row-ico" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><use href="#i-speaker"></use></svg></span>
+              <span class="row-label">音量</span>
+              <input class="volume" type="range" min="0" max="100" value="60" aria-label="设备音量">
+              <span class="volume-val">60</span>
+            </div>
+            <div class="voice-row">
+              <button class="voice-open" type="button" aria-label="当前音色：龙安欢，打开声音设置">
+                <span class="voice-ico" data-voice-avatar aria-hidden="true">欢</span>
+                <span class="voice-meta"><span>当前音色</span><b>龙安欢</b></span>
+              </button>
+              <button class="voice-try" type="button" aria-label="试听当前音色"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"></use></svg>试听</button>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
+            </div>
+            <button class="primary" type="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mic"></use></svg><span class="cta-label">开始对话</span></button>
+          </div>
+          <div class="sheet-more console" data-layout="c" data-console>
+            <div class="con-head">
+              <div>
+                <div class="con-eyebrow"><span data-p-code>PANDA</span> / CONSOLE</div>
+                <div class="con-title-row"><span class="con-toy" aria-hidden="true"><img data-p-img="head" src="assets/crawlPanda_icon.webp" alt=""></span><div class="con-title">控制台</div></div>
+                <div class="con-sub"><span class="net-val">Home · 2.4G</span> · <span data-p-version>v1.0.8</span></div>
+              </div>
+              <div class="con-actions">
+                <button class="con-guide" type="button" data-guide-open aria-label="查看使用引导"><img data-p-img="face" src="assets/crawlPanda_icon.webp" alt=""></button>
+                <button class="con-manual" type="button" aria-label="打开使用说明书" aria-haspopup="dialog" aria-expanded="false">
+                  <span class="con-manual-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-book"></use></svg></span>
+                  <span class="con-manual-copy"><b>说明书</b><small>P.01</small></span>
+                </button>
+                <button class="con-close" type="button" aria-label="关闭控制台"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
+              </div>
+            </div>
+
+            <div class="console-scroll">
+            <div class="console-panels">
+              <section class="panel panel-device">
+                <div class="panel-head"><h3>设备与网络</h3><span class="panel-meta">实时</span></div>
+                <div class="device-deck">
+                  <div class="battery-block">
+                    <div class="battery-dial" aria-label="电量 86%，充电中">
+                      <svg class="battery-ring" viewBox="0 0 58 58" aria-hidden="true"><circle class="track" cx="29" cy="29" r="24.5" pathLength="100"></circle><circle class="fill" cx="29" cy="29" r="24.5" pathLength="100"></circle></svg>
+                      <span class="battery-core"><b>86</b><i>%</i></span>
+                      <span class="battery-bolt"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-bolt"></use></svg></span>
+                    </div>
+                    <span class="battery-caption">电量 · 充电中</span>
+                  </div>
+                  <div class="readout-stack">
+                    <div class="readout">
+                      <span class="readout-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-temp"></use></svg></span>
+                      <span class="readout-copy"><small>温度</small><b>41<i>°C</i></b></span>
+                      <em>正常</em>
+                    </div>
+                    <div class="readout">
+                      <span class="readout-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-clock"></use></svg></span>
+                      <span class="readout-copy"><small>运行</small><b>2h18</b></span>
+                      <em>本次开机</em>
+                    </div>
+                  </div>
+                </div>
+                <div class="network-tile">
+                  <span class="net-radar" aria-hidden="true">
+                    <span class="net-sweep"></span>
+                    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 9.3a11.5 11.5 0 0 1 15 0"/><path d="M7.4 12.4a7.5 7.5 0 0 1 9.2 0"/><path d="M10.2 15.5a3.8 3.8 0 0 1 3.6 0"/><circle cx="12" cy="18.3" r=".9" fill="currentColor" stroke="none"/></svg>
+                  </span>
+                  <div class="net-copy"><b class="net-name">Home</b><span class="net-sub">2.4G · 信号强</span></div>
+                  <span class="net-chip" aria-label="网络延迟">18ms</span>
+                  <button class="net-change" type="button" aria-label="更改网络">
+                    <span class="net-change-txt">更改</span>
+                    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
+                  </button>
+                </div>
+              </section>
+
+              <section class="panel panel-sound">
+                <div class="panel-head"><h3 data-p-sound-title>声音</h3><span class="panel-meta" data-p-sound-meta>固定 6 · 复刻 6</span></div>
+                <div class="now-voice">
+                  <div>
+                    <span class="voice-cap">当前音色</span>
+                    <div class="voice-now-line"><b class="voice-now">龙安欢</b><span class="voice-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></div>
+                  </div>
+                  <button class="listen-mini" type="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-speaker"></use></svg>试听</button>
+                </div>
+                <div class="fixed-rail" data-fixed-rail aria-label="固定音色">
+                  <div class="fixed-track" role="group" aria-label="固定音色">
+                    <button type="button" class="voice-chip on" data-voice="龙安欢">龙安欢</button>
+                    <button type="button" class="voice-chip" data-voice="龙安灵心">龙安灵心</button>
+                    <button type="button" class="voice-chip" data-voice="龙安风悦">龙安风悦</button>
+                    <button type="button" class="voice-chip" data-voice="许南川">许南川</button>
+                    <button type="button" class="voice-chip" data-voice="于小云">于小云</button>
+                    <button type="button" class="voice-chip" data-voice="温怀清">温怀清</button>
+                  </div>
+                </div>
+
+                <div class="voice-lab" data-clone-lab>
+                  <div class="lab-card lab-record">
+                    <div class="lab-record-top">
+                      <button class="lab-rec" type="button" aria-pressed="false" aria-label="开始录制复刻声音">
+                        <span class="lab-rec-core"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mic"></use></svg></span>
+                        <span class="lab-ring" aria-hidden="true"></span>
+                      </button>
+                      <div class="lab-copy">
+                        <span class="lab-kicker">VOICE LAB</span>
+                        <b class="lab-title">复刻声音</b>
+                        <small class="lab-sub">录 10 秒，留住家人的声音</small>
+                      </div>
+                      <span class="lab-count">6 / 10</span>
+                    </div>
+                    <div class="lab-steps" aria-label="复刻流程">
+                      <span class="lab-step is-on"><i>1</i>录制</span><span class="lab-line"></span>
+                      <span class="lab-step"><i>2</i>生成</span><span class="lab-line"></span>
+                      <span class="lab-step"><i>3</i>保存</span>
+                    </div>
+                  </div>
+
+                  <button class="lab-upload" type="button" aria-label="上传音频复刻声音">
+                    <span class="upload-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-upload"></use></svg></span>
+                    <span class="upload-copy"><b>上传音频</b><small>5–20 秒 · MP3 / WAV</small></span>
+                    <span class="upload-go">选择文件 <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg></span>
+                  </button>
+                  <input class="lab-file" type="file" accept="audio/*" aria-label="选择要上传的音频">
+                </div>
+
+                <div class="clone-strip">
+                  <span class="clone-mark" aria-label="我的复刻音色" role="img"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-layers"></use></svg></span>
+                  <div class="clone-rail-wrap">
+                    <div class="voice-rail clone-rail" role="group" aria-label="我的复刻音色">
+                      <button class="voice-chip clone-chip" type="button" data-voice="小满" aria-label="选择复刻音色 小满"><span class="chip-face">满</span>小满</button>
+                      <button class="voice-chip clone-chip" type="button" data-voice="阿布" aria-label="选择复刻音色 阿布"><span class="chip-face">布</span>阿布</button>
+                      <button class="voice-chip clone-chip" type="button" data-voice="小北" aria-label="选择复刻音色 小北"><span class="chip-face">北</span>小北</button>
+                      <button class="voice-chip clone-chip" type="button" data-voice="桃桃" aria-label="选择复刻音色 桃桃"><span class="chip-face">桃</span>桃桃</button>
+                      <button class="voice-chip clone-chip" type="button" data-voice="圆圆" aria-label="选择复刻音色 圆圆"><span class="chip-face">圆</span>圆圆</button>
+                      <button class="voice-chip clone-chip" type="button" data-voice="阿福" aria-label="选择复刻音色 阿福"><span class="chip-face">福</span>阿福</button>
+                      <button class="voice-add" type="button" data-voice-add aria-label="新建复刻音色"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><use href="#i-plus"></use></svg>新建</button>
+                    </div>
+                  </div>
+                  <button class="manage-btn" type="button" data-open-voice-manager aria-label="管理复刻音色">
+                    <span class="manage-stack" aria-hidden="true"><i></i><i></i></span>
+                    <span>管理</span>
+                    <b class="manage-count" data-manage-count>6</b>
+                  </button>
+                </div>
+
+                <div class="volume-row con-volume">
+                  <span class="row-label">音量</span>
+                  <input class="volume" type="range" min="0" max="100" value="60" aria-label="设备音量">
+                  <span class="volume-val">60</span>
+                </div>
+              </section>
+
+              <section class="panel panel-theme">
+                <div class="panel-head"><h3>主题</h3><span class="panel-meta theme-now">奶糖 · 奶润</span></div>
+                <div class="theme-pair">
+                  <div class="theme-mini">
+                    <span class="theme-key">布局</span>
+                    <div class="layout-switch" role="group" aria-label="控制台布局">
+                      <button class="layout-btn" data-layout="c" type="button" aria-pressed="false"><i class="layout-prev continuous" aria-hidden="true"></i><span>连续</span><b>C</b></button>
+                      <button class="layout-btn" data-layout="d" type="button" aria-pressed="false"><i class="layout-prev cards" aria-hidden="true"></i><span>卡片</span><b>D</b></button>
+                    </div>
+                  </div>
+                  <div class="theme-mini">
+                    <span class="theme-key">玻璃</span>
+                    <div class="mat-switch" role="group" aria-label="玻璃材质">
+                      <button class="mat-btn" data-mat="a" type="button" aria-pressed="false"><i class="mat-prev a"></i><span>通透</span><b>A</b></button>
+                      <button class="mat-btn" data-mat="b" type="button" aria-pressed="false"><i class="mat-prev b"></i><span>奶润</span><b>B</b></button>
+                    </div>
+                  </div>
+                </div>
+                <div class="theme-line">
+                  <span class="theme-key">颜色</span>
+                  <div class="palette" role="group" aria-label="主题颜色">
+                    <button class="swatch" data-theme="milk" type="button" aria-pressed="false"><i></i><span>奶糖</span></button>
+                    <button class="swatch" data-theme="salt" type="button" aria-pressed="false"><i></i><span>海盐</span></button>
+                    <button class="swatch" data-theme="berry" type="button" aria-pressed="false"><i></i><span>莓果</span></button>
+                    <button class="swatch" data-theme="bamboo" type="button" aria-pressed="false"><i></i><span>竹青</span></button>
+                  </div>
+                </div>
+                <div class="mode-row">
+                  <span class="mode-key">明暗</span>
+                  <button class="mode-btn" data-mode="light" type="button" aria-pressed="true">浅色</button>
+                  <button class="mode-btn" data-mode="dark" type="button" aria-pressed="false">深色</button>
+                </div>
+              </section>
+            </div>
+
+            <button class="reset-bar" type="button" aria-label="恢复出厂设置">
+              <span class="reset-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-reset"></use></svg></span>
+              <span class="reset-copy"><b>恢复出厂设置</b><small data-p-reset-sub>清除网络与本机复刻声音</small></span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
+            </button>
+            </div>
+          </div>
+        </div>
+        <div class="manual-sheet" role="dialog" aria-modal="true" aria-label="使用说明书" aria-hidden="true">
+          <button class="manual-close manual-close-float" type="button" aria-label="关闭说明书"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
+          <div class="manual-body manual-body-full">
+            <iframe class="manual-frame" src="/manual?embed=1" title="完整使用说明书" loading="lazy"></iframe>
+          </div>
+        </div>
+        <div class="panda-modal voice-modal" data-voice-modal role="dialog" aria-modal="true" aria-label="音色管理" aria-hidden="true">
+          <div class="modal-card">
+            <div class="modal-head">
+              <div class="modal-head-copy">
+                <span class="modal-kicker">VOICE LIBRARY · A</span>
+                <b>音色管理</b>
+                <small>选择、改名或删除复刻音色</small>
+              </div>
+              <button class="modal-close" type="button" data-close-voice aria-label="关闭音色管理"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
+            </div>
+            <div class="modal-body">
+              <div class="vm-cap">复刻音色 <b data-vm-count>6</b> / 10</div>
+              <div class="vm-hero">
+                <span class="vm-hero-avatar" data-vm-current-avatar>欢</span>
+                <span class="vm-hero-copy"><small>当前音色</small><b data-vm-current>龙安欢</b></span>
+                <button class="vm-hero-play" type="button" data-vm-audition><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-play"></use></svg>试听</button>
+              </div>
+              <div class="vm-list" data-vm-list>
+                <div class="vm-row" data-name="小满" data-date="10-12">
+                  <span class="vm-row-avatar">满</span>
+                  <div class="vm-row-copy"><b>小满</b><small>复刻音色 · 10-12</small></div>
+                  <div class="vm-row-actions"><button class="vm-use" type="button" data-use>使用</button><button class="vm-icon" type="button" data-rename aria-label="重命名小满"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-edit"></use></svg></button><button class="vm-icon" type="button" data-delete aria-label="删除小满"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-trash"></use></svg></button></div>
+                </div>
+                <div class="vm-row" data-name="阿布" data-date="10-13">
+                  <span class="vm-row-avatar">布</span>
+                  <div class="vm-row-copy"><b>阿布</b><small>复刻音色 · 10-13</small></div>
+                  <div class="vm-row-actions"><button class="vm-use" type="button" data-use>使用</button><button class="vm-icon" type="button" data-rename aria-label="重命名阿布"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-edit"></use></svg></button><button class="vm-icon" type="button" data-delete aria-label="删除阿布"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-trash"></use></svg></button></div>
+                </div>
+                <div class="vm-row" data-name="小北" data-date="10-14">
+                  <span class="vm-row-avatar">北</span>
+                  <div class="vm-row-copy"><b>小北</b><small>复刻音色 · 10-14</small></div>
+                  <div class="vm-row-actions"><button class="vm-use" type="button" data-use>使用</button><button class="vm-icon" type="button" data-rename aria-label="重命名小北"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-edit"></use></svg></button><button class="vm-icon" type="button" data-delete aria-label="删除小北"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-trash"></use></svg></button></div>
+                </div>
+                <div class="vm-row" data-name="桃桃" data-date="10-15">
+                  <span class="vm-row-avatar">桃</span>
+                  <div class="vm-row-copy"><b>桃桃</b><small>复刻音色 · 10-15</small></div>
+                  <div class="vm-row-actions"><button class="vm-use" type="button" data-use>使用</button><button class="vm-icon" type="button" data-rename aria-label="重命名桃桃"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-edit"></use></svg></button><button class="vm-icon" type="button" data-delete aria-label="删除桃桃"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-trash"></use></svg></button></div>
+                </div>
+                <div class="vm-row" data-name="圆圆" data-date="10-16">
+                  <span class="vm-row-avatar">圆</span>
+                  <div class="vm-row-copy"><b>圆圆</b><small>复刻音色 · 10-16</small></div>
+                  <div class="vm-row-actions"><button class="vm-use" type="button" data-use>使用</button><button class="vm-icon" type="button" data-rename aria-label="重命名圆圆"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-edit"></use></svg></button><button class="vm-icon" type="button" data-delete aria-label="删除圆圆"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-trash"></use></svg></button></div>
+                </div>
+                <div class="vm-row" data-name="阿福" data-date="10-17">
+                  <span class="vm-row-avatar">福</span>
+                  <div class="vm-row-copy"><b>阿福</b><small>复刻音色 · 10-17</small></div>
+                  <div class="vm-row-actions"><button class="vm-use" type="button" data-use>使用</button><button class="vm-icon" type="button" data-rename aria-label="重命名阿福"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-edit"></use></svg></button><button class="vm-icon" type="button" data-delete aria-label="删除阿福"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-trash"></use></svg></button></div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-foot"><button class="vm-new" type="button" data-vm-new>新建复刻音色</button></div>
+            <div class="vm-confirm" data-vm-confirm>
+              <div class="vm-confirm-card">
+                <b data-vm-confirm-title>删除“小满”？</b>
+                <p>删除后会同时删除云端复刻音色；如果云端失败，本机记录会保留并可重试。</p>
+                <p class="vm-error">云端删除失败，本机记录已保留。请重试。</p>
+                <div class="vm-confirm-actions">
+                  <button class="modal-btn" type="button" data-vm-cancel>取消</button>
+                  <button class="modal-btn danger" type="button" data-vm-delete>删除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panda-modal audio-modal" data-audio-modal role="dialog" aria-modal="true" aria-label="新建复刻音色" aria-hidden="true">
+          <div class="modal-card">
+            <div class="modal-head">
+              <div class="modal-head-copy">
+                <span class="modal-kicker">VOICE LAB · NEW</span>
+                <b>新建复刻音色</b>
+                <small>录 10 秒，或上传 5–20 秒人声</small>
+              </div>
+              <button class="modal-close" type="button" data-close-audio aria-label="关闭新建复刻音色"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
+            </div>
+            <div class="modal-body">
+              <div class="create-tabs" role="tablist" aria-label="创建方式">
+                <button class="create-tab is-on" type="button" role="tab" aria-selected="true" data-create-tab="record"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mic"></use></svg>录制</button>
+                <button class="create-tab" type="button" role="tab" aria-selected="false" data-create-tab="upload"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-upload"></use></svg>上传音频</button>
+              </div>
+              <div class="record-panel" data-record-panel>
+                <div class="record-stage">
+                  <button class="record-puck" type="button" data-record-puck aria-label="开始录音"><span class="record-ring"></span><span class="record-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mic"></use></svg></span></button>
+                  <div class="record-readout">
+                    <b data-record-time>00:00</b>
+                    <small data-record-status>点击麦克风开始，安静环境下读 10 秒</small>
+                  </div>
+                </div>
+                <div class="record-track" aria-hidden="true"><i data-record-progress></i></div>
+                <div class="record-script"><span>朗读</span><b>“你好，我是<span data-p-name>爬爬熊猫</span>。”</b></div>
+                <div class="record-steps"><span class="is-on"><i>1</i>录制</span><span class="lab-line"></span><span><i>2</i>生成</span><span class="lab-line"></span><span><i>3</i>保存</span></div>
+              </div>
+              <div class="upload-panel" data-upload-panel hidden>
+                <div class="audio-file">
+                  <span class="audio-file-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-upload"></use></svg></span>
+                  <span class="audio-file-copy"><b data-audio-file>我的音频.mp3</b><small>已选择 · 14 秒 · 1.2 MB</small></span>
+                </div>
+                <div class="audio-wave" data-audio-wave aria-hidden="true"></div>
+                <div class="audio-trim"><span>0:00</span><input type="range" min="0" max="9" value="1" data-audio-trim aria-label="截取起点"><span data-audio-trim-end>0:15</span></div>
+              </div>
+              <label class="field"><span>音色名称</span><input type="text" maxlength="8" value="我的音色" data-audio-name-input autocomplete="off"></label>
+              <p class="audio-hint" data-audio-hint>录完 10 秒后生成；建议用平常说话的音量。</p>
+            </div>
+            <div class="modal-foot">
+              <div class="modal-actions">
+                <button class="modal-btn" type="button" data-cancel-audio>取消</button>
+                <button class="modal-btn primary" type="button" data-create-audio disabled>生成音色</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panda-modal reset-modal" data-reset-modal role="dialog" aria-modal="true" aria-label="恢复出厂设置" aria-hidden="true">
+          <div class="modal-card">
+            <div class="modal-head">
+              <div class="modal-head-copy">
+                <span class="modal-kicker">FACTORY RESET · DANGER</span>
+                <b>恢复出厂设置</b>
+                <small data-p-reset-sub>清除网络和本机复刻声音</small>
+              </div>
+              <button class="modal-close" type="button" data-close-reset aria-label="关闭恢复出厂设置"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
+            </div>
+            <div class="modal-body">
+              <div class="reset-copy-block">
+                <h4>恢复后需要重新配网</h4>
+              <p>会清除 Wi-Fi 和本机创建的复刻音色；页面密码、小智绑定、预置语音 Key 保留。</p>
+              </div>
+              <div class="reset-warning">先删除云端复刻音色，再清除 Wi-Fi。任一步失败都会中止并保留网络，不会留下半完成状态。</div>
+              <label class="field"><span>请输入确认语</span><input type="text" data-reset-input placeholder="确定恢复出厂设置" autocomplete="off"></label>
+              <p class="field-hint">完整输入“确定恢复出厂设置”后按钮才会可用。</p>
+            </div>
+            <div class="modal-foot">
+              <div class="modal-actions">
+                <button class="modal-btn" type="button" data-reset-cancel>取消</button>
+                <button class="modal-btn danger" type="button" data-reset-confirm disabled>恢复出厂</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+      </div>
+    </section>
+
+      </main>
+</div>
+
+<script src="js/device-detail.js"></script>
+<script src="js/index-app.js"></script>
+<script src="js/guide-config.js?v=2"></script>
+<script src="js/guide.js"></script>
+<script src="js/index-auto.js"></script>
+<script src="js/index-view.js"></script>
+</body>
+</html>

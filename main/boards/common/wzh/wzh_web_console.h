@@ -87,6 +87,7 @@ private:
     static esp_err_t GuardedDispatch(httpd_req_t* req);
     static esp_err_t GuardedError(httpd_req_t* req, httpd_err_code_t error);
     static esp_err_t HandleRoot(httpd_req_t* req);
+    static esp_err_t HandleAsset(httpd_req_t* req);
     static esp_err_t HandleStatus(httpd_req_t* req);
     static esp_err_t HandleAudio(httpd_req_t* req);
     static esp_err_t HandlePlay(httpd_req_t* req);
@@ -122,7 +123,7 @@ private:
 
     Options options_;
     std::unique_ptr<UserWebPortal> user_portal_;
-    std::array<RouteSlot, 24> routes_{};
+    std::array<RouteSlot, 25> routes_{};
     size_t route_count_ = 0;
     std::mutex lifecycle_mutex_;
     std::atomic<bool> started_{false};

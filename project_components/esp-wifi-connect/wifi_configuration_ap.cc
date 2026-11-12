@@ -219,7 +219,8 @@ void WifiConfigurationAp::StartWebServer() {
     config.max_uri_handlers = 24;
     if (web_server_registrar_) {
         config.stack_size = 8192;
-        config.max_open_sockets = 4;
+        // Mobile browsers load several portal assets concurrently.
+        config.max_open_sockets = 6;
         config.lru_purge_enable = true;
     }
     config.uri_match_fn = httpd_uri_match_wildcard;

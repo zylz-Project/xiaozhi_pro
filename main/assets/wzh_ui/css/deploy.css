@@ -1,0 +1,44 @@
+/* 部署演示外壳：去掉原型说明与预览控件，只留真实手机页面 */
+html, body { min-height: 100%; }
+body { background: #f6eadc !important; overflow-x: hidden; }
+.doc-head, .page-head, .page-foot, .phone-label, .notes, .under,
+.page-nav, .variant-link, .statebar, .toy-switch, .demo-switch { display: none !important; }
+.page { width: 100% !important; max-width: none !important; padding: 0 !important; margin: 0 !important; }
+.stage { display: block !important; padding: 0 !important; margin: 0 !important; min-height: 100vh; }
+.phone-col { width: 100% !important; max-width: none !important; flex: none !important; }
+.phone {
+  width: 100% !important;
+  max-width: 430px !important;
+  height: 100vh !important;
+  min-height: 100vh !important;
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  margin: 0 auto !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+@media (min-width: 600px) {
+  body { padding: 26px 0; background: radial-gradient(900px 520px at 18% -10%, #fff, transparent 62%), #ece7df !important; }
+  .phone {
+    width: 390px !important;
+    height: 844px !important;
+    min-height: 844px !important;
+    border-radius: 54px !important;
+    box-shadow: 0 42px 90px -38px rgba(55,35,18,.46), 0 2px 0 rgba(255,255,255,.86) inset, 0 0 0 1px rgba(80,52,30,.08) !important;
+  }
+}
+
+/* iOS zooms the visual viewport when editable text is smaller than 16px. */
+@media (max-width: 599px) {
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+/* Keep the collapsed device controls visible on short phone screens. */
+@media (max-width: 599px) {
+  .phone[data-kind]:not(.expanded) > .sheet {
+    top: calc(100% - 352px) !important;
+    top: min(492px, max(120px, calc(100% - 352px))) !important;
+  }
+}

@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include "wzh_user_web.h"
 #include "wzh_voice_services.h"
+#include "wzh_web_assets.h"
 #include "wzh_web_peer.h"
 
 #include <algorithm>
@@ -31,9 +32,6 @@
 #include "wzh_flash.h"
 
 #define TAG "WzhWebConsole"
-
-extern const char wzh_console_html_start[] asm("_binary_wzh_console_html_start");
-extern const char wzh_console_html_end[] asm("_binary_wzh_console_html_end");
 
 namespace wzh {
 namespace {
@@ -283,7 +281,12 @@ void WebConsole::DestroyAp() {
 
 esp_err_t WebConsole::GuardedDispatch(httpd_req_t* req) {
     auto* route = static_cast<RouteSlot*>(req->user_ctx);
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    const bool static_asset =
+        req->method == HTTP_GET &&
+        (std::strncmp(req->uri, "/css/", 5) == 0 || std::strncmp(req->uri, "/js/", 4) == 0 ||
+         std::strncmp(req->uri, "/assets/", 8) == 0);
+    if (!static_asset)
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     if (WifiManager::GetInstance().IsPersistentPortalActive()) {
         uint32_t ip = 0;
         if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip)) {
@@ -312,7 +315,8 @@ esp_err_t WebConsole::GuardedDispatch(httpd_req_t* req) {
     }
     if (WifiManager::GetInstance().IsPersistentPortalActive() && std::strcmp(req->uri, "/") != 0 &&
         std::strcmp(req->uri, "/api/developer/login") != 0 &&
-        !route->owner->RequireDeveloper(req)) {
+        std::strncmp(req->uri, "/css/", 5) != 0 && std::strncmp(req->uri, "/js/", 4) != 0 &&
+        std::strncmp(req->uri, "/assets/", 8) != 0 && !route->owner->RequireDeveloper(req)) {
         req->user_ctx = route;
         return ESP_OK;
     }
@@ -343,9 +347,9 @@ bool WebConsole::StartHttpServer() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = kConsolePort;
     config.ctrl_port = kConsoleCtrlPort;
-    config.max_uri_handlers = 24;
+    config.max_uri_handlers = 25;
     if (WifiManager::GetInstance().IsPersistentPortalActive())
-        config.max_open_sockets = 3;
+        config.max_open_sockets = 4;
     config.recv_wait_timeout = 3;
     config.stack_size = 8192;
     config.lru_purge_enable = true;
@@ -399,7 +403,8 @@ bool WebConsole::StartHttpServer() {
                     add("/api/developer/voice-upload", HTTP_POST, HandleDeveloperVoiceUpload) &&
                     add("/api/developer/center", HTTP_POST, HandleDeveloperCenter) &&
                     add("/api/developer/demo", HTTP_POST, HandleDeveloperDemo) &&
-                    add("/api/developer/flash/erase", HTTP_POST, HandleDeveloperErase);
+                    add("/api/developer/flash/erase", HTTP_POST, HandleDeveloperErase) &&
+                    add("/*", HTTP_GET, HandleAsset);
     if (!ok) {
         ESP_LOGE(TAG, "注册管理页路由失败");
         httpd_stop(server_);
@@ -584,11 +589,13 @@ void WebConsole::AddHubStatus(cJSON* root) {
     cJSON_AddStringToObject(hub_json, "checked_revision", hub->checked_revision().c_str());
 }
 
-esp_err_t WebConsole::HandleRoot(httpd_req_t* req) {
-    const size_t length = static_cast<size_t>(wzh_console_html_end - wzh_console_html_start);
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_send(req, wzh_console_html_start, length);
+esp_err_t WebConsole::HandleRoot(httpd_req_t* req) { return SendWebAsset(req, "developer.html"); }
+
+esp_err_t WebConsole::HandleAsset(httpd_req_t* req) {
+    const std::string uri(req->uri);
+    if (uri.rfind("/css/", 0) != 0 && uri.rfind("/js/", 0) != 0 && uri.rfind("/assets/", 0) != 0)
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");
+    return SendWebAsset(req, uri.substr(1, uri.find('?') - 1));
 }
 
 esp_err_t WebConsole::HandleStatus(httpd_req_t* req) {

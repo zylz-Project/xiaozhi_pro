@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<script src="js/viewport.js"></script>
+<meta name="theme-color" content="#f6eadc">
+<title>正在连接 · 爬爬熊猫</title>
+<link rel="stylesheet" href="css/panda.css">
+<script src="js/theme.js"></script>
+<script src="js/product.js"></script>
+<link rel="stylesheet" href="css/guide.css">
+<link rel="stylesheet" href="css/done.css">
+<link rel="stylesheet" href="css/deploy.css">
+<style>.notes,.statebar{display:none!important}</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.2 4.2L19 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.8 19.5h18.4L12 3Z"/><path d="M12 9v4.5"/><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M4.5 9.3a11.5 11.5 0 0 1 15 0"/><path d="M7.4 12.4a7.5 7.5 0 0 1 9.2 0"/><path d="M10.2 15.5a3.8 3.8 0 0 1 3.6 0"/><circle cx="12" cy="18.3" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+</svg>
+
+<div class="page">
+  <main class="stage">
+    <section class="phone-col">
+      <div class="phone-label"><span class="tag rec">02</span><b>完成</b><em>连接中 / 成功 / 失败</em></div>
+      <div class="phone b done-phone" id="donePhone" data-theme="milk">
+        <div class="wallpaper"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
+        <div class="statusbar">
+          <span class="status-time">9:41</span>
+          <span class="status-pill"><i class="status-dot amber" id="doneDot"></i><span id="doneStatus">正在连接…</span></span>
+        </div>
+
+        <div class="phone-content">
+          <div class="appbar">
+            <span class="appbar-spacer"></span>
+            <div class="appbar-title" id="doneAppbar">连接网络</div>
+            <span class="appbar-spacer"></span>
+            <button class="guide-open" type="button" data-guide-open aria-label="查看使用引导"><img data-p-img="face" src="assets/crawlPanda_icon.webp" alt=""></button>
+          </div>
+
+          <div class="done-body">
+            <section class="done-scene" aria-label="窗边的灯串、玻璃球和小玩具">
+              <span class="done-wall" aria-hidden="true"></span>
+              <span class="done-window" aria-hidden="true"></span>
+              <span class="done-floor" aria-hidden="true"></span>
+              <span class="done-rug" aria-hidden="true"></span>
+              <span class="done-plant" aria-hidden="true"><i></i><i></i><i></i><span class="pot"></span></span>
+              <span class="done-halo" aria-hidden="true"></span>
+              <div class="lights" aria-hidden="true">
+                <svg viewBox="0 0 358 108" preserveAspectRatio="none">
+                  <path class="wire" d="M-10 16 C52 52 92 36 138 50 C196 68 250 30 368 42"/>
+                  <circle class="bulb" cx="34" cy="32" r="5"/>
+                  <circle class="bulb" cx="92" cy="47" r="5"/>
+                  <circle class="bulb" cx="150" cy="55" r="5"/>
+                  <circle class="bulb" cx="214" cy="55" r="5"/>
+                  <circle class="bulb" cx="274" cy="45" r="5"/>
+                  <circle class="bulb" cx="330" cy="40" r="5"/>
+                </svg>
+              </div>
+              <div class="confetti" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="done-orb-wrap">
+                <div class="orbit-ring" aria-hidden="true"></div>
+                <div class="orbit-ring two" aria-hidden="true"></div>
+                <div class="done-orb">
+                  <div class="done-panda" aria-hidden="true"><img data-p-img="front" src="assets/crawlPanda_正面.webp" alt=""></div>
+                </div>
+                <div class="done-badge" aria-hidden="true">
+                  <svg class="ico b-spin" viewBox="0 0 24 24"><use href="#i-refresh"></use></svg>
+                  <svg class="ico b-check" viewBox="0 0 24 24"><use href="#i-check"></use></svg>
+                  <svg class="ico b-x" viewBox="0 0 24 24"><use href="#i-x"></use></svg>
+                </div>
+              </div>
+              <div class="done-spark" aria-hidden="true"></div>
+              <div class="done-spark" aria-hidden="true"></div>
+              <div class="done-spark" aria-hidden="true"></div>
+              <div class="done-spark" aria-hidden="true"></div>
+            </section>
+
+            <div class="done-copy">
+              <p class="kicker" id="doneKicker">ALMOST THERE · 只差一步</p>
+              <h1 id="doneHeading">正在把它<br>连上家里的网络</h1>
+              <p class="sub" id="doneSub">别关掉这个页面，通常几秒钟就好。</p>
+              <span class="done-status"><i class="dot amber"></i><span id="doneStatus2">正在连接 Home…</span></span>
+            </div>
+
+            <div class="done-net">
+              <span class="dn-ico"><svg class="ico" viewBox="0 0 24 24"><use href="#i-wifi"></use></svg></span>
+              <div class="dn-copy"><b id="doneSsid">Home</b><small><span id="doneBand">2.4GHz</span> · <span id="doneSignal">信号很强</span></small></div>
+              <span class="chip" id="doneChip">连接中</span>
+            </div>
+
+            <div class="done-fail-card" id="failReason" hidden>
+              <svg class="ico" viewBox="0 0 24 24"><use href="#i-alert"></use></svg>
+              <span><b>没有连上。</b>密码可能不对，或路由器把这个新设备拦住了。回去改一下密码，或者换一个 2.4GHz 网络。</span>
+            </div>
+
+            <div class="done-actions" id="doneActions" aria-hidden="true">
+              <button class="btn primary" id="donePrimary" type="button">进入设备详情<svg class="ico" viewBox="0 0 24 24"><use href="#i-arrow"></use></svg></button>
+              <button class="btn ghost" id="doneLater" type="button">稍后再看</button>
+              <p class="done-note" id="doneNote">进入详情需要页面密码；刚配网完成可以直接进入。</p>
+            </div>
+          </div>
+        </div>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </div>
+      <p class="notes"><b>原型说明：</b><code>?state=connecting</code>（默认）→ 1.9 秒后成功；<code>?state=fail</code> 直接演示失败态。成功页的两个按钮在动画结束后才出现。</p>
+    </section>
+  </main>
+</div>
+
+<script src="js/guide-config.js?v=2"></script>
+<script src="js/guide.js"></script>
+<script src="js/done.js"></script>
+</body>
+</html>

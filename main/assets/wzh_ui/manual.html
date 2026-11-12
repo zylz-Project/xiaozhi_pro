@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<script src="js/viewport.js"></script>
+<meta name="theme-color" content="#f6eadc">
+<title>使用说明书 · 爬爬熊猫</title>
+<link rel="stylesheet" href="css/panda.css">
+<script src="js/theme.js"></script>
+<script src="js/product.js"></script>
+<link rel="stylesheet" href="css/guide.css">
+<script src="js/manual-head.js"></script>
+<link rel="stylesheet" href="css/manual.css">
+<link rel="stylesheet" href="css/deploy.css">
+<style>.notes,.statebar{display:none!important}</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2.2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/></symbol>
+</svg>
+
+<div class="page">
+  <main class="stage">
+    <section class="phone-col">
+      <div class="phone-label"><span class="tag rec">04</span><b>使用说明书</b><em>在线 + 已登录</em></div>
+      <div class="phone b" id="manualPhone" data-theme="milk">
+        <div class="wallpaper"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
+        <div class="statusbar">
+          <span class="status-time">9:41</span>
+          <span class="status-pill"><i class="status-dot"></i>已联网</span>
+        </div>
+        <div class="phone-content">
+          <div class="appbar">
+            <button class="back" type="button" onclick="location.href='/'" aria-label="返回设备详情"><svg class="ico"><use href="#i-back"></use></svg></button>
+            <div class="appbar-title">使用说明书</div>
+            <span class="appbar-spacer"></span>
+            <span class="tiny-pill"><svg class="ico" style="width:11px;height:11px"><use href="#i-book"></use></svg>P.04</span>
+            <button class="guide-open" type="button" data-guide-open aria-label="查看使用引导"><img data-p-img="face" src="assets/crawlPanda_icon.webp" alt=""></button>
+          </div>
+          <div class="scroll-area manual-scroll">
+            <div class="manual-hero">
+              <p class="kicker"><span data-p-code>PANDA</span> · OWNER'S GUIDE</p>
+              <h1><span data-p-name>爬爬熊猫</span><br>使用说明书</h1>
+              <p class="sub" data-p-intro>一只会抬头、会挥爪、会听你说话的桌面小伙伴。第一次使用，从这里开始。</p>
+              <div class="manual-badge">
+                <span class="chip">型号 <span data-p-model>WZH-CP01</span></span>
+                <span class="chip">固件 v1.0</span>
+                <span class="chip">中文</span>
+              </div>
+            </div>
+
+            <nav class="manual-nav" aria-label="说明书章节">
+              <a href="#m-start">快速上手</a>
+              <a href="#m-parts">部件</a>
+              <a href="#m-power">开关机</a>
+              <a href="#m-controls">按键触摸</a>
+              <a href="#m-chat">对话</a>
+              <a href="#m-network">配网换网</a>
+              <a href="#m-web">网页控制台</a>
+              <a href="#m-voice">声音</a>
+              <a href="#m-motion">动作</a>
+              <a href="#m-protect">保护</a>
+              <a href="#m-faq">常见问题</a>
+              <a href="#m-reset">恢复出厂</a>
+              <a href="#m-spec">规格</a>
+            </nav>
+
+            <section class="manual-section" id="m-start">
+              <div class="sec-head"><span class="sec-no">01</span><h2>快速上手</h2></div>
+              <p>第一次使用，按下面四步走。设备需要连接家里的 <b>2.4GHz Wi-Fi</b>，不支持 5GHz。</p>
+              <ol class="step-list">
+                <li><b>充电。</b>用 USB-C 线连接充电器，建议使用 5V 电源。电量低时设备会限制动作并提示。</li>
+                <li><b>开机。</b>长按电源键约 1.5 秒，听到启动音、头部回中即开机。</li>
+                <li><b>配网。</b>手机连接设备热点 <b data-p-ap>CrawlPanda-XXXX</b>，打开 <b>192.168.4.1</b>，选择家里的 2.4GHz 网络并输入密码。</li>
+                <li><b>开始对话。</b>配网完成后双击电源键；听到提示音后说话，再双击退出。</li>
+              </ol>
+              <div class="callout"><b>没有屏幕也没关系。</b>设备通过声音和 <span data-p-inline="crawlPanda">头部、双前肢</span><span data-p-inline="dinosaur">颈部、尾巴</span><span data-p-inline="redpanda">头部、大尾巴</span> 动作回应；所有网页设置都在手机上进行。</div>
+            </section>
+
+            <section class="manual-section" id="m-parts">
+              <div class="sec-head"><span class="sec-no">02</span><h2>认识它</h2></div>
+              <div data-p-block="crawlPanda">
+                <p>爬爬熊猫由头部、双前肢和身体组成。头部与两只前肢各有一个舵机，所以它能抬头、转头、左右挥爪。</p>
+                <div class="parts">
+                  <div class="part"><span class="n">A</span><span><b>头部</b>抬头、转头、凝视</span></div>
+                  <div class="part"><span class="n">B</span><span><b>双前肢</b>挥爪、扒地、支撑</span></div>
+                  <div class="part"><span class="n">C</span><span><b>触摸区</b>轻触会有回应</span></div>
+                  <div class="part"><span class="n">D</span><span><b>电源键</b>开关机、双击对话</span></div>
+                  <div class="part"><span class="n">E</span><span><b>USB-C</b>充电与烧录</span></div>
+                  <div class="part"><span class="n">F</span><span><b>扬声器</b>对话与本地音效</span></div>
+                </div>
+              </div>
+              <div data-p-block="dinosaur">
+                <p>小恐龙由头部、可伸长的颈部、四足身体和尾巴组成。颈部 2 路、头部 1 路、尾巴 2 路舵机，让它能探头、抬头和甩尾。</p>
+                <div class="parts">
+                  <div class="part"><span class="n">A</span><span><b>头部</b>抬头、转头、凝视</span></div>
+                  <div class="part"><span class="n">B</span><span><b>颈部</b>前倾、后仰、左右倾</span></div>
+                  <div class="part"><span class="n">C</span><span><b>尾巴</b>上下、左右摆动</span></div>
+                  <div class="part"><span class="n">D</span><span><b>触摸区</b>轻触会有回应</span></div>
+                  <div class="part"><span class="n">E</span><span><b>电源键</b>开关机、双击对话</span></div>
+                  <div class="part"><span class="n">F</span><span><b>USB-C</b>充电与烧录</span></div>
+                </div>
+              </div>
+              <div data-p-block="redpanda">
+                <p>摇尾小熊猫由头部、圆身体和一条大尾巴组成。头部 1 路、尾巴 2 路舵机，让它能歪头、翘尾和左右摇尾。</p>
+                <div class="parts">
+                  <div class="part"><span class="n">A</span><span><b>头部</b>歪头、抬头、凝视</span></div>
+                  <div class="part"><span class="n">B</span><span><b>大尾巴</b>左右摇、上下翘</span></div>
+                  <div class="part"><span class="n">C</span><span><b>触摸区</b>轻触会有回应</span></div>
+                  <div class="part"><span class="n">D</span><span><b>电源键</b>开关机、双击对话</span></div>
+                  <div class="part"><span class="n">E</span><span><b>USB-C</b>充电与烧录</span></div>
+                  <div class="part"><span class="n">F</span><span><b>扬声器</b>对话与本地音效</span></div>
+                </div>
+              </div>
+              <div class="callout warn"><b>不要用力掰。</b>头部和 <span data-p-inline="crawlPanda">前肢</span><span data-p-inline="dinosaur">颈部、尾巴</span><span data-p-inline="redpanda">大尾巴</span> 由舵机驱动，手动摆姿势时请轻一点；通电时不要强行按住。</div>
+            </section>
+
+            <section class="manual-section" id="m-power">
+              <div class="sec-head"><span class="sec-no">03</span><h2>充电、开机与关机</h2></div>
+              <p><b>充电：</b>使用 USB-C 线连接 5V 充电器。设备没有独立的充电状态灯；电量可以在网页详情页查看。请使用干燥、通风的环境充电。</p>
+              <p><b>开机：</b>长按电源键约 1.5 秒，设备会播放启动音并回到默认姿态。首次开机若没有保存网络，会自动进入配网模式。</p>
+              <p><b>关机：</b>再次长按电源键约 1.5 秒。设备会先停止本地声音、回到安全姿态、断开舵机电，再关闭电源，请不要在动作过程中拔电。</p>
+              <div class="callout"><b>自动保护：</b>电量过低、芯片温度过高或舵机连续通电过久时，设备会限制动作或自动关机。这是正常保护，不是故障。</div>
+            </section>
+
+            <section class="manual-section" id="m-controls">
+              <div class="sec-head"><span class="sec-no">04</span><h2>按键与触摸</h2></div>
+              <table class="key-table">
+                <thead><tr><th>操作</th><th>会发生什么</th></tr></thead>
+                <tbody>
+                  <tr><td>双击电源键</td><td>开始对话；再双击完整退出对话</td></tr>
+                  <tr><td>长按电源键 1.5 秒</td><td>关机</td></tr>
+                  <tr><td>单击 BOOT 键</td><td>启动或配网阶段单击进入配网；正常状态下双击切换对话</td></tr>
+                  <tr><td>双击 BOOT 键</td><td>停止 / 恢复宠物活动</td></tr>
+                  <tr><td>轻触一个触摸区</td><td>亲昵回应：抬头、看你、轻轻挥爪</td></tr>
+                  <tr><td>同时触摸两个以上</td><td>开心回应：更大幅度的动作与声音</td></tr>
+                </tbody>
+              </table>
+              <p style="margin-top:10px">在线对话时，触摸只驱动动作，不额外播放本地声音，避免打断说话。连续触摸不会堆积播放。</p>
+              <div class="callout"><b>单击电源键不会开始对话。</b>这是为了防止误触；请使用双击。</div>
+            </section>
+
+            <section class="manual-section" id="m-chat">
+              <div class="sec-head"><span class="sec-no">05</span><h2>和小智对话</h2></div>
+              <p>设备需要先配网并完成小智激活。双击电源键后，看到头部抬起、听到提示音，就可以说话；说完稍等，它会回答。</p>
+              <ul class="manual-list">
+                <li>说话时尽量靠近设备，环境不要太吵。</li>
+                <li>回答过程中双击电源键，可以立即结束本轮对话。</li>
+                <li>对话时 <span data-p-inline="crawlPanda">头部和双前肢</span><span data-p-inline="dinosaur">颈部和尾巴</span><span data-p-inline="redpanda">头部和大尾巴</span> 会跟随真实语音包络动作；声音越响，动作越明显。</li>
+                <li>网络断开时无法进行云端对话，但触摸、本地声音和动作仍可使用。</li>
+              </ul>
+            </section>
+
+            <section class="manual-section" id="m-network">
+              <div class="sec-head"><span class="sec-no">06</span><h2>配网与换网</h2></div>
+              <p>设备只支持 <b>2.4GHz Wi-Fi</b>。设备不能连接 5GHz 网络。</p>
+              <ol class="step-list">
+                <li>手机打开 Wi-Fi，连接 <b data-p-ap>CrawlPanda-XXXX</b>（开放热点，不需要密码）。</li>
+                <li>浏览器打开 <b>192.168.4.1</b>；若没有自动弹出，手动输入地址。</li>
+                <li>选择家里的 2.4GHz 网络，输入 Wi-Fi 密码，点击连接。</li>
+                <li>看到完成页后，等待设备获得地址；成功后进入设备详情。</li>
+              </ol>
+              <p style="margin-top:10px"><b>换网：</b>在设备详情页进入“更改网络”。新网络连接成功前，旧网络会保留；失败会自动恢复旧网络。</p>
+              <p><b>离线：</b>设备当前离线时，打开热点页面会回到配网页，而不是详情页；已保存的凭据不会删除，设备会在范围内自动重连。</p>
+              <div class="callout"><b>页面密码：</b>设备在线后，进入详情需要页面密码。密码规则是 <b>zylz + 热点名称后四位</b>。例如热点是 <b data-p-hot>CrawlPanda-1A2B</b>，页面密码就是 <b data-p-pass>zylz1A2B</b>。密码也印在随附的纸质说明书上。</div>
+            </section>
+
+            <section class="manual-section" id="m-web">
+              <div class="sec-head"><span class="sec-no">07</span><h2>网页控制台</h2></div>
+              <p>连上设备热点后打开 <b>192.168.4.1</b>，输入页面密码，就能看到设备详情。网页只在设备热点范围内可用，不经过云端。</p>
+              <ul class="manual-list">
+                <li><b>设备状态：</b>电量、温度、运行时长、当前网络与信号强度。</li>
+                <li><b>音量：</b>调整设备扬声器音量。</li>
+                <li><b>当前音色：</b>试听、切换固定音色或复刻音色。</li>
+                <li><b>声音：</b>录音或上传音频，创建专属复刻音色；最多 10 个。</li>
+                <li><b>更改网络：</b>换到另一个 2.4GHz 网络。</li>
+                <li><b>使用说明书：</b>就是当前这一页。</li>
+                <li><b>恢复出厂设置：</b>清除 Wi-Fi 与本机复刻音色，详见第 12 节。</li>
+              </ul>
+              <p style="margin-top:10px">开发者功能（音频库、Audio Hub、OTA、日志、接口）在独立的开发者页面，普通用户不需要使用。</p>
+            </section>
+
+            <section class="manual-section" id="m-voice">
+              <div class="sec-head"><span class="sec-no">08</span><h2>声音与音色</h2></div>
+              <div>
+              <p>设备内置 <b>6 个固定音色</b>，可以直接切换和试听。你也可以录制或上传一段人声，生成专属复刻音色。</p>
+              <ul class="manual-list">
+                <li>复刻音色最多 <b>10 个</b>；录音建议 5–20 秒，环境安静、一个人说话。</li>
+                <li>录音会生成云端音色，删除时也会删除云端副本；离线时无法删除云端音色。</li>
+                <li>上传支持常见音频格式；文件太短、太长或噪声太大时可能失败。</li>
+                <li>复刻音色依赖云端服务，首次使用需要设备已联网并完成激活。</li>
+              </ul>
+              </div>
+            </section>
+
+            <section class="manual-section" id="m-motion">
+              <div class="sec-head"><span class="sec-no">09</span><h2>动作与互动</h2></div>
+              <div data-p-block="crawlPanda">
+                <p>设备会在空闲时轻轻呼吸、凝视、摆动前肢；被触摸、听到声音或对话时，会做出对应动作。动作结束后会回到默认姿态并释放舵机，避免长时间通电。</p>
+                <ul class="manual-list">
+                  <li><b>亲昵：</b>轻触一个触摸区，抬头看你。</li>
+                  <li><b>开心：</b>同时触摸两个以上，双爪一起动。</li>
+                  <li><b>对话随动：</b>说话越响，动作越明显；停止说话后慢慢回到安静。</li>
+                  <li><b>被抱起：</b>设备能感知姿态变化，放稳后会重新建立基准。</li>
+                </ul>
+              </div>
+              <div data-p-block="dinosaur">
+                <p>小恐龙会在空闲时缓慢伸颈、左右张望、轻轻摆尾；被触摸、听到声音或对话时，会做出对应动作。动作结束后回到默认姿态并释放舵机。</p>
+                <ul class="manual-list">
+                  <li><b>亲昵：</b>轻触触摸区，低头靠近你。</li>
+                  <li><b>开心：</b>同时触摸两个以上，仰头、快速摇尾。</li>
+                  <li><b>对话随动：</b>说话越响，颈部和尾巴动作越明显。</li>
+                  <li><b>被抱起：</b>放稳后重新建立姿态基准；动作中请先等它停下。</li>
+                </ul>
+              </div>
+              <div data-p-block="redpanda">
+                <p>摇尾小熊猫会在空闲时歪头、轻轻摇尾；被触摸、听到声音或对话时，会做出对应动作。动作结束后回到默认姿态并释放舵机。</p>
+                <ul class="manual-list">
+                  <li><b>亲昵：</b>轻触触摸区，歪头看你。</li>
+                  <li><b>开心：</b>同时触摸两个以上，大尾巴高高翘起。</li>
+                  <li><b>对话随动：</b>说话越响，尾巴摆幅越大。</li>
+                  <li><b>被抱起：</b>放稳后重新建立姿态基准；动作中请先等它停下。</li>
+                </ul>
+              </div>
+              <div class="callout"><b>动作中不要强行按住。</b>如果它正在动，等动作结束再拿取；长期强行阻挡会触发舵机保护。</div>
+            </section>
+
+            <section class="manual-section" id="m-protect">
+              <div class="sec-head"><span class="sec-no">10</span><h2>安全与保护</h2></div>
+              <ul class="manual-list">
+                <li>使用 5V USB-C 电源，避免使用来历不明的快充头。</li>
+                <li>设备含小零件与可动结构，请放在儿童接触不到的地方；儿童使用时需要成人陪同。</li>
+                <li>不要进水、不要用湿手操作、不要放在高温或阳光直射处。</li>
+                <li>不要拆开外壳；舵机、电池和触摸电极没有用户可维修部件。</li>
+                <li>长时间不使用时，请关机并每隔几个月充电一次，避免电池过放。</li>
+                <li>设备会检测欠压、芯片温度和舵机通电时间；触发保护时请让它休息或充电。</li>
+              </ul>
+            </section>
+
+            <section class="manual-section" id="m-faq">
+              <div class="sec-head"><span class="sec-no">11</span><h2>常见问题</h2></div>
+              <div class="faq">
+                <details><summary>手机找不到 <span data-p-ap>CrawlPanda-XXXX</span> 热点</summary><p>确认设备已开机且未被其他手机占用；关闭再打开手机 Wi-Fi；靠近设备后重试。如果设备已经连上家里的网络，热点仍然存在，但手机可能需要先断开家里的 Wi-Fi。</p></details>
+                <details><summary>连上热点却打不开网页</summary><p>手动在浏览器输入 <b>192.168.4.1</b>；关闭手机流量或“自动切换网络”；如果系统提示“此网络无互联网”，选择“继续使用”。</p></details>
+                <details><summary>配网一直失败</summary><p>确认选择的是 2.4GHz 网络、密码没有输错、路由器没有开启 MAC 白名单或隔离。把设备靠近路由器再试；失败时旧网络会保留。</p></details>
+                <details><summary>忘记页面密码</summary><p>页面密码是 <b>zylz + 热点名称后四位</b>，也印在随附说明书上。热点名称可以在手机 Wi-Fi 列表里看到。</p></details>
+                <details><summary>设备离线，详情页打不开</summary><p>当前离线时打开热点会回到配网页。这是设计行为；在配网页可以重新选择网络，已保存的凭据不会删除。</p></details>
+                <details><summary>复刻音色生成失败</summary><p>确认设备在线、录音 5–20 秒、环境安静；如果提示云端失败，稍后重试。复刻音色需要云端服务，离线时不能创建或删除。</p></details>
+                <details><summary>设备发热或有异味</summary><p>立即关机并断开充电，放在通风处冷却；不要继续使用。若反复出现，请联系售后。</p></details>
+                <details><summary>双击电源键没有反应</summary><p>确认设备已开机、电量充足；对话需要先配网并激活。单击不会开始对话，请使用双击。</p></details>
+              </div>
+            </section>
+
+            <section class="manual-section" id="m-reset">
+              <div class="sec-head"><span class="sec-no">12</span><h2>恢复出厂设置</h2></div>
+              <p>恢复出厂会清除 <b>Wi-Fi 凭据</b>和 <b>本机创建的复刻音色</b>，并重启设备。页面密码、小智绑定、预置语音 Key、外置音频库和其他设置会保留。</p>
+              <p>操作入口在设备详情页底部。点击后需要手动输入 <b>确定恢复出厂设置</b> 才会执行；执行前请确认设备在线<span data-p-inline="crawlPanda">，否则云端音色无法删除</span>。</p>
+              <div class="callout warn"><b>不可撤销。</b>恢复后需要重新配网；已删除的复刻音色无法恢复。外置音频库是出厂内容，不会被删除。</div>
+            </section>
+
+            <section class="manual-section" id="m-spec">
+              <div class="sec-head"><span class="sec-no">13</span><h2>规格</h2></div>
+              <div class="spec-grid">
+                <div class="spec-row"><span>主控</span><span>ESP32-S3</span></div>
+                <div class="spec-row"><span>网络</span><span>2.4GHz Wi-Fi</span></div>
+                <div class="spec-row"><span>动作</span><span data-p-spec-action>头部 1 路 + 双前肢 2 路舵机</span></div>
+                <div class="spec-row"><span>声音</span><span>ES8311 编解码 + 扬声器 / 麦克风</span></div>
+                <div class="spec-row"><span>存储</span><span>外置 NAND 音频库</span></div>
+                <div class="spec-row"><span>供电</span><span>内置锂电池 / USB-C 5V</span></div>
+                <div class="spec-row"><span>交互</span><span>电容触摸、姿态感应、人体感应</span></div>
+                <div class="spec-row"><span>网页</span><span>设备热点内 192.168.4.1</span></div>
+              </div>
+              <p style="margin-top:11px">规格可能因批次不同略有差异；以实物和包装标注为准。</p>
+            </section>
+
+            <div class="manual-end">
+              <div class="seal"><img data-p-img="face" src="assets/crawlPanda_icon.webp" alt=""></div>
+              <p><span data-p-code>PANDA</span> · 使用说明书 v1.0<br>保留本手册，以便查询页面密码与售后信息。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="notes"><b>原型说明：</b>说明书是长页面，可在手机内滚动；章节锚点、FAQ 展开、返回详情都已接好。文案按当前固件行为整理，最终量产版可替换为印刷稿。</p>
+    </section>
+  </main>
+</div>
+<script src="js/manual-app.js"></script>
+<script src="js/guide-config.js?v=2"></script>
+<script src="js/guide.js"></script>
+<script src="js/manual-auto.js"></script>
+</body>
+</html>

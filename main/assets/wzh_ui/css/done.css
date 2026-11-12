@@ -1,0 +1,258 @@
+  .done-phone { background: #f6eadc; }
+  .done-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 18px 20px; scrollbar-width: none; }
+  .done-body::-webkit-scrollbar { display: none; }
+
+  .done-scene {
+    position: relative; height: 278px; margin: 0 -2px;
+    border-radius: 0 0 34px 34px; overflow: hidden;
+  }
+  .lights { position: absolute; left: 6px; right: 6px; top: -2px; height: 108px; z-index: 2; pointer-events: none; }
+  .lights svg { width: 100%; height: 100%; overflow: visible; }
+  .lights .wire { fill: none; stroke: rgba(78,57,40,.28); stroke-width: 1.1; }
+  .lights .bulb { fill: rgba(255,250,238,.46); stroke: rgba(255,255,255,.72); stroke-width: .8; transition: fill .5s ease, filter .5s ease; }
+  .done-ok .lights .bulb { fill: #ffd89c; filter: drop-shadow(0 0 7px rgba(255,196,110,.8)); animation: bulbOn .7s ease both; }
+  .done-fail .lights .bulb { fill: rgba(255,250,238,.30); }
+
+  .done-orb-wrap { position: absolute; left: 50%; top: 74px; width: 206px; height: 206px; transform: translateX(-50%); }
+  .done-orb {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.84);
+    background:
+      radial-gradient(circle at 36% 28%, rgba(255,255,255,.90), rgba(255,255,255,.22) 34%, rgba(255,255,255,.08) 58%),
+      radial-gradient(circle at 60% 72%, rgba(246,196,160,.34), rgba(255,255,255,.12) 62%);
+    box-shadow:
+      0 34px 60px -32px rgba(69,44,24,.46),
+      0 1px 0 rgba(255,255,255,.8) inset,
+      0 0 0 8px rgba(255,255,255,.12);
+    -webkit-backdrop-filter: blur(20px) saturate(145%); backdrop-filter: blur(20px) saturate(145%);
+    transition: transform .7s cubic-bezier(.2,.8,.2,1), box-shadow .7s ease;
+  }
+  .done-orb:before {
+    content: ""; position: absolute; inset: 17px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.36);
+  }
+  .done-orb:after {
+    content: ""; position: absolute; left: 11%; top: 8%; width: 46%; height: 24%;
+    border-radius: 50%; z-index: 5; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(255,255,255,.72), rgba(255,255,255,0));
+    filter: blur(2px); transform: rotate(-18deg);
+  }
+  .done-orb { box-shadow:
+      0 34px 60px -32px rgba(69,44,24,.46),
+      0 1px 0 rgba(255,255,255,.9) inset,
+      0 0 0 1.5px rgba(255,255,255,.94),
+      0 0 0 9px rgba(255,255,255,.16);
+  }
+  .done-panda { position: absolute; left: 50%; top: 50%; width: 126px; height: 126px; transform: translate(-50%,-50%); opacity: .96; transition: transform .7s ease, opacity .5s ease; }
+  .done-panda img { width: 100%; height: 100%; object-fit: contain; }
+  .orbit-ring {
+    position: absolute; inset: -8px; border-radius: 50%;
+    border: 1px solid transparent; border-top-color: rgba(201,119,82,.62); border-right-color: rgba(201,119,82,.18);
+    animation: orbitSpin 2.2s linear infinite; opacity: .9;
+  }
+  .orbit-ring.two { inset: -18px; border-top-color: rgba(255,255,255,.72); border-right-color: transparent; animation-duration: 3.4s; animation-direction: reverse; opacity: .55; }
+  .done-ok .orbit-ring, .done-fail .orbit-ring { animation: none; opacity: 0; transition: opacity .3s ease; }
+  .done-badge {
+    position: absolute; left: 50%; bottom: 1px; width: 42px; height: 42px; margin-left: -21px;
+    display: grid; place-items: center; border-radius: 50%;
+    background: rgba(255,250,242,.86); border: 1px solid rgba(255,255,255,.96);
+    box-shadow: 0 9px 22px -12px rgba(57,36,19,.48);
+    color: var(--ink-3); transition: transform .4s ease, background .4s ease, color .4s ease;
+  }
+  .done-badge .ico { width: 18px; height: 18px; }
+  .done-badge .b-check, .done-badge .b-x { display: none; }
+  .done-ok .done-badge { background: #dcefdd; color: var(--green); transform: scale(1.06); }
+  .done-ok .done-badge .b-spin { display: none; }
+  .done-ok .done-badge .b-check { display: block; }
+  .done-fail .done-badge { background: rgba(244,222,217,.92); color: var(--danger); }
+  .done-fail .done-badge .b-spin { display: none; }
+  .done-fail .done-badge .b-x { display: block; }
+
+  .done-spark {
+    position: absolute; width: 5px; height: 5px; border-radius: 50%;
+    background: rgba(255,244,220,.9); box-shadow: 0 0 10px 3px rgba(255,222,174,.46);
+    animation: sparkFloat 6.4s ease-in-out infinite;
+  }
+  .done-spark:nth-child(1) { left: 45px; top: 124px; animation-delay: -1s; }
+  .done-spark:nth-child(2) { left: 318px; top: 148px; width: 3px; height: 3px; animation-delay: -3s; }
+  .done-spark:nth-child(3) { left: 72px; top: 216px; width: 3px; height: 3px; animation-delay: -2.2s; }
+  .done-spark:nth-child(4) { left: 306px; top: 234px; animation-delay: -4.4s; }
+
+  .confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .confetti i {
+    position: absolute; top: -12px; width: 6px; height: 9px; border-radius: 2px;
+    opacity: 0; transform: rotate(0deg);
+  }
+  .done-ok .confetti i { animation: confettiFall 2.4s cubic-bezier(.2,.7,.3,1) both; }
+  .confetti i:nth-child(1) { left: 12%; background: #e7a477; animation-delay: .05s; }
+  .confetti i:nth-child(2) { left: 24%; background: #9ebf9e; animation-delay: .25s; width: 8px; height: 5px; }
+  .confetti i:nth-child(3) { left: 37%; background: #dcb36d; animation-delay: .12s; }
+  .confetti i:nth-child(4) { left: 49%; background: #d79083; animation-delay: .32s; width: 5px; height: 10px; }
+  .confetti i:nth-child(5) { left: 62%; background: #abc4b2; animation-delay: .08s; }
+  .confetti i:nth-child(6) { left: 74%; background: #e7a477; animation-delay: .36s; width: 8px; height: 5px; }
+  .confetti i:nth-child(7) { left: 86%; background: #d8b98e; animation-delay: .18s; }
+  .confetti i:nth-child(8) { left: 18%; background: #b9cfa8; animation-delay: .42s; width: 5px; height: 10px; }
+  .confetti i:nth-child(9) { left: 56%; background: #e2b7a8; animation-delay: .5s; }
+  .confetti i:nth-child(10) { left: 79%; background: #a9c6b0; animation-delay: .28s; width: 7px; height: 7px; }
+
+  .done-copy { position: relative; z-index: 3; padding: 4px 4px 0; text-align: center; }
+  .done-copy .kicker { margin-bottom: 7px; }
+  .done-copy h1 { margin: 0 auto; max-width: 326px; font-size: 27px; line-height: 1.16; }
+  .done-copy .sub { max-width: 310px; margin: 7px auto 0; }
+  .done-status {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 27px;
+    margin-top: 11px; padding: 0 10px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.76); background: rgba(255,255,255,.36);
+    font-size: 9.5px; font-weight: 650; color: var(--ink-soft);
+  }
+  .done-status .dot { width: 5px; height: 5px; box-shadow: 0 0 0 3px rgba(185,119,34,.12); }
+  .done-ok .done-status .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(47,125,82,.12); }
+  .done-fail .done-status .dot { background: var(--danger); box-shadow: 0 0 0 3px rgba(183,77,62,.12); }
+
+  .done-net {
+    display: flex; align-items: center; gap: 9px; min-height: 48px;
+    margin: 12px 2px 0; padding: 0 12px; border-radius: 16px;
+    border: 1px solid rgba(255,255,255,.72); background: rgba(255,255,255,.32);
+    text-align: left;
+  }
+  .done-net .dn-ico { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 9px; background: rgba(201,119,82,.12); color: var(--accent-deep); }
+  .done-net .dn-ico .ico { width: 14px; height: 14px; }
+  .done-net .dn-copy { flex: 1; min-width: 0; }
+  .done-net b { display: block; font-size: 11px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .done-net small { display: block; margin-top: 2px; font-size: 8.5px; color: var(--ink-3); }
+  .done-net .chip { flex: 0 0 auto; }
+
+  .done-fail-card {
+    display: flex; align-items: flex-start; gap: 8px; margin: 11px 2px 0; padding: 9px 10px;
+    border-radius: 13px; border: 1px solid rgba(183,77,62,.16); background: rgba(183,77,62,.06);
+    color: var(--danger); font-size: 10px; line-height: 1.55; text-align: left;
+  }
+  .done-fail-card[hidden] { display: none !important; }
+  .done-fail-card .ico { width: 14px; height: 14px; flex: 0 0 14px; margin-top: 1px; }
+
+  .done-actions {
+    display: grid; gap: 8px; margin: 14px 2px 0;
+    opacity: 0; visibility: hidden; transform: translateY(6px);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  .done-ok .done-actions, .done-fail .done-actions { opacity: 1; visibility: visible; transform: none; }
+  .done-actions .btn { width: 100%; }
+  .done-actions .btn.primary { min-height: 52px; }
+  .done-actions .btn.ghost { min-height: 46px; color: var(--ink); background: rgba(255,255,255,.72); border: 1px solid rgba(122,99,78,.18); border-radius: 14px; }
+  .done-note { margin: 4px 4px 0; text-align: center; font-size: 8.5px; line-height: 1.5; color: rgba(47,40,34,.4); }
+
+  .done-fail .done-orb { box-shadow: 0 30px 54px -34px rgba(90,50,38,.42), 0 0 0 8px rgba(255,255,255,.10); }
+  .done-ok .done-orb { transform: scale(1.025); box-shadow: 0 38px 70px -30px rgba(75,47,26,.5), 0 0 0 10px rgba(255,247,232,.20), 0 0 60px rgba(255,215,170,.32); }
+  .done-ok .done-panda { transform: translate(-50%,-50%) scale(1.04) translateY(-2px); }
+
+  @keyframes orbitSpin { to { transform: rotate(360deg); } }
+  @keyframes bulbOn { 0% { opacity: .3; } 60% { opacity: 1; } 100% { opacity: 1; } }
+  @keyframes sparkFloat { 0%,100% { transform: translateY(3px); opacity: .25; } 50% { transform: translateY(-9px); opacity: .9; } }
+  @keyframes confettiFall {
+    0% { opacity: 0; transform: translateY(-8px) rotate(0deg); }
+    12% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(260px) rotate(420deg); }
+  }
+  @media (max-height: 760px) {
+    .done-scene { height: 246px; }
+    .done-orb-wrap { top: 62px; width: 186px; height: 186px; }
+    .done-panda { width: 112px; height: 112px; }
+    .done-copy h1 { font-size: 25px; }
+  }
+  @media (max-width: 360px) {
+    .done-body { padding-left: 14px; padding-right: 14px; }
+    .done-scene { height: 250px; }
+    .done-orb-wrap { width: 184px; height: 184px; top: 66px; }
+    .done-panda { width: 110px; height: 110px; }
+    .done-copy h1 { font-size: 24px; }
+  }
+
+  /* v7 · 完成页：窗龛、灯串、地毯、绿植和一颗发光的玻璃球 */
+  .done-scene {
+    height: 306px; margin: 0 -18px;
+    border-radius: 0 0 36px 36px;
+    background:
+      radial-gradient(78% 66% at 50% 26%, rgba(255,244,226,.88), rgba(255,244,226,0) 68%),
+      linear-gradient(174deg, #f7e8d5 0%, #ecd0b5 54%, #d9b99d 100%);
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,.36);
+  }
+  .done-scene .done-wall {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(46% 40% at 16% 0%, rgba(255,252,244,.9), transparent 64%),
+      repeating-linear-gradient(90deg, rgba(255,255,255,.13) 0 2px, transparent 2px 26px);
+    opacity: .8;
+  }
+  .done-scene .done-window {
+    position: absolute; left: 24px; top: 30px; width: 146px; height: 158px;
+    border-radius: 76px 76px 12px 12px; overflow: hidden;
+    border: 5px solid rgba(255,248,236,.92);
+    background:
+      radial-gradient(60% 50% at 66% 22%, rgba(255,236,190,.9), transparent 64%),
+      linear-gradient(180deg, #cfe0da, #eee1c9 62%, #e5c5a4);
+    box-shadow: 0 0 0 1px rgba(110,78,50,.12), 0 18px 30px -24px rgba(68,43,24,.6);
+  }
+  .done-scene .done-window:before {
+    content: ""; position: absolute; left: 50%; top: 0; width: 4px; height: 100%;
+    margin-left: -2px; background: rgba(255,248,236,.86);
+  }
+  .done-scene .done-window:after {
+    content: ""; position: absolute; left: 0; right: 0; top: 58%; height: 3px;
+    background: rgba(255,248,236,.8);
+  }
+  .done-scene .done-floor {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 74px;
+    background: linear-gradient(180deg, rgba(155,111,78,0), rgba(145,98,67,.22) 58%, rgba(123,82,55,.3));
+  }
+  .done-scene .done-rug {
+    position: absolute; left: 52px; right: 52px; bottom: 8px; height: 40px;
+    border-radius: 50%;
+    background: radial-gradient(60% 70% at 40% 30%, #dfb294, #c68a68 72%);
+    box-shadow: 0 10px 18px -14px rgba(73,43,25,.55), inset 0 0 0 1px rgba(255,240,222,.34);
+    opacity: .92;
+  }
+  .done-scene .done-plant { position: absolute; right: 24px; bottom: 24px; width: 70px; height: 128px; z-index: 2; }
+  .done-scene .done-plant .pot {
+    position: absolute; left: 17px; bottom: 0; width: 36px; height: 38px;
+    border-radius: 6px 6px 15px 15px;
+    background: linear-gradient(180deg, #d4a17a, #ac704b);
+    box-shadow: inset 0 1px 0 rgba(255,244,228,.6), 0 8px 14px -10px rgba(68,42,24,.6);
+  }
+  .done-scene .done-plant i {
+    position: absolute; left: 50%; bottom: 32px; width: 26px; height: 50px;
+    border-radius: 50% 50% 44% 44%;
+    background: linear-gradient(150deg, #95ad87, #5f7f5d);
+    transform-origin: 50% 100%;
+    animation: leafSway 7s ease-in-out infinite;
+  }
+  .done-scene .done-plant i:nth-child(1) { margin-left: -26px; transform: rotate(-28deg); }
+  .done-scene .done-plant i:nth-child(2) { margin-left: -5px; height: 58px; transform: rotate(1deg); animation-delay: -2.4s; }
+  .done-scene .done-plant i:nth-child(3) { margin-left: 15px; transform: rotate(31deg); animation-delay: -4.6s; }
+  .done-scene .done-halo {
+    position: absolute; left: 50%; top: 72px; width: 330px; height: 300px; margin-left: -165px;
+    background: radial-gradient(closest-side, rgba(255,222,171,.58), rgba(255,222,171,.16) 48%, transparent 72%);
+    filter: blur(6px);
+  }
+  .done-orb-wrap { top: 76px; width: 224px; height: 224px; }
+  .done-panda { width: 158px; height: 178px; margin-top: 1px; }
+  .done-panda img { object-fit: contain; }
+  .lights { top: -4px; height: 116px; }
+  .done-scene .done-spark { z-index: 3; }
+  .done-scene .confetti { z-index: 4; }
+  .done-badge { z-index: 5; }
+  @media (max-width: 380px) {
+    .done-scene { height: 284px; }
+    .done-orb-wrap { top: 66px; width: 204px; height: 204px; }
+    .done-panda { width: 146px; height: 166px; }
+  }
+  @keyframes leafSway { 0%,100% { rotate: -2deg; } 50% { rotate: 3deg; } }
+  /* 深色主题：完成 */
+  .phone.dark.done-phone { background: #241c17; }
+  .phone.dark .done-scene { filter: brightness(.5) saturate(.8); }
+  .phone.dark .done-status { border-color: rgba(255,255,255,.10); background: rgba(255,255,255,.07); color: var(--ink-soft); }
+  .phone.dark .done-net { border-color: rgba(255,255,255,.10); background: rgba(255,255,255,.06); }
+  .phone.dark .done-net .dn-ico { background: rgba(227,160,119,.16); color: var(--accent-deep); }
+  .phone.dark .done-fail-card { border-color: rgba(231,120,102,.22); background: rgba(183,77,62,.12); color: #f0a08e; }
+  .phone.dark .done-actions .btn.ghost { color: var(--ink); background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
+  .phone.dark .done-note { color: rgba(247,238,228,.38); }
+  .phone.dark .done-copy .kicker { color: rgba(247,238,228,.42); }

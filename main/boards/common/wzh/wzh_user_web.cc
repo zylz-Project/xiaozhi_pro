@@ -1,4 +1,5 @@
 #include "wzh_user_web.h"
+#include "wzh_web_assets.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -33,9 +34,6 @@
 #include "wifi_manager.h"
 #include "wzh_factory_reset_policy.h"
 #include "wzh_web_peer.h"
-
-extern const char wzh_user_web_html_start[] asm("_binary_wzh_user_web_html_start");
-extern const char wzh_user_web_html_end[] asm("_binary_wzh_user_web_html_end");
 
 namespace wzh {
 namespace {
@@ -149,9 +147,13 @@ esp_err_t Redirect(httpd_req_t* req, const char* destination) {
     return httpd_resp_send(req, nullptr, 0);
 }
 esp_err_t Html(httpd_req_t* req) {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, wzh_user_web_html_start,
-                           wzh_user_web_html_end - wzh_user_web_html_start);
+    const auto path = Path(req);
+    const char* asset = path == "/setup"    ? "setup.html"
+                        : path == "/login"  ? "login.html"
+                        : path == "/done"   ? "done.html"
+                        : path == "/manual" ? "manual.html"
+                                            : "index.html";
+    return SendWebAsset(req, asset);
 }
 const char* DeviceStateName(DeviceState state) {
     switch (state) {
@@ -569,11 +571,15 @@ esp_err_t UserWebPortal::StartFactoryReset(httpd_req_t* req) {
 }
 
 esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    const auto path = Path(req);
+    const bool static_asset =
+        req->method == HTTP_GET && (path.rfind("/css/", 0) == 0 || path.rfind("/js/", 0) == 0 ||
+                                    path.rfind("/assets/", 0) == 0);
+    if (!static_asset)
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     uint32_t ip = 0;
     if (!Peer(req, ip) || !UserWebPolicy::IsApClient(ip))
         return Error(req, "403 Forbidden", "FORBIDDEN", "请连接设备热点");
-    const auto path = Path(req);
     const auto now = Now();
     const bool session = HasSession(req, ip, now);
     auto& wifi = WifiManager::GetInstance();
@@ -594,6 +600,9 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         const auto host = Header(req, "Host", 128);
         if (!host.empty() && host != "192.168.4.1" && host != "192.168.4.1:80")
             return Redirect(req, "http://192.168.4.1/");
+        if (path.rfind("/css/", 0) == 0 || path.rfind("/js/", 0) == 0 ||
+            path.rfind("/assets/", 0) == 0)
+            return SendWebAsset(req, path.substr(1));
         if (Captive(path))
             return Redirect(req, "http://192.168.4.1/");
         if (path == "/done.html")
@@ -614,6 +623,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             cJSON_AddBoolToObject(out.get(), "setup_guide_done", SetupGuideDone());
             auto* wireless = cJSON_AddObjectToObject(out.get(), "wifi");
             if (wireless) {
+                cJSON_AddStringToObject(wireless, "ap_ssid", wifi.GetApSsid().c_str());
                 // Report the raw link state; routing keeps a 3 s debounce so a
                 // transient dropout does not bounce an open page.
                 cJSON_AddBoolToObject(wireless, "connected", connected);

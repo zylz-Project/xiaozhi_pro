@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<script src="js/viewport.js"></script>
+<meta name="theme-color" content="#f6eadc">
+<title>设备验证 · 爬爬熊猫</title>
+<link rel="stylesheet" href="css/panda.css">
+<script src="js/theme.js"></script>
+<script src="js/product.js"></script>
+<link rel="stylesheet" href="css/guide.css">
+<link rel="stylesheet" href="css/login.css">
+<link rel="stylesheet" href="css/deploy.css">
+<style>.notes,.statebar{display:none!important}</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2.2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.6 12S6 5.8 12 5.8 21.4 12 21.4 12 18 18.2 12 18.2 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/></symbol>
+  <symbol id="i-paw" viewBox="0 0 24 24"><circle cx="6.4" cy="9.3" r="2.1"/><circle cx="17.6" cy="9.3" r="2.1"/><circle cx="9.5" cy="5.4" r="1.8"/><circle cx="14.5" cy="5.4" r="1.8"/><path d="M7.2 15.7c0-2.7 2.2-4.7 4.8-4.7s4.8 2 4.8 4.7c0 2.2-1.7 3.7-4.8 3.7s-4.8-1.5-4.8-3.7Z"/></symbol>
+</svg>
+
+<div class="page">
+  <main class="stage">
+    <section class="phone-col">
+      <div class="phone-label"><span class="tag rec">03</span><b>设备验证</b><em>需要页面密码</em></div>
+      <div class="phone b login-phone" id="loginPhone" data-theme="milk">
+        <div class="wallpaper"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
+        <div class="statusbar">
+          <span class="status-time">9:41</span>
+          <span class="status-pill"><i class="status-dot amber"></i>需要密码</span>
+        </div>
+
+        <div class="phone-content">
+          <div class="appbar">
+            <a class="back" href="setup.html?mode=change" aria-label="返回配网"><svg class="ico" viewBox="0 0 24 24"><use href="#i-back"></use></svg></a>
+            <div class="appbar-title">设备详情</div>
+            <span class="appbar-spacer"></span>
+            <button class="guide-open" type="button" data-guide-open aria-label="查看使用引导"><img data-p-img="face" src="assets/crawlPanda_icon.webp" alt=""></button>
+          </div>
+
+          <div class="login-body">
+            <section class="login-scene" aria-label="门厅里的玻璃门和探头的小熊猫">
+              <span class="hall-wall" aria-hidden="true"></span>
+              <span class="hall-wainscot" aria-hidden="true"></span>
+              <span class="hall-floor" aria-hidden="true"></span>
+              <span class="login-rug" aria-hidden="true"></span>
+              <span class="hall-frame f1" aria-hidden="true"></span>
+              <span class="hall-frame f2" aria-hidden="true"></span>
+              <span class="hall-hook" aria-hidden="true"></span>
+              <span class="login-pendant" aria-hidden="true"></span>
+              <span class="door-frame" aria-hidden="true"></span>
+              <div class="glass-door" aria-hidden="true">
+                <div class="door-handle"></div>
+                <div class="door-lock"><svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></div>
+              </div>
+              <div class="peek-panda" aria-hidden="true"><img data-p-img="front" src="assets/crawlPanda_正面.webp" alt=""></div>
+              <div class="scene-floor" aria-hidden="true"></div>
+              <div class="scene-dust" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            </section>
+
+            <section class="login-sheet">
+              <div class="login-copy">
+                <div class="intro-top">
+                  <p class="kicker">DEVICE DETAIL · 需要验证</p>
+                  <span class="step-count">01 / 01</span>
+                </div>
+                <h1>门后，是它的小房间</h1>
+                <p class="sub" id="loginSub">输入页面密码，看看它现在在做什么。密码在随附的说明书上。</p>
+              </div>
+
+              <form class="glass login-card" id="loginCard" autocomplete="off">
+                <div class="login-state"><i class="dot amber"></i><span>页面密码</span><b id="loginAttempts">5 次机会</b></div>
+                <label class="field" for="loginPw">
+                  <span class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">页面密码</span>
+                  <div class="input-wrap">
+                    <input id="loginPw" name="password" type="password" inputmode="text" placeholder="输入密码" autocomplete="current-password" spellcheck="false">
+                    <button class="peek" id="loginPeek" type="button" aria-label="显示密码"><svg class="ico" viewBox="0 0 24 24"><use href="#i-eye"></use></svg></button>
+                  </div>
+                </label>
+                <p class="form-error" id="loginError" role="alert" aria-live="polite"></p>
+                <button class="btn primary block login-submit" id="loginSubmit" type="submit">
+                  <svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg>
+                  <span>开门进入</span>
+                  <svg class="ico" viewBox="0 0 24 24" style="width:14px;height:14px"><use href="#i-arrow"></use></svg>
+                </button>
+              </form>
+
+              <p class="login-note">密码区分大小写。连续输错 5 次会锁 60 秒，稍等一下再试。</p>
+              <footer class="login-foot">
+                <img data-p-img="face" src="assets/crawlPanda_icon.webp" alt="">
+                <b data-p-name>爬爬熊猫</b><i></i><span data-p-en>CRAWL PANDA</span>
+              </footer>
+            </section>
+          </div>
+        </div>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </div>
+      <p class="notes"><b>原型说明：</b>玻璃门、探头的小家伙和锁扣都是 CSS/SVG 动的；输入正确密码会开门并进入详情。演示密码 <code data-p-pass>zylz1A2B</code>。</p>
+    </section>
+  </main>
+</div>
+
+<script src="js/guide-config.js?v=2"></script>
+<script src="js/guide.js"></script>
+<script src="js/login.js"></script>
+</body>
+</html>
