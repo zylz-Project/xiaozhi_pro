@@ -546,7 +546,7 @@ int main(){
 '''
         for board,stem,_ in BOARDS:
             source=(ROOT/'main/boards'/board/(stem+'_power.cc')).read_text()
-            start=source.index('        int raw = 4095;',source.index('::Task()'))
+            start=source.index('        const uint32_t adc_start_ms = esp_log_timestamp();',source.index('::Task()'))
             end=source.index('        // IO5 上',start)
             with self.subTest(board=board):self.run_cpp(harness.replace('__KEY__',source[start:end]))
 

@@ -289,6 +289,7 @@ void PandaPower::Task() {
         if (auto* output = servo_output_.load()) {
             output->Watchdog();
         }
+        const uint32_t adc_start_ms = esp_log_timestamp();
         int raw = 4095;
         const esp_err_t power_err = adc_oneshot_read(adc_, POWER_BUTTON_ADC_CHANNEL, &raw);
         const int power_mv = AdcToMv(power_adc_cali_, raw);
@@ -299,15 +300,17 @@ void PandaPower::Task() {
             (power_mv <= POWER_BUTTON_PRESS_MV || power_mv >= POWER_BUTTON_RELEASE_MV);
         const bool pressed = power_mv <= POWER_BUTTON_PRESS_MV;
         const uint32_t now = esp_log_timestamp();
-        const bool sample_gap =
-            last_sample_ms != 0 && now - last_sample_ms > POWER_MAX_SAMPLE_GAP_MS;
+        const uint32_t sample_interval_ms = last_sample_ms ? now - last_sample_ms : 0;
+        const bool sample_gap = last_sample_ms != 0 && sample_interval_ms > POWER_MAX_SAMPLE_GAP_MS;
         last_sample_ms = now;
         int hold_ms = 0;
 
         if (!power_sample_valid || sample_gap) {
             if (!power_adc_fault)
-                ESP_LOGW(TAG, "Power key sample invalid: %s raw=%d value=%dmV",
-                         esp_err_to_name(power_err), raw, power_mv);
+                ESP_LOGW(TAG, "Power key sample invalid: %s raw=%d value=%dmV gap=%lums adc=%lums",
+                         esp_err_to_name(power_err), raw, power_mv,
+                         static_cast<unsigned long>(sample_interval_ms),
+                         static_cast<unsigned long>(now - adc_start_ms));
             power_adc_fault = true;
             state = BtnState::kIdle;
             armed = false;

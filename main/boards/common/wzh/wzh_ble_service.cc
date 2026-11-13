@@ -227,6 +227,10 @@ bool BleService::Prepare() {
     if (prepared_)
         return true;
 
+    // NimBLE emits one INFO log for every notification. Keep warnings and
+    // errors while avoiding serial traffic that competes with real-time work.
+    esp_log_level_set("NimBLE", ESP_LOG_WARN);
+
     uint8_t mac[6] = {};
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char suffix[8];
