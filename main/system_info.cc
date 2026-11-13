@@ -153,6 +153,33 @@ void SystemInfo::PrintHeapStats() {
     ESP_LOGI(TAG, "free sram: %u minimal sram: %u", free_sram, min_free_sram);
 }
 
+#if CONFIG_WZH_MEMORY_DIAGNOSTICS
+void SystemInfo::PrintMemoryDiagnostics(const char* phase) {
+    constexpr uint32_t internal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    constexpr uint32_t dma = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
+    constexpr uint32_t psram = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    ESP_LOGI(TAG, "MEMDIAG phase=%s internal=%u ilargest=%u imin=%u dma=%u dlargest=%u psram=%u plargest=%u",
+             phase, (unsigned)heap_caps_get_free_size(internal),
+             (unsigned)heap_caps_get_largest_free_block(internal),
+             (unsigned)heap_caps_get_minimum_free_size(internal),
+             (unsigned)heap_caps_get_free_size(dma), (unsigned)heap_caps_get_largest_free_block(dma),
+             (unsigned)heap_caps_get_free_size(psram), (unsigned)heap_caps_get_largest_free_block(psram));
+    constexpr UBaseType_t capacity = 96;
+    auto* tasks = static_cast<TaskStatus_t*>(heap_caps_malloc(capacity * sizeof(TaskStatus_t), psram));
+    if (!tasks) {
+        ESP_LOGW(TAG, "MEMDIAG task snapshot allocation failed");
+        return;
+    }
+    const UBaseType_t count = uxTaskGetSystemState(tasks, capacity, nullptr);
+    if (!count)
+        ESP_LOGW(TAG, "MEMDIAG task snapshot unavailable: capacity=%u", (unsigned)capacity);
+    for (UBaseType_t i = 0; i < count; ++i)
+        ESP_LOGI(TAG, "MEMDIAG task=%s stack_min_free=%u", tasks[i].pcTaskName,
+                 (unsigned)tasks[i].usStackHighWaterMark);
+    heap_caps_free(tasks);
+}
+#endif
+
 void SystemInfo::PrintPmLocks() {
     esp_pm_dump_locks(stdout);
 }

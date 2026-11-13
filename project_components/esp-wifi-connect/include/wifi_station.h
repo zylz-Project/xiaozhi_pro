@@ -1,7 +1,9 @@
 #ifndef _WIFI_STATION_H_
 #define _WIFI_STATION_H_
 
+#include <atomic>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -43,8 +45,14 @@ public:
     void AddAuth(const std::string&& ssid, const std::string&& password);
     void Start();
     void Stop();
+    // Cancel any pending scan/queued attempts and connect to this network now.
+    // Does not invoke on_connect_; the manager emits the Connecting event.
+    void ConnectNow(const std::string& ssid, const std::string& password);
     bool IsConnected();
     bool WaitForConnected(int timeout_ms = 10000);
+    // The station event handler owns scan results; callers must not read the
+    // driver's AP list directly. This bounded wait is for worker tasks only.
+    esp_err_t ScanNetworks(std::vector<wifi_ap_record_t>& records, int timeout_ms = 12000);
     int8_t GetRssi();
     std::string GetSsid() const { return ssid_; }
     std::string GetIpAddress() const { return ip_address_; }
@@ -96,8 +104,14 @@ private:
     std::vector<WifiApRecord> connect_queue_;
     bool persistent_ap_ = false;
     bool was_connected_ = false;  // Track if we were connected before disconnection
+    std::mutex user_scan_mutex_;
+    std::mutex user_scan_result_mutex_;
+    std::atomic<bool> user_scan_pending_{false};
+    std::vector<wifi_ap_record_t> user_scan_results_;
+    esp_err_t user_scan_error_ = ESP_FAIL;
 
     void HandleScanResult();
+    void CompleteUserScan();
     void StartConnect();
     void UpdateScanInterval();  // Exponential backoff for scan interval
     static void WifiEventHandler(void* arg, esp_event_base_t event_base, int32_t event_id,

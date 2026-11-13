@@ -4,6 +4,7 @@
 #include "board.h"
 #include "voice_tts/ali_voice_enrollment.h"
 #include "voice_tts/voice_config.h"
+#include "voice_tts/voice_flash_dispatcher.h"
 #include "voice_tts/voice_manager.h"
 #include "voice_tts/voice_names.h"
 #include "voice_tts/voice_session.h"
@@ -36,7 +37,12 @@ VoiceEnrollment* ProductVoiceEnrollment() {
 
 bool VoiceManagementBusy() { return Management().Busy(); }
 
+voice_tts::VoiceWeb& VoiceManagement() { return Management(); }
+
 void ConfigureVoiceConsole(WebConsole::Options& options) {
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    voice_tts::InitializeFlashDispatcher();
+#endif
     options.voice_command = [](const std::string& action, const std::string& id,
                                const std::string& name) {
         return Management().Command(action, id, name);

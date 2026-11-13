@@ -42,6 +42,10 @@ private:
     std::atomic<uint32_t> active_generation_{0};
     std::atomic<bool> bypass_next_{false};
     TaskHandle_t task_ = nullptr;
+#if CONFIG_WZH_VOICE_PSRAM_WORKER_EXPERIMENT
+    // Persistent worker is owned by the board singleton and never self-deletes.
+    TaskHandle_t worker_task_ = nullptr;
+#endif
     std::unique_ptr<PendingTurn> pending_;
     bool stopping_ = false;
     uint32_t playback_generation_ = 0;

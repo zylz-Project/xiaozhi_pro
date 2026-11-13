@@ -18,6 +18,7 @@
 #include "wifi_board.h"
 #include "wifi_manager.h"
 #include "wzh_audio_hub.h"
+#include "wzh_ble_service.h"
 #include "wzh_conversation_sounds.h"
 #include "wzh_mcp_tools.h"
 #include "wzh_power_telemetry.h"
@@ -96,7 +97,7 @@ public:
             return controller_.IsMaintenanceBusy() || local_audio_.LocalCommandEchoRisk();
         });
         wzh::RegisterHubMcpTools("dinosaur", &audio_hub_);
-        // 本地管理页：设备热点 192.168.4.1:8080，STA 保持联网。
+        // 本地管理页：局域网 STA IP:8080；设备不建热点，配网走 BLE。
         wzh::WebConsole::Options console;
         console.store = &local_audio_.audio_store();
         console.player = &local_audio_;
@@ -124,6 +125,14 @@ public:
                                     static_cast<double>(controller_.servo_output().faults()));
         };
         web_console_.Configure(std::move(console));
+        wzh::BleService::Config ble;
+        ble.name_prefix = PANDA_AP_PREFIX;
+        ble.product_id = "WZH-DN01";
+        ble.product_name = "小恐龙";
+        ble.model = "WZH-DN01";
+        ble.console = &web_console_;
+        ble_service_.Configure(std::move(ble));
+        ble_service_.Prepare();
         WifiManager::GetInstance().SetBeforeConfigApHook([this]() { web_console_.Stop(); });
         InitializeConversationMode();
         InitializeButton();
@@ -243,9 +252,7 @@ public:
         // 防止语音通道关闭回调尚未到达时继续保留在线状态。
         WifiBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
                                                NetworkEvent event, const std::string& data) {
-            if (event == NetworkEvent::Connected) {
-                web_console_.Start();
-            } else if (event == NetworkEvent::WifiConfigModeEnter) {
+            if (event == NetworkEvent::WifiConfigModeEnter) {
                 web_console_.Stop();
             }
             if (event == NetworkEvent::Disconnected || event == NetworkEvent::WifiConfigModeEnter) {
@@ -257,13 +264,29 @@ public:
         });
     }
 
+    void OnNetworkStackReady() override {
+        // 启动 BLE 广播与局域网开发者页；手机连上后直接进详情页。
+        ble_service_.Start();
+    }
+
+    void OnActivationDone() override {
+        activated_ = true;
+        web_console_.Start();
+    }
+    void OnNetworkIdleTick() override {
+        if (activated_ && !web_console_.started())
+            web_console_.Start();
+    }
+
 private:
+    bool activated_ = false;
     i2c_master_bus_handle_t codec_i2c_bus_ = nullptr;
     Button boot_button_;
     DinosaurPower power_;
     DinosaurAudio local_audio_;
     wzh::AudioHub audio_hub_;
     wzh::WebConsole web_console_;
+    wzh::BleService ble_service_;
     wzh::Sensors sensors_;
     DinosaurController controller_;
     DinosaurDisplay display_;

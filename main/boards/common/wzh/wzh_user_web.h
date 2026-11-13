@@ -19,6 +19,11 @@ public:
     explicit UserWebPortal(WebConsole::Options& options) : options_(options) {}
     bool Register(httpd_handle_t server, WifiConfigurationAp* portal);
     bool ResetActive() const { return reset_running_.load(); }
+    // Transport-neutral entry points. The HTTP handler validates the
+    // confirmation phrase and maps code/message onto a status response; the BLE
+    // transport calls the bool version directly.
+    bool StartFactoryReset(std::string& code, std::string& message);
+    void FactoryResetStatus(cJSON* out);
     esp_err_t StartFactoryReset(httpd_req_t* req);
     esp_err_t FactoryResetStatus(httpd_req_t* req);
 

@@ -23,6 +23,9 @@ public:
 
 private:
     static void TaskEntry(void* arg);
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    bool EnsureWorker(const char* name);
+#endif
     void Run(uint32_t generation, const std::string& name);
     void RunSelection(uint32_t generation, const std::string& text);
     bool Speak(const char* text, uint32_t generation);
@@ -56,6 +59,9 @@ private:
     std::atomic<Error> error_{Error::kNone};
     void PublishPhase(Phase phase, uint32_t generation);
     TaskHandle_t task_ = nullptr;
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    TaskHandle_t worker_task_ = nullptr;
+#endif
     int16_t* samples_ = nullptr;
     size_t count_ = 0;
     size_t speech_samples_ = 0;

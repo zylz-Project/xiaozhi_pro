@@ -5,7 +5,9 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <new>
 
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_random.h>
 #include <esp_timer.h>
@@ -26,13 +28,30 @@ constexpr size_t kReadChunk = 4096;
 }  // namespace
 
 bool AudioPlayer::Start(AudioStore* store) {
+    if (demuxer_ || play_queue_)
+        return false;
     store_ = store;
-    // SPI 读取和 OGG 解复用可能持续数百毫秒，必须放到独立任务；20 KiB
-    // 栈主要供 OggDemuxer 的包缓存和 4 KiB Flash 读取缓冲区使用。
+    // Keep the parser's 8 KiB packet buffer in PSRAM for the lifetime of the
+    // single worker. The flash read buffer remains on the internal task stack.
+    void* parser_mem = heap_caps_malloc(sizeof(OggDemuxer), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!parser_mem)
+        parser_mem = heap_caps_malloc(sizeof(OggDemuxer), MALLOC_CAP_8BIT);
+    if (!parser_mem) {
+        ESP_LOGE(TAG, "Failed to allocate offline audio parser");
+        return false;
+    }
+    demuxer_ = new (parser_mem) OggDemuxer();
     play_queue_ = xQueueCreate(3, sizeof(PlayRequest));
     if (play_queue_ == nullptr ||
-        xTaskCreate(TaskEntry, "wzh_audio", 20480, this, 2, nullptr) != pdPASS) {
+        xTaskCreate(TaskEntry, "wzh_audio", 14336, this, 2, nullptr) != pdPASS) {
         ESP_LOGE(TAG, "Failed to start offline audio task");
+        if (play_queue_ != nullptr) {
+            vQueueDelete(play_queue_);
+            play_queue_ = nullptr;
+        }
+        demuxer_->~OggDemuxer();
+        heap_caps_free(demuxer_);
+        demuxer_ = nullptr;
         return false;
     }
     return true;
@@ -333,7 +352,8 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
     // OggDemuxer 只拆出 Opus 包；真正的解码和 I2S 输出仍由 AudioService 完成。
     bool ok = true;
     uint32_t submitted_ms = 0;
-    OggDemuxer demuxer;
+    auto& demuxer = *demuxer_;
+    demuxer.Reset();
 #if CONFIG_AUDIO_PRODUCT_QUALITY
     uint64_t submitted_48k = 0;
     const int16_t content_gain =
@@ -447,6 +467,8 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
         motion_level_.store(0.0f);
         motion_attack_.store(0.0f);
     }
+    demuxer.OnOpusPacket({});
+    demuxer.OnDemuxerFinished({});
     return ok && playback_generation_.load() == generation && !store_->IsWriting();
 }
 

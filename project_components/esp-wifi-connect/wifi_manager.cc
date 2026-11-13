@@ -170,6 +170,41 @@ void WifiManager::StartStation() {
     station_active_ = true;
 }
 
+bool WifiManager::ConnectTo(const std::string& ssid, const std::string& password) {
+    if (ssid.empty() || ssid.size() > 32 || password.size() > 64) {
+        ESP_LOGE(TAG, "Invalid credentials for ConnectTo");
+        return false;
+    }
+    if (!IsInitialized()) {
+        ESP_LOGE(TAG, "Not initialized");
+        return false;
+    }
+
+    bool need_start = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        need_start = !station_active_;
+    }
+    if (need_start) {
+        StartStation();
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!station_active_ || !station_) {
+            ESP_LOGE(TAG, "Station is not active");
+            return false;
+        }
+    }
+
+    // Persist first so a reboot reconnects to the newly selected network even if
+    // the immediate attempt fails.
+    SsidManager::GetInstance().AddSsid(ssid, password);
+    NotifyEvent(WifiEvent::Connecting, ssid);
+    station_->ConnectNow(ssid, password);
+    ESP_LOGI(TAG, "Connecting to %s on request", ssid.c_str());
+    return true;
+}
+
 void WifiManager::StopStation() {
     std::unique_lock<std::mutex> lifecycle(station_lifecycle_mutex_, std::defer_lock);
     if (config_.persistent_portal)
@@ -192,6 +227,17 @@ void WifiManager::StopStation() {
 bool WifiManager::IsConnected() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return station_active_ && station_ && station_->IsConnected();
+}
+
+esp_err_t WifiManager::ScanNetworks(std::vector<wifi_ap_record_t>& records, int timeout_ms) {
+    WifiStation* station = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!station_active_ || !station_)
+            return ESP_ERR_INVALID_STATE;
+        station = station_.get();
+    }
+    return station->ScanNetworks(records, timeout_ms);
 }
 
 std::string WifiManager::GetSsid() const {

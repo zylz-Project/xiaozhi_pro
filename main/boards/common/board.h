@@ -104,6 +104,14 @@ public:
     virtual bool HandleLocalVoiceCommand(const std::string&) { return false; }
     virtual NetworkInterface* GetNetwork() = 0;
     virtual void StartNetwork() = 0;
+    // Called after the network driver is initialized and the station is
+    // started. Boards use it to bring up services that need the Wi-Fi stack
+    // (SoftAP console, BLE transport) without racing StartStation().
+    virtual void OnNetworkStackReady() {}
+    // Called on the application task after initial network activation finishes.
+    virtual void OnActivationDone() {}
+    // Periodic idle maintenance after a network connection is available.
+    virtual void OnNetworkIdleTick() {}
     virtual void SetNetworkEventCallback(NetworkEventCallback callback) { (void)callback; }
     virtual const char* GetNetworkStateIcon() = 0;
     virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging);

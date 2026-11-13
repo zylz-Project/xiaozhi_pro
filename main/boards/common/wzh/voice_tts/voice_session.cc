@@ -3,6 +3,7 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <freertos/idf_additions.h>
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -10,10 +11,14 @@
 #include <new>
 
 #include "ali_provider.h"
+#if CONFIG_WZH_ALI_STREAM_EXPERIMENT
+#include "ali_stream_client.h"
+#endif
 #include "application.h"
 #include "audio_codec.h"
 #include "board.h"
 #include "voice_config.h"
+#include "voice_flash_dispatcher.h"
 #include "voice_text_batch.h"
 #include "voice_text_filter.h"
 #include "wav_playback.h"
@@ -33,9 +38,27 @@ public:
     bool Start() {
         data_ =
             static_cast<uint8_t*>(heap_caps_malloc(kCapacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        if (!data_)
+        if (!data_) {
+            ESP_LOGW(
+                kTag, "Ali PCM allocation failed: psram_free=%u largest=%u",
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
             return false;
-        if (xTaskCreate(Entry, "ali_pcm", 8192, this, 3, &task_) != pdPASS) {
+        }
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM && CONFIG_SPIRAM
+        external_task_ = true;
+        const BaseType_t created = xTaskCreateWithCaps(Entry, "ali_pcm", 8192, this, 3, &task_,
+                                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+        const BaseType_t created = xTaskCreate(Entry, "ali_pcm", 8192, this, 3, &task_);
+#endif
+        if (created != pdPASS) {
+            ESP_LOGW(kTag, "Ali PCM task creation failed: internal_free=%u largest=%u",
+                     static_cast<unsigned>(
+                         heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                     static_cast<unsigned>(
+                         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
             free(data_);
             data_ = nullptr;
             return false;
@@ -53,11 +76,17 @@ public:
             std::memcpy(data_ + write_, input, count);
             write_ = (write_ + count) % kCapacity;
             size_ += count;
+            written_ += count;
             input += count;
             length -= count;
             cv_.notify_all();
         }
         return !length && !cancelled_() && !failed_;
+    }
+    void CompleteSegment() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        completed_ = written_;
+        cv_.notify_all();
     }
     bool Finish() {
         {
@@ -67,6 +96,14 @@ public:
         }
         while (!done_.load())
             vTaskDelay(pdMS_TO_TICKS(20));
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM && CONFIG_SPIRAM
+        if (external_task_) {
+            while (eTaskGetState(task_) != eSuspended)
+                vTaskDelay(pdMS_TO_TICKS(1));
+            vTaskDeleteWithCaps(task_);
+            task_ = nullptr;
+        }
+#endif
         free(data_);
         data_ = nullptr;
         return !failed_ && !cancelled_();
@@ -74,10 +111,16 @@ public:
 
 private:
     static constexpr size_t kCapacity = 192000;  // four seconds of 24 kHz PCM16
-    static constexpr size_t kPrefix = 24000;     // 500 ms
+    static constexpr size_t kPrefix = 48000;     // 1000 ms of 24 kHz PCM16
     static void Entry(void* context) {
         static_cast<AliPcmBuffer*>(context)->Play();
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM && CONFIG_SPIRAM
+        // The producer reclaims the task after observing done_, avoiding the
+        // SDK self-delete path which needs another internal-memory task.
+        vTaskSuspend(nullptr);
+#else
         vTaskDelete(nullptr);
+#endif
     }
     void Play() {
         bool priming = true;
@@ -90,15 +133,17 @@ private:
             {
                 std::unique_lock<std::mutex> lock(mutex_);
                 if (priming && !finished_) {
-                    // After a gap, shorten rebuffering: the next sentence has
-                    // already paid its network and synthesis startup latency.
-                    // Increase the recovery prefix only after a real starvation;
-                    // cap it at 300 ms so stable streams keep their low latency.
-                    const size_t prefix =
-                        have_output ? 5760 + std::min(underruns, 3u) * 2880 : kPrefix;
+                    // Start the deadline when audio actually arrives, not while
+                    // the HTTPS handshake is still in progress. A completed
+                    // short sentence can play immediately without filling the
+                    // whole prefix.
+                    while (size_ < 2 && !finished_ && !cancelled_())
+                        cv_.wait_for(lock, std::chrono::milliseconds(50));
+                    const size_t prefix = have_output ? 24000 : kPrefix;
                     const auto until = std::chrono::steady_clock::now() +
-                                       std::chrono::milliseconds(have_output ? 350 : 1200);
-                    while (size_ < prefix && !finished_ && !cancelled_()) {
+                                       std::chrono::milliseconds(have_output ? 1000 : 2000);
+                    while (size_ < prefix && completed_ <= consumed_ && !finished_ &&
+                           !cancelled_()) {
                         if (cv_.wait_until(lock, until) == std::cv_status::timeout)
                             break;
                     }
@@ -125,12 +170,22 @@ private:
                         failed_ = true;
                     break;
                 }
+                // Do not submit tiny network fragments as separate audio
+                // writes. Accumulate one 60 ms frame, except for the tail of
+                // a completed sentence or the end of the turn.
+                while (size_ < sizeof(bytes) && completed_ <= consumed_ && !finished_ &&
+                       !cancelled_()) {
+                    cv_.wait_for(lock, std::chrono::milliseconds(50));
+                }
+                if (cancelled_())
+                    break;
                 count = std::min(size_ & ~size_t(1), sizeof(bytes));
                 const size_t first = std::min(count, kCapacity - read_);
                 std::memcpy(bytes, data_ + read_, first);
                 std::memcpy(bytes + first, data_, count - first);
                 read_ = (read_ + count) % kCapacity;
                 size_ -= count;
+                consumed_ += count;
                 cv_.notify_all();
             }
             std::vector<int16_t> pcm(count / 2);
@@ -145,6 +200,8 @@ private:
                 cv_.notify_all();
                 break;
             }
+            if (!have_output)
+                ESP_LOGI(kTag, "Ali PCM first frame queued");
             have_output = true;
         }
         ESP_LOGI(kTag, "Ali PCM buffer underruns=%u starvation_ms=%llu", underruns,
@@ -158,9 +215,11 @@ private:
     std::condition_variable cv_;
     uint8_t* data_ = nullptr;
     size_t read_ = 0, write_ = 0, size_ = 0;
+    uint64_t written_ = 0, completed_ = 0, consumed_ = 0;
     bool finished_ = false, failed_ = false;
     std::atomic<bool> done_{false};
     TaskHandle_t task_ = nullptr;
+    bool external_task_ = false;
 };
 }  // namespace
 
@@ -178,6 +237,26 @@ bool VoiceSession::ReadyForVoice(const std::string& voice) {
     }
     if (LoadAliKey().empty() || (voice.empty() && LoadAliVoice().empty())) {
         ESP_LOGW(kTag, "External speech unavailable: provider configuration incomplete");
+        return false;
+    }
+    // TLS/AES and the BLE controller need internal DMA memory even when TLS
+    // buffers and the PCM player live in PSRAM. Avoid starting a second TLS
+    // session when it could exhaust memory used by the existing connection.
+    const size_t internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t internal_largest =
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#if CONFIG_WZH_VOICE_PSRAM_WORKER_EXPERIMENT
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    const size_t kRequiredLargest = FlashDispatcherReady() ? 6 * 1024 : 8 * 1024;
+#else
+    constexpr size_t kRequiredLargest = 6 * 1024;
+#endif
+#else
+    constexpr size_t kRequiredLargest = 8 * 1024;
+#endif
+    if (internal < 24 * 1024 || internal_largest < kRequiredLargest) {
+        ESP_LOGW(kTag, "External speech deferred: internal=%u largest=%u",
+                 static_cast<unsigned>(internal), static_cast<unsigned>(internal_largest));
         return false;
     }
     const size_t free_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -233,12 +312,30 @@ bool VoiceSession::BeginWithVoice(uint32_t playback_generation, const std::strin
     active_generation_.store(generation_.fetch_add(1) + 1);
     stopping_ = false;
     ESP_LOGI(kTag, "Starting voice cloning provider=%s", provider_.c_str());
-    if (xTaskCreate(TaskEntry, "voice_tts", 8192, this, 3, &task_) != pdPASS) {
+#if CONFIG_WZH_VOICE_PSRAM_WORKER_EXPERIMENT
+    bool created = worker_task_ != nullptr;
+    if (!created) {
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+        if (!FlashDispatcherReady())
+            created = xTaskCreate(TaskEntry, "voice_tts", 8192, this, 3, &worker_task_) == pdPASS;
+        else
+#endif
+            created = xTaskCreateWithCaps(TaskEntry, "voice_tts", 8192, this, 3, &worker_task_,
+                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+    }
+#else
+    const bool created = xTaskCreate(TaskEntry, "voice_tts", 8192, this, 3, &task_) == pdPASS;
+#endif
+    if (!created) {
         task_ = nullptr;
         completion_ = {};
         api_key_.clear();
         return false;
     }
+#if CONFIG_WZH_VOICE_PSRAM_WORKER_EXPERIMENT
+    task_ = worker_task_;
+    xTaskNotifyGive(worker_task_);
+#endif
     return true;
 }
 
@@ -300,8 +397,26 @@ void VoiceSession::Cancel() {
 
 void VoiceSession::TaskEntry(void* context) {
     auto* self = static_cast<VoiceSession*>(context);
+#if CONFIG_WZH_VOICE_PSRAM_WORKER_EXPERIMENT
+    // This worker never writes flash and is kept alive, avoiding the SDK's
+    // self-delete cleanup task, which itself needs scarce internal memory.
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        for (;;) {
+            uint32_t generation;
+            {
+                std::lock_guard<std::mutex> lock(self->mutex_);
+                if (!self->task_)
+                    break;
+                generation = self->active_generation_.load();
+            }
+            self->Run(generation);
+        }
+    }
+#else
     self->Run(self->active_generation_.load());
     vTaskDelete(nullptr);
+#endif
 }
 
 void VoiceSession::Run(uint32_t generation) {
@@ -318,7 +433,49 @@ void VoiceSession::Run(uint32_t generation) {
             failed_ = true;
     }
     int64_t last_activity = esp_timer_get_time();
+#if CONFIG_WZH_ALI_STREAM_EXPERIMENT
+    bool use_http = true;
+    if (ali_started && !cancelled()) {
+        StreamRequest stream;
+        stream.api_key = api_key_;
+        stream.voice_id = voice_id_;
+        stream.cancelled = cancelled;
+        stream.next_text = [this, &cancelled](std::string& sentence, bool& done) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (cancelled() || failed_) {
+                done = true;
+            } else if (!queue_.empty()) {
+                sentence = PopTextBatch(queue_, queued_bytes_, true);
+            } else {
+                done = finished_;
+            }
+        };
+        stream.pcm_sink = [&ali_buffer](const uint8_t* data, size_t size) {
+            return ali_buffer.Write(data, size);
+        };
+        stream.sentence_end = [&ali_buffer]() { ali_buffer.CompleteSegment(); };
+        StreamResponse response;
+        const Result result = SynthesizeStream(stream, response);
+        if (result == Result::kOk) {
+            use_http = false;
+        } else if (response.text_committed) {
+            use_http = false;
+            if (!cancelled()) {
+                ESP_LOGW(kTag, "Duplex synthesis failed after text was committed: result=%d",
+                         static_cast<int>(result));
+                std::lock_guard<std::mutex> lock(mutex_);
+                failed_ = true;
+                queue_.clear();
+                queued_bytes_ = 0;
+            }
+        } else if (!cancelled()) {
+            ESP_LOGW(kTag, "Duplex synthesis unavailable before text; retrying with HTTP");
+        }
+    }
+    while (use_http && !cancelled() && ali_started) {
+#else
     while (!cancelled() && ali_started) {
+#endif
         std::string sentence;
         bool done = false;
         {
@@ -389,6 +546,8 @@ void VoiceSession::Run(uint32_t generation) {
             result == Result::kOk && (response.streamed ? !has_pending_byte
                                                         : PlayWav(audio, response.wav, output_rate,
                                                                   playback_generation_, cancelled));
+        if (played && response.streamed)
+            ali_buffer.CompleteSegment();
         if (played && !cancelled())
             ESP_LOGI(kTag, "Speech audio queued for playback");
         if (!played && !cancelled()) {
@@ -440,6 +599,9 @@ void VoiceSession::CompleteWorker(uint32_t generation) {
             pending_.reset();
             stopping_ = false;
             ESP_LOGI(kTag, "Starting queued voice cloning provider=%s", provider_.c_str());
+#if CONFIG_WZH_VOICE_PSRAM_WORKER_EXPERIMENT
+            task_ = worker_task_;
+#else
             if (xTaskCreate(TaskEntry, "voice_tts", 8192, this, 3, &task_) != pdPASS) {
                 completion = std::move(completion_);
                 ok = false;
@@ -449,6 +611,7 @@ void VoiceSession::CompleteWorker(uint32_t generation) {
                 queue_.clear();
                 queued_bytes_ = 0;
             }
+#endif
         } else {
             pending_.reset();
             stopping_ = false;

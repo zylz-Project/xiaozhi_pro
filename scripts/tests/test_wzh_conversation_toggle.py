@@ -183,7 +183,7 @@ class WzhConversationToggleTest(unittest.TestCase):
             cpp=Path(directory)/'test.cc';cpp.write_text(program)
             exe=cpp.with_suffix('')
             result=subprocess.run(['g++','-std=c++17','-pthread','-Wall','-Wextra','-Werror',
-                '-I',str(JSON),str(cpp),str(self.json),'-o',str(exe)],capture_output=True,text=True)
+                '-I',str(JSON),'-I',str(ROOT/'main/audio'),str(cpp),str(self.json),'-o',str(exe)],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
             result=subprocess.run([str(exe)],capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stderr)
@@ -568,7 +568,7 @@ int main(){
 #include <memory>
 #include <mutex>
 #include <vector>
-#include "/home/wzh/program/ESP32/zylz_project/test_xiaozhi_Final/main/audio/audio_playout_buffer.h"
+#include "audio_playout_buffer.h"
 #define ESP_LOGW(...) ((void)0)
 constexpr unsigned AUDIO_POWER_CHECK_INTERVAL_MS=1000;
 void esp_timer_stop(void*){}void esp_timer_start_periodic(void*,unsigned){}

@@ -324,6 +324,10 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
+            if (activation_retry_pending_ && network_connected_ && clock_ticks_ % 5 == 0 &&
+                GetDeviceState() == kDeviceStateIdle) {
+                HandleNetworkConnectedEvent();
+            }
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
             ServiceOfficialAsrProbe();
 #endif
@@ -333,6 +337,11 @@ void Application::Run() {
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
+#if CONFIG_WZH_MEMORY_DIAGNOSTICS
+                SystemInfo::PrintMemoryDiagnostics("periodic");
+#endif
+                if (network_connected_ && GetDeviceState() == kDeviceStateIdle)
+                    Board::GetInstance().OnNetworkIdleTick();
                 // SystemInfo::PrintTaskList();
                 // SystemInfo::PrintTaskCpuUsage(pdMS_TO_TICKS(1000));
             }
@@ -342,9 +351,11 @@ void Application::Run() {
 
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
+    network_connected_ = true;
     auto state = GetDeviceState();
 
-    if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring
+    if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring ||
+        (state == kDeviceStateIdle && activation_retry_pending_)
 #if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
     CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
         || (state == kDeviceStateIdle && !protocol_)
@@ -357,7 +368,7 @@ void Application::HandleNetworkConnectedEvent() {
             return;
         }
 
-        xTaskCreate(
+        BaseType_t created = xTaskCreate(
             [](void* arg) {
                 Application* app = static_cast<Application*>(arg);
                 app->ActivationTask();
@@ -365,6 +376,14 @@ void Application::HandleNetworkConnectedEvent() {
                 vTaskDelete(NULL);
             },
             "activation", 4096 * 2, this, 2, &activation_task_handle_);
+        if (created != pdPASS) {
+            ESP_LOGE(TAG, "Activation task creation failed; retrying when memory is available");
+            activation_task_handle_ = nullptr;
+            activation_retry_pending_ = true;
+            SetDeviceState(kDeviceStateIdle);
+        } else {
+            activation_retry_pending_ = false;
+        }
     }
 
     // Update the status bar immediately to show the network state
@@ -373,6 +392,8 @@ void Application::HandleNetworkConnectedEvent() {
 }
 
 void Application::HandleNetworkDisconnectedEvent() {
+    network_connected_ = false;
+    activation_retry_pending_ = false;
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
     if (official_probe_active_.exchange(false))
         audio_service_.EnableVoiceProcessing(false);
@@ -434,6 +455,7 @@ void Application::HandleActivationDoneEvent() {
     ota_.reset();
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+    board.OnActivationDone();
 
     Schedule([this]() {
         // Play the success sound to indicate the device is ready
@@ -2006,6 +2028,11 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
         }
     });
     return true;
+}
+
+const char* Application::DeviceVoiceEnrollmentFailure() const {
+    auto* enrollment = Board::GetInstance().GetVoiceEnrollment();
+    return enrollment ? enrollment->Failure() : "";
 }
 
 const char* Application::DeviceVoiceEnrollmentStatus() const {

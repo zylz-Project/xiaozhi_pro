@@ -87,6 +87,12 @@ public:
     void StartStation();  // Non-blocking, auto-stops config AP if active
     void StopStation();   // Non-blocking
 
+    // Switch the station to a new network: persists the credentials, cancels
+    // the current attempt and reconnects. Returns false when the manager is not
+    // initialized, the arguments are invalid, or the station cannot be started.
+    bool ConnectTo(const std::string& ssid, const std::string& password);
+    esp_err_t ScanNetworks(std::vector<wifi_ap_record_t>& records, int timeout_ms = 12000);
+
     bool IsConnected() const;
     std::string GetSsid() const;
     std::string GetIpAddress() const;

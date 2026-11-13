@@ -19,3 +19,5 @@ main/mmap_generate_emoji.h
 *.bin
 mmap_generate_*.h
 .clangd
+wzh-miniprogram/project.private.config.json
+wzh-miniprogram/tools/*qr*

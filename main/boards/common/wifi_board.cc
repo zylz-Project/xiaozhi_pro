@@ -61,7 +61,11 @@ void WifiBoard::StartNetwork() {
      * 用户困惑。OTA 地址不再出现在用户页面，改由开发者管理台维护。 */
     config.language = "zh-CN";
     config.show_sleep_config = false;
-    config.persistent_portal = true;
+    // WZH products no longer expose the legacy :80 provisioning portal. The
+    // station keeps reconnecting in the background; network changes are made
+    // over BLE from the mini program, and :8080 stays available on the station
+    // LAN as the developer console. The device does not own a SoftAP.
+    config.persistent_portal = false;
     config.station_scan_min_interval_seconds = 5;
     config.station_scan_max_interval_seconds = 60;
 #else
@@ -114,40 +118,21 @@ void WifiBoard::StartNetwork() {
         }
     });
 
-    // WZH keeps the user portal available independently of the STA connection.
 #if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
     CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
-    wifi_manager.StartPersistentPortal();
-    if (wifi_manager.IsPersistentPortalActive()) {
-        wifi_manager.StartStation();
-        Application::GetInstance().SetDeviceState(kDeviceStateIdle);
-        // The always-on portal no longer enters the legacy config state, so
-        // explicitly announce provisioning when no network has been saved.
-        if (SsidManager::GetInstance().GetSsidList().empty()) {
-#if CONFIG_WZH_SYSTEM_PROMPTS
-            Application::GetInstance().Schedule([]() {
-                auto& wifi = WifiManager::GetInstance();
-                std::string hint = Lang::Strings::CONNECT_TO_HOTSPOT;
-                hint += wifi.GetApSsid();
-                hint += Lang::Strings::ACCESS_VIA_BROWSER;
-                hint += wifi.GetApWebUrl();
-                Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(),
-                                                 "gear", {});
-            });
-            wzh::RequestWifiSetupPrompt();
+    // WZH products always boot straight into station mode. Missing credentials
+    // are configured over BLE; never enter the legacy web provisioning flow or
+    // block startup with a Wi-Fi setup prompt.
+    wifi_manager.StartStation();
+    // Must run after StartStation(): start the BLE setup service and the
+    // LAN-only developer console once the station has entered its final mode.
+    OnNetworkStackReady();
+    Application::GetInstance().SetDeviceState(kDeviceStateIdle);
+    wzh::MarkStartupNetworkReady();
+    return;
 #else
-            EnterWifiConfigMode();
-#endif
-        }
-        wzh::MarkStartupNetworkReady();
-        return;
-    }
-#endif
     // Other boards retain the original exclusive provisioning path.
     TryWifiConnect();
-#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
-    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
-    wzh::MarkStartupNetworkReady();
 #endif
 }
 

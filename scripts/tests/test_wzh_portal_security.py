@@ -1,4 +1,4 @@
-"""Exercise production developer-server IP, origin, and authentication gate."""
+"""Exercise production developer-server LAN-only, origin, and auth gates."""
 import shutil
 import subprocess
 import tempfile
@@ -49,16 +49,20 @@ struct WebConsole {
 int Handler(httpd_req_t*r){++static_cast<wzh::WebConsole*>(r->user_ctx)->hits;return 0;}
 int main(){
  wzh::WebConsole c;wzh::WebConsole::RouteSlot slot{&c,Handler};httpd_req_t req;req.user_ctx=&slot;
+ // AP clients cannot reach the LAN maintenance console.
  peer_ip=0xc0a80402;wzh::WebConsole::GuardedDispatch(&req);assert(req.status==403&&c.hits==0);
+ // The page and read-only status/audio endpoints are public on the LAN.
  peer_ip=0xc0a80102;req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(c.hits==1);
- req.uri="/api/status";req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(req.status==403&&c.hits==1);
- c.authorized=true;req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(c.hits==2);
+ req.uri="/api/status";req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(c.hits==2);
+ // Developer APIs still require the session token.
+ req.uri="/api/developer/status";req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(req.status==403&&c.hits==2);
+ c.authorized=true;req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(c.hits==3);
  req.method=HTTP_POST;req.headers={{"Host","192.168.1.2:8080"},{"Origin","http://attacker"}};
- req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(req.status==403&&c.hits==2);
- req.headers["Origin"]="http://192.168.1.2:8080";req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(c.hits==3);
+ req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(req.status==403&&c.hits==3);
+ req.headers["Origin"]="http://192.168.1.2:8080";req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(c.hits==4);
  // CLI clients send no Origin; same-origin cookies are guarded by SameSite.
- req.headers={{"Host","192.168.1.2:8080"}};req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(c.hits==4);
- c.maintenance=true;req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(req.status==503&&c.hits==4);
+ req.headers={{"Host","192.168.1.2:8080"}};req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(c.hits==5);
+ c.maintenance=true;req.status=200;wzh::WebConsole::GuardedDispatch(&req);assert(req.status==503&&c.hits==5);
 }
 '''
         with tempfile.TemporaryDirectory() as d:

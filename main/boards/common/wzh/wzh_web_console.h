@@ -21,12 +21,10 @@
 namespace wzh {
 class UserWebPortal;
 
-// 设备用户门户（:80，常驻开放热点）与开发者管理页（:8080，局域网）。
-//
-// WZH 常驻门户模式下，:80 与 SoftAP 由 WifiConfigurationAp 持有，用户
-// 页面通过 SetPortalRegistrar 注册到同一 server；本服务只负责 :8080，
-// 并拒绝 AP 网段客户端。非持久路径保留旧行为：自建 APSTA 热点，进入
-// 配网前由 WifiManager 的 before-config 回调调用 Stop()。
+// WZH 已改为 BLE 配网：不再有 :80 用户门户，也不自建常驻 SoftAP。
+// 本服务只负责 :8080 开发者页，绑定在 STA 局域网，并拒绝
+// 192.168.4.0/24 的 AP 客户端；旧 persistent-portal 路径仅保留给
+// 历史构建/测试，配网前仍可由 WifiManager 回调调用 Stop()。
 class WebConsole {
 public:
     struct Options {
@@ -71,6 +69,16 @@ public:
     bool started() const { return started_.load(); }
     const std::string& ap_ssid() const { return ap_ssid_; }
     bool maintenance_active() const { return maintenance_active_.load(); }
+
+    // Full device status used by the BLE transport: the same payload as
+    // /api/developer/status, including the voice catalog.
+    void BuildStatus(cJSON* root);
+
+    // Non-HTTP entry points for factory reset, shared with the BLE transport.
+    // StartFactoryReset does not validate a confirmation string; callers own
+    // that policy. On failure it returns false and fills code/message.
+    bool StartFactoryReset(std::string& code, std::string& message);
+    void FactoryResetStatus(cJSON* out);
 
 private:
     static void StartTaskEntry(void* arg);

@@ -1,0 +1,50 @@
+@import "styles/icons.wxss";
+
+page {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #f6eadc;
+  color: #2f2822;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+view, text, image, button, input, scroll-view {
+  box-sizing: border-box;
+}
+
+image { display: block; }
+
+button {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  overflow: visible;
+}
+button::after { border: 0; }
+
+input { font: inherit; }
+
+.ico {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 34rpx;
+  height: 34rpx;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }

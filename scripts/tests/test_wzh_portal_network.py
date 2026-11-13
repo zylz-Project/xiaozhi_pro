@@ -9,7 +9,7 @@ from test_wzh_action_queue import queue_function
 ROOT=Path(__file__).resolve().parents[2]
 
 class PortalNetworkTest(unittest.TestCase):
-    def test_first_boot_announces_provisioning_only_without_saved_networks(self):
+    def test_wzh_boot_starts_station_without_web_provisioning(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')
         method=queue_function((ROOT/'main/boards/common/wifi_board.cc').read_text(),
@@ -61,17 +61,21 @@ void MarkStartupNetworkReady(){++ready;}}
 struct WifiBoard{
  std::string wifi_ssid_prefix_="WZH";int prompts=0,fallbacks=0;
  void OnNetworkEvent(NetworkEvent,const std::string& = ""){}
+ void OnNetworkStackReady(){}
  void EnterWifiConfigMode(){++prompts;}void TryWifiConnect(){++fallbacks;}
  void StartNetwork();
 };
 '''+method+r'''
 int main(){
- WifiBoard first;first.StartNetwork();assert(wzh::prompts==1&&wzh::ready==1&&first.fallbacks==0);
+ // WZH always boots into station mode: no :80 provisioning prompt or fallback,
+ // even with no saved network; BLE owns credential setup.
+ WifiBoard first;first.StartNetwork();assert(wzh::prompts==0&&wzh::ready==1&&first.fallbacks==0);
  assert(Application::GetInstance().state==kDeviceStateIdle);
  SsidManager::GetInstance().saved=true;
- WifiBoard configured;configured.StartNetwork();assert(wzh::prompts==1&&wzh::ready==2&&configured.fallbacks==0);
+ WifiBoard configured;configured.StartNetwork();assert(wzh::prompts==0&&wzh::ready==2&&configured.fallbacks==0);
  WifiManager::GetInstance().active=false;
- WifiBoard legacy;legacy.StartNetwork();assert(wzh::prompts==1&&wzh::ready==3&&legacy.fallbacks==1);
+ WifiBoard legacy;legacy.StartNetwork();assert(wzh::prompts==0&&wzh::ready==3&&legacy.fallbacks==0);
+ assert(WifiManager::GetInstance().station_starts==3);
 }
 '''
         with tempfile.TemporaryDirectory() as d:

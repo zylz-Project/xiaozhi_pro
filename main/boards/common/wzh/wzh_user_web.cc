@@ -34,9 +34,6 @@
 #include "wzh_factory_reset_policy.h"
 #include "wzh_web_peer.h"
 
-extern const char wzh_user_web_html_start[] asm("_binary_wzh_user_web_html_start");
-extern const char wzh_user_web_html_end[] asm("_binary_wzh_user_web_html_end");
-
 namespace wzh {
 namespace {
 using Json = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
@@ -149,9 +146,9 @@ esp_err_t Redirect(httpd_req_t* req, const char* destination) {
     return httpd_resp_send(req, nullptr, 0);
 }
 esp_err_t Html(httpd_req_t* req) {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, wzh_user_web_html_start,
-                           wzh_user_web_html_end - wzh_user_web_html_start);
+    // The user-facing web console is retired; only the developer console on
+    // port 8080 remains. Keep the route table compiling but serve no page.
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");
 }
 const char* DeviceStateName(DeviceState state) {
     switch (state) {
@@ -491,10 +488,7 @@ esp_err_t UserWebPortal::SetupStatus(httpd_req_t* req, uint32_t ip, bool has_ses
     return JsonResponse(req, root.get());
 }
 
-esp_err_t UserWebPortal::FactoryResetStatus(httpd_req_t* req) {
-    Json out(cJSON_CreateObject(), cJSON_Delete);
-    if (!out)
-        return httpd_resp_send_500(req);
+void UserWebPortal::FactoryResetStatus(cJSON* out) {
     std::string phase, error_code;
     size_t current, total;
     {
@@ -504,19 +498,89 @@ esp_err_t UserWebPortal::FactoryResetStatus(httpd_req_t* req) {
         current = reset_current_;
         total = reset_total_;
     }
-    cJSON_AddBoolToObject(out.get(), "ok", true);
-    cJSON_AddStringToObject(out.get(), "phase", phase.c_str());
-    cJSON_AddNumberToObject(out.get(), "current", current);
-    cJSON_AddNumberToObject(out.get(), "total", total);
+    cJSON_AddBoolToObject(out, "ok", true);
+    cJSON_AddStringToObject(out, "phase", phase.c_str());
+    cJSON_AddNumberToObject(out, "current", current);
+    cJSON_AddNumberToObject(out, "total", total);
     if (!error_code.empty()) {
-        auto* error = cJSON_AddObjectToObject(out.get(), "error");
+        auto* error = cJSON_AddObjectToObject(out, "error");
         if (error) {
             cJSON_AddStringToObject(error, "code", error_code.c_str());
             cJSON_AddStringToObject(error, "message",
                                     "恢复失败，已保留 Wi-Fi，请检查网络和语音服务后重试。");
         }
     }
+}
+
+esp_err_t UserWebPortal::FactoryResetStatus(httpd_req_t* req) {
+    Json out(cJSON_CreateObject(), cJSON_Delete);
+    if (!out)
+        return httpd_resp_send_500(req);
+    FactoryResetStatus(out.get());
     return JsonResponse(req, out.get());
+}
+
+bool UserWebPortal::StartFactoryReset(std::string& code, std::string& message) {
+    if (!WifiManager::GetInstance().IsConnected()) {
+        code = "NET_OFFLINE";
+        message = "设备暂未联网";
+        return false;
+    }
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA
+    if (!options_.has_ali_key || !options_.has_ali_key()) {
+        code = "VOICE_NO_KEY";
+        message = "语音服务未配置，无法确认云端音色";
+        return false;
+    }
+#endif
+    if (setup_running_.load() || voice_upload_running_.load()) {
+        code = "RESET_BUSY";
+        message = "设备正在忙，请稍后重试";
+        return false;
+    }
+    bool expected = false;
+    if (!reset_running_.compare_exchange_strong(expected, true)) {
+        code = "RESET_BUSY";
+        message = "恢复出厂正在进行";
+        return false;
+    }
+    if (setup_running_.load() || voice_upload_running_.load()) {
+        reset_running_.store(false);
+        code = "RESET_BUSY";
+        message = "配网进行中，请稍后重试";
+        return false;
+    }
+    if (!voice_tts::BeginVoiceReset()) {
+        reset_running_.store(false);
+        code = "VOICE_BUSY";
+        message = "声音服务正在处理，请稍后重试";
+        return false;
+    }
+    if (!options_.begin_factory_reset || !options_.begin_factory_reset()) {
+        voice_tts::EndVoiceReset();
+        reset_running_.store(false);
+        code = "RESET_BUSY";
+        message = "设备正在忙，请稍后重试";
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        reset_phase_ = "checking";
+        reset_error_.clear();
+        reset_current_ = reset_total_ = 0;
+    }
+    if (xTaskCreate(ResetTask, "wzh_reset", 12288, this, 2, nullptr) != pdPASS) {
+        voice_tts::EndVoiceReset();
+        reset_running_.store(false);
+        if (options_.end_factory_reset)
+            options_.end_factory_reset();
+        code = "RESET_UNAVAILABLE";
+        message = "设备忙，请稍后重试";
+        return false;
+    }
+    code.clear();
+    message.clear();
+    return true;
 }
 
 esp_err_t UserWebPortal::StartFactoryReset(httpd_req_t* req) {
@@ -530,40 +594,11 @@ esp_err_t UserWebPortal::StartFactoryReset(httpd_req_t* req) {
     phrase = first == std::string::npos ? "" : phrase.substr(first, last - first + 1);
     if (phrase != "确定恢复出厂设置")
         return Error(req, "400 Bad Request", "INVALID_CONFIRMATION", "请输入完整的确认文字");
-#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA
-    if (!options_.has_ali_key || !options_.has_ali_key())
-        return Error(req, "409 Conflict", "VOICE_NO_KEY", "语音服务未配置，无法确认云端音色");
-#endif
-    if (setup_running_.load() || voice_upload_running_.load())
-        return Error(req, "409 Conflict", "RESET_BUSY", "设备正在忙，请稍后重试");
-    bool expected = false;
-    if (!reset_running_.compare_exchange_strong(expected, true))
-        return Error(req, "409 Conflict", "RESET_BUSY", "恢复出厂正在进行");
-    if (setup_running_.load() || voice_upload_running_.load()) {
-        reset_running_.store(false);
-        return Error(req, "409 Conflict", "RESET_BUSY", "配网进行中，请稍后重试");
-    }
-    if (!voice_tts::BeginVoiceReset()) {
-        reset_running_.store(false);
-        return Error(req, "409 Conflict", "VOICE_BUSY", "声音服务正在处理，请稍后重试");
-    }
-    if (!options_.begin_factory_reset || !options_.begin_factory_reset()) {
-        voice_tts::EndVoiceReset();
-        reset_running_.store(false);
-        return Error(req, "409 Conflict", "RESET_BUSY", "设备正在忙，请稍后重试");
-    }
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        reset_phase_ = "checking";
-        reset_error_.clear();
-        reset_current_ = reset_total_ = 0;
-    }
-    if (xTaskCreate(ResetTask, "wzh_reset", 12288, this, 2, nullptr) != pdPASS) {
-        voice_tts::EndVoiceReset();
-        reset_running_.store(false);
-        if (options_.end_factory_reset)
-            options_.end_factory_reset();
-        return Error(req, "503 Service Unavailable", "RESET_UNAVAILABLE", "设备忙，请稍后重试");
+    std::string code, message;
+    if (!StartFactoryReset(code, message)) {
+        const char* status =
+            code == "RESET_UNAVAILABLE" ? "503 Service Unavailable" : "409 Conflict";
+        return Error(req, status, code.c_str(), message.c_str());
     }
     return Ok(req, "202 Accepted");
 }

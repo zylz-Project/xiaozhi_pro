@@ -1,0 +1,738 @@
+<view class="phone {{material === 'a' ? 'a' : 'b'}} {{mode === 'dark' ? 'dark' : ''}} {{manualOpen ? 'manual-open' : ''}} {{expanded ? 'expanded' : ''}}" style="--safe-top: {{statusBarHeight}}px; --menu-bottom: {{menuBottom}}px" data-theme="{{theme}}" data-layout="{{layout}}" data-state="{{deviceState}}" data-toy="{{product.id}}">
+  <view class="wallpaper">
+    <view class="blob b1"></view>
+    <view class="blob b2"></view>
+    <view class="blob b3"></view>
+    <view class="blob b4"></view>
+    <view class="blob b5"></view>
+  </view>
+
+  <view class="statusbar" style="top: {{statusBarHeight}}px">
+    <view class="status-pill {{status.online ? '' : 'is-offline'}}">
+      <view class="status-dot"></view>
+      <text class="status-text">{{demoMode ? '演示模式' : (status.online ? '在线' : '离线')}}</text>
+    </view>
+  </view>
+
+  <view class="brand" bindtap="openToyPicker" aria-label="切换玩具">
+    <image class="brand-mark" src="{{mode === 'dark' ? '/assets/zeyuan-logo-light.png' : '/assets/zeyuan-logo.png'}}" mode="aspectFit"></image>
+    <view class="brand-copy">
+      <text class="tx-b" data-p-name>{{product.name}}</text>
+      <text class="tx-span" data-p-en>{{product.english}}</text>
+    </view>
+    <view class="brand-chev ico ico-chev"></view>
+  </view>
+
+  <view class="orb-wrap" style="{{orbVars}}">
+    <view class="orb-aurora"></view>
+    <view class="orb-glow"></view>
+    <view class="orb">
+      <view class="orb-voice"></view>
+      <image class="panda" src="{{product.icon}}" mode="aspectFit"></image>
+      <view class="orb-ripples"><view class="tx-i"></view><view class="tx-i"></view><view class="tx-i"></view></view>
+      <view class="orb-bubbles"><view class="tx-i" wx:for="{{waveLevels}}" wx:key="*this"></view><view class="tx-i" wx:for="{{waveLevels}}" wx:key="*this"></view></view>
+      <view class="orb-foam"><view class="tx-i" wx:for="{{waveLevels}}" wx:key="*this"></view><view class="tx-i" wx:for="{{waveLevels}}" wx:key="*this"></view></view>
+    </view>
+    <view class="contact-shadow"></view>
+  </view>
+
+  <view class="sheet">
+    <view class="handle" bindtap="toggleConsole"><view class="tx-span"></view></view>
+    <view class="sheet-main">
+      <view class="sheet-head">
+        <text class="tx-h2">设备状态</text>
+        <view class="sheet-state"><text>{{sheetState}}</text></view>
+      </view>
+
+      <view class="metrics">
+        <view class="metric">
+          <view class="tx-small"><view class="ico ico-battery"></view><text>电量</text></view>
+          <view class="tx-b">{{status.battery}}<text class="tx-span">%</text></view>
+          <view class="tx-em {{status.charging ? 'is-charging' : ''}}">
+            <view class="ico ico-plug"></view>
+            <text>{{status.charging ? '充电中' : '使用中'}}</text>
+          </view>
+        </view>
+        <view class="metric">
+          <view class="tx-small"><view class="ico ico-temp"></view><text>温度</text></view>
+          <view class="tx-b">{{status.temp}}<text class="tx-span">°C</text></view>
+          <view class="tx-em temp-{{status.tempClass}}">{{status.tempState}}</view>
+        </view>
+        <view class="metric metric-net {{status.online ? '' : 'is-offline'}} {{status.state === 'connecting' ? 'is-connecting' : ''}}">
+          <view class="tx-small"><view class="ico ico-wifi"></view><text>网络</text></view>
+          <view class="tx-b ssid">{{status.online ? status.ssid : '未连接'}}</view>
+          <view class="tx-em">
+            <text>{{status.band}} · </text>
+            <view class="signal-bars">
+              <view class="tx-i {{bar <= status.signalBars ? 'on' : ''}}" wx:for="{{signalLevels}}" wx:for-item="bar" wx:key="*this"></view>
+            </view>
+            <text>{{status.signal}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="volume-row">
+        <view class="row-ico"><view class="ico ico-speaker"></view></view>
+        <text class="row-label">音量</text>
+        <view class="volume" catchtouchstart="onVolumeStart" catchtouchmove="onVolumeMove" catchtouchend="onVolumeEnd" catchtouchcancel="onVolumeEnd">
+          <view class="volume-track"><view class="volume-fill" style="width: {{status.volume}}%"></view></view>
+          <view class="volume-thumb" style="left: {{status.volume}}%"></view>
+        </view>
+        <text class="volume-val">{{status.volume}}</text>
+      </view>
+
+      <view class="voice-row">
+        <view class="voice-open" bindtap="openSoundPanel">
+          <view class="voice-ico">{{voiceInitial}}</view>
+          <view class="voice-meta">
+            <text class="tx-span">当前音色</text>
+            <text class="tx-b">{{status.currentVoice}}</text>
+          </view>
+        </view>
+        <button class="voice-try {{auditioning ? 'is-playing' : ''}}" catchtap="onTryVoice">
+          <view class="ico ico-speaker"></view>
+          <text>试听</text>
+        </button>
+        <view class="ico ico-chev chev"></view>
+      </view>
+
+      <button class="primary" disabled="{{ctaDisabled}}" bindtap="onPrimary">
+        <view class="ico ico-mic"></view>
+        <text class="cta-label">{{ctaLabel}}</text>
+      </button>
+    </view>
+
+    <view class="sheet-more console" data-layout="{{layout}}" data-console>
+      <view class="con-head">
+        <view class="con-head-main">
+          <view class="con-eyebrow"><text class="tx-span">{{product.code}}</text><text> / CONSOLE</text></view>
+          <view class="con-title-row">
+            <view class="con-toy"><image src="{{product.icon}}" mode="aspectFit"></image></view>
+            <text class="con-title">控制台</text>
+          </view>
+          <view class="con-sub">
+            <text class="net-val">{{status.online ? status.ssid : '未连接'}} · {{status.band}}</text>
+            <text> · </text>
+            <text>{{status.version}}</text>
+          </view>
+        </view>
+        <view class="con-actions">
+          <button class="con-guide" bindtap="openGuide" aria-label="查看使用引导">
+            <image src="{{product.icon}}" mode="aspectFit"></image>
+            <text class="con-guide-q">?</text>
+          </button>
+          <button class="con-manual" bindtap="openManual">
+            <view class="con-manual-ico"><view class="ico ico-book"></view></view>
+            <view class="con-manual-copy"><text class="tx-b">说明书</text><text class="tx-small">P.01</text></view>
+          </button>
+          <button class="con-close" bindtap="closeConsole" aria-label="关闭控制台"><view class="ico ico-close"></view></button>
+        </view>
+      </view>
+
+      <scroll-view wx:if="{{expanded}}" class="console-scroll" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}" scroll-into-view="{{scrollIntoView}}" bindscroll="onConsoleScroll">
+        <view class="console-panels">
+          <view class="panel panel-device" id="panel-device">
+            <view class="panel-head"><text class="tx-h3">设备与网络</text><text class="panel-meta">实时</text></view>
+            <view class="device-deck">
+              <view class="battery-block">
+                <view class="battery-dial" style="--level: {{status.battery}}">
+                  <view class="battery-core"><text class="tx-b">{{status.battery}}</text><text class="tx-i">%</text></view>
+                  <view class="battery-bolt" wx:if="{{status.charging}}"><view class="ico ico-bolt"></view></view>
+                </view>
+                <text class="battery-caption">{{status.charging ? '电量 · 充电中' : '电量 · 使用中'}}</text>
+              </view>
+              <view class="readout-stack">
+                <view class="readout">
+                  <view class="readout-ico"><view class="ico ico-temp"></view></view>
+                  <view class="readout-copy"><text class="tx-small">温度</text><text class="tx-b">{{status.temp}}<text class="tx-i">°C</text></text></view>
+                  <text class="tx-em temp-{{status.tempClass}}">{{status.tempState}}</text>
+                </view>
+                <view class="readout">
+                  <view class="readout-ico"><view class="ico ico-clock"></view></view>
+                  <view class="readout-copy"><text class="tx-small">运行</text><text class="tx-b">{{status.runtime}}</text></view>
+                  <text class="tx-em">本次开机</text>
+                </view>
+              </view>
+            </view>
+            <view class="network-tile">
+              <view class="net-radar"><view class="net-sweep"></view><view class="ico ico-wifi"></view></view>
+              <view class="net-copy">
+                <text class="tx-b net-name">{{status.online ? status.ssid : '未连接'}}</text>
+                <text class="tx-span net-sub">{{status.band}} · 信号{{status.signal}}</text>
+              </view>
+              <view class="net-chip">{{status.latencyText}}</view>
+              <button class="net-change" bindtap="openWifi">
+                <text class="net-change-txt">配置</text>
+                <view class="ico ico-chev"></view>
+              </button>
+            </view>
+          </view>
+
+          <view class="panel panel-sound" id="panel-sound">
+            <view class="panel-head">
+              <text class="tx-h3">声音</text>
+              <text class="panel-meta">固定 6 · 复刻 {{cloneCount}}</text>
+            </view>
+            <view class="now-voice {{auditioning ? 'auditioning' : ''}}">
+              <view>
+                <text class="voice-cap">当前音色</text>
+                <view class="voice-now-line">
+                  <text class="voice-now">{{status.currentVoice}}</text>
+                  <view class="voice-wave"><view class="tx-i" wx:for="{{waveLevels}}" wx:key="*this"></view></view>
+                </view>
+              </view>
+              <button class="listen-mini" bindtap="onTryVoice"><view class="ico ico-speaker"></view><text>试听</text></button>
+            </view>
+
+            <scroll-view class="fixed-rail" scroll-x enhanced="{{true}}" show-scrollbar="{{false}}" scroll-left="{{railScroll}}" scroll-with-animation="{{false}}" bindscroll="onRailScroll" bindtouchstart="pauseRail" bindtouchend="resumeRail" bindtouchcancel="resumeRail">
+              <view class="fixed-track">
+                <button class="voice-chip {{item === status.currentVoice ? 'on' : ''}}" wx:for="{{fixedVoices}}" wx:key="*this" data-voice="{{item}}" bindtap="onSelectVoice">{{item}}</button>
+                <button class="voice-chip" wx:for="{{fixedVoices}}" wx:key="*this" data-voice="{{item}}" bindtap="onSelectVoice" aria-hidden="true">{{item}}</button>
+              </view>
+            </scroll-view>
+
+            <view class="voice-lab">
+              <view class="lab-card lab-record">
+                <view class="lab-record-top">
+                  <button class="lab-rec" bindtap="openAudioModal" aria-label="录制复刻声音">
+                    <view class="lab-rec-core"><view class="ico ico-mic"></view><view class="lab-ring"></view></view>
+                  </button>
+                  <view class="lab-copy">
+                    <text class="lab-kicker">VOICE LAB</text>
+                    <text class="tx-b lab-title">复刻声音</text>
+                    <text class="tx-small lab-sub">录 10 秒，留住家人的声音</text>
+                  </view>
+                  <text class="lab-count">{{cloneCount}} / {{voiceCapacity}}</text>
+                </view>
+                <view class="lab-steps">
+                  <view class="lab-step is-on"><view class="tx-i">1</view><text>录制</text></view>
+                  <view class="lab-line"></view>
+                  <view class="lab-step"><view class="tx-i">2</view><text>生成</text></view>
+                  <view class="lab-line"></view>
+                  <view class="lab-step"><view class="tx-i">3</view><text>保存</text></view>
+                </view>
+              </view>
+              <button class="lab-upload" bindtap="openAudioUpload">
+                <view class="upload-ico"><view class="ico ico-upload"></view></view>
+                <view class="upload-copy"><text class="tx-b">上传音频</text><text class="tx-small">仅 WAV · 5–20 秒</text></view>
+                <text class="upload-go">选择文件</text>
+                <view class="ico ico-chev"></view>
+              </button>
+            </view>
+
+            <view class="clone-strip">
+              <view class="clone-mark"><view class="ico ico-layers"></view></view>
+              <view class="clone-rail-wrap">
+                <scroll-view class="clone-rail" scroll-x enhanced="{{true}}" show-scrollbar="{{false}}">
+                  <view class="clone-track">
+                    <button class="voice-chip clone-chip {{item.name === status.currentVoice ? 'on' : ''}}" wx:for="{{clones}}" wx:key="id" data-voice="{{item.name}}" bindtap="onSelectVoice">
+                      <text class="chip-face">{{item.initial}}</text>
+                      <text>{{item.name}}</text>
+                    </button>
+                    <button class="voice-add" bindtap="openAudioModal"><view class="ico ico-plus"></view><text>新建</text></button>
+                  </view>
+                </scroll-view>
+              </view>
+              <button class="manage-btn" bindtap="openVoiceManager">
+                <view class="manage-stack"><view class="tx-i"></view><view class="tx-i"></view></view>
+                <text>管理</text>
+                <text class="manage-count">{{cloneCount}}</text>
+              </button>
+            </view>
+
+            <view class="volume-row con-volume">
+              <text class="row-label">音量</text>
+              <view class="volume" catchtouchstart="onVolumeStart" catchtouchmove="onVolumeMove" catchtouchend="onVolumeEnd" catchtouchcancel="onVolumeEnd">
+                <view class="volume-track"><view class="volume-fill" style="width: {{status.volume}}%"></view></view>
+                <view class="volume-thumb" style="left: {{status.volume}}%"></view>
+              </view>
+              <text class="volume-val">{{status.volume}}</text>
+            </view>
+          </view>
+
+          <view class="panel panel-theme" id="panel-theme">
+            <view class="panel-head"><text class="tx-h3">主题</text><text class="panel-meta theme-now">{{themeLabel}} · {{materialLabel}}</text></view>
+            <view class="theme-pair">
+              <view class="theme-mini">
+                <text class="theme-key">布局</text>
+                <view class="layout-switch">
+                  <button class="layout-btn {{layout === 'c' ? 'is-on' : ''}}" data-layout="c" bindtap="onLayout" aria-pressed="{{layout === 'c'}}"><view class="layout-prev continuous"></view><text>连续</text><text class="tx-b">C</text></button>
+                  <button class="layout-btn {{layout === 'd' ? 'is-on' : ''}}" data-layout="d" bindtap="onLayout" aria-pressed="{{layout === 'd'}}"><view class="layout-prev cards"></view><text>卡片</text><text class="tx-b">D</text></button>
+                </view>
+              </view>
+              <view class="theme-mini">
+                <text class="theme-key">玻璃</text>
+                <view class="mat-switch">
+                  <button class="mat-btn {{material === 'a' ? 'is-on' : ''}}" data-mat="a" bindtap="onMaterial" aria-pressed="{{material === 'a'}}"><view class="mat-prev a"></view><text>通透</text><text class="tx-b">A</text></button>
+                  <button class="mat-btn {{material === 'b' ? 'is-on' : ''}}" data-mat="b" bindtap="onMaterial" aria-pressed="{{material === 'b'}}"><view class="mat-prev b"></view><text>奶润</text><text class="tx-b">B</text></button>
+                </view>
+              </view>
+            </view>
+            <view class="theme-line">
+              <text class="theme-key">颜色</text>
+              <view class="palette">
+                <button class="swatch {{theme === 'milk' ? 'is-on' : ''}}" data-theme="milk" bindtap="onTheme" aria-pressed="{{theme === 'milk'}}"><view class="tx-i"></view><text class="tx-span">奶糖</text></button>
+                <button class="swatch {{theme === 'salt' ? 'is-on' : ''}}" data-theme="salt" bindtap="onTheme" aria-pressed="{{theme === 'salt'}}"><view class="tx-i"></view><text class="tx-span">海盐</text></button>
+                <button class="swatch {{theme === 'berry' ? 'is-on' : ''}}" data-theme="berry" bindtap="onTheme" aria-pressed="{{theme === 'berry'}}"><view class="tx-i"></view><text class="tx-span">莓果</text></button>
+                <button class="swatch {{theme === 'bamboo' ? 'is-on' : ''}}" data-theme="bamboo" bindtap="onTheme" aria-pressed="{{theme === 'bamboo'}}"><view class="tx-i"></view><text class="tx-span">竹青</text></button>
+              </view>
+            </view>
+            <view class="mode-row">
+              <text class="mode-key">明暗</text>
+              <button class="mode-btn {{mode === 'light' ? 'is-on' : ''}}" data-mode="light" bindtap="onMode" aria-pressed="{{mode === 'light'}}">浅色</button>
+              <button class="mode-btn {{mode === 'dark' ? 'is-on' : ''}}" data-mode="dark" bindtap="onMode" aria-pressed="{{mode === 'dark'}}">深色</button>
+            </view>
+          </view>
+        </view>
+
+        <button class="reset-bar" id="panel-reset" bindtap="openReset">
+          <view class="reset-ico"><view class="ico ico-reset"></view></view>
+          <view class="reset-copy"><text class="tx-b">恢复出厂设置</text><text class="tx-small">清除网络与本机复刻声音</text></view>
+          <view class="ico ico-chev chev"></view>
+        </button>
+      </scroll-view>
+    </view>
+  </view>
+
+  <view wx:if="{{expanded && !manualOpen}}" class="float-assistant {{assistantDragging ? 'dragging' : ''}} {{assistDim ? 'dim' : ''}}"
+    style="left: {{assistantX}}px; top: {{assistantY}}px; right: auto; bottom: auto;"
+    catchtouchstart="onAssistantStart" catchtouchmove="onAssistantMove" catchtouchend="onAssistantEnd" catchtouchcancel="onAssistantCancel"
+    aria-label="小助手：拖动可移动，点击开始对话">
+    <view class="fa-pulse"></view>
+    <view class="fa-face"><image src="{{product.icon}}" mode="aspectFit"></image></view>
+    <view class="fa-mic"><view class="ico ico-mic"></view></view>
+  </view>
+
+  <view class="manual-sheet">
+    <button class="manual-close manual-close-float" bindtap="closeManual" aria-label="关闭说明书"><view class="ico ico-close"></view></button>
+    <scroll-view class="manual-body" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}" scroll-into-view="{{manualAnchor}}">
+      <view class="mn-page">
+        <view class="mn-hero">
+          <text class="mn-kicker">{{product.code}} · OWNER'S GUIDE</text>
+          <view class="mn-title"><text class="mn-title-main">{{product.name}}</text><text class="mn-title-sub">使用说明书</text></view>
+          <text class="mn-sub">{{manual.intro}}</text>
+          <view class="mn-badges">
+            <text class="mn-badge">型号 {{product.model}}</text>
+            <text class="mn-badge">固件 v1.0</text>
+            <text class="mn-badge">中文</text>
+          </view>
+        </view>
+
+        <scroll-view class="mn-nav" scroll-x enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view class="mn-nav-row">
+            <view class="mn-nav-chip" wx:for="{{manualNav}}" wx:key="id" data-id="{{item.id}}" bindtap="goManual">{{item.label}}</view>
+          </view>
+        </scroll-view>
+
+        <view class="mn-sec" id="m-start">
+          <view class="mn-sec-head"><text class="mn-sec-no">01</text><text class="mn-sec-title">快速上手</text></view>
+          <view class="mn-p">第一次使用，按下面五步走。设备需要连接家里的 <text class="mn-b">2.4GHz Wi-Fi</text>，不支持 5GHz。</view>
+          <view class="mn-steps">
+            <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text class="mn-b">充电。</text><text>用 USB-C 线连接 5V 充电器。电量低时设备会限制动作并提示。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text class="mn-b">开机。</text><text>长按电源键约 1.5 秒，听到启动音、头部回中即开机。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text class="mn-b">连接。</text><text>打开「泽元灵智」小程序，保持手机蓝牙开启，在附近设备里选择 </text><text class="mn-b">{{product.ap}}-{{product.hot}}</text><text>。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text class="mn-b">配网。</text><text>进入详情页后点「更改网络」，选择家里的 2.4GHz 网络并输入密码。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">05</text><view class="mn-step-copy"><text class="mn-b">开始对话。</text><text>双击电源键；听到提示音后说话，再双击退出。</text></view></view>
+          </view>
+          <view class="mn-callout"><text class="mn-b">没有屏幕也没关系。</text><text>设备通过声音和 {{manual.inlineBody}} 动作回应；所有设置都在小程序里完成。</text></view>
+        </view>
+
+        <view class="mn-sec" id="m-parts">
+          <view class="mn-sec-head"><text class="mn-sec-no">02</text><text class="mn-sec-title">认识它</text></view>
+          <view class="mn-p">{{manual.partsIntro}}</view>
+          <view class="mn-parts">
+            <view class="mn-part" wx:for="{{manual.parts}}" wx:key="n">
+              <text class="mn-part-n">{{item.n}}</text>
+              <view class="mn-part-copy"><text class="mn-b">{{item.t}}</text><text>{{item.d}}</text></view>
+            </view>
+          </view>
+          <view class="mn-callout warn"><text class="mn-b">不要用力掰。</text><text>头部和 {{manual.inlineWarn}} 由舵机驱动，手动摆姿势时请轻一点；通电时不要强行按住。</text></view>
+        </view>
+
+        <view class="mn-sec" id="m-power">
+          <view class="mn-sec-head"><text class="mn-sec-no">03</text><text class="mn-sec-title">充电、开机与关机</text></view>
+          <view class="mn-p"><text class="mn-b">充电：</text><text>使用 USB-C 线连接 5V 充电器。设备没有独立的充电状态灯，电量可以在小程序详情页查看。请使用干燥、通风的环境充电。</text></view>
+          <view class="mn-p"><text class="mn-b">开机：</text><text>长按电源键约 1.5 秒，设备会播放启动音并回到默认姿态。首次开机若没有保存网络，会保持等待配网状态。</text></view>
+          <view class="mn-p"><text class="mn-b">关机：</text><text>再次长按电源键约 1.5 秒。设备会先停止本地声音、回到安全姿态、断开舵机电，再关闭电源，请不要在动作过程中拔电。</text></view>
+          <view class="mn-callout"><text class="mn-b">自动保护：</text><text>电量过低、芯片温度过高或舵机连续通电过久时，设备会限制动作或自动关机。这是正常保护，不是故障。</text></view>
+        </view>
+
+        <view class="mn-sec" id="m-controls">
+          <view class="mn-sec-head"><text class="mn-sec-no">04</text><text class="mn-sec-title">按键与触摸</text></view>
+          <view class="mn-table">
+            <view class="mn-tr mn-th"><text class="mn-td">操作</text><text class="mn-td">会发生什么</text></view>
+            <view class="mn-tr"><text class="mn-td">双击电源键</text><text class="mn-td">开始对话；再双击完整退出对话</text></view>
+            <view class="mn-tr"><text class="mn-td">长按电源键 1.5 秒</text><text class="mn-td">关机</text></view>
+            <view class="mn-tr"><text class="mn-td">单击 BOOT 键</text><text class="mn-td">正常状态下切换对话</text></view>
+            <view class="mn-tr"><text class="mn-td">双击 BOOT 键</text><text class="mn-td">停止 / 恢复宠物活动</text></view>
+            <view class="mn-tr"><text class="mn-td">轻触一个触摸区</text><text class="mn-td">亲昵回应：抬头、看你、轻轻挥爪</text></view>
+            <view class="mn-tr"><text class="mn-td">同时触摸两个以上</text><text class="mn-td">开心回应：更大幅度的动作与声音</text></view>
+          </view>
+          <view class="mn-p mn-gap">在线对话时，触摸只驱动动作，不额外播放本地声音，避免打断说话。连续触摸不会堆积播放。</view>
+          <view class="mn-callout"><text class="mn-b">单击电源键不会开始对话。</text><text>这是为了防止误触；请使用双击。</text></view>
+        </view>
+
+        <view class="mn-sec" id="m-chat">
+          <view class="mn-sec-head"><text class="mn-sec-no">05</text><text class="mn-sec-title">和小智对话</text></view>
+          <view class="mn-p">设备需要先配网并完成小智激活。双击电源键后，看到头部抬起、听到提示音，就可以说话；说完稍等，它会回答。</view>
+          <view class="mn-list">
+            <view class="mn-li">说话时尽量靠近设备，环境不要太吵。</view>
+            <view class="mn-li">回答过程中双击电源键，可以立即结束本轮对话。</view>
+            <view class="mn-li">对话时 {{manual.inlineChat}} 会跟随真实语音包络动作；声音越响，动作越明显。</view>
+            <view class="mn-li">网络断开时无法进行云端对话，但触摸、本地声音和动作仍可使用。</view>
+          </view>
+        </view>
+
+        <view class="mn-sec" id="m-network">
+          <view class="mn-sec-head"><text class="mn-sec-no">06</text><text class="mn-sec-title">配网与换网</text></view>
+          <view class="mn-p">设备只支持 <text class="mn-b">2.4GHz Wi-Fi</text>。小程序会过滤掉 5GHz 网络，避免选完才发现连不上。</view>
+          <view class="mn-steps">
+            <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text>手机打开蓝牙，在「泽元灵智」小程序里连接 </text><text class="mn-b">{{product.ap}}-{{product.hot}}</text><text>。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text>进入设备详情页，点网络条右侧的</text><text class="mn-b">「更改」</text><text>。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text>选择家里的 2.4GHz 网络，输入 Wi-Fi 密码（至少 8 位）。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text>连接成功后弹窗自动关闭，设备保持在线，不会跳转页面。</text></view></view>
+          </view>
+          <view class="mn-p mn-gap"><text class="mn-b">换网：</text><text>新网络连接成功前，旧网络会保留；失败会自动恢复旧网络。</text></view>
+          <view class="mn-p"><text class="mn-b">离线：</text><text>设备离线时仍可用蓝牙连接小程序查看状态、修改网络；已保存的凭据不会删除，设备会在范围内自动重连。</text></view>
+          <view class="mn-callout"><text class="mn-b">不需要登录。</text><text>蓝牙配对请求由设备硬件确认，小程序没有账号和页面密码。</text></view>
+        </view>
+
+        <view class="mn-sec" id="m-app">
+          <view class="mn-sec-head"><text class="mn-sec-no">07</text><text class="mn-sec-title">小程序控制台</text></view>
+          <view class="mn-p">连接设备蓝牙后就能看到详情页。所有设置都通过蓝牙直接下发，不经过云端。</view>
+          <view class="mn-list">
+            <view class="mn-li"><text class="mn-b">设备状态：</text><text>电量、温度、运行时长、当前网络与信号强度。</text></view>
+            <view class="mn-li"><text class="mn-b">音量：</text><text>调整设备扬声器音量。</text></view>
+            <view class="mn-li"><text class="mn-b">当前音色：</text><text>试听、切换固定音色或复刻音色。</text></view>
+            <view class="mn-li"><text class="mn-b">声音：</text><text>录音或上传音频，创建专属复刻音色；最多 10 个。</text></view>
+            <view class="mn-li"><text class="mn-b">更改网络：</text><text>换到另一个 2.4GHz 网络。</text></view>
+            <view class="mn-li"><text class="mn-b">使用说明书：</text><text>就是当前这一页。</text></view>
+            <view class="mn-li"><text class="mn-b">恢复出厂设置：</text><text>清除 Wi-Fi 与本机复刻音色，详见第 12 节。</text></view>
+          </view>
+          <view class="mn-p mn-gap">开发者功能（音频库、Audio Hub、OTA、日志、接口）在设备同一局域网的 <text class="mn-b">8080</text> 端口网页里，普通用户不需要使用。</view>
+        </view>
+
+        <view class="mn-sec" id="m-voice">
+          <view class="mn-sec-head"><text class="mn-sec-no">08</text><text class="mn-sec-title">声音与音色</text></view>
+          <view class="mn-p">设备内置 <text class="mn-b">6 个固定音色</text>，可以直接切换和试听。你也可以录制或上传一段人声，生成专属复刻音色。</view>
+          <view class="mn-list">
+            <view class="mn-li">复刻音色最多 <text class="mn-b">10 个</text>；录音建议 5–20 秒，环境安静、一个人说话。</view>
+            <view class="mn-li">录音会生成云端音色，删除时也会删除云端副本；离线时无法删除云端音色。</view>
+            <view class="mn-li">上传支持常见音频格式；文件太短、太长或噪声太大时可能失败。</view>
+            <view class="mn-li">复刻音色依赖云端服务，首次使用需要设备已联网并完成激活。</view>
+          </view>
+        </view>
+
+        <view class="mn-sec" id="m-motion">
+          <view class="mn-sec-head"><text class="mn-sec-no">09</text><text class="mn-sec-title">动作与互动</text></view>
+          <view class="mn-p">{{manual.motionIntro}}</view>
+          <view class="mn-list">
+            <view class="mn-li" wx:for="{{manual.motionList}}" wx:key="t"><text class="mn-b">{{item.t}}：</text><text>{{item.d}}</text></view>
+          </view>
+          <view class="mn-callout"><text class="mn-b">动作中不要强行按住。</text><text>如果它正在动，等动作结束再拿取；长期强行阻挡会触发舵机保护。</text></view>
+        </view>
+
+        <view class="mn-sec" id="m-protect">
+          <view class="mn-sec-head"><text class="mn-sec-no">10</text><text class="mn-sec-title">安全与保护</text></view>
+          <view class="mn-list">
+            <view class="mn-li">使用 5V USB-C 电源，避免使用来历不明的快充头。</view>
+            <view class="mn-li">设备含小零件与可动结构，请放在儿童接触不到的地方；儿童使用时需要成人陪同。</view>
+            <view class="mn-li">不要进水、不要用湿手操作、不要放在高温或阳光直射处。</view>
+            <view class="mn-li">不要拆开外壳；舵机、电池和触摸电极没有用户可维修部件。</view>
+            <view class="mn-li">长时间不使用时，请关机并每隔几个月充电一次，避免电池过放。</view>
+            <view class="mn-li">设备会检测欠压、芯片温度和舵机通电时间；触发保护时请让它休息或充电。</view>
+          </view>
+        </view>
+
+        <view class="mn-sec" id="m-faq">
+          <view class="mn-sec-head"><text class="mn-sec-no">11</text><text class="mn-sec-title">常见问题</text></view>
+          <view class="mn-faq">
+            <view class="mn-faq-item" wx:for="{{manualFaq}}" wx:key="q">
+              <view class="mn-faq-q {{faqOpen[index] ? 'open' : ''}}" data-index="{{index}}" bindtap="toggleFaq"><text>{{item.q}}</text><text class="mn-faq-mark">{{faqOpen[index] ? '−' : '+'}}</text></view>
+              <view class="mn-faq-a" wx:if="{{faqOpen[index]}}">{{item.a}}</view>
+            </view>
+          </view>
+        </view>
+
+        <view class="mn-sec" id="m-reset">
+          <view class="mn-sec-head"><text class="mn-sec-no">12</text><text class="mn-sec-title">恢复出厂设置</text></view>
+          <view class="mn-p">恢复出厂会清除 <text class="mn-b">Wi-Fi 凭据</text>和 <text class="mn-b">本机创建的复刻音色</text>，并重启设备。预置语音 Key、外置音频库和其他设置会保留。</view>
+          <view class="mn-p">操作入口在详情页底部。点击后需要手动输入 <text class="mn-b">确定恢复出厂设置</text> 才会执行；执行前请确认设备在线，否则云端音色无法删除。</view>
+          <view class="mn-callout warn"><text class="mn-b">不可撤销。</text><text>恢复后需要重新配网；已删除的复刻音色无法恢复。外置音频库是出厂内容，不会被删除。</text></view>
+        </view>
+
+        <view class="mn-sec" id="m-spec">
+          <view class="mn-sec-head"><text class="mn-sec-no">13</text><text class="mn-sec-title">规格</text></view>
+          <view class="mn-spec">
+            <view class="mn-spec-row"><text>主控</text><text>ESP32-S3</text></view>
+            <view class="mn-spec-row"><text>网络</text><text>2.4GHz Wi-Fi / 蓝牙配网</text></view>
+            <view class="mn-spec-row"><text>动作</text><text>{{manual.specAction}}</text></view>
+            <view class="mn-spec-row"><text>声音</text><text>ES8311 编解码 + 扬声器 / 麦克风</text></view>
+            <view class="mn-spec-row"><text>存储</text><text>外置 NAND 音频库</text></view>
+            <view class="mn-spec-row"><text>供电</text><text>内置锂电池 / USB-C 5V</text></view>
+            <view class="mn-spec-row"><text>交互</text><text>电容触摸、姿态感应、人体感应</text></view>
+            <view class="mn-spec-row"><text>连接</text><text>蓝牙 5.0（BLE）</text></view>
+          </view>
+          <view class="mn-p mn-gap">规格可能因批次不同略有差异；以实物和包装标注为准。</view>
+        </view>
+
+        <view class="mn-end">
+          <view class="mn-seal"><image src="{{product.icon}}" mode="aspectFit"></image></view>
+          <view class="mn-end-p"><text>{{product.code}} · 使用说明书 v1.0</text><text>保留本手册，以便查询售后信息。</text></view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <view class="panda-modal voice-modal {{voiceModal ? 'show' : ''}}">
+    <view class="modal-card">
+      <view class="modal-head">
+        <view class="modal-head-copy">
+          <text class="modal-kicker">VOICE LIBRARY · A</text>
+          <text class="tx-b">音色管理</text>
+          <text class="tx-small">选择、改名或删除复刻音色</text>
+        </view>
+        <button class="modal-close" bindtap="closeVoiceManager"><view class="ico ico-close"></view></button>
+      </view>
+      <scroll-view class="modal-body" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+        <view class="vm-cap"><text>复刻音色</text><text class="tx-b">{{cloneCount}}</text><text>/ {{voiceCapacity}}</text></view>
+        <view class="vm-hero">
+          <view class="vm-hero-avatar">{{vmCurrentInitial}}</view>
+          <view class="vm-hero-copy"><text class="tx-small">当前音色</text><text class="tx-b">{{vmCurrent}}</text></view>
+          <button class="vm-hero-play" bindtap="onTryVoice"><view class="ico ico-play"></view><text>试听</text></button>
+        </view>
+        <view class="vm-list">
+          <view class="vm-row {{vmCurrent === item.name ? 'on' : ''}}" wx:for="{{clones}}" wx:key="id">
+            <text class="vm-row-avatar">{{item.initial}}</text>
+            <view class="vm-row-copy">
+              <input wx:if="{{editingId === item.id}}" class="vm-rename-input" value="{{editingValue}}" focus="{{true}}" maxlength="8" data-id="{{item.id}}" bindinput="onVmRenameInput" bindconfirm="onVmRenameDone" bindblur="onVmRenameDone" />
+              <text wx:else class="tx-b">{{item.name}}</text>
+              <text class="tx-small">{{item.date ? '复刻音色 · ' + item.date : '复刻音色'}}</text>
+            </view>
+            <view class="vm-row-actions">
+              <button class="vm-use" data-name="{{item.name}}" bindtap="onVmUse">{{vmCurrent === item.name ? '使用中' : '使用'}}</button>
+              <button class="vm-icon" data-id="{{item.id}}" data-name="{{item.name}}" bindtap="onVmRename"><view class="ico ico-edit"></view></button>
+              <button class="vm-icon" data-id="{{item.id}}" data-name="{{item.name}}" bindtap="onVmDelete"><view class="ico ico-trash"></view></button>
+            </view>
+          </view>
+          <view class="vm-empty" wx:if="{{clones.length === 0}}">还没有复刻音色，先录一段声音吧</view>
+        </view>
+      </scroll-view>
+      <view class="modal-foot"><button class="vm-new" bindtap="onVmNew">新建复刻音色</button></view>
+      <view class="vm-confirm {{vmConfirm ? 'show' : ''}} {{vmError ? 'show-error' : ''}}">
+        <view class="vm-confirm-card">
+          <text class="tx-b">删除“{{vmPendingName}}”？</text>
+          <text class="tx-p">删除后会同时删除云端复刻音色；如果云端失败，本机记录会保留并可重试。</text>
+          <text class="tx-p vm-error">{{vmError}}</text>
+          <view class="vm-confirm-actions">
+            <button class="modal-btn" bindtap="onVmCancel">取消</button>
+            <button class="modal-btn danger" bindtap="onVmConfirm">删除</button>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="panda-modal audio-modal {{audioModal ? 'show' : ''}}">
+    <view class="modal-card">
+      <view class="modal-head">
+        <view class="modal-head-copy">
+          <text class="modal-kicker">VOICE LAB · NEW</text>
+          <text class="tx-b">新建复刻音色</text>
+          <text class="tx-small">让玩具录 10 秒，或上传 5–20 秒 WAV</text>
+        </view>
+        <button class="modal-close" bindtap="cancelAudio"><view class="ico ico-close"></view></button>
+      </view>
+      <scroll-view class="modal-body" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+        <view class="create-tabs">
+          <button class="create-tab {{audioMode === 'record' ? 'is-on' : ''}}" data-mode="record" bindtap="switchAudioTab"><view class="ico ico-mic"></view><text>录制</text></button>
+          <button class="create-tab {{audioMode === 'upload' ? 'is-on' : ''}}" data-mode="upload" bindtap="switchAudioTab"><view class="ico ico-upload"></view><text>上传音频</text></button>
+        </view>
+
+        <view class="record-panel" wx:if="{{audioMode === 'record'}}">
+          <view class="record-stage">
+            <button class="record-puck {{audioRecording ? 'is-recording' : ''}}" bindtap="toggleRecord" aria-label="开始录音">
+              <view class="record-ring"></view>
+              <view class="record-ico"><view class="ico ico-mic"></view></view>
+            </button>
+            <view class="record-readout">
+              <text class="tx-b">{{audioTime}}</text>
+              <text class="tx-small">{{audioRecordStatus}}</text>
+            </view>
+          </view>
+          <view class="record-track"><view class="tx-i" style="width: {{audioProgress}}%"></view></view>
+          <view class="record-script"><text class="tx-span">朗读</text><text class="tx-b">“你好，我是{{product.name}}。”</text></view>
+          <view class="record-steps">
+            <view class="is-on"><view class="tx-i">1</view><text>录制</text></view>
+            <view class="lab-line"></view>
+            <view><view class="tx-i">2</view><text>生成</text></view>
+            <view class="lab-line"></view>
+            <view><view class="tx-i">3</view><text>保存</text></view>
+          </view>
+        </view>
+
+        <view class="upload-panel" wx:if="{{audioMode === 'upload'}}">
+          <view class="audio-file" bindtap="chooseAudio">
+            <view class="audio-file-ico"><view class="ico ico-upload"></view></view>
+            <view class="audio-file-copy">
+              <text class="tx-b">{{audioFileName || '选择一段音频'}}</text>
+              <text class="tx-small">{{audioFileInfo || '仅支持 WAV · 5–20 秒'}}</text>
+            </view>
+          </view>
+          <view class="audio-wave"><view class="tx-i" wx:for="{{audioWave}}" wx:key="*this" style="height: {{item}}%"></view></view>
+          <view class="audio-trim">
+            <text>0:00</text>
+            <slider class="audio-trim-slider" min="0" max="20" value="{{audioTrim}}" bindchange="onTrimChange" activeColor="#c97752" backgroundColor="rgba(47,40,34,.12)" block-size="16" />
+            <text>0:20</text>
+          </view>
+        </view>
+
+        <view class="field">
+          <text class="tx-span">音色名称</text>
+          <input type="text" maxlength="8" value="{{audioName}}" bindinput="onAudioNameInput" placeholder="我的音色" />
+        </view>
+        <text class="audio-hint">{{audioHint}}</text>
+        <text class="audio-error" wx:if="{{audioError}}">{{audioError}}</text>
+      </scroll-view>
+      <view class="modal-foot">
+        <view class="modal-actions">
+          <button class="modal-btn" bindtap="cancelAudio">取消</button>
+          <button class="modal-btn primary" disabled="{{audioMode === 'record' ? (audioRecordPending || audioRecording || audioCreating) : (!audioDone || audioCreating)}}" bindtap="onAudioPrimary">{{audioMode === 'record' ? (audioRecording ? '录音中…' : (audioRecordPending ? '准备中…' : '开始录制')) : (audioCreating ? '生成中…' : '生成音色')}}</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="panda-modal reset-modal {{resetModal ? 'show' : ''}}">
+    <view class="modal-card">
+      <view class="modal-head">
+        <view class="modal-head-copy">
+          <text class="modal-kicker">FACTORY RESET · DANGER</text>
+          <text class="tx-b">恢复出厂设置</text>
+          <text class="tx-small">清除网络与本机复刻声音</text>
+        </view>
+        <button class="modal-close" bindtap="closeReset"><view class="ico ico-close"></view></button>
+      </view>
+      <view class="modal-body">
+        <view class="reset-copy-block">
+          <text class="tx-h4">恢复后需要重新配网</text>
+          <text class="tx-p">会清除 Wi-Fi 和本机创建的复刻音色；小智绑定、预置语音 Key 保留。</text>
+        </view>
+        <view class="reset-warning">先删除云端复刻音色，再清除 Wi-Fi。任一步失败都会中止并保留网络，不会留下半完成状态。</view>
+        <text class="field-hint" wx:if="{{resetting && resetStage}}">{{resetStage}}</text>
+        <view class="field">
+          <text class="tx-span">请输入确认语</text>
+          <input type="text" value="{{resetInput}}" bindinput="onResetInput" placeholder="确定恢复出厂设置" />
+        </view>
+        <text class="field-hint">完整输入“确定恢复出厂设置”后按钮才会可用。</text>
+        <text class="audio-error" wx:if="{{resetError}}">{{resetError}}</text>
+      </view>
+      <view class="modal-foot">
+        <view class="modal-actions">
+          <button class="modal-btn" bindtap="closeReset">取消</button>
+          <button class="modal-btn danger" disabled="{{!resetReady || resetting}}" bindtap="confirmReset">{{resetting ? '恢复中…' : '恢复出厂'}}</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="panda-modal wifi-modal {{wifiModal ? 'show' : ''}}">
+    <view class="modal-card">
+      <view class="modal-head">
+        <view class="modal-head-copy">
+          <text class="modal-kicker">WI-FI · CHANGE</text>
+          <text class="tx-b">更改网络</text>
+          <text class="tx-small">选择网络，设备会自动重连</text>
+        </view>
+        <button class="modal-close" bindtap="closeWifi"><view class="ico ico-close"></view></button>
+      </view>
+      <scroll-view class="modal-body" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+        <view class="wifi-body">
+          <view class="wifi-current">
+            <view class="ico ico-wifi"></view>
+            <view class="wifi-current-copy"><text class="tx-b">{{wifiCurrent || '未连接'}}</text><text class="tx-small">{{wifiCurrentSub}}</text></view>
+          </view>
+          <view class="wifi-scan-row">
+            <text class="wifi-cap">附近的网络</text>
+            <button class="wifi-rescan" bindtap="scanWifi"><view class="ico ico-reset"></view><text>{{wifiScanning ? '扫描中…' : '重新扫描'}}</text></button>
+          </view>
+          <scroll-view class="wifi-list" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+            <view class="wifi-item {{wifiSelected === item.ssid ? 'on' : ''}}" wx:for="{{wifiList}}" wx:key="ssid" data-ssid="{{item.ssid}}" bindtap="selectWifi">
+              <view class="ico ico-wifi"></view>
+              <view class="wifi-item-copy"><text class="tx-b">{{item.ssid}}</text><text class="tx-small">{{item.band}} · {{item.secure ? '加密' : '开放'}}{{item.supported ? '' : ' · 设备不支持'}}</text></view>
+              <view class="signal-bars"><view class="tx-i {{bi < item.bars ? 'on' : ''}}" wx:for="{{signalLevels}}" wx:for-item="bar" wx:for-index="bi" wx:key="*this"></view></view>
+              <text class="wifi-badge" wx:if="{{item.current}}">当前</text>
+            </view>
+            <view class="wifi-empty" wx:if="{{!wifiScanning && wifiList.length === 0}}">没有发现网络，请靠近路由器后重试</view>
+          </scroll-view>
+          <view class="wifi-password" wx:if="{{wifiSelected && wifiNeedPassword}}">
+            <view class="field">
+              <text class="tx-span">Wi-Fi 密码</text>
+              <input type="text" password value="{{wifiPassword}}" bindinput="onWifiPassword" placeholder="至少 8 位" focus="{{wifiFocus}}" />
+            </view>
+          </view>
+          <text class="wifi-error" wx:if="{{wifiError}}">{{wifiError}}</text>
+          <text class="wifi-note">设备仅支持 2.4GHz Wi-Fi。连接成功后详情页会自动刷新网络状态。</text>
+        </view>
+      </scroll-view>
+      <view class="modal-foot">
+        <view class="modal-actions">
+          <button class="modal-btn" bindtap="closeWifi">取消</button>
+          <button class="modal-btn primary" disabled="{{!wifiSelected || wifiConnecting}}" bindtap="connectWifi">{{wifiConnecting ? '连接中…' : '连接网络'}}</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="panda-modal toy-modal {{toyPickerOpen ? 'show' : ''}}">
+    <view class="modal-card">
+      <view class="modal-head">
+        <view class="modal-head-copy">
+          <text class="modal-kicker">ZEYUAN · TOY</text>
+          <text class="tx-b">切换玩具</text>
+          <text class="tx-small">选择要连接的泽元灵智小伙伴</text>
+        </view>
+        <button class="modal-close" bindtap="closeToyPicker"><view class="ico ico-close"></view></button>
+      </view>
+      <view class="modal-body toy-body">
+        <view class="toy-option {{item.id === product.id ? 'on' : ''}}" wx:for="{{toys}}" wx:key="id" data-id="{{item.id}}" bindtap="chooseToy">
+          <view class="toy-option-icon"><image src="{{item.icon}}" mode="aspectFit"></image></view>
+          <view class="toy-option-copy">
+            <text class="tx-b">{{item.name}}</text>
+            <text class="tx-small">{{item.english}}</text>
+          </view>
+          <text class="toy-current" wx:if="{{item.id === product.id}}">当前</text>
+          <view class="ico ico-chev toy-chev" wx:else></view>
+        </view>
+        <text class="toy-note">切换后会回到蓝牙连接页，重新扫描并连接对应的玩具。</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="pg-root {{guideHide ? 'hide-bubble' : ''}}" wx:if="{{guideOpen}}">
+    <view class="pg-catch" catchtap="noop" catchtouchmove="noop"></view>
+    <view class="pg-spot" style="left:{{guideSpot.left}}px;top:{{guideSpot.top}}px;width:{{guideSpot.width}}px;height:{{guideSpot.height}}px;border-radius:{{guideSpot.radius}}px"></view>
+    <view class="pg-bubble {{guideBubble.place}}" style="{{guideBubble.style}}">
+      <view class="pg-head">
+        <view class="pg-avatar"><image src="{{product.icon}}" mode="aspectFit"></image></view>
+        <view class="pg-meta">
+          <text class="pg-kicker">{{product.code}} / GUIDE</text>
+          <text class="pg-who">{{product.name}} · 使用引导</text>
+        </view>
+        <text class="pg-badge">{{guideStep + 1}} / {{guideDots.length}}</text>
+      </view>
+      <text class="pg-title">{{guideCurrent.title}}</text>
+      <text class="pg-text">{{guideCurrent.text}}</text>
+      <view class="pg-foot">
+        <view class="pg-dots">
+          <view class="pg-dot {{index === guideStep ? 'on' : ''}}" wx:for="{{guideDots}}" wx:key="*this"></view>
+        </view>
+        <button class="pg-skip" bindtap="closeGuide">跳过</button>
+        <button class="pg-next" bindtap="nextGuide">{{guideStep + 1 === guideDots.length ? '完成' : '下一步'}}</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="scrim" bindtap="onScrim"></view>
+  <view class="toast {{toastShow ? 'show' : ''}}">{{toastText}}</view>
+</view>

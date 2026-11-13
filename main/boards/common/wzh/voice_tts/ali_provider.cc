@@ -103,6 +103,9 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
         bool done = false;
         bool got_audio = false;
         size_t total_pcm = 0;
+        // Retain one bounded decode buffer for the duration of this response;
+        // allocating a new vector for every SSE event fragments the heap.
+        std::vector<uint8_t> pcm;
         AliSse sse([&](const std::string& event) {
             if (event == "[DONE]") {
                 done = true;
@@ -131,7 +134,7 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
             const size_t len = std::strlen(data->valuestring);
             if (!len)
                 return true;
-            std::vector<uint8_t> pcm((len / 4 + 1) * 3);
+            pcm.resize((len / 4 + 1) * 3);
             size_t written = 0;
             if (mbedtls_base64_decode(pcm.data(), pcm.size(), &written,
                                       reinterpret_cast<const unsigned char*>(data->valuestring),

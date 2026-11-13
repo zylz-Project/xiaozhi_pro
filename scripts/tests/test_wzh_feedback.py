@@ -403,8 +403,11 @@ struct Board {
     static Board& GetInstance(){static Board instance;return instance;}
     Codec* GetAudioCodec(){return &codec;}
 };
+struct OpusStreamMetadata {};
 struct OggDemuxer {
     std::function<void(const uint8_t*,int,size_t)> output;
+    void Reset(){}
+    void OnOpusPacket(std::function<void(const uint8_t*,size_t,const OpusStreamMetadata&)>){}
     void OnDemuxerFinished(decltype(output) value){output=value;}
     void Process(const uint8_t* bytes,size_t size){output(bytes,24000,std::min<size_t>(size,16));}
 };
@@ -413,6 +416,7 @@ int wzh_flash_read(unsigned address,uint8_t* bytes,size_t size){
     assert(size<=4096);reads.push_back({address,size});std::fill(bytes,bytes+size,42);bytes[0]=24;return ESP_OK;
 }
 struct AudioPlayer {
+    OggDemuxer parser; OggDemuxer* demuxer_=&parser;
     std::atomic<bool>maintenance_{false},worker_active_{false};
     std::array<char,64>current_name_{};
     struct PlayRequest {int index;unsigned generation;AudioFileInfo file;};

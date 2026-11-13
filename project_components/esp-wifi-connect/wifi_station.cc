@@ -16,6 +16,7 @@
 #define WIFI_EVENT_CONNECTED BIT0
 #define WIFI_EVENT_STOPPED BIT1
 #define WIFI_EVENT_SCAN_DONE_BIT BIT2
+#define WIFI_EVENT_USER_SCAN_DONE BIT3
 #define MAX_RECONNECT_COUNT 5
 
 WifiStation::WifiStation() {
@@ -80,6 +81,7 @@ void WifiStation::Stop() {
 
     // Now safe to stop scan, disconnect and stop WiFi (no event callbacks will fire)
     esp_wifi_scan_stop();
+    user_scan_pending_.store(false);
     esp_wifi_disconnect();
     if (!persistent_ap_) {
         esp_wifi_stop();
@@ -179,12 +181,97 @@ void WifiStation::Start() {
     }
 }
 
+void WifiStation::ConnectNow(const std::string& ssid, const std::string& password) {
+    if (timer_handle_ != nullptr) {
+        esp_timer_stop(timer_handle_);
+    }
+    connect_queue_.clear();
+    reconnect_count_ = 0;
+    ssid_ = ssid;
+    password_ = password;
+
+    wifi_config_t wifi_config = {};
+    // A 32-byte SSID is valid and must not be truncated; the zero-initialized
+    // struct leaves the field NUL-terminated only when the SSID is shorter.
+    strncpy(reinterpret_cast<char*>(wifi_config.sta.ssid), ssid.c_str(),
+            sizeof(wifi_config.sta.ssid));
+    strncpy(reinterpret_cast<char*>(wifi_config.sta.password), password.c_str(),
+            sizeof(wifi_config.sta.password) - 1);
+    wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    wifi_config.sta.failure_retry_cnt = failure_retry_cnt_;
+    wifi_config.sta.listen_interval = 10;
+
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to apply station config: %s", esp_err_to_name(err));
+    }
+
+    // Drop the current association first so the driver re-evaluates the new
+    // configuration instead of ignoring esp_wifi_connect() while connected.
+    err = esp_wifi_disconnect();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_CONNECT) {
+        ESP_LOGW(TAG, "Disconnect before reconnect failed: %s", esp_err_to_name(err));
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+    err = esp_wifi_connect();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+        ESP_LOGW(TAG, "Connect request failed: %s", esp_err_to_name(err));
+    }
+}
+
 bool WifiStation::WaitForConnected(int timeout_ms) {
     // Wait for either connected or stopped event
     auto bits = xEventGroupWaitBits(event_group_, WIFI_EVENT_CONNECTED | WIFI_EVENT_STOPPED,
                                     pdFALSE, pdFALSE, timeout_ms / portTICK_PERIOD_MS);
     // Return true only if connected (not if stopped)
     return (bits & WIFI_EVENT_CONNECTED) != 0;
+}
+
+esp_err_t WifiStation::ScanNetworks(std::vector<wifi_ap_record_t>& records, int timeout_ms) {
+    std::unique_lock<std::mutex> request_lock(user_scan_mutex_, std::try_to_lock);
+    if (!request_lock.owns_lock() || user_scan_pending_.exchange(true))
+        return ESP_ERR_INVALID_STATE;
+    records.clear();
+    xEventGroupClearBits(event_group_, WIFI_EVENT_USER_SCAN_DONE);
+    esp_err_t err = esp_wifi_scan_start(nullptr, false);
+    if (err != ESP_OK) {
+        user_scan_pending_.store(false);
+        return err;
+    }
+    const EventBits_t bits =
+        xEventGroupWaitBits(event_group_, WIFI_EVENT_USER_SCAN_DONE | WIFI_EVENT_STOPPED, pdFALSE,
+                            pdFALSE, pdMS_TO_TICKS(timeout_ms));
+    if (!(bits & WIFI_EVENT_USER_SCAN_DONE)) {
+        // A late scan event still belongs to this request and must not cause
+        // the station to reconnect. Stop() clears pending when stopping Wi-Fi.
+        return (bits & WIFI_EVENT_STOPPED) ? ESP_ERR_INVALID_STATE : ESP_ERR_TIMEOUT;
+    }
+    std::lock_guard<std::mutex> result_lock(user_scan_result_mutex_);
+    records = user_scan_results_;
+    return user_scan_error_;
+}
+
+void WifiStation::CompleteUserScan() {
+    uint16_t count = 0;
+    esp_err_t err = esp_wifi_scan_get_ap_num(&count);
+    count = std::min<uint16_t>(count, 32);
+    std::vector<wifi_ap_record_t> records(count);
+    if (err == ESP_OK && count > 0) {
+        err = esp_wifi_scan_get_ap_records(&count, records.data());
+        records.resize(err == ESP_OK ? count : 0);
+        if (err != ESP_OK)
+            esp_wifi_clear_ap_list();
+    } else {
+        esp_wifi_clear_ap_list();
+    }
+    {
+        std::lock_guard<std::mutex> lock(user_scan_result_mutex_);
+        user_scan_results_ = std::move(records);
+        user_scan_error_ = err;
+    }
+    user_scan_pending_.store(false);
+    xEventGroupSetBits(event_group_, WIFI_EVENT_USER_SCAN_DONE);
 }
 
 void WifiStation::HandleScanResult() {
@@ -386,7 +473,11 @@ void WifiStation::WifiEventHandler(void* arg, esp_event_base_t event_base, int32
         }
     } else if (event_id == WIFI_EVENT_SCAN_DONE) {
         xEventGroupSetBits(this_->event_group_, WIFI_EVENT_SCAN_DONE_BIT);
-        this_->HandleScanResult();
+        if (this_->user_scan_pending_.load()) {
+            this_->CompleteUserScan();
+        } else {
+            this_->HandleScanResult();
+        }
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(this_->event_group_, WIFI_EVENT_CONNECTED);
 

@@ -3,6 +3,10 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_timer.h>
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+#include <freertos/idf_additions.h>
+#include "voice_flash_dispatcher.h"
+#endif
 #include <algorithm>
 #include <cstring>
 
@@ -52,7 +56,17 @@ bool AliVoiceEnrollment::StartNamed(const std::string& name,
     complete_ = std::move(complete);
     const auto generation = generation_.fetch_add(1) + 1;
     active_.store(true);
-    if (xTaskCreate(TaskEntry, "ali_enroll", 10240, this, 3, &task_) != pdPASS) {
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    const bool created = EnsureWorker("ali_enroll");
+#else
+    const bool created = xTaskCreate(TaskEntry, "ali_enroll", 10240, this, 3, &task_) == pdPASS;
+#endif
+    if (!created) {
+        ESP_LOGW(
+            kTag, "Voice enrollment task allocation failed: internal=%u largest=%u",
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(
+                heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
         error_.store(Error::kMemory);
         phase_.store(Phase::kFailed);
         active_.store(false);
@@ -61,6 +75,10 @@ bool AliVoiceEnrollment::StartNamed(const std::string& name,
         complete_ = {};
         return false;
     }
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    task_ = worker_task_;
+    xTaskNotifyGive(worker_task_);
+#endif
     ESP_LOGI(kTag, "Started enrollment generation=%lu", static_cast<unsigned long>(generation));
     return true;
 }
@@ -164,6 +182,28 @@ const char* AliVoiceEnrollment::Failure() const {
 
 void AliVoiceEnrollment::TaskEntry(void* arg) {
     auto* self = static_cast<AliVoiceEnrollment*>(arg);
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        bool selection;
+        std::string text;
+        std::string name;
+        uint32_t generation;
+        {
+            std::lock_guard<std::mutex> lock(self->mutex_);
+            if (!self->task_)
+                continue;
+            selection = self->selection_task_;
+            text = self->selection_text_;
+            name = self->requested_name_;
+            generation = self->generation_.load();
+        }
+        if (selection)
+            self->RunSelection(generation, text);
+        else
+            self->Run(generation, name);
+    }
+#else
     bool selection = false;
     std::string text;
     std::string name;
@@ -178,35 +218,67 @@ void AliVoiceEnrollment::TaskEntry(void* arg) {
     else
         self->Run(self->generation_.load(), name);
     vTaskDelete(nullptr);
+#endif
 }
+
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+bool AliVoiceEnrollment::EnsureWorker(const char* name) {
+    if (worker_task_)
+        return true;
+    if (FlashDispatcherReady() &&
+        xTaskCreateWithCaps(TaskEntry, name, 10240, this, 3, &worker_task_,
+                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS)
+        return true;
+    return xTaskCreate(TaskEntry, name, 10240, this, 3, &worker_task_) == pdPASS;
+}
+#endif
 
 bool AliVoiceEnrollment::SelectionPending() const {
     const auto deadline = selection_deadline_us_.load();
     return deadline && esp_timer_get_time() < deadline;
 }
 
-bool AliVoiceEnrollment::IsConfigured() const {
-    return !LoadAliKey().empty();
-}
+bool AliVoiceEnrollment::IsConfigured() const { return !LoadAliKey().empty(); }
 
 bool AliVoiceEnrollment::StartSelection(const std::string& text,
                                         std::function<void(bool)> complete) {
     if (text.empty() || text.size() > 512 || !complete)
         return false;
     std::lock_guard<std::mutex> lock(mutex_);
-    if (task_ || LoadAliKey().empty())
+    if (task_) {
+        ESP_LOGW(kTag, "Voice selection unavailable: enrollment worker busy");
         return false;
+    }
+    if (LoadAliKey().empty()) {
+        ESP_LOGW(kTag, "Voice selection unavailable: Ali key missing");
+        return false;
+    }
     selection_text_ = text;
     selection_task_ = true;
     complete_ = std::move(complete);
     const auto generation = generation_.fetch_add(1) + 1;
     active_.store(true);
-    if (xTaskCreate(TaskEntry, "ali_voice_select", 10240, this, 3, &task_) != pdPASS) {
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    const bool created = EnsureWorker("ali_voice_select");
+#else
+    const bool created =
+        xTaskCreate(TaskEntry, "ali_voice_select", 10240, this, 3, &task_) == pdPASS;
+#endif
+    if (!created) {
+        ESP_LOGW(
+            kTag, "Voice selection task allocation failed: internal=%u largest=%u",
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(
+                heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
         active_.store(false);
         task_ = nullptr;
         complete_ = {};
         return false;
     }
+#if CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
+    task_ = worker_task_;
+    xTaskNotifyGive(worker_task_);
+#endif
     ESP_LOGI(kTag, "Started voice selection generation=%lu",
              static_cast<unsigned long>(generation));
     return true;
@@ -311,14 +383,14 @@ bool AliVoiceEnrollment::Speak(const char* text, uint32_t generation) {
     prompt_ok_.store(false);
     if (!external->BeginWithVoice(audio.GetPlaybackGeneration(), prompt_voice,
                                   [this, generation](bool ok) {
-            if (generation != generation_.load())
-                return;
-            prompt_ok_.store(ok);
-            prompt_done_.store(true);
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (task_)
-                xTaskNotifyGive(task_);
-        }))
+                                      if (generation != generation_.load())
+                                          return;
+                                      prompt_ok_.store(ok);
+                                      prompt_done_.store(true);
+                                      std::lock_guard<std::mutex> lock(mutex_);
+                                      if (task_)
+                                          xTaskNotifyGive(task_);
+                                  }))
         return false;
     if (!external->Enqueue(text)) {
         external->Cancel();

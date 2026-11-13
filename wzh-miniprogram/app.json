@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "pages/connect/connect",
+    "pages/device/device"
+  ],
+  "window": {
+    "navigationStyle": "custom",
+    "backgroundColor": "#f6eadc",
+    "backgroundTextStyle": "dark",
+    "navigationBarTextStyle": "black"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

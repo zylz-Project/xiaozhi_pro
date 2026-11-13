@@ -1,0 +1,235 @@
+@import "../../styles/guide.wxss";
+page { background: #f6eadc; }
+.connect-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  color: #2f2822;
+  background:
+    radial-gradient(680rpx 480rpx at 12% -4%, rgba(255,255,255,.88), transparent 64%),
+    radial-gradient(720rpx 520rpx at 104% 16%, rgba(224,187,154,.30), transparent 62%),
+    linear-gradient(160deg, #fbf1e4 0%, #f3e2cf 56%, #e9ddcf 100%);
+}
+.connect-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.blob { position: absolute; border-radius: 50%; filter: blur(2rpx); opacity: .55; }
+.blob.b1 { width: 420rpx; height: 420rpx; left: -120rpx; top: 120rpx; background: radial-gradient(circle at 36% 34%, #fff6e4, #f1c6a4 70%, rgba(241,198,164,0) 72%); }
+.blob.b2 { width: 360rpx; height: 360rpx; right: -140rpx; top: 420rpx; background: radial-gradient(circle at 40% 40%, #eef4e8, #bdd5c0 70%, rgba(189,213,192,0) 72%); }
+.blob.b3 { width: 260rpx; height: 260rpx; left: 40rpx; bottom: -80rpx; background: radial-gradient(circle at 40% 40%, #fff4e0, #f3c5a7 70%, rgba(243,197,167,0) 72%); }
+
+.connect-top {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18rpx;
+  padding: 24rpx 34rpx 0;
+}
+.brand-block { display: flex; flex-direction: column; gap: 6rpx; min-width: 0; }
+.brand-logo { width: 340rpx; height: 104rpx; object-fit: contain; filter: drop-shadow(0 8rpx 12rpx rgba(30,50,90,.10)); }
+.brand-line { padding-left: 4rpx; color: rgba(47,40,34,.50); font-size: 19rpx; line-height: 1.25; letter-spacing: .02em; }
+.ble-state {
+  display: inline-flex; align-items: center; gap: 8rpx; flex: 0 0 auto;
+  margin-top: 8rpx; padding: 9rpx 14rpx;
+  border: 1rpx solid rgba(255,255,255,.82); border-radius: 999rpx;
+  background: rgba(255,255,255,.46); box-shadow: 0 10rpx 24rpx -20rpx rgba(52,35,20,.42);
+  color: rgba(47,40,34,.58); font-size: 17rpx; font-weight: 600;
+}
+.ble-dot { width: 10rpx; height: 10rpx; border-radius: 50%; background: rgba(47,40,34,.28); }
+.ble-state.on .ble-dot { background: #2f7d52; box-shadow: 0 0 0 6rpx rgba(47,125,82,.12); }
+
+.connect-hero { position: relative; z-index: 1; padding: 18rpx 30rpx 0; }
+.connect-title { margin-top: 0; font-size: 42rpx; font-weight: 680; line-height: 1.08; letter-spacing: -.045em; }
+.connect-sub { margin-top: 7rpx; color: rgba(47,40,34,.50); font-size: 19rpx; line-height: 1.35; }
+
+.toy-scroll { display: flex; width: 100%; margin-top: 16rpx; white-space: nowrap; }
+.toy-card {
+  position: relative;
+  display: flex;
+  flex: 0 0 208rpx;
+  flex-direction: column;
+  align-items: flex-start;
+  box-sizing: border-box;
+  width: 208rpx;
+  margin-right: 12rpx;
+  padding: 14rpx 14rpx 12rpx;
+  border: 1rpx solid rgba(255,255,255,.80);
+  border-radius: 24rpx;
+  background: rgba(255,255,255,.38);
+  box-shadow: 0 16rpx 30rpx -30rpx rgba(62,38,18,.46), inset 0 1rpx 0 rgba(255,255,255,.70);
+  -webkit-backdrop-filter: blur(22rpx); backdrop-filter: blur(22rpx);
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.toy-card:last-child { margin-right: 0; }
+.toy-card:active { transform: scale(.975); }
+.toy-card.on { border-color: rgba(169,93,60,.72); background: rgba(255,248,238,.80); box-shadow: 0 0 0 2rpx rgba(201,119,82,.16) inset, 0 18rpx 34rpx -28rpx rgba(62,38,18,.44); }
+.toy-card-icon { display: grid; place-items: center; width: 94rpx; height: 94rpx; border-radius: 24rpx; background: rgba(255,255,255,.52); }
+.toy-card-icon image { width: 82rpx; height: 82rpx; object-fit: contain; }
+.toy-card-name { display: block; margin-top: 9rpx; font-size: 23rpx; font-weight: 650; line-height: 1.15; letter-spacing: -.02em; }
+.toy-card-en { display: block; margin-top: 3rpx; overflow: hidden; width: 100%; color: rgba(47,40,34,.42); font-size: 13rpx; font-weight: 600; line-height: 1.1; letter-spacing: .04em; text-overflow: ellipsis; }
+.toy-card-check { position: absolute; top: 10rpx; right: 10rpx; display: grid; place-items: center; width: 30rpx; height: 30rpx; border-radius: 50%; color: #fffaf2; background: #a95d3c; opacity: 0; transform: scale(.7); transition: opacity .18s ease, transform .18s ease; }
+.toy-card-check .ico { width: 18rpx; height: 18rpx; }
+.toy-card.on .toy-card-check { opacity: 1; transform: scale(1); }
+.toy-filter-hint { margin-top: 9rpx; color: rgba(47,40,34,.40); font-size: 16rpx; line-height: 1.3; }
+
+.connect-list { position: relative; z-index: 2; flex: 1; min-height: 0; padding: 12rpx 30rpx 0; }
+.connect-error {
+  margin: 8rpx 2rpx 12rpx; padding: 12rpx 16rpx; border: 1rpx solid rgba(183,77,62,.18);
+  border-radius: 14rpx; color: #a33f34; background: rgba(255,255,255,.42); font-size: 19rpx; line-height: 1.5;
+}
+.device-group { display: flex; flex-direction: column; gap: 10rpx; }
+.device-group-head { display: flex; align-items: center; justify-content: space-between; padding: 0 6rpx 2rpx; color: rgba(47,40,34,.48); font-size: 17rpx; letter-spacing: .10em; }
+.device-count { min-width: 28rpx; padding: 2rpx 7rpx; border-radius: 999rpx; background: rgba(47,40,34,.08); text-align: center; font-size: 15rpx; }
+.device-card {
+  display: flex; align-items: center; gap: 14rpx; width: 100%; padding: 14rpx 14rpx 14rpx 12rpx;
+  border: 1rpx solid rgba(255,255,255,.78); border-radius: 22rpx;
+  background: rgba(255,255,255,.42); box-shadow: 0 18rpx 36rpx -34rpx rgba(62,38,18,.5), inset 0 1rpx 0 rgba(255,255,255,.7);
+  -webkit-backdrop-filter: blur(24rpx); backdrop-filter: blur(24rpx);
+}
+.device-card:active { transform: scale(.985); background: rgba(255,255,255,.56); }
+.device-icon { display: grid; place-items: center; flex: 0 0 76rpx; width: 76rpx; height: 76rpx; border-radius: 20rpx; background: rgba(255,255,255,.52); }
+.device-icon image { width: 66rpx; height: 66rpx; object-fit: contain; }
+.device-copy { display: flex; flex-direction: column; gap: 5rpx; flex: 1; min-width: 0; }
+.device-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 25rpx; font-weight: 650; letter-spacing: -.01em; }
+.device-meta { color: rgba(47,40,34,.46); font-size: 17rpx; }
+.device-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6rpx; }
+.signal-bars { display: flex; align-items: flex-end; gap: 3rpx; height: 20rpx; }
+.signal-bar { width: 4rpx; height: 6rpx; border-radius: 2rpx; background: rgba(47,40,34,.16); }
+.signal-bar:nth-child(2) { height: 9rpx; }
+.signal-bar:nth-child(3) { height: 13rpx; }
+.signal-bar:nth-child(4) { height: 17rpx; }
+.signal-bar.on { background: #c97752; }
+.device-rssi { color: rgba(47,40,34,.42); font-size: 15rpx; font-variant-numeric: tabular-nums; }
+.device-go { display: grid; place-items: center; width: 34rpx; height: 34rpx; color: rgba(47,40,34,.30); }
+.device-go .ico { width: 20rpx; height: 20rpx; }
+.device-tip {
+  display: flex; align-items: flex-start; gap: 10rpx; margin: 16rpx 4rpx 0; padding: 13rpx 16rpx;
+  border: 1rpx dashed rgba(47,40,34,.16); border-radius: 16rpx;
+  color: rgba(47,40,34,.50); font-size: 17rpx; line-height: 1.55;
+}
+.device-tip-dot { flex: 0 0 8rpx; width: 8rpx; height: 8rpx; margin-top: 11rpx; border-radius: 50%; background: rgba(201,119,82,.66); }
+
+.connect-empty { display: flex; flex-direction: column; align-items: center; padding: 34rpx 20rpx 20rpx; text-align: center; }
+.empty-orbit { display: grid; place-items: center; width: 112rpx; height: 112rpx; border-radius: 50%; border: 1rpx dashed rgba(47,40,34,.20); color: rgba(47,40,34,.42); }
+.empty-orbit .ico { width: 40rpx; height: 40rpx; }
+.empty-title { margin-top: 18rpx; font-size: 24rpx; font-weight: 650; }
+.empty-sub { margin-top: 6rpx; color: rgba(47,40,34,.46); font-size: 18rpx; line-height: 1.5; }
+
+.connect-actions { position: relative; z-index: 2; padding: 12rpx 34rpx calc(22rpx + env(safe-area-inset-bottom)); }
+.scan-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10rpx; width: 100% !important; height: 88rpx;
+  border-radius: 999rpx; color: #fffaf2; background: #352b24;
+  box-shadow: 0 18rpx 34rpx -24rpx rgba(40,28,18,.72); font-size: 24rpx; font-weight: 600;
+}
+.scan-btn.busy { color: rgba(255,250,242,.72); background: #4a3d33; }
+.scan-btn .ico { width: 24rpx; height: 24rpx; }
+.scan-spinner { width: 24rpx; height: 24rpx; border: 2rpx solid rgba(255,250,242,.24); border-top-color: #fffaf2; border-radius: 50%; animation: spin .8s linear infinite; }
+.connect-note { margin-top: 12rpx; color: rgba(47,40,34,.42); font-size: 17rpx; line-height: 1.5; text-align: center; }
+.demo-link { margin-top: 8rpx; color: rgba(169,93,60,.86); font-size: 17rpx; text-align: center; text-decoration: underline; text-underline-offset: 4rpx; }
+
+.connecting-mask { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; padding: 40rpx; background: rgba(38,28,21,.26); -webkit-backdrop-filter: blur(12rpx); backdrop-filter: blur(12rpx); }
+.connecting-card { display: flex; flex-direction: column; align-items: center; width: 420rpx; padding: 34rpx 24rpx 30rpx; border: 1rpx solid rgba(255,255,255,.82); border-radius: 30rpx; background: rgba(255,250,242,.92); box-shadow: 0 30rpx 70rpx -38rpx rgba(40,28,18,.6); }
+.connecting-spinner { width: 54rpx; height: 54rpx; border: 4rpx solid rgba(201,119,82,.18); border-top-color: #c97752; border-radius: 50%; animation: spin .9s linear infinite; }
+.connecting-title { margin-top: 18rpx; font-size: 28rpx; font-weight: 650; }
+.connecting-name { margin-top: 4rpx; color: #a95d3c; font-size: 21rpx; font-weight: 600; }
+.connecting-sub { margin-top: 12rpx; color: rgba(47,40,34,.46); font-size: 17rpx; line-height: 1.5; text-align: center; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Keep the BLE state chip in the brand column, clear of the WeChat capsule. */
+.brand-block { align-items: flex-start; }
+.ble-state { align-self: flex-start; margin-top: 8rpx; }
+
+/* First-run pairing strip: fills the gap under short device lists and explains
+   the hardware confirmation step without adding another modal. */
+.pair-guide {
+  margin: 14rpx 4rpx 0;
+  padding: 15rpx 18rpx 16rpx;
+  border: 1rpx solid rgba(255,255,255,.70);
+  border-radius: 18rpx;
+  background: rgba(255,255,255,.32);
+}
+.pair-guide-head {
+  display: block;
+  color: rgba(47,40,34,.60);
+  font-size: 19rpx;
+  font-weight: 650;
+  letter-spacing: .06em;
+}
+.pair-guide-steps { display: flex; gap: 8rpx; margin-top: 12rpx; }
+.pair-guide-step { display: flex; flex: 1; align-items: center; gap: 8rpx; min-width: 0; }
+.pair-guide-no {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30rpx;
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 50%;
+  color: #a95d3c;
+  background: rgba(201,119,82,.16);
+  font-size: 16rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+.pair-guide-tx { color: rgba(47,40,34,.60); font-size: 19rpx; white-space: nowrap; }
+
+/* Slightly larger secondary text on the device list. */
+.device-meta { font-size: 18.27rpx; }
+.device-rssi { font-size: 16.35rpx; }
+.device-group-head { font-size: 18.27rpx; }
+.device-tip { font-size: 18.27rpx; }
+.connect-note { font-size: 18.27rpx; }
+
+
+/* ---------- guide skin tokens (shared styles/guide.wxss reads these) ---------- */
+.connect-page {
+  --accent: #c97752;
+  --accent-deep: #a95d3c;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ---------- last device memory ---------- */
+.last-banner {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin: 4rpx 2rpx 12rpx;
+  padding: 13rpx 16rpx;
+  border: 1rpx solid rgba(201,119,82,.22);
+  border-radius: 16rpx;
+  background: rgba(255,247,238,.62);
+}
+.last-banner.auto { border-color: rgba(201,119,82,.34); background: rgba(255,246,236,.82); }
+.last-banner-tx { flex: 1; min-width: 0; color: rgba(47,40,34,.62); font-size: 18.27rpx; line-height: 1.45; }
+.last-banner-spin {
+  flex: 0 0 20rpx;
+  width: 20rpx;
+  height: 20rpx;
+  border: 2rpx solid rgba(201,119,82,.22);
+  border-top-color: #c97752;
+  border-radius: 50%;
+  animation: spin .9s linear infinite;
+}
+.device-card.is-last { border-color: rgba(201,119,82,.42); background: rgba(255,248,238,.62); }
+.device-name-row { display: flex; align-items: center; gap: 10rpx; min-width: 0; }
+.device-last {
+  flex: 0 0 auto;
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
+  color: #a95d3c;
+  background: rgba(201,119,82,.14);
+  font-size: 15rpx;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+/* ---------- actions: guide + demo links ---------- */
+.connect-links { display: flex; flex-direction: column; align-items: center; gap: 6rpx; }
+.guide-link { margin-top: 6rpx; color: rgba(47,40,34,.52); font-size: 17rpx; text-decoration: underline; text-underline-offset: 4rpx; }
+.pair-guide { margin-bottom: 6rpx; }
+

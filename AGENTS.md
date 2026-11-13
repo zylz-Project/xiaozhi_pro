@@ -2,9 +2,9 @@
 
 ## Project
 
-XiaoZhi is an ESP-IDF C/C++ voice-assistant firmware supporting many chips, boards, displays, audio devices, and network transports. A build selects exactly one board implementation.
+This XiaoZhi-based ESP-IDF C/C++ voice-assistant firmware maintains three WZH products: crawling panda, tail red panda, and dinosaur. All three use ESP32-S3, and a build selects exactly one board implementation. Their shared audio, network, protocol, and hardware interfaces remain in the common layers.
 
-Use ESP-IDF v6.0.2 when possible. IDF 5.5.x is retained only for documented legacy boards.
+Use ESP-IDF v6.0.2 when possible. Do not assume a legacy SDK is supported by these products without a documented and tested configuration.
 
 ## Architecture
 

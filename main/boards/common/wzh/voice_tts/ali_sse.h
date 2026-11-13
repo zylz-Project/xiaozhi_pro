@@ -22,9 +22,20 @@ public:
                     event_.clear();
                 } else if (line_.compare(0, 5, "data:") == 0) {
                     size_t offset = line_.size() > 5 && line_[5] == ' ' ? 6 : 5;
-                    if (!event_.empty())
+                    if (event_.empty()) {
+                        // Transfer the first line instead of holding two large
+                        // copies of a base64 audio event at the same time.
+                        line_.erase(0, offset);
+                        event_.swap(line_);
+                    } else {
+                        // Reject before appending: otherwise an oversized
+                        // multi-line event can temporarily double its buffer.
+                        if (event_.size() >= kLimit ||
+                            line_.size() - offset > kLimit - event_.size() - 1)
+                            return false;
                         event_ += '\n';
-                    event_ += line_.substr(offset);
+                        event_.append(line_, offset, std::string::npos);
+                    }
                     if (event_.size() > kLimit)
                         return false;
                 }

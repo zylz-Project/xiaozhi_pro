@@ -17,6 +17,9 @@ public:
     static esp_err_t PrintTaskCpuUsage(TickType_t xTicksToWait);
     static void PrintTaskList();
     static void PrintHeapStats();
+#if CONFIG_WZH_MEMORY_DIAGNOSTICS
+    static void PrintMemoryDiagnostics(const char* phase);
+#endif
     static void PrintPmLocks();
 };
 

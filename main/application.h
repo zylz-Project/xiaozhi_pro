@@ -72,6 +72,7 @@ public:
     bool IsVoiceEnrollmentActive() const { return voice_enrollment_active_.load(); }
     bool RequestDeviceVoiceEnrollment(const std::string& name);
     const char* DeviceVoiceEnrollmentStatus() const;
+    const char* DeviceVoiceEnrollmentFailure() const;
     bool RequestExternalVoicePreview(const std::string& voice = {});
     bool IsExternalVoicePreviewActive() const { return external_voice_preview_active_.load(); }
     const char* ExternalVoicePreviewStatus() const;
@@ -220,6 +221,8 @@ private:
     bool entry_prompt_before_listening_ = false;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
+    bool network_connected_ = false;         // main-task owned
+    bool activation_retry_pending_ = false;  // main-task owned
 
     // Event handlers
     void HandleStateChangedEvent();

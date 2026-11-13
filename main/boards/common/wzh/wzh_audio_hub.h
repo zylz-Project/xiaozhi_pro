@@ -45,7 +45,7 @@ public:
     // 启动后台任务（Kconfig 关闭时返回 false 且状态为 kDisabled）。
     bool Start(AudioStore* store, std::function<bool()> interaction_busy = {});
 
-    // 手动模式：只创建等待命令的任务，不注册、不心跳、不自动检查或下载。
+    // 手动模式：仅在首次接收命令时创建任务，不自动注册、心跳、检查或下载。
     // 供本地管理页显式触发一次检查/更新。
     bool StartManual(AudioStore* store, std::function<bool()> interaction_busy = {});
 
@@ -97,6 +97,7 @@ private:
     static void TaskEntry(void* arg);
     void Task();
     void ManualTask();
+    bool EnsureManualTaskLocked();  // job_mutex_ must be held
     void DoCheck();
     void DoUpdate();
     bool InitializeClient();

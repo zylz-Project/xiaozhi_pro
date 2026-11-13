@@ -50,7 +50,8 @@ int main(){
                                      '-I', str(ROOT/'main/boards/common/wzh'), str(source),
                                      '-o', str(source.with_suffix(''))], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            result = subprocess.run([str(source.with_suffix(''))], capture_output=True, text=True, timeout=30)
+            # The 32-performance reference profile is CPU-heavy; 30 s is too tight on loaded CI hosts.
+            result = subprocess.run([str(source.with_suffix(''))], capture_output=True, text=True, timeout=120)
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_adjacent_unequal_frames_share_velocity_and_do_not_overshoot(self):

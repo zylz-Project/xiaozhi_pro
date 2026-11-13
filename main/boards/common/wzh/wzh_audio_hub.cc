@@ -147,18 +147,21 @@ bool AudioHub::Start(AudioStore* store, std::function<bool()> interaction_busy) 
 }
 
 bool AudioHub::StartManual(AudioStore* store, std::function<bool()> interaction_busy) {
+    std::lock_guard<std::mutex> lock(job_mutex_);
     store_ = store;
     interaction_busy_ = std::move(interaction_busy);
-    if (manual_mode_ && task_handle_ != nullptr) {
-        return true;
-    }
     manual_mode_ = true;
+    ESP_LOGI(TAG, "Audio Hub 手动模式就绪（按需创建任务）");
+    return true;
+}
+
+bool AudioHub::EnsureManualTaskLocked() {
+    if (task_handle_ != nullptr)
+        return true;
     if (xTaskCreate(TaskEntry, "wzh_hub_manual", 8192, this, 1, &task_handle_) != pdPASS) {
         ESP_LOGE(TAG, "无法启动 Audio Hub 手动任务");
-        manual_mode_ = false;
         return false;
     }
-    ESP_LOGI(TAG, "Audio Hub 手动模式就绪（等待管理页命令）");
     return true;
 }
 
@@ -640,7 +643,7 @@ bool AudioHub::RequestCheck() {
     std::lock_guard<std::mutex> lock(job_mutex_);
     if (local_maintenance_)
         return false;
-    if (!manual_mode_ || task_handle_ == nullptr) {
+    if (!manual_mode_ || !EnsureManualTaskLocked()) {
         return false;
     }
     if (job_running_.exchange(true)) {
@@ -655,7 +658,7 @@ bool AudioHub::RequestUpdate(const std::vector<std::string>& names) {
     std::lock_guard<std::mutex> lock(job_mutex_);
     if (local_maintenance_)
         return false;
-    if (!manual_mode_ || task_handle_ == nullptr || names.empty()) {
+    if (!manual_mode_ || names.empty() || !EnsureManualTaskLocked()) {
         return false;
     }
     if (job_running_.exchange(true)) {

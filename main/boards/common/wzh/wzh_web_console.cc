@@ -144,13 +144,22 @@ void WebConsole::Configure(Options options) {
         });
     };
     user_portal_ = std::make_unique<UserWebPortal>(options_);
-    WifiManager::GetInstance().SetPortalRegistrar(
-        [this](httpd_handle_t server, WifiConfigurationAp* portal) {
-            return user_portal_ && user_portal_->Register(server, portal);
-        });
 }
 
 bool WebConsole::Start() {
+    if (started_.load())
+        return true;
+    // Starting the bootstrap and HTTP tasks at once needs two internal stacks.
+    // Leave headroom for Wi-Fi/audio; the idle tick retries after memory recovers.
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 24 * 1024 ||
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 8192) {
+        ESP_LOGW(
+            TAG, "管理页等待内存恢复: internal=%u largest=%u",
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(
+                heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+        return false;
+    }
     if (started_.exchange(true)) {
         return true;
     }
@@ -186,11 +195,10 @@ void WebConsole::StartTask() {
         started_.store(false);
         return;
     }
+    // WZH products no longer own a SoftAP: provisioning moved to BLE and the
+    // :8080 console is a LAN-only developer surface. Keep the legacy
+    // persistent-portal SSID for older builds/tests, but never create an AP.
     const bool persistent = WifiManager::GetInstance().IsPersistentPortalActive();
-    if (!persistent && !EnsureAp()) {
-        started_.store(false);
-        return;
-    }
     if (persistent)
         ap_ssid_ = WifiManager::GetInstance().GetApSsid();
     if (options_.hub != nullptr) {
@@ -198,7 +206,6 @@ void WebConsole::StartTask() {
         options_.hub->EnsureInitialized();
     }
     if (!StartHttpServer()) {
-        DestroyAp();
         started_.store(false);
         return;
     }
@@ -284,14 +291,13 @@ void WebConsole::DestroyAp() {
 esp_err_t WebConsole::GuardedDispatch(httpd_req_t* req) {
     auto* route = static_cast<RouteSlot*>(req->user_ctx);
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
-        uint32_t ip = 0;
-        if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip)) {
-            return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
-        }
-    }
+    // The developer console is a LAN maintenance surface. Keep it off the open
+    // device hotspot even after the user portal is gone; BLE is the setup path.
+    uint32_t ip = 0;
+    if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip))
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
     req->user_ctx = route->owner;
-    if (WifiManager::GetInstance().IsPersistentPortalActive() && req->method == HTTP_POST) {
+    if (req->method == HTTP_POST) {
         const size_t host_len = httpd_req_get_hdr_value_len(req, "Host");
         const size_t origin_len = httpd_req_get_hdr_value_len(req, "Origin");
         // Browsers always attach Origin to a cross-site POST; a missing Origin
@@ -310,17 +316,19 @@ esp_err_t WebConsole::GuardedDispatch(httpd_req_t* req) {
             }
         }
     }
-    if (WifiManager::GetInstance().IsPersistentPortalActive() && std::strcmp(req->uri, "/") != 0 &&
-        std::strcmp(req->uri, "/api/developer/login") != 0 &&
-        !route->owner->RequireDeveloper(req)) {
+    // The console page and its read-only status/audio endpoints stay public on
+    // the local network; every developer API except login/logout requires the
+    // developer session token.
+    const bool is_developer_uri = std::strncmp(req->uri, "/api/developer/", 15) == 0;
+    const bool is_auth_uri = std::strcmp(req->uri, "/api/developer/login") == 0 ||
+                             std::strcmp(req->uri, "/api/developer/logout") == 0;
+    if (is_developer_uri && !is_auth_uri && !route->owner->RequireDeveloper(req)) {
         req->user_ctx = route;
         return ESP_OK;
     }
-    if (WifiManager::GetInstance().IsPersistentPortalActive() && req->method == HTTP_POST &&
+    if (req->method == HTTP_POST && !is_auth_uri &&
         (route->owner->maintenance_active() ||
-         (route->owner->user_portal_ && route->owner->user_portal_->ResetActive())) &&
-        std::strcmp(req->uri, "/api/developer/login") != 0 &&
-        std::strcmp(req->uri, "/api/developer/logout") != 0) {
+         (route->owner->user_portal_ && route->owner->user_portal_->ResetActive()))) {
         req->user_ctx = route;
         httpd_resp_set_status(req, "503 Service Unavailable");
         return httpd_resp_send(req, "Maintenance active", HTTPD_RESP_USE_STRLEN);
@@ -331,11 +339,9 @@ esp_err_t WebConsole::GuardedDispatch(httpd_req_t* req) {
 }
 
 esp_err_t WebConsole::GuardedError(httpd_req_t* req, httpd_err_code_t error) {
-    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
-        uint32_t ip = 0;
-        if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip))
-            return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
-    }
+    uint32_t ip = 0;
+    if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip))
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
     return httpd_resp_send_err(req, error, nullptr);
 }
 
@@ -344,8 +350,6 @@ bool WebConsole::StartHttpServer() {
     config.server_port = kConsolePort;
     config.ctrl_port = kConsoleCtrlPort;
     config.max_uri_handlers = 24;
-    if (WifiManager::GetInstance().IsPersistentPortalActive())
-        config.max_open_sockets = 3;
     config.recv_wait_timeout = 3;
     config.stack_size = 8192;
     config.lru_purge_enable = true;
@@ -468,6 +472,12 @@ esp_err_t WebConsole::SendError(httpd_req_t* req, int status, const char* code) 
     const esp_err_t err = SendJson(req, root, HttpStatusText(status));
     cJSON_Delete(root);
     return err;
+}
+
+void WebConsole::BuildStatus(cJSON* root) {
+    AddStatus(root);
+    if (options_.voice_status_extra)
+        options_.voice_status_extra(root);
 }
 
 void WebConsole::AddStatus(cJSON* root) {
@@ -926,7 +936,7 @@ esp_err_t WebConsole::HandleDeveloperStatus(httpd_req_t* req) {
     cJSON* out = cJSON_CreateObject();
     if (!out)
         return httpd_resp_send_500(req);
-    self->AddStatus(out);
+    self->BuildStatus(out);
     cJSON_AddNumberToObject(out, "heap_free", heap_caps_get_free_size(MALLOC_CAP_8BIT));
     cJSON_AddNumberToObject(out, "heap_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     cJSON_AddStringToObject(out, "compiled", esp_app_get_description()->date);
@@ -947,8 +957,6 @@ esp_err_t WebConsole::HandleDeveloperStatus(httpd_req_t* req) {
             cJSON_AddStringToObject(out, "voice_preview_status",
                                     self->options_.voice_preview_status());
     }
-    if (self->options_.voice_status_extra)
-        self->options_.voice_status_extra(out);
     cJSON* job = cJSON_AddObjectToObject(out, "erase");
     if (job) {
         std::lock_guard<std::mutex> lock(self->job_mutex_);
@@ -1150,14 +1158,38 @@ esp_err_t WebConsole::HandleDeveloperOta(httpd_req_t* req) {
     return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
 }
 
+bool WebConsole::StartFactoryReset(std::string& code, std::string& message) {
+    if (!user_portal_) {
+        code = "RESET_UNAVAILABLE";
+        message = "恢复出厂服务不可用";
+        return false;
+    }
+    return user_portal_->StartFactoryReset(code, message);
+}
+
+void WebConsole::FactoryResetStatus(cJSON* out) {
+    if (user_portal_)
+        user_portal_->FactoryResetStatus(out);
+}
+
 esp_err_t WebConsole::HandleDeveloperFactoryReset(httpd_req_t* req) {
     auto* self = static_cast<WebConsole*>(req->user_ctx);
     if (!self->RequireDeveloper(req))
         return ESP_OK;
-    if (!self->user_portal_ || !WifiManager::GetInstance().IsPersistentPortalActive())
+    if (!self->user_portal_)
         return SendError(req, 409, "reset_unavailable");
-    return req->method == HTTP_GET ? self->user_portal_->FactoryResetStatus(req)
-                                   : self->user_portal_->StartFactoryReset(req);
+    if (req->method == HTTP_GET) {
+        cJSON* out = cJSON_CreateObject();
+        if (!out)
+            return httpd_resp_send_500(req);
+        self->FactoryResetStatus(out);
+        const auto result = SendJson(req, out);
+        cJSON_Delete(out);
+        return result;
+    }
+    // Keep the HTTP path on the portal handler: it validates the confirmation
+    // phrase and maps errors onto the documented status codes.
+    return self->user_portal_->StartFactoryReset(req);
 }
 
 esp_err_t WebConsole::HandleDeveloperCenter(httpd_req_t* req) {
