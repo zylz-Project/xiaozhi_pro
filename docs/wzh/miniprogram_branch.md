@@ -14,6 +14,18 @@
 编译通过和模拟测试不等同于三款硬件验收。更详细的方案和实测边界见
 `docs/wzh/audio/voice_memory_latency_strategy.md`。
 
+本次测试固件使用独立的 `config.miniprogram-experimental.json`，启用了 PSRAM
+工作栈和 Flash 调度器实验，未启用流式 TTS 实验。它们不是经过实机验收的发布版。
+在 ESP-IDF 6.0.2 环境下可分别复现：
+
+```sh
+python3 scripts/build.py wzh_crawlPanda -c config.miniprogram-experimental.json --name wzh-crawlpanda
+python3 scripts/build.py wzh_tailRedPanda -c config.miniprogram-experimental.json --name wzh-tailredpanda
+python3 scripts/build.py wzh_dinosaur -c config.miniprogram-experimental.json --name wzh-dinosaur
+```
+
+构建目录会被下一次构建覆盖，需在每次构建完成后分别保存应用、资源和分区表。
+
 小程序的本机私有配置及临时二维码不进入 Git；开发者工具账号配置、云端密钥、
 设备 Wi-Fi 凭据和已创建音色也不写入仓库。刷写前应核实板型、活动 OTA 槽、
 分区表和备份，不能对未知设备执行整片擦除。
