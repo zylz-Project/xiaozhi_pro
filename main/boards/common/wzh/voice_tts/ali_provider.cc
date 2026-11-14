@@ -1,5 +1,7 @@
 #include "ali_provider.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include "ali_sse.h"
@@ -107,6 +109,7 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
         // allocating a new vector for every SSE event fragments the heap.
         std::vector<uint8_t> pcm;
         AliSse sse([&](const std::string& event) {
+            ++response.stream_events;
             if (event == "[DONE]") {
                 done = true;
                 return true;
@@ -114,14 +117,20 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
             const char* end = nullptr;
             std::unique_ptr<cJSON, JsonDeleter> json(
                 cJSON_ParseWithLengthOpts(event.c_str(), event.size() + 1, &end, true));
-            if (!json || end != event.c_str() + event.size())
+            if (!json || end != event.c_str() + event.size()) {
+                response.stream_detail = "event_json";
                 return false;
+            }
             const auto* error = cJSON_GetObjectItemCaseSensitive(json.get(), "code");
-            if (cJSON_IsString(error) && error->valuestring && error->valuestring[0])
+            if (cJSON_IsString(error) && error->valuestring && error->valuestring[0]) {
+                response.stream_detail = "service_error";
                 return false;
+            }
             const auto* output = cJSON_GetObjectItemCaseSensitive(json.get(), "output");
-            if (!cJSON_IsObject(output))
+            if (!cJSON_IsObject(output)) {
+                response.stream_detail = "missing_output";
                 return false;
+            }
             const auto* finish = cJSON_GetObjectItemCaseSensitive(output, "finish_reason");
             if (cJSON_IsString(finish) && std::strcmp(finish->valuestring, "stop") == 0)
                 done = true;
@@ -129,8 +138,10 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
             const auto* data = cJSON_GetObjectItemCaseSensitive(audio, "data");
             if (!data || cJSON_IsNull(data))
                 return true;
-            if (!cJSON_IsString(data) || !data->valuestring)
+            if (!cJSON_IsString(data) || !data->valuestring) {
+                response.stream_detail = "audio_type";
                 return false;
+            }
             const size_t len = std::strlen(data->valuestring);
             if (!len)
                 return true;
@@ -138,28 +149,63 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
             size_t written = 0;
             if (mbedtls_base64_decode(pcm.data(), pcm.size(), &written,
                                       reinterpret_cast<const unsigned char*>(data->valuestring),
-                                      len) != 0 ||
-                total_pcm + written > kMaxStreamPcm)
+                                      len) != 0) {
+                response.stream_detail = "audio_base64";
                 return false;
+            }
+            if (total_pcm + written > kMaxStreamPcm) {
+                response.stream_detail = "audio_limit";
+                return false;
+            }
             total_pcm += written;
             got_audio = got_audio || written != 0;
-            return request.pcm_sink(pcm.data(), written);
+            if (!request.pcm_sink(pcm.data(), written)) {
+                response.stream_detail = "sink_stopped";
+                return false;
+            }
+            return true;
         });
         char chunk[2048];
         while (!Cancelled(request)) {
+            const auto read_started = std::chrono::steady_clock::now();
             int n = esp_http_client_read(client.get(), chunk, sizeof(chunk));
-            if (n < 0)
+            const auto read_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now() - read_started)
+                                     .count();
+            response.stream_max_read_ms =
+                std::max(response.stream_max_read_ms, static_cast<unsigned>(read_ms));
+            if (n < 0) {
+                response.stream_detail = "read_error";
                 return Result::kNetworkError;
+            }
             if (!n)
                 break;
-            if (!sse.Feed(chunk, static_cast<size_t>(n)))
+            response.stream_bytes += static_cast<size_t>(n);
+            const auto process_started = std::chrono::steady_clock::now();
+            const bool accepted = sse.Feed(chunk, static_cast<size_t>(n));
+            const auto process_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::steady_clock::now() - process_started)
+                                        .count();
+            response.stream_max_process_ms =
+                std::max(response.stream_max_process_ms, static_cast<unsigned>(process_ms));
+            if (!accepted) {
+                if (std::strcmp(response.stream_detail, "none") == 0)
+                    response.stream_detail = "framing_limit";
                 return Cancelled(request) ? Result::kCancelled : Result::kInvalidResponse;
+            }
         }
         if (Cancelled(request))
             return Result::kCancelled;
         if (!esp_http_client_is_complete_data_received(client.get()) || !sse.Complete() || !done ||
-            !got_audio)
+            !got_audio) {
+            response.stream_detail = !esp_http_client_is_complete_data_received(client.get())
+                                         ? "http_incomplete"
+                                     : !sse.Complete() ? "sse_incomplete"
+                                     : !done           ? "missing_end"
+                                                       : "no_audio";
             return Result::kInvalidResponse;
+        }
+        response.stream_detail = "ok";
         response.streamed = true;
         return Result::kOk;
     }

@@ -510,7 +510,7 @@ struct Power{
     enum class BtnState{kIdle,kDebouncePress,kPressed,kDebounceRelease};
     BtnState state=BtnState::kIdle;int adc_=0,power_adc_cali_=0;
     uint32_t state_since_ms=0,press_start_ms=0;int hold_tip=0;
-    uint32_t last_sample_ms=0;
+    uint32_t last_sample_ms=0,previous_work_ms=0,sleep_ms=0,iteration_start_ms=0;
     bool armed=false,boot_hold_logged=false,power_adc_fault=false;
     TickType_t last_click_tick=0;int click_count=0,shutdowns=0;
     void Shutdown(){++shutdowns;}

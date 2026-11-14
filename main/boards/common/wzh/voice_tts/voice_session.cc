@@ -531,6 +531,14 @@ void VoiceSession::Run(uint32_t generation) {
         ESP_LOGI(kTag, "Requesting speech provider=%s", provider_.c_str());
         auto result = provider.Synthesize(request, response);
         last_activity = esp_timer_get_time();
+        if (response.http_status == 200) {
+            ESP_LOGI(kTag,
+                     "Ali stream stats: detail=%s bytes=%u events=%u read_max_ms=%u "
+                     "process_max_ms=%u",
+                     response.stream_detail, static_cast<unsigned>(response.stream_bytes),
+                     static_cast<unsigned>(response.stream_events), response.stream_max_read_ms,
+                     response.stream_max_process_ms);
+        }
         if (result == Result::kOk && !cancelled()) {
             if (response.streamed) {
                 ESP_LOGI(kTag, "Ali PCM stream complete: HTTP=%d elapsed_ms=%u",

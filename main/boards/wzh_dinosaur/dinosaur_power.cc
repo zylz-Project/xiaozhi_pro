@@ -284,12 +284,17 @@ void DinosaurPower::Task() {
     Application::GetInstance().GetAudioService().PlaySound(Lang::Sounds::OGG_POWER_ON);
     ESP_LOGI(TAG, "Power task ready");
     uint32_t last_battery_log_ms = 0;
+    uint32_t previous_work_ms = 0;
+    uint32_t delay_started_ms = 0;
 
     while (true) {
+        const uint32_t iteration_start_ms = esp_log_timestamp();
+        const uint32_t sleep_ms = delay_started_ms ? iteration_start_ms - delay_started_ms : 0;
         if (auto* output = servo_output_.load()) {
             output->Watchdog();
         }
         const uint32_t adc_start_ms = esp_log_timestamp();
+        const uint32_t watchdog_ms = adc_start_ms - iteration_start_ms;
         int raw = 4095;
         const esp_err_t power_err = adc_oneshot_read(adc_, POWER_BUTTON_ADC_CHANNEL, &raw);
         const int power_mv = AdcToMv(power_adc_cali_, raw);
@@ -307,10 +312,15 @@ void DinosaurPower::Task() {
 
         if (!power_sample_valid || sample_gap) {
             if (!power_adc_fault)
-                ESP_LOGW(TAG, "Power key sample invalid: %s raw=%d value=%dmV gap=%lums adc=%lums",
+                ESP_LOGW(TAG,
+                         "Power key sample invalid: %s raw=%d value=%dmV gap=%lums adc=%lums "
+                         "prev_work=%lums sleep=%lums watchdog=%lums",
                          esp_err_to_name(power_err), raw, power_mv,
                          static_cast<unsigned long>(sample_interval_ms),
-                         static_cast<unsigned long>(now - adc_start_ms));
+                         static_cast<unsigned long>(now - adc_start_ms),
+                         static_cast<unsigned long>(previous_work_ms),
+                         static_cast<unsigned long>(sleep_ms),
+                         static_cast<unsigned long>(watchdog_ms));
             power_adc_fault = true;
             state = BtnState::kIdle;
             armed = false;
@@ -534,6 +544,8 @@ void DinosaurPower::Task() {
                 temperature_valid_.store(false);
             }
         }
+        delay_started_ms = esp_log_timestamp();
+        previous_work_ms = delay_started_ms - now;
         vTaskDelay(pdMS_TO_TICKS(kPollMs));
     }
 }

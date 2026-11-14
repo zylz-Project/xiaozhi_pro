@@ -645,6 +645,15 @@ void BleService::HandleLine(const std::string& line) {
         HandleVoiceDelete(id, data);
     } else if (op == "voice_record") {
         HandleVoiceRecord(id, data);
+    } else if (op == "voice_record_status") {
+        auto& app = Application::GetInstance();
+        cJSON* out = cJSON_CreateObject();
+        const char* status = app.DeviceVoiceEnrollmentStatus();
+        cJSON_AddStringToObject(out, "status", status);
+        const char* reason = app.DeviceVoiceEnrollmentFailure();
+        if (reason != nullptr && reason[0] != '\0')
+            cJSON_AddStringToObject(out, "reason", reason);
+        SendResponse(id, out);
     } else if (op == "voice_upload_begin") {
         HandleUploadBegin(id, data);
     } else if (op == "voice_upload_chunk") {
@@ -830,15 +839,20 @@ void BleService::HandleVoiceRecord(int id, cJSON* data) {
         SendError(id, 1010, "设备当前无法录音");
         return;
     }
-    auto* args = new VoiceWatchArgs{this, name};
-    if (xTaskCreate(
-            [](void* arg) {
-                VoiceWatchTask(arg);
-                vTaskDelete(nullptr);
-            },
-            "wzh_ble_voice", 3072, args, 3, nullptr) != pdPASS) {
-        delete args;
-        ESP_LOGW(kTag, "录音状态任务创建失败");
+    // New clients poll the authoritative status and do not need an extra
+    // internal-RAM task for the entire cloud operation. Keep events for old clients.
+    if (!cJSON_IsTrue(data == nullptr ? nullptr
+                                      : cJSON_GetObjectItemCaseSensitive(data, "statusPoll"))) {
+        auto* args = new VoiceWatchArgs{this, name};
+        if (xTaskCreate(
+                [](void* arg) {
+                    VoiceWatchTask(arg);
+                    vTaskDelete(nullptr);
+                },
+                "wzh_ble_voice", 3072, args, 3, nullptr) != pdPASS) {
+            delete args;
+            ESP_LOGW(kTag, "录音状态任务创建失败");
+        }
     }
     cJSON* out = cJSON_CreateObject();
     cJSON_AddBoolToObject(out, "accepted", 1);
@@ -1335,7 +1349,7 @@ void BleService::VoiceWatchTask(void* arg) {
     std::string name = args->name;
     delete args;
     std::string last;
-    for (int i = 0; i < 90; ++i) {
+    for (int i = 0; i < 240; ++i) {
         vTaskDelay(pdMS_TO_TICKS(500));
         if (!self->started_.load())
             return;

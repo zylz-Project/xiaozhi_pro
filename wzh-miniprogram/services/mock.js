@@ -204,18 +204,24 @@ class MockClient {
         return { state: 'idle' }
       case 'voice_record': {
         const name = String((data && data.name) || '我的音色').slice(0, 8)
-        this.emit('voice_record', { status: 'starting', name: name })
-        setTimeout(() => this.emit('voice_record', { status: 'prompt', name: name }), 300)
-        setTimeout(() => this.emit('voice_record', { status: 'recording', name: name }), 900)
+        const report = status => {
+          this._recordStatus = { status: status, name: name }
+          this.emit('voice_record', this._recordStatus)
+        }
+        report('starting')
+        setTimeout(() => report('prompt'), 300)
+        setTimeout(() => report('recording'), 900)
         setTimeout(() => {
-          this.emit('voice_record', { status: 'processing', name: name })
+          report('processing')
           setTimeout(() => {
             this.addClone(name)
-            this.emit('voice_record', { status: 'success', name: name })
+            report('success')
           }, 900)
         }, 2500)
         return { accepted: true, name: name }
       }
+      case 'voice_record_status':
+        return this._recordStatus || { status: 'idle' }
       case 'wifi_scan':
         return {
           networks: [

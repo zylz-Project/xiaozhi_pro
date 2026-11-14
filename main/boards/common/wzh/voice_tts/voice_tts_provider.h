@@ -33,6 +33,12 @@ struct Response {
     std::vector<uint8_t> wav;
     int http_status = 0;
     bool streamed = false;
+    // Bounded, content-free diagnostics; timings include scheduling delays.
+    const char* stream_detail = "none";
+    size_t stream_bytes = 0;
+    size_t stream_events = 0;
+    unsigned stream_max_read_ms = 0;
+    unsigned stream_max_process_ms = 0;
 };
 
 class Provider {

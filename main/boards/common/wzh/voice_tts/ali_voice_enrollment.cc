@@ -414,7 +414,7 @@ void AliVoiceEnrollment::Run(uint32_t generation, const std::string& name) {
     };
     bool ok = false;
     int16_t* buffer = nullptr;
-    if (Speak("那请你从一数到二十吧。", generation) && !cancelled())
+    if (Speak("请连续说话十秒左右，直到听到提示。", generation) && !cancelled())
         buffer = static_cast<int16_t*>(
             heap_caps_malloc(kMaxSamples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     else if (!cancelled())
@@ -484,6 +484,8 @@ void AliVoiceEnrollment::Run(uint32_t generation, const std::string& name) {
             Speak("音色已经有十个了，请先在管理页面删除一个。", generation);
         else if (error_.load() == Error::kUncertain)
             Speak("上一次复刻状态还没有确认，请先在管理页面刷新音色列表。", generation);
+        else if (error_.load() == Error::kShort)
+            Speak("听到的人声太短了，请再试一次，连续清楚地说话。", generation);
         else
             Speak("复刻没有成功，请稍后再试。", generation);
         PublishPhase(ok ? Phase::kSuccess : Phase::kFailed, generation);

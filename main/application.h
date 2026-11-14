@@ -199,6 +199,7 @@ private:
     std::atomic<bool> voice_enrollment_active_{false};
     std::atomic<int> device_voice_enrollment_status_{0};
     std::atomic<uint32_t> device_voice_enrollment_generation_{0};
+    std::atomic<bool> device_voice_enrollment_attempted_{false};
     // Block late server speech for a local voice-selection turn until the next user transcript.
     std::atomic<bool> voice_selection_reply_guard_{false};
     std::atomic<bool> external_voice_preview_active_{false};

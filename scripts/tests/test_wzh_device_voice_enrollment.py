@@ -58,6 +58,7 @@ struct Application {
  std::atomic<long> voice_enrollment_resume_guard_until_us_{0}; Protocol protocol;Protocol* protocol_=&protocol;
  int aborted=0,cleared=0,resumed=0;
  std::atomic<int> device_voice_enrollment_status_{0};std::atomic<unsigned> interaction_generation_{0},device_voice_enrollment_generation_{0};
+ std::atomic<bool> device_voice_enrollment_attempted_{false};
  DeviceState state=kDeviceStateIdle; Audio audio_service_;std::vector<std::function<void()>> tasks;
  DeviceState GetDeviceState() const{return state;} void SetDeviceState(DeviceState v){state=v;}
  void AbortSpeaking(int){++aborted;} void ClearEarlyAudio(){++cleared;}

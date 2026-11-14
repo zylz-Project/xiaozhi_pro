@@ -209,7 +209,8 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 | `set_volume` | `{volume:0..100}` | `{volume:N}` | 越界返回 `1003` |
 | `set_voice` | `{id}` 或 `{name}` | `{id,name}` | 固定/复刻音色都可；忙返回 `1010` |
 | `audition` | `{id}` 或 `{name}` | `{accepted:true}` | 仅 `idle`；设备播放试听句 |
-| `voice_record` | `{name}` | `{accepted:true,name}` | 设备自己录音并生成复刻音色；进度用 `voice_record` 事件 |
+| `voice_record` | `{name,statusPoll?}` | `{accepted:true,name}` | 设备自己录音并生成复刻音色；旧客户端使用 `voice_record` 事件 |
+| `voice_record_status` | `{}` | `{status,reason?}` | 查询当前或上次设备录音状态；可在进度通知丢失后恢复 |
 | `voice_list` | `{}` | `{voices,currentVoiceId,currentVoice}` | 音色管理忙时 `1010` |
 | `voice_rename` | `{id,name}` | `{id,name}` | 名称规则见下 |
 | `voice_delete` | `{id}` | `{id}` | 删除当前音色时先切回第一个内置音色 |
@@ -234,9 +235,15 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 ```
 
   `status` 取值：`prompt` / `recording` / `processing` / `success` / `failed` /
-  `cancelled`；失败时 `reason` 是设备端给出的中文短句，可能为空。小程序对
+  `cancelled`；失败时 `reason` 是设备端错误码，可能为空。小程序对
   `busy` / `config` / `memory` / `short` / `cloud` / `auth` / `limit` /
   `voice_full` / `uncertain` / `save` 等状态也做了本地兜底文案。
+
+新版小程序在 `voice_record` 中设置 `statusPoll:true`，然后主动查询
+`voice_record_status`；设备不会为该次录音创建专用事件监听任务。未提供该字段的
+旧客户端仍收到事件，监听有时间上限。查询只读取状态，不会重试云端创建；网络
+中断或状态未知时应先检查音色列表，避免重复创建。录音最多 20 秒，可能在有效
+人声达标且静音后提前结束；只有设备报告 `processing` 才视为录音结束。
 
 ### 6.3 Wi-Fi
 
@@ -384,7 +391,7 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 - [ ] 音量拖动 120ms 防抖后下发，设备状态回推后 UI 不回跳。
 - [ ] 固定音色切换、试听、复刻音色切换都生效。
 - [ ] 更改网络：扫描列表、5G 提示、密码 <8 位拦截、连接中转圈、成功关闭弹窗并刷新。
-- [ ] 复刻录音：点开始后设备提示、10 秒后生成、列表刷新。
+- [ ] 复刻录音：点开始后设备提示、设备确认录音结束后生成、列表刷新。
 - [ ] 复刻上传：仅 WAV、5–20 秒、进度条、生成后列表刷新。
 - [ ] 重命名、删除确认；删除当前音色后 UI 回到龙安欢。
 - [ ] 恢复出厂：必须输入“确定恢复出厂设置”，成功后回连接页。

@@ -151,8 +151,10 @@ bool esp_http_client_is_complete_data_received(esp_http_client_handle_t);
         source = r'''
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 #include "esp_http_client.h"
 #include "ali_provider.h"
@@ -161,6 +163,7 @@ static std::string post, auth, destination;
 static std::string sse_override;
 static bool download_has_auth=false, complete=true, evil=false, use_sse=false, sse_header=false;
 static bool reached_eof=false;
+static bool slow_read=false, slow_sink=false;
 struct esp_http_client {int method;std::string body;size_t pos=0;};
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t* c) {
  assert(c->disable_auto_redirect); auto* h=new esp_http_client{c->method,"",0};
@@ -182,6 +185,7 @@ int esp_http_client_write(esp_http_client_handle_t,const char* p,int n){int coun
 int esp_http_client_fetch_headers(esp_http_client_handle_t){return 0;}
 int esp_http_client_get_status_code(esp_http_client_handle_t){return 200;}
 int esp_http_client_read(esp_http_client_handle_t h,char* out,int cap){
+ if(slow_read){slow_read=false;std::this_thread::sleep_for(std::chrono::milliseconds(4));}
  size_t n=std::min({size_t(cap),size_t(5),h->body.size()-h->pos});
  if(n==0)reached_eof=true;
  std::memcpy(out,h->body.data()+h->pos,n);h->pos+=n;return static_cast<int>(n);}
@@ -207,16 +211,27 @@ int main(){
  assert(post.find("\"instruction\"")!=std::string::npos);
  assert(out.wav.size()==12);
  use_sse=true;post.clear();destination.clear();reached_eof=false;std::vector<uint8_t> pcm;
- r.pcm_sink=[&](const uint8_t* p,size_t n){assert(!reached_eof);pcm.insert(pcm.end(),p,p+n);return true;};
+ slow_read=true;slow_sink=true;
+ r.pcm_sink=[&](const uint8_t* p,size_t n){assert(!reached_eof);
+  if(slow_sink){slow_sink=false;std::this_thread::sleep_for(std::chrono::milliseconds(4));}
+  pcm.insert(pcm.end(),p,p+n);return true;};
  assert(provider.Synthesize(r,out)==voice_tts::Result::kOk && out.streamed && sse_header);
+ assert(std::string(out.stream_detail)=="ok" && out.stream_events==2 && out.stream_bytes>0);
+ assert(out.stream_max_read_ms>=3 && out.stream_max_process_ms>=3);
  assert((pcm==std::vector<uint8_t>{1,2,3,4}) && destination.empty());
  assert(post.find("\"format\":\"pcm\"")!=std::string::npos);
  sse_override="data: {\"output\":{\"audio\":{\"data\":\"AQI=\"}}}\n\n";
  reached_eof=false;assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
+ assert(std::string(out.stream_detail)=="missing_end");
  sse_override="data: {\"code\":\"InvalidKey\",\"message\":\"redacted\"}\n\n";
  assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
+ assert(std::string(out.stream_detail)=="service_error");
+ sse_override="data: invalid-json\n\n";
+ assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
+ assert(std::string(out.stream_detail)=="event_json");
  sse_override.clear();r.pcm_sink=[](const uint8_t*,size_t){return false;};
  assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
+ assert(std::string(out.stream_detail)=="sink_stopped");
  r.pcm_sink={};use_sse=false;
  evil=true;destination.clear();assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
  assert(destination.empty());evil=false;complete=false;

@@ -1954,6 +1954,7 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
         return false;
     const auto generation = interaction_generation_.fetch_add(1) + 1;
     device_voice_enrollment_generation_.store(generation);
+    device_voice_enrollment_attempted_.store(false);
     device_voice_enrollment_status_.store(1);
     Schedule([this, generation, name, conversation]() {
         auto* enrollment = Board::GetInstance().GetVoiceEnrollment();
@@ -2015,6 +2016,7 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
                     }
                 });
             });
+        device_voice_enrollment_attempted_.store(true);
         if (!started) {
             device_voice_enrollment_status_.store(4);
             if (conversation) {
@@ -2031,6 +2033,8 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
 }
 
 const char* Application::DeviceVoiceEnrollmentFailure() const {
+    if (!device_voice_enrollment_attempted_.load())
+        return "";
     auto* enrollment = Board::GetInstance().GetVoiceEnrollment();
     return enrollment ? enrollment->Failure() : "";
 }

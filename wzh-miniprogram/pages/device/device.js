@@ -13,7 +13,7 @@ const RECORD_FAIL = {
   config: '语音服务未配置，请联系售后',
   prompt: '没有听清提示，请重试',
   memory: '设备内存不足，请重启后再试',
-  short: '录音太短，请完整朗读 5–10 秒',
+  short: '有效人声太短，请在提示后连续清晰朗读 10–15 秒',
   cloud: '云端繁忙或网络不稳定，请稍后重试',
   auth: '语音服务鉴权失败，请联系售后',
   limit: '今日复刻次数已用完，请明天再试',
@@ -30,7 +30,7 @@ const GUIDE_STEPS = [
   { target: '.con-head', title: '这是控制台', text: '设备、声音、网络和说明书都在这里。', state: 'expanded' },
   { target: '.network-tile', title: '网络和信号', text: '点“更改”可以换 Wi-Fi。', state: 'expanded', panel: 'panel-device' },
   { target: '.fixed-rail', title: '先挑一个固定音色', text: '左右滑动，点一下就能切换。', state: 'expanded', panel: 'panel-sound' },
-  { target: '.voice-lab', title: '声音实验室', text: '录 10 秒，或上传一段人声。', state: 'expanded', panel: 'panel-sound' },
+  { target: '.voice-lab', title: '声音实验室', text: '连续朗读一段话，或上传一段人声。', state: 'expanded', panel: 'panel-sound' },
   { target: '.clone-strip', title: '复刻音色', text: '点管理，可以改名或删除。', state: 'expanded', panel: 'panel-sound' },
   { target: '.volume-row.con-volume', title: '音量也在这里', text: '拖动滑条，调到舒服的大小。', state: 'expanded', panel: 'panel-sound' },
   { target: '.panel-theme', title: '整套主题都在这里', text: '布局、玻璃、颜色和明暗，全部在这一块。', state: 'expanded', panel: 'panel-theme' },
@@ -264,8 +264,8 @@ Page({
     audioFileInfo: '',
     audioFile: '',
     audioError: '',
-    audioHint: '录完 10 秒后生成；建议用平常说话的音量。',
-    audioRecordStatus: '点击麦克风开始，安静环境下读 10 秒',
+    audioHint: '提示后连续清晰朗读 10–15 秒，玩具最多录 20 秒。',
+    audioRecordStatus: '点击麦克风开始，安静环境下连续朗读',
     audioTrim: 0,
     audioWave: [16, 28, 42, 30, 54, 38, 22, 48, 62, 34, 26, 44, 58, 36, 20, 52, 66, 40, 24, 46, 60, 32, 18, 50, 64, 38, 22, 42, 56, 30, 18, 36, 50, 28, 16, 44, 58, 34, 20, 48],
     resetModal: false,
@@ -396,6 +396,10 @@ Page({
 
   pollStatus() {
     if (!this.client) return
+    if (this.data.audioRecordPending && this._recordPolling) {
+      this.pollDeviceRecord()
+      return
+    }
     if (this.data.resetting || this.data.audioRecording || this.data.audioRecordPending || this.data.audioCreating || this.data.wifiConnecting) return
     this.refreshStatus()
   },
@@ -592,14 +596,22 @@ Page({
         this.setData({ wifiConnecting: false, wifiError: data.message || '连接失败，请检查密码' })
       }
     } else if (type === 'voice_record' && data) {
+      if (!this.data.audioRecordPending) return
       const status = String(data.status || '')
+      const rank = { starting: 1, prompt: 2, recording: 3, processing: 4, success: 5, failed: 5, cancelled: 5 }
+      if (!rank[status] || rank[status] < (this._recordPhaseRank || 0)) return
+      this._recordPhaseRank = rank[status]
       if (status === 'starting' || status === 'prompt') {
         this.setData({ audioRecordStatus: '正在准备，请听玩具提示…', audioError: '' })
       } else if (status === 'recording') {
-        this.setData({ audioRecording: true, audioRecordStatus: '玩具正在录音，请清晰朗读 5–10 秒', audioError: '' })
-        this.startRecordClock()
+        if (!this.data.audioRecording) {
+          this.setData({ audioRecording: true, audioRecordStatus: '玩具正在录音，请连续清晰朗读 10–15 秒', audioError: '' })
+          this.startRecordClock()
+        }
       } else if (status === 'processing') {
-        this.setData({ audioRecording: false, audioRecordStatus: '录音完成，正在生成音色…', audioProgress: 100 })
+        const reason = String(data.reason || '')
+        this.setData({ audioRecording: false, audioRecordStatus: '录音完成，正在处理…', audioProgress: 100,
+          audioError: RECORD_FAIL[reason] || '' })
         this.stopRecordClock()
       } else if (status === 'success') {
         this.finishDeviceRecord(data.name)
@@ -1224,6 +1236,7 @@ Page({
   },
 
   openAudioModal() {
+    if (this.data.audioRecordPending) return this.setData({ audioModal: true })
     this.setData({
       audioModal: true,
       audioMode: 'record',
@@ -1239,13 +1252,14 @@ Page({
       audioFileInfo: '',
       audioFile: '',
       audioError: '',
-      audioHint: '录音由玩具完成：它会先提示，再录 10 秒并直接生成音色。',
-      audioRecordStatus: '点击“开始录制”，让玩具听你说 10 秒',
+      audioHint: '请在提示后连续清晰朗读 10–15 秒，玩具最多录 20 秒。',
+      audioRecordStatus: '点击“开始录制”，按提示连续说话',
       audioTrim: 0
     })
   },
 
   openAudioUpload() {
+    if (this.data.audioRecordPending) return this.setData({ audioModal: true })
     this.setData({
       audioModal: true,
       audioMode: 'upload',
@@ -1266,12 +1280,13 @@ Page({
   },
 
   switchAudioTab(e) {
+    if (this.data.audioRecordPending) return this.toast('录音仍在进行，请稍候')
     const mode = e.currentTarget.dataset.mode
     this.setData({
       audioMode: mode,
       audioError: '',
       audioHint: mode === 'record'
-        ? '录音由玩具完成：它会先提示，再录 10 秒并直接生成音色。'
+        ? '请在提示后连续清晰朗读 10–15 秒，玩具最多录 20 秒。'
         : '仅支持 WAV，5–20 秒；上传后会转成 16kHz 单声道。'
     })
   },
@@ -1290,6 +1305,9 @@ Page({
     const name = (this.data.audioName || '').trim().slice(0, 8)
     if (!name) return this.setData({ audioError: '请先给音色起个名字' })
     if (!this.client) return this.setData({ audioError: '设备未连接' })
+    this._recordPolling = false
+    this._recordPollGeneration = (this._recordPollGeneration || 0) + 1
+    this._recordPhaseRank = 0
     this.setData({
       audioRecordPending: true,
       audioRecording: false,
@@ -1300,16 +1318,41 @@ Page({
       audioError: '',
       audioRecordStatus: '已发送，请听玩具提示…'
     })
-    this.client.request('voice_record', { name: name }).then(res => {
+    this.client.request('voice_record', { name: name, statusPoll: true }).then(res => {
       if (!res || !res.accepted) throw new Error('设备没有开始录音')
+      if (this.data.audioRecordPending) {
+        this._recordPolling = true
+        this.pollDeviceRecord()
+      }
     }).catch(err => {
+      const uncertain = (err && (err.code === 1009 || err.code === 1004)) ||
+        (this.client && this.client.connected === false)
       this.setData({
         audioRecordPending: false,
         audioRecording: false,
-        audioError: err.message || '录音失败，请重试',
-        audioRecordStatus: '点击“开始录制”，让玩具听你说 10 秒'
+        audioError: uncertain ? '请求结果未知，请重新连接并先查看音色列表' : (err.message || '录音失败，请重试'),
+        audioRecordStatus: '点击“开始录制”，按提示连续说话'
       })
     })
+  },
+
+  pollDeviceRecord() {
+    if (!this.client || !this._recordPolling || this._recordPollInFlight) return
+    const generation = this._recordPollGeneration
+    this._recordPollInFlight = true
+    this.client.request('voice_record_status', {}).then(data => {
+      if (generation === this._recordPollGeneration && this.data.audioRecordPending && data) {
+        this.onBleEvent('voice_record', Object.assign({ name: this.data.audioName }, data))
+      }
+    }).catch(err => {
+      if (generation !== this._recordPollGeneration || !this.data.audioRecordPending) return
+      if (err && err.code === 1002) {
+        // Older firmware reports progress as events and may not have this operation.
+        this._recordPolling = false
+      } else if ((err && err.code === 1004) || (this.client && this.client.connected === false)) {
+        this.setData({ audioRecordStatus: '连接已断开，结果未知；重新连接后请先查看音色列表' })
+      }
+    }).then(() => { this._recordPollInFlight = false })
   },
 
   startRecordClock() {
@@ -1318,15 +1361,15 @@ Page({
   },
 
   tickRecord() {
-    const elapsed = Math.min(10, Number((this.data.audioElapsed + 0.1).toFixed(1)))
+    const elapsed = Math.min(20, Number((this.data.audioElapsed + 0.1).toFixed(1)))
     this.setData({
       audioElapsed: elapsed,
       audioTime: fmt.formatDuration(elapsed),
-      audioProgress: Math.round((elapsed / 10) * 100)
+      audioProgress: Math.min(99, Math.round((elapsed / 20) * 100))
     })
-    if (elapsed >= 10) {
+    if (elapsed >= 20) {
       this.stopRecordClock()
-      this.setData({ audioRecordStatus: '录音结束，正在生成音色…' })
+      this.setData({ audioRecordStatus: '等待玩具确认录音状态…' })
     }
   },
 
@@ -1336,6 +1379,8 @@ Page({
   },
 
   finishDeviceRecord(name) {
+    this._recordPolling = false
+    this._recordPollGeneration = (this._recordPollGeneration || 0) + 1
     this.stopRecordClock()
     this.setData({
       audioRecording: false,
@@ -1352,6 +1397,8 @@ Page({
   },
 
   failDeviceRecord(message) {
+    this._recordPolling = false
+    this._recordPollGeneration = (this._recordPollGeneration || 0) + 1
     this.stopRecordClock()
     this.setData({
       audioRecording: false,
@@ -1359,7 +1406,7 @@ Page({
       audioCreating: false,
       audioDone: false,
       audioError: message || '录音失败，请重试',
-      audioRecordStatus: '点击“开始录制”，让玩具听你说 10 秒'
+      audioRecordStatus: '点击“开始录制”，按提示连续说话'
     })
   },
 
@@ -1445,6 +1492,7 @@ Page({
 
   cancelAudio() {
     if (this.data.audioCreating) return this.toast('正在生成，请稍候')
+    if (this.data.audioRecordPending) return this.setData({ audioModal: false })
     this.stopRecordClock()
     this.setData({ audioModal: false, audioRecording: false, audioRecordPending: false })
   },

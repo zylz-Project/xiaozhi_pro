@@ -61,23 +61,21 @@ class VersionTests(unittest.TestCase):
                 f"BOARD_TYPE {board_type!r} is used by multiple boards",
             )
 
+            names_in_config = set()
             for build_config in config.get("builds", []):
                 board_name = build._get_reported_name(build_config)
-                self.assertNotIn(
-                    board_name,
-                    name_owners,
-                    f"BOARD_NAME {board_name!r} is used by "
-                    f"{name_owners.get(board_name)} and {config_path}",
-                )
-                name_owners[board_name] = config_path
+                self.assertNotIn(board_name, names_in_config,
+                                 f"BOARD_NAME {board_name!r} is repeated in {config_path}")
+                names_in_config.add(board_name)
+                previous_config = name_owners.setdefault(board_name, config_path)
+                self.assertEqual(previous_config.parent, config_path.parent,
+                                 f"BOARD_NAME {board_name!r} is used by "
+                                 f"{previous_config} and {config_path}")
 
                 pair = (board_type, board_name)
-                self.assertNotIn(
-                    pair,
-                    pair_owners,
-                    f"reported board identity {pair!r} is duplicated",
-                )
-                pair_owners[pair] = config_path
+                previous_pair_config = pair_owners.setdefault(pair, config_path)
+                self.assertEqual(previous_pair_config.parent, config_path.parent,
+                                 f"reported board identity {pair!r} is shared across boards")
 
     def test_language_and_wake_word_are_not_board_config_options(self):
         for config_path in sorted(

@@ -200,7 +200,7 @@
                   <view class="lab-copy">
                     <text class="lab-kicker">VOICE LAB</text>
                     <text class="tx-b lab-title">复刻声音</text>
-                    <text class="tx-small lab-sub">录 10 秒，留住家人的声音</text>
+                    <text class="tx-small lab-sub">录一段声音，留住家人的声音</text>
                   </view>
                   <text class="lab-count">{{cloneCount}} / {{voiceCapacity}}</text>
                 </view>
@@ -539,7 +539,7 @@
         <view class="modal-head-copy">
           <text class="modal-kicker">VOICE LAB · NEW</text>
           <text class="tx-b">新建复刻音色</text>
-          <text class="tx-small">让玩具录 10 秒，或上传 5–20 秒 WAV</text>
+          <text class="tx-small">让玩具录音，或上传 5–20 秒 WAV</text>
         </view>
         <button class="modal-close" bindtap="cancelAudio"><view class="ico ico-close"></view></button>
       </view>
