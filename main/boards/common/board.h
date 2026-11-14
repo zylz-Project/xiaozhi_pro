@@ -75,10 +75,15 @@ public:
     virtual Backlight* GetBacklight() { return nullptr; }
     virtual Led* GetLed();
     virtual AudioCodec* GetAudioCodec() = 0;
+    // Called once after the audio service and its playback tasks start.
+    virtual void OnAudioServiceReady() {}
     virtual bool GetTemperature(float& esp32temp);
     virtual Display* GetDisplay();
     virtual Camera* GetCamera();
     virtual bool SupportsLocalInteraction() const { return false; }
+    // Optional, non-blocking tutorial feedback using the board's existing library.
+    virtual bool TriggerOnboardingFeedback(uint8_t) { return false; }
+    virtual bool IsOnboardingFeedbackPending() const { return false; }
     // Optional bundled exit cue; empty keeps the application's default sound.
     virtual std::string_view GetConversationExitSound() const { return {}; }
     // Optional, bounded lookup for trusted bundled source loudness calibration.
@@ -88,6 +93,9 @@ public:
     virtual void SetVoiceEnrollmentRecording(bool) {}
     virtual bool KeepAudioOutputEnabled() const { return false; }
     virtual bool IsAudioMaintenanceActive() { return false; }
+    virtual bool IsLocalPlaybackPending() { return false; }
+    // Optional notification; implementations must not block the protocol callback.
+    virtual void OnConversationChannelOpened() {}
 #if CONFIG_USE_VOICE_BARGE_IN
     // Boards may request a longer local speech candidate, in 16 kHz samples.
     virtual size_t GetBargeInMinimumSpeechSamples() const { return 2880; }
@@ -103,6 +111,8 @@ public:
     // Return true when the board consumes a recognized phrase locally.
     virtual bool HandleLocalVoiceCommand(const std::string&) { return false; }
     virtual NetworkInterface* GetNetwork() = 0;
+    // Unknown transports retain the existing behavior until they expose link status.
+    virtual bool IsNetworkAvailable() const { return true; }
     virtual void StartNetwork() = 0;
     virtual void SetNetworkEventCallback(NetworkEventCallback callback) { (void)callback; }
     virtual const char* GetNetworkStateIcon() = 0;

@@ -124,6 +124,63 @@ int main(){
             method=queue_function(source,'bool '+cls+'::HandlePetControl(').replace(cls+'::','Controller::')
             with self.subTest(board=board):self.run_cpp(harness.replace('__METHOD__',method))
 
+    def test_local_product_name_routes_to_conversation_and_rejects_echo(self):
+        harness = r'''
+#include <cassert>
+#include <cstring>
+#include <string>
+#include "wzh_pet_behavior.h"
+#include "wzh_onboarding.h"
+#define ESP_LOGI(...) ((void)0)
+#define ESP_LOGD(...) ((void)0)
+namespace wzh {
+struct Info { const char* wake_phrase="__WAKE__"; };
+Info Product(){return {};}
+void NotifyOnboarding(OnboardingEvent){}
+bool CaptureOnboardingInteraction(OnboardingEvent){return false;}
+bool onboarding_block=false;
+bool OnboardingBlocksConversation(){return onboarding_block;}
+int interactions=0;
+void NotifyIdleInteraction(){++interactions;}
+}
+enum class Action{kHappy,kAffection,kEat};using PandaAction=Action;using DinoAction=Action;
+struct Audio{bool echo=false;int stops=0;bool LocalCommandEchoRisk(){return echo;}void StopPlayback(){++stops;}};
+struct Controller{
+ int wake=0;bool HandlePetControl(wzh::PetControl c,bool=false){if(c==wzh::PetControl::kWake)++wake;return false;}
+ bool IsConversationActive(){return false;}bool HandleBodyCommand(const std::string&){return false;}
+ void TriggerAction(Action,bool){}
+};
+struct Application{std::string word;static Application& GetInstance(){static Application a;return a;}
+ void WakeWordInvoke(const std::string& s){word=s;}};
+struct TestBoard{Audio local_audio_;Controller controller_;
+ bool HandleLocalVoiceCommand(const std::string& command);};
+__METHOD__
+int main(){
+ TestBoard b;assert(b.HandleLocalVoiceCommand("local:chat_wake"));
+ assert(b.controller_.wake==1&&b.local_audio_.stops==1);
+ assert(Application::GetInstance().word=="__WAKE__");
+ b.local_audio_.echo=true;Application::GetInstance().word.clear();
+ assert(b.HandleLocalVoiceCommand("local:chat_wake"));
+ assert(Application::GetInstance().word.empty()&&b.controller_.wake==1);
+ // Offline tutorial chapter: the name is recognized but no channel is opened,
+ // because an unsaved network would fail silently.
+ b.local_audio_.echo=false;Application::GetInstance().word.clear();
+ wzh::onboarding_block=true;assert(b.HandleLocalVoiceCommand("local:chat_wake"));
+ assert(Application::GetInstance().word.empty()&&b.controller_.wake==1&&b.local_audio_.stops==1);
+ wzh::onboarding_block=false;
+}
+'''
+        for board, wake in [('wzh_crawlPanda', '小华小华'),
+                            ('wzh_tailRedPanda', '小武小武'),
+                            ('wzh_dinosaur', '小威小威')]:
+            source = (ROOT / 'main/boards' / board / (board + '.cc')).read_text()
+            method = queue_function(source, 'bool HandleLocalVoiceCommand(')
+            method = method.replace('bool HandleLocalVoiceCommand(',
+                                    'bool TestBoard::HandleLocalVoiceCommand(', 1)
+            method = method.replace(') override {', ') {', 1)
+            with self.subTest(board=board):
+                self.run_cpp(harness.replace('__METHOD__', method).replace('__WAKE__', wake))
+
     def test_all_three_shutdowns_park_only_active_healthy_servos_with_a_deadline(self):
         harness=r'''
 #include <atomic>
@@ -481,8 +538,11 @@ int main(){
     def test_all_three_power_key_adc_fault_requires_a_new_verified_release(self):
         harness=r'''
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <functional>
+namespace wzh {bool OnboardingBlocksConversation(){return false;}void PrepareOnboardingDoubleClick(){}void NotifyIdleInteraction(){}}
 template<class... T>void log_stub(const T&...){}
 #define ESP_LOGI(...) log_stub(__VA_ARGS__)
 #define ESP_LOGW(...) log_stub(__VA_ARGS__)
@@ -513,6 +573,9 @@ struct Power{
     uint32_t last_sample_ms=0;
     bool armed=false,boot_hold_logged=false,power_adc_fault=false;
     TickType_t last_click_tick=0;int click_count=0,shutdowns=0;
+    int feedbacks=0;
+    std::atomic<bool> hold_feedback_ready_{true};
+    std::function<void()> hold_feedback_hook_=[this](){++feedbacks;};
     void Shutdown(){++shutdowns;}
     void Step(){__KEY__}
 };
@@ -535,6 +598,12 @@ int main(){
     sample(p,100,true,5);sample(p,3300,true,5);
     assert(Application::GetInstance().toggles==1&&p.shutdowns==0);
     sample(p,100,true,85);assert(p.shutdowns>=1); // Valid long press still works.
+    // A held key gives feedback once and releasing it is not a double click.
+    Power held;
+    sample(held,3300,true,10);sample(held,100,true,58);
+    assert(held.feedbacks==1&&held.shutdowns==0);
+    sample(held,3300,true,8);
+    assert(Application::GetInstance().toggles==1);
     // A sampler stall must not join the two sides of one long press.
     Power q;
     sample(q,3300,true,10);sample(q,100,true,30); // 600 ms on the pressed band

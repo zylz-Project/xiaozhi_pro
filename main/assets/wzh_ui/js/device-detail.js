@@ -9,7 +9,7 @@ function toast(s){const p=$('.phone');if(p?.__toast)p.__toast(s);else alert(s);}
 function textIfChanged(el,value){value=String(value);if(el&&el.textContent!==value)el.textContent=value;}
 function paint(s){
  const state=s.state||'idle', labels={idle:'待机',listening:'聆听中',speaking:'播放中',connecting:'连接中',upgrading:'升级中',wifi_configuring:'配网中'};
- $$('.status-text,.sheet-state').forEach(e=>textIfChanged(e,labels[state]||'设备忙')); const p=$('.phone');if(p.dataset.state!==state)p.dataset.state=state;
+ $$('.status-text,.sheet-state').forEach(e=>textIfChanged(e,labels[state]||'设备忙'));const notice=$('#startupNotice');if(notice){textIfChanged(notice,s.startup_notice||'');notice.hidden=!s.startup_notice;} const p=$('.phone');if(p.dataset.state!==state)p.dataset.state=state;
  const cta=$('.sheet-main > .primary'),disabled=!['idle','listening','speaking'].includes(state);if(cta.disabled!==disabled)cta.disabled=disabled;textIfChanged($('.cta-label'),['listening','speaking'].includes(state)?'结束对话':'开始对话');
  const b=s.battery?.available?s.battery.percent:null,t=s.temperature_c, w=s.wifi||{};
  const metrics=$$('.metrics .metric');if(metrics[0]){textIfChanged(metrics[0].querySelector('b'),b==null?'--':b+'%');textIfChanged(metrics[0].querySelector('em'),s.battery?.charging?'充电中':'电池');}if(metrics[1]){textIfChanged(metrics[1].querySelector('b'),t==null?'--':Number(t).toFixed(1)+'°C');textIfChanged(metrics[1].querySelector('em'),'芯片温度');}

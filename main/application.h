@@ -172,6 +172,9 @@ private:
     std::atomic<uint32_t> interaction_generation_{0};
 #if CONFIG_USE_VOICE_BARGE_IN
     std::atomic<uint32_t> pending_voice_interruption_{0};
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    std::atomic<int64_t> keyword_interruption_until_us_{0};
+#endif
     BargeInReplyGate barge_in_reply_gate_;
     void HandleVoiceInterruptionEvent();
 #endif

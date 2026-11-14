@@ -9,7 +9,14 @@ namespace wzh {
 // after its data is durably persisted. Wi-Fi is cleared last.
 class FactoryResetPolicy {
 public:
-    enum class Phase { kChecking, kDeletingVoices, kClearingWifi, kDone, kFailed };
+    enum class Phase {
+        kChecking,
+        kDeletingVoices,
+        kClearingOnboarding,
+        kClearingWifi,
+        kDone,
+        kFailed
+    };
     struct Progress {
         Phase phase = Phase::kChecking;
         std::string error;
@@ -17,6 +24,7 @@ public:
     struct Operations {
         std::function<bool()> validate;
         std::function<bool()> reset_voices;
+        std::function<bool()> clear_onboarding;
         std::function<bool()> clear_wifi;
         std::function<void(const Progress&)> report;
     };
@@ -39,6 +47,10 @@ public:
         update();
         if (!operations.reset_voices || !operations.reset_voices())
             return fail("RESET_VOICE_FAILED");
+        progress.phase = Phase::kClearingOnboarding;
+        update();
+        if (!operations.clear_onboarding || !operations.clear_onboarding())
+            return fail("RESET_ONBOARDING_FAILED");
         progress.phase = Phase::kClearingWifi;
         update();
         if (!operations.clear_wifi || !operations.clear_wifi())

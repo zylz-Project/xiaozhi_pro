@@ -25,110 +25,59 @@ class VersionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build._version_matches((6, 0, 1), "~=6.0")
 
-    def test_current_matrix_uniqueness_and_p4_variants(self):
-        idf5 = build._collect_variants(idf_version=(5, 5, 4))
-        idf6 = build._collect_variants(idf_version=(6, 0, 1))
-        idf61 = build._collect_variants(idf_version=(6, 1, 0))
-        for variants in (idf5, idf6, idf61):
+    def test_only_the_three_wzh_products_remain_buildable(self):
+        # This fork keeps only the three WZH toys; the upstream board matrix was
+        # deliberately removed. This pins that fact and the invariants that still
+        # matter: unique names, a resolvable Kconfig symbol, and a CMake branch.
+        for idf_version in ((5, 5, 4), (6, 0, 1), (6, 1, 0)):
+            variants = build._collect_variants(idf_version=idf_version)
             names = [variant["full_name"] for variant in variants]
-            self.assertEqual(len(names), len(set(names)))
+            self.assertEqual(len(names), len(set(names)), idf_version)
 
+        idf6 = build._collect_variants(idf_version=(6, 0, 1))
+        boards = {variant["board"] for variant in idf6}
+        self.assertEqual(
+            boards,
+            {"wzh_crawlPanda", "wzh_dinosaur", "wzh_tailRedPanda"},
+        )
         idf6_names = {variant["full_name"] for variant in idf6}
-        self.assertIn("espressif-esp32-p4-function-ev-board", idf6_names)
-        self.assertIn("espressif-esp32-p4x-function-ev-board", idf6_names)
-        self.assertNotIn("espressif-esp-p4-function-ev-board", idf6_names)
-        self.assertNotIn("espressif-esp-p4-function-ev-board-p4x", idf6_names)
-        self.assertIn("waveshare-esp32-p4x-nano-10.1-a", idf6_names)
-        self.assertIn("waveshare-esp32-p4x-wifi6-touch-lcd-10.1", idf6_names)
-        self.assertNotIn("waveshare-esp32-p4-nano-10.1-a-p4x", idf6_names)
-        self.assertNotIn("espressif-esp32-s31-function-coreboard-1", idf6_names)
-        self.assertIn("alientek-atk-dnesp32s3", idf6_names)
-        self.assertNotIn("atk-dnesp32s3", idf6_names)
-        self.assertNotIn("alientek-alientek-atk-dnesp32s3", idf6_names)
-        self.assertIn("m5stack-atom-echos3r", idf6_names)
-        self.assertIn("nologo-xingzhi-abs-2.0", idf6_names)
-        self.assertIn("spotpear-sp-esp32-s3-1.28-box", idf6_names)
-        self.assertIn("dfrobot-df-k10", idf6_names)
-        self.assertIn("xorigin-aipi-lite", idf6_names)
-        self.assertIn("kevin-box-2", idf6_names)
-        self.assertNotIn("kevin-kevin-box-2", idf6_names)
-        self.assertIn("labplus-ledong-v2", idf6_names)
-        self.assertNotIn("labplus-labplus-ledong-v2", idf6_names)
-        self.assertIn("lckfb-lichuang-dev", idf6_names)
-        self.assertIn("lckfb-lichuang-c3-dev", idf6_names)
-        self.assertIn("wdmomo-esp32-cgc", idf6_names)
-        self.assertIn("wdmomo-esp32-cgc-144", idf6_names)
-        self.assertNotIn("esp32-cgc", idf6_names)
-        self.assertNotIn("esp32-cgc-144", idf6_names)
-
-        idf61_names = {variant["full_name"] for variant in idf61}
-        self.assertIn("espressif-esp32-s31-function-coreboard-1", idf61_names)
-        self.assertIn("rymcu-bigsmart", idf61_names)
-        self.assertNotIn("rymcu-rymcu-bigsmart", idf61_names)
-        atk = next(
-            variant for variant in idf61
-            if variant["board"] == "alientek/atk-dnesp32s3"
-        )
-        self.assertEqual(atk["type"], "atk-dnesp32s3")
-        self.assertEqual(atk["target"], "esp32s3")
-        self.assertEqual(atk["config"], "CONFIG_BOARD_TYPE_ATK_DNESP32S3")
+        for expected in (
+            "wzh-crawlpanda",
+            "wzh-crawlpanda-barge-in",
+            "wzh-dinosaur",
+            "wzh-dinosaur-barge-in",
+            "wzh-tailredpanda",
+            "wzh-tailredpanda-barge-in",
+        ):
+            self.assertIn(expected, idf6_names)
         self.assertEqual(
-            atk["display_name"],
-            "Alientek ATK-DNESP32S3 Development Board (正点原子)",
+            {variant["type"] for variant in idf6},
+            {"wzh-crawlpanda", "wzh-dinosaur", "wzh-tailredpanda"},
         )
-        self.assertEqual(
-            build._get_release_full_name(
-                "espressif",
-                {"name": "esp-box-3"},
-            ),
-            "espressif-esp-box-3",
-        )
-        self.assertEqual(
-            build._get_release_full_name(
-                "espressif",
-                {"name": "esp32-p4x-function-ev-board"},
-            ),
-            "espressif-esp32-p4x-function-ev-board",
-        )
-        self.assertEqual(
-            build._normalize_p4x_release_name("m5stack-tab5-p4x"),
-            "m5stack-tab5-p4x",
-        )
+        for variant in idf6:
+            self.assertEqual(variant["target"], "esp32s3")
+            self.assertTrue(
+                variant["config"].startswith("CONFIG_BOARD_TYPE_WZH_"),
+                variant,
+            )
 
         for config_path in (ROOT / "main/boards").rglob("config.json"):
             config = json.loads(config_path.read_text(encoding="utf-8"))
             self.assertEqual(build._get_reported_type(config), config["type"])
-            self.assertNotIn("board_name", config, config_path)
-            self.assertNotIn("release_name", config, config_path)
             board = config_path.parent.relative_to(ROOT / "main/boards").as_posix()
             self.assertTrue(build._board_type_exists(board), config_path)
-            for build_config in config.get("builds", []):
-                self.assertNotIn("board_name", build_config, config_path)
-                self.assertNotIn("release_name", build_config, config_path)
-
+        # Only the three product directories plus the shared layer survive.
+        board_dirs = sorted(
+            path.name for path in (ROOT / "main/boards").iterdir() if path.is_dir()
+        )
+        self.assertEqual(
+            board_dirs,
+            ["common", "wzh_crawlPanda", "wzh_dinosaur", "wzh_tailRedPanda"],
+        )
         cmake = (ROOT / "main/CMakeLists.txt").read_text(encoding="utf-8")
-        self.assertNotIn("set(MANUFACTURER", cmake)
-        self.assertIn('BOARD_MANUFACTURER=\\"${BOARD_MANUFACTURER}\\"', cmake)
-        self.assertIn(
-            'BOARD_TYPE MATCHES "^[a-z0-9.-]+$"',
-            cmake,
-        )
-        self.assertIn(
-            'BOARD_NAME MATCHES "^[a-z0-9.-]+$"',
-            cmake,
-        )
-        for source_name in (
-            "wifi_board.cc",
-            "ml307_board.cc",
-            "nt26_board.cc",
-            "rndis_board.cc",
-            "ethernet_board.cc",
-        ):
-            source = (
-                ROOT / "main/boards/common" / source_name
-            ).read_text(encoding="utf-8")
-            self.assertIn("manufacturer", source, source_name)
-            self.assertIn("BOARD_MANUFACTURER", source, source_name)
+        self.assertIn('BOARD_TYPE MATCHES "^[a-z0-9.-]+$"', cmake)
+        self.assertIn('BOARD_NAME MATCHES "^[a-z0-9.-]+$"', cmake)
+        self.assertNotIn("CONFIG_BOARD_TYPE_BREAD_COMPACT", cmake)
 
     def test_reported_types_and_names_are_valid_and_unique(self):
         type_owners = {}
@@ -302,6 +251,39 @@ class VersionTests(unittest.TestCase):
                     f"sdkconfig.defaults.{target} should inherit 16MB",
                 )
 
+    def test_wzh_partition_table_fits_the_largest_product_image(self):
+        # The dinosaur image is ~0x40d040 and did not fit the original 0x3f0000
+        # app slots. Guard the enlarged layout so a later edit cannot silently
+        # break the build again.
+        rows = {}
+        for line in (ROOT / "partitions/v2/16m.csv").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            fields = [field.strip() for field in line.split(",")]
+            rows[fields[0]] = fields
+
+        app_size = int(rows["ota_0"][4], 16)
+        self.assertEqual(int(rows["ota_1"][4], 16), app_size)
+        self.assertGreaterEqual(app_size, 0x40D040, "dinosaur image must fit")
+
+        ota_start = int(rows["ota_0"][3], 16)
+        assets_offset = int(rows["assets"][3], 16)
+        self.assertGreaterEqual(
+            assets_offset,
+            ota_start + 2 * app_size,
+            "assets must not overlap the second app slot",
+        )
+        assets_size = int(rows["assets"][4], 16)
+        # The audio/image assets currently use ~3.7 MB. Keep at least 7 MB so the
+        # partition enlargement above cannot quietly starve it.
+        self.assertGreaterEqual(
+            assets_size,
+            7 * 1024 * 1024,
+            "the assets partition needs at least 7 MB",
+        )
+        self.assertLessEqual(assets_offset + assets_size, 16 * 1024 * 1024)
+
 
 class BoardSelectionTests(unittest.TestCase):
     def setUp(self):
@@ -321,51 +303,34 @@ class BoardSelectionTests(unittest.TestCase):
         )
         self.assertEqual([item["board"] for item in selected], [self.variants[1]["board"]])
 
-    def test_official_directory_can_keep_legacy_board_type(self):
-        board = "espressif/esp32-s3-box-3"
-        self.assertTrue(build._board_type_exists(board))
-        self.assertEqual(
-            build._resolve_board_config(board, "esp32s3", []),
-            "CONFIG_BOARD_TYPE_ESP32_S3_BOX_3",
-        )
-
     def test_board_display_name_comes_from_kconfig_prompt(self):
         self.assertEqual(
-            build._get_board_display_name(
-                "CONFIG_BOARD_TYPE_ATK_DNESP32S3"
-            ),
-            "Alientek ATK-DNESP32S3 Development Board (正点原子)",
+            build._get_board_display_name("CONFIG_BOARD_TYPE_WZH_DINOSAUR"),
+            "WZH Dinosaur",
+        )
+        self.assertEqual(
+            build._get_board_display_name("CONFIG_BOARD_TYPE_WZH_CRAWLPANDA"),
+            "WZH Crawl Panda",
         )
 
     def test_variant_name_disambiguates_shared_board_directory(self):
-        board = "lilygo/t-cameraplus-s3"
-        self.assertEqual(
-            build._resolve_board_config(
-                board,
-                "esp32s3",
-                [],
-                variant_name="lilygo-t-cameraplus-s3-v1.2",
-            ),
-            "CONFIG_BOARD_TYPE_LILYGO_T_CAMERAPLUS_S3_V1_2",
-        )
+        # Two variants share one board directory here too (barge-in vs. plain),
+        # and both must resolve to the same board symbol.
+        board = "wzh_crawlPanda"
+        for variant in ("wzh-crawlpanda", "wzh-crawlpanda-barge-in"):
+            with self.subTest(variant=variant):
+                self.assertEqual(
+                    build._resolve_board_config(
+                        board, "esp32s3", [], variant_name=variant
+                    ),
+                    "CONFIG_BOARD_TYPE_WZH_CRAWLPANDA",
+                )
 
-    def test_m5stack_directory_can_omit_manufacturer_prefix(self):
-        board = "m5stack/cardputer-adv"
-        self.assertTrue(build._board_type_exists(board))
-        self.assertEqual(
-            build._resolve_board_config(board, "esp32s3", []),
-            "CONFIG_BOARD_TYPE_M5STACK_CARDPUTER_ADV",
-        )
-
-    def test_new_manufacturer_directories_keep_existing_board_types(self):
+    def test_wzh_board_directories_resolve_their_kconfig_symbols(self):
         cases = {
-            "xorigin/aipi-lite": "CONFIG_BOARD_TYPE_XORIGIN_AIPI_LITE",
-            "kevin/box-2": "CONFIG_BOARD_TYPE_KEVIN_BOX_2",
-            "labplus/ledong-v2": "CONFIG_BOARD_TYPE_LABPLUS_LEDONG_V2",
-            "lckfb/szpi-esp32s3": "CONFIG_BOARD_TYPE_LICHUANG_DEV_S3",
-            "lckfb/szpi-esp32c3": "CONFIG_BOARD_TYPE_LICHUANG_DEV_C3",
-            "wdmomo/esp32-cgc": "CONFIG_BOARD_TYPE_WDMOMO_CGC",
-            "wdmomo/esp32-cgc-144": "CONFIG_BOARD_TYPE_WDMOMO_CGC_144",
+            "wzh_crawlPanda": "CONFIG_BOARD_TYPE_WZH_CRAWLPANDA",
+            "wzh_dinosaur": "CONFIG_BOARD_TYPE_WZH_DINOSAUR",
+            "wzh_tailRedPanda": "CONFIG_BOARD_TYPE_WZH_TAILREDPANDA",
         }
         for board, expected in cases.items():
             with self.subTest(board=board):
@@ -375,6 +340,7 @@ class BoardSelectionTests(unittest.TestCase):
                         encoding="utf-8"
                     )
                 )
+                self.assertEqual(config["target"], "esp32s3")
                 self.assertEqual(
                     build._resolve_board_config(
                         board,
@@ -384,48 +350,21 @@ class BoardSelectionTests(unittest.TestCase):
                     expected,
                 )
 
-    def test_alientek_directory_keeps_atk_board_types(self):
-        cases = {
-            "alientek/atk-dnesp32s3": (
-                "CONFIG_BOARD_TYPE_ATK_DNESP32S3",
-                "atk-dnesp32s3",
-            ),
-            "alientek/atk-dnesp32s3m-wifi": (
-                "CONFIG_BOARD_TYPE_ATK_DNESP32S3M_WIFI",
-                "atk-dnesp32s3m-wifi",
-            ),
-            "alientek/atk-dnesp32s3m-4g": (
-                "CONFIG_BOARD_TYPE_ATK_DNESP32S3M_4G",
-                "atk-dnesp32s3m-4g",
-            ),
-        }
-        for board, (expected_config, expected_type) in cases.items():
+    def test_removed_upstream_board_directories_are_gone(self):
+        board_root = ROOT / "main/boards"
+        for board in (
+            "alientek/atk-dnesp32s3",
+            "magiclick/c3",
+            "xmini/c3",
+            "xorigin/aipi-lite",
+            "kevin/box-2",
+            "labplus/ledong-v2",
+            "lckfb/szpi-esp32s3",
+            "wdmomo/esp32-cgc",
+        ):
             with self.subTest(board=board):
-                config = json.loads(
-                    (ROOT / "main/boards" / board / "config.json").read_text(
-                        encoding="utf-8"
-                    )
-                )
-                self.assertEqual(config["manufacturer"], "alientek")
-                self.assertEqual(config["type"], expected_type)
-                self.assertEqual(
-                    build._resolve_board_config(
-                        board,
-                        config["target"],
-                        config.get("sdkconfig_append", []),
-                    ),
-                    expected_config,
-                )
-
-    def test_same_leaf_names_are_scoped_by_manufacturer(self):
-        self.assertEqual(
-            build._resolve_board_config("magiclick/c3", "esp32c3", []),
-            "CONFIG_BOARD_TYPE_MAGICLICK_C3",
-        )
-        self.assertEqual(
-            build._resolve_board_config("xmini/c3", "esp32c3", []),
-            "CONFIG_BOARD_TYPE_XMINI_C3",
-        )
+                self.assertFalse((board_root / board).exists())
+                self.assertFalse(build._board_type_exists(board))
 
     def test_common_and_core_changes_select_all(self):
         for path in (
@@ -510,28 +449,33 @@ class BoardMenuTests(unittest.TestCase):
         ):
             self.assertNotIn(stale_label, choice)
 
-    def test_board_menu_has_explicit_target_defaults(self):
+    def test_board_menu_only_lists_the_three_wzh_products(self):
         kconfig = (ROOT / "main/Kconfig.projbuild").read_text(encoding="utf-8")
         choice = kconfig.split("choice BOARD_TYPE\n", 1)[1].split(
             "endchoice\n", 1
         )[0]
-        expected = {
-            "IDF_TARGET_ESP32": "BOARD_TYPE_BREAD_COMPACT_ESP32",
-            "IDF_TARGET_ESP32C3": "BOARD_TYPE_XMINI_C3_V3",
-            "IDF_TARGET_ESP32C5": "BOARD_TYPE_ESP_SENSAIRSHUTTLE",
-            "IDF_TARGET_ESP32C6": (
-                "BOARD_TYPE_WAVESHARE_ESP32_C6_TOUCH_AMOLED_2_06"
-            ),
-            "IDF_TARGET_ESP32S3": "BOARD_TYPE_BREAD_COMPACT_WIFI",
-            "IDF_TARGET_ESP32P4": (
-                "BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD"
-            ),
-            "IDF_TARGET_ESP32S31": (
-                "BOARD_TYPE_ESP32_S31_FUNCTION_COREBOARD_1"
-            ),
-        }
-        for target, symbol in expected.items():
-            self.assertIn(f"default {symbol} if {target}", choice)
+        symbols = re.findall(r"^    config (BOARD_TYPE_[A-Za-z0-9_]+)$", choice, re.MULTILINE)
+        self.assertEqual(
+            symbols,
+            [
+                "BOARD_TYPE_WZH_CRAWLPANDA",
+                "BOARD_TYPE_WZH_DINOSAUR",
+                "BOARD_TYPE_WZH_TAILREDPANDA",
+            ],
+        )
+        # Every menu entry is an ESP32-S3 toy, so the target default is explicit.
+        self.assertEqual(choice.count("depends on IDF_TARGET_ESP32S3"), 3)
+        self.assertIn(
+            "default BOARD_TYPE_WZH_CRAWLPANDA if IDF_TARGET_ESP32S3", choice
+        )
+        # No leftover menu from the removed upstream boards.
+        for stale in (
+            "BOARD_TYPE_BREAD_COMPACT",
+            "BOARD_TYPE_ESP_BOX",
+            "BOARD_TYPE_XMINI",
+            "BOARD_TYPE_LICHUANG",
+        ):
+            self.assertNotIn(stale, choice)
 
 
 class InvalidConfigTests(unittest.TestCase):
@@ -1026,9 +970,9 @@ class CliTests(unittest.TestCase):
     def setUp(self):
         self.variants = [
             {
-                "board": "bread-compact-wifi",
-                "name": "bread-compact-wifi",
-                "full_name": "bread-compact-wifi",
+                "board": "wzh_crawlPanda",
+                "name": "wzh-crawlpanda",
+                "full_name": "wzh-crawlpanda",
             },
             {
                 "board": "multi-board",
@@ -1075,7 +1019,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(
             output.getvalue(),
-            "bread-compact-wifi\n"
+            "wzh_crawlPanda\n"
             "multi-board\n"
             "  - variant-a\n"
             "  - variant-b\n",
@@ -1121,12 +1065,12 @@ class CliTests(unittest.TestCase):
             ),
             mock.patch.object(build, "build_board") as build_board,
         ):
-            build.main(["bread-compact-wifi"])
+            build.main(["wzh_crawlPanda"])
 
         build_board.assert_called_once_with(
-            "bread-compact-wifi",
+            "wzh_crawlPanda",
             config_filename="config.json",
-            name_filter="bread-compact-wifi",
+            name_filter="wzh-crawlpanda",
             create_zip=False,
             language=None,
             wake_word=None,
@@ -1144,7 +1088,7 @@ class CliTests(unittest.TestCase):
             ),
             mock.patch.object(build, "build_board") as build_board,
         ):
-            build.main(["bread-compact-wifi", "--zip"])
+            build.main(["wzh_crawlPanda", "--zip"])
 
         self.assertTrue(build_board.call_args.kwargs["create_zip"])
 
@@ -1160,7 +1104,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(build, "build_board") as build_board,
         ):
             build.main([
-                "bread-compact-wifi",
+                "wzh_crawlPanda",
                 "--language",
                 "en-US",
                 "--wake-word",

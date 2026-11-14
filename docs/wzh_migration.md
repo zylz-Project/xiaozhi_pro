@@ -148,3 +148,42 @@
 ## 6. 真机验收清单（每产品）
 
 冷启动/无 Wi-Fi 配网/断网重连；唤醒-对话-打断多轮；本地声与 TTS 不重叠；Flash 写入断电后旧 TOC 可读；长按关机/双击对话/电源锁存；电池百分比；舵机方向限位与供电压降；长时间运行内存；同步+对话并发稳定。
+
+### 6.1 首启教程与静默倒计时（2026-11-12 接入）
+
+教程（`main/boards/common/wzh/wzh_onboarding.{h,cc}` + `wzh_onboarding_progress.h` + `wzh_onboarding_store.cc`，纯状态与播放器已覆盖主机测试）：
+
+- 首次开机在开机问候之后起播 13 步（离线 6 / 配网 3 / 在线 4），三款各用自己的音色包 `main/assets/wzh_onboarding_voices/{an,xing,long}/`
+- **播完才算**：离线章 6 步全部播完 → `flags |= 0b01`；在线章最后一步播完 → `flags |= 0b10`；两章齐了才写旧汇总位 `wzh_web/setup_guide=1`
+- 断点续播：每完成一步写 `step=i+1`；中途断电/关机下次从 `step` 起；`attempts>=3` 记入 `skipped` 掩码（只跳过、不算完成、重启不重播），因此坏传感器不会把教程永久卡在某一步
+- 迁移：旧机只有 `setup_guide=1` 且无 `onboarding/progress` → 视为已完成，不再重播；进度记录 v2 增加 `skipped`，v1 六字节记录仍可读（视为 skipped=0）
+- 恢复出厂：`FactoryResetPolicy` 新增 `kClearingOnboarding`（顺序 voices → onboarding → wifi），清 `onboarding` 命名空间 + `setup_guide`；重置中途失败（未重启）会 `ResumeOnboardingAfterAbort()` 让教程继续可用
+- 教程期间：吞掉配网提示、离线章内屏蔽对话（电源键 / BOOT 键 / 门户 `/api/user/chat/toggle` / 开发者控制台 `/chat` 四路都拦）、不计入静默倒计时
+- 步骤事件：`kTouch` / `kMotion` / `kWake`（离线唤醒词）/ `kCommand`（"摇摇头"）/ 门户页面导航（`NotifyPortalRequest`，只统计页面请求，不统计 `/api/*` 轮询）/ `kServiceReady`
+- 门户 `/api/status` 等轮询读进度走只读的 `PeekOnboardingProgress()`，不在 HTTP 任务里写 NVS；`/api/user/guide/setup-complete` 只回报 `guide_done`，不再代写完成位
+
+静默倒计时（`wzh_idle_power.{h,cc}`，总开关 `CONFIG_WZH_IDLE_POWER_ENABLE`，默认 n）：
+
+> **2026-11-12 产品决定（替换方案文档 §4 的 10/15 分钟）**：10 分钟太久，压缩到 **5 分钟说「想你」/ 10 分钟关机**；无人互动期间每 **2–3 分钟**一次「动作库 + 音频库」成套展示；**对话本身算持续互动，计时永不推进**。
+
+- 展示节奏（`wzh_sound_choreography.h`）：呼吸/漂移微动（`AddMicroMotion`）持续不断；`IdleCadence`（动作库小片段）与 `AutoplayCadence`（音频库+编舞）都从「每 3–7 秒 / 每 2 秒」拉长到 **120–180 秒**一次
+- 5 分钟：播 `OGG_IDLE_MISS`；**播完之后** idle 音效静默（`IdleSoundSuppressed()` 拦在 `AudioPlayer::PlayAutonomousSound`），动作照做、幅度不变
+- 10 分钟：`RequestAutoShutdown()` → 电源任务里走**原样** `Shutdown()`（含 `OGG_POWER_OFF` 与断电锁存），关机音只播一次
+- 任意交互（触摸 / 晃动 / 人体感应 / 电源键 / 唤醒词 / **任意离线语音口令**）调 `NotifyIdleInteraction()` 归零；**对话（Connecting/Listening/Speaking）与维护期间时间线被钉住**，不会在通话中途说话或关机
+- Kconfig：`WZH_IDLE_POWER_ENABLE=n` / `WZH_IDLE_AUTO_OFF=y` / `WZH_IDLE_MISS_PROMPT=y` / `WZH_IDLE_DROP_AP=n` / `WZH_IDLE_DROP_WAKENET=n`
+- 实机待验：4:59 内不出声、说完「想你」后摸一下能复位并重新计时、10 分钟后长按 1 秒能开机、展示节奏 2–3 分钟一次且静默期舵机不撞 60 s 预算
+
+长按反馈（`panda_power.cc` / `dinosaur_power.cc`）：
+
+- 按住满 1.0 s 触发一次 `RegisterHoldFeedbackHook`（熊猫转头、恐龙点头），**不依赖音频**
+- 1.0 s 松手 = 取消，不关机，不计入双击
+- 1.5 s 仍走原 `Shutdown()`；**不提供跳过教程**
+
+门户：`/api/user/onboarding/status` 只读返回 `done / active / offline_chapter_done / online_chapter_done / next_step / attempts / idle_countdown`；`/api/user/guide/setup-complete` 只回报 `guide_done`（完成位只能由真实播放写入）。
+
+### 6.2 工程整理与分区（2026-11-13）
+
+- **只保留三款 WZH 产品板**：删除 `main/boards/` 下 44 个上游板目录（保留 `common/` + `wzh_crawlPanda` / `wzh_dinosaur` / `wzh_tailRedPanda`）；同步删除 `main/Kconfig.projbuild` 中对应 `BOARD_TYPE_*` 选项与失效的板型专属菜单、`main/CMakeLists.txt` 的 `BOARD_DIR` 分支与上游板专属依赖块。`scripts/build.py` 由目录/Kconfig 动态发现，无需改动。
+- **app 分区调大**：恐龙固件 0x40d040 放不进原 0x3f0000 的 ota 槽（超出 116 KB）。`partitions/v2/16m.csv` 改为 `ota_0/ota_1 = 0x430000`、`assets` 移到 `0x880000`、大小 `0x780000`（7.5 MB，实测约用 3.7 MB）。
+- **分区表变更不向后兼容**：旧机 OTA 升级需整机重新烧录分区表。
+- 编译余量（2026-11-13 实测）：大熊猫 0x3a79d0（剩 13%）、小熊猫 0x3b2cb0（剩 12%）、恐龙 0x40d040（剩 3%）。**恐龙余量已很紧，后续新增语音/功能需先腾空间。**

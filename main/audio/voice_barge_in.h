@@ -11,8 +11,9 @@
 
 // Called under AudioService's queue lock, on post-AEC 16 kHz mono PCM only.
 // VAD, a bounded noise floor and a playback-correlation veto must agree for
-// 180 ms, allowing one 60 ms echo-vetoed frame within that candidate. Settle
-// for 300 ms of actual referenced, unclipped playback.
+// 180 ms, allowing one 60 ms echo-vetoed frame within that candidate. For
+// keyword-confirmed interruption, allow up to 120 ms of VAD/energy gaps too.
+// Settle for 300 ms of actual referenced, unclipped playback.
 // Input and post-AEC observations share the audio queue lock.
 class VoiceBargeIn {
 public:
@@ -108,7 +109,19 @@ public:
             noise_rms_ += (std::min(rms, 160.0f) - noise_rms_) * 0.05f;
         }
         if (!vad_speech || rms < threshold()) {
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+            // Short syllable boundaries can briefly lose VAD or energy. Keep
+            // the already verified near-end frames, but never count the gap as
+            // speech and never let pauses accumulate without a bound.
+            if (speech_samples_ != 0) {
+                speech_gap_samples_ += samples;
+                if (speech_gap_samples_ > 1920) {
+                    speech_samples_ = speech_gap_samples_ = 0;
+                }
+            }
+#else
             speech_samples_ = speech_gap_samples_ = 0;
+#endif
             return false;
         }
         correlation_ = muted ? 0.0f : echo_reference_.Correlation(pcm, samples);

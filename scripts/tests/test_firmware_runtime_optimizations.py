@@ -231,6 +231,7 @@ int main(){
 #include <vector>
 #include "cJSON.h"
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGD(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 int live=0;
 void* Allocate(size_t n){void*p=std::malloc(n);if(p)++live;return p;}

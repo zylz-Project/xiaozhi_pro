@@ -198,6 +198,7 @@ const char* TAG="test";
 int voltage=410;bool failed=false;
 int adc_oneshot_read(int,int,int* sample){*sample=voltage;return failed?-1:ESP_OK;}
 int AdcToMv(int,int raw){return raw;}
+namespace wzh { void NotifyIdleInteraction(){} }
 struct Power{
     int adc_=0,touch_adc_cali_=0;
     std::atomic<int>touch_voltage_mv_{0},touch_code_{0};
@@ -268,6 +269,7 @@ int main(){
 #include <cstring>
 #include <string>
 #include "wzh_pet_behavior.h"
+#include "wzh_onboarding.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 enum class Action{kHappy,kAffection,kEat};using PandaAction=Action;using DinoAction=Action;
@@ -289,6 +291,10 @@ struct Controller{
     }
 };
 struct Audio{bool echo=true;void StopPlayback(){} bool LocalCommandEchoRisk(){return echo;}};
+namespace wzh {struct ProductInfo{const char* wake_phrase="test";};ProductInfo Product(){return {};}}
+namespace wzh {void NotifyOnboarding(OnboardingEvent){}bool CaptureOnboardingInteraction(OnboardingEvent){return false;}bool OnboardingBlocksConversation(){return false;}void NotifyIdleInteraction(){}}
+struct Application{static Application& GetInstance(){static Application app;return app;}
+    void WakeWordInvoke(const std::string&){} };
 struct Board{Controller controller_;Audio local_audio_;__ROUTE__};
 int main(){
     Board board;

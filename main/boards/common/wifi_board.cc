@@ -316,6 +316,8 @@ NetworkInterface* WifiBoard::GetNetwork() {
     return &network;
 }
 
+bool WifiBoard::IsNetworkAvailable() const { return WifiManager::GetInstance().IsConnected(); }
+
 const char* WifiBoard::GetNetworkStateIcon() {
     auto& wifi = WifiManager::GetInstance();
 

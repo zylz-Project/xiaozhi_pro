@@ -31,8 +31,13 @@ public:
     bool Initialize();
     bool IsShuttingDown() const { return shutting_down_.load(); }
     void RegisterServoOutput(wzh::ServoOutput* output) { servo_output_.store(output); }
+    // 无人互动计时到期后由空闲倒计时任务投递；只置位，真正的 Shutdown()
+    // 仍在电源任务里执行，保证关机顺序不变。
+    void RequestAutoShutdown() { auto_shutdown_requested_.store(true); }
     // 关机序列中、断电前调用：让板级把舵机放回安全姿态。
     void RegisterShutdownHook(ShutdownHook hook);
+    // Invoked once from the power task; the hook must only enqueue motion.
+    void RegisterHoldFeedbackHook(ShutdownHook hook);
     // 仅在经过稳定判定的有效触摸编码发生变化时调用；回调运行于电源任务，
     // 只能做非阻塞投递。
     void RegisterTouchHook(TouchHook hook);
@@ -41,6 +46,7 @@ public:
         return temperature_valid_.load();
     }
     int battery_level() const { return battery_level_.load(); }
+    bool battery_level_valid() const { return battery_sample_valid_.load(); }
     int battery_voltage_mv() const { return battery_voltage_mv_.load(); }
     wzh::BatterySamplingStatus battery_sampling() const;
     bool touch_valid() const { return touch_valid_.load(); }
@@ -49,6 +55,7 @@ public:
 
 private:
     std::atomic<bool> shutting_down_{false};
+    std::atomic<bool> auto_shutdown_requested_{false};
     std::atomic<wzh::ServoOutput*> servo_output_{nullptr};
     wzh::StableBatteryProtection battery_protection_;
     temperature_sensor_handle_t temperature_ = nullptr;
@@ -74,6 +81,8 @@ private:
     std::atomic<bool> battery_rest_ready_{false};
     std::atomic<uint32_t> battery_rest_updated_ms_{0};
     void ReadBattery(uint32_t now);
+    ShutdownHook hold_feedback_hook_;
+    std::atomic<bool> hold_feedback_ready_{false};
     ShutdownHook shutdown_hook_;
     std::atomic<bool> shutdown_hook_ready_{false};
     TouchHook touch_hook_;

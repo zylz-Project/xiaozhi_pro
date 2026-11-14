@@ -1,5 +1,6 @@
 #include "wzh_user_web.h"
 #include "wzh_web_assets.h"
+#include "wzh_system_prompts.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -33,6 +34,8 @@
 #include "wifi_configuration_ap.h"
 #include "wifi_manager.h"
 #include "wzh_factory_reset_policy.h"
+#include "wzh_onboarding.h"
+#include "wzh_onboarding_store.h"
 #include "wzh_web_peer.h"
 
 namespace wzh {
@@ -174,15 +177,15 @@ const char* DeviceStateName(DeviceState state) {
     }
 }
 bool SetupGuideDone() {
-    nvs_handle_t handle = 0;
-    uint8_t value = 0;
-    if (nvs_open("wzh_web", NVS_READONLY, &handle) == ESP_OK) {
-        nvs_get_u8(handle, "setup_guide", &value);
-        nvs_close(handle);
-    }
-    return value != 0;
+    // Called from the HTTP task on every /api/status poll: read only, never
+    // migrate or commit here.
+    OnboardingProgress progress;
+    return PeekOnboardingProgress(progress) && progress.Done();
 }
-bool SetSetupGuide(bool complete) {
+// Only used to erase the legacy migration source during a factory reset. The
+// completion bit itself is written by the tutorial store when both chapters
+// have really finished playing.
+[[maybe_unused]] bool SetSetupGuide(bool complete) {
     nvs_handle_t handle = 0;
     if (nvs_open("wzh_web", NVS_READWRITE, &handle) != ESP_OK)
         return false;
@@ -190,6 +193,26 @@ bool SetSetupGuide(bool complete) {
         complete ? nvs_set_u8(handle, "setup_guide", 1) : nvs_erase_key(handle, "setup_guide");
     if (!complete && result == ESP_ERR_NVS_NOT_FOUND)
         result = ESP_OK;
+    if (result == ESP_OK)
+        result = nvs_commit(handle);
+    nvs_close(handle);
+    return result == ESP_OK;
+}
+bool ClearOnboarding() {
+    StopOnboarding();
+    const auto deadline = Now() + 8000;
+    while (IsOnboardingActive() && Now() < deadline)
+        vTaskDelay(pdMS_TO_TICKS(20));
+    if (IsOnboardingActive())
+        return false;
+    // Clear the legacy migration source first, so a power loss cannot
+    // resurrect an erased progress record from the old completion flag.
+    if (!SetSetupGuide(false))
+        return false;
+    nvs_handle_t handle = 0;
+    if (nvs_open("onboarding", NVS_READWRITE, &handle) != ESP_OK)
+        return false;
+    auto result = nvs_erase_all(handle);
     if (result == ESP_OK)
         result = nvs_commit(handle);
     nvs_close(handle);
@@ -411,9 +434,9 @@ void UserWebPortal::RunReset() {
         return voice_tts::ResetManagedVoices([&wifi]() { return !wifi.IsConnected(); }, progress,
                                              local) == voice_tts::VoiceOperation::kOk;
     };
+    operations.clear_onboarding = [&wifi]() { return wifi.IsConnected() && ClearOnboarding(); };
     operations.clear_wifi = [&wifi]() {
-        return wifi.IsConnected() && SetSetupGuide(false) && wifi.IsConnected() &&
-               SsidManager::GetInstance().ClearChecked();
+        return wifi.IsConnected() && SsidManager::GetInstance().ClearChecked();
     };
     operations.report = [this](const FactoryResetPolicy::Progress& progress) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -423,6 +446,9 @@ void UserWebPortal::RunReset() {
                 break;
             case Phase::kDeletingVoices:
                 reset_phase_ = "deleting_cloud";
+                break;
+            case Phase::kClearingOnboarding:
+                reset_phase_ = "clearing_local";
                 break;
             case Phase::kClearingWifi:
                 reset_phase_ = "clearing_wifi";
@@ -441,6 +467,9 @@ void UserWebPortal::RunReset() {
         vTaskDelay(pdMS_TO_TICKS(1200));
         esp_restart();
     }
+    // The reset stopped the tutorial worker before clearing NVS. If it failed
+    // before the reboot, the machine keeps running, so give the tutorial back.
+    ResumeOnboardingAfterAbort();
     voice_tts::EndVoiceReset();
     if (options_.end_factory_reset)
         options_.end_factory_reset();
@@ -580,6 +609,13 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     uint32_t ip = 0;
     if (!Peer(req, ip) || !UserWebPolicy::IsApClient(ip))
         return Error(req, "403 Forbidden", "FORBIDDEN", "请连接设备热点");
+    // Only a page navigation proves the phone reached the setup page. /api/*
+    // polling and cached css/js/assets would make the tutorial's "打开页面"
+    // step look satisfied before the user did anything.
+    if (req->method == HTTP_GET && !static_asset &&
+        (path == "/" || path == "/setup" || path == "/login" || path == "/done" ||
+         path == "/manual"))
+        NotifyPortalRequest();
     const auto now = Now();
     const bool session = HasSession(req, ip, now);
     auto& wifi = WifiManager::GetInstance();
@@ -621,6 +657,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
                                     DeviceStateName(Application::GetInstance().GetDeviceState()));
             cJSON_AddBoolToObject(out.get(), "saved_network", have_saved);
             cJSON_AddBoolToObject(out.get(), "setup_guide_done", SetupGuideDone());
+            cJSON_AddStringToObject(out.get(), "startup_notice", StartupProtectionMessage());
             auto* wireless = cJSON_AddObjectToObject(out.get(), "wifi");
             if (wireless) {
                 cJSON_AddStringToObject(wireless, "ap_ssid", wifi.GetApSsid().c_str());
@@ -661,6 +698,38 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
                 cJSON_AddBoolToObject(capabilities, "voice", false);
 #endif
             }
+            return JsonResponse(req, out.get());
+        }
+        if (path == "/api/user/onboarding/status") {
+            if (online && !session)
+                return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
+            // Read-only diagnostic: which chapter is done, which step is next.
+            // Mutating this state stays with the device itself — the portal's
+            // "guide/setup-complete" endpoint only mirrors the summary bit and
+            // refuses to run ahead of actual playback.
+            OnboardingProgress progress;
+            if (!PeekOnboardingProgress(progress))
+                return Error(req, "500 Internal Server Error", "READ_FAILED", "读取教程状态失败");
+            Json out(cJSON_CreateObject(), cJSON_Delete);
+            if (!out)
+                return httpd_resp_send_500(req);
+            cJSON_AddBoolToObject(out.get(), "ok", true);
+            cJSON_AddBoolToObject(out.get(), "done", progress.Done());
+            cJSON_AddBoolToObject(out.get(), "active", IsOnboardingActive());
+            cJSON_AddBoolToObject(out.get(), "offline_chapter_done",
+                                  (progress.flags & OnboardingProgress::kOfflineComplete) != 0);
+            cJSON_AddBoolToObject(out.get(), "online_chapter_done",
+                                  (progress.flags & OnboardingProgress::kOnlineComplete) != 0);
+            cJSON_AddNumberToObject(out.get(), "next_step", progress.step);
+            cJSON_AddNumberToObject(out.get(), "step_count", OnboardingProgress::kStepCount);
+            cJSON_AddNumberToObject(out.get(), "attempts", progress.attempts);
+            // The countdown is a Kconfig-compiled feature; report whether this
+            // firmware actually has it so the portal never promises it blindly.
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+            cJSON_AddTrueToObject(out.get(), "idle_countdown");
+#else
+            cJSON_AddFalseToObject(out.get(), "idle_countdown");
+#endif
             return JsonResponse(req, out.get());
         }
         if (path == "/api/user/voices/device-record/status") {
@@ -953,9 +1022,16 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     if (path == "/api/user/guide/setup-complete") {
         if (online && !session)
             return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
-        if (!SetSetupGuide(true))
-            return Error(req, "500 Internal Server Error", "SAVE_FAILED", "保存失败，请重试");
-        return Ok(req);
+        // The tutorial owns its own completion bit: only actual playback of both
+        // chapters may set it. A portal hint must not fake progress, so this
+        // endpoint acknowledges the click and reports the real state instead of
+        // writing here.
+        Json out(cJSON_CreateObject(), cJSON_Delete);
+        if (!out)
+            return httpd_resp_send_500(req);
+        cJSON_AddBoolToObject(out.get(), "ok", true);
+        cJSON_AddBoolToObject(out.get(), "guide_done", SetupGuideDone());
+        return JsonResponse(req, out.get());
     }
     if (path == "/submit") {
         if (online && !session)
@@ -1116,6 +1192,10 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         return JsonResponse(req, out.get());
     }
     if (path == "/api/user/chat/toggle") {
+        // The offline tutorial chapter has no saved network, so opening a channel
+        // from the portal would fail silently; the keyboard paths do the same.
+        if (OnboardingBlocksConversation())
+            return Error(req, "409 Conflict", "GUIDE_BUSY", "教程进行中，请先完成教程");
         const auto state = Application::GetInstance().GetDeviceState();
         if (state != kDeviceStateIdle && state != kDeviceStateListening &&
             state != kDeviceStateSpeaking)

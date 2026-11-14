@@ -281,6 +281,7 @@ int main(){
 constexpr int TAG=0,AUDIO_POWER_CHECK_INTERVAL_MS=1000;
 template<class...T>void Log(T...){ }
 #define ESP_LOGI(...) Log(__VA_ARGS__)
+#define ESP_LOGD(...) Log(__VA_ARGS__)
 int64_t clock_us=10000000;int64_t esp_timer_get_time(){return clock_us;}
 void esp_timer_stop(int){}void esp_timer_start_periodic(int,int){}
 using esp_ae_sample_t=int16_t*;
@@ -537,13 +538,9 @@ int main(){
                                     'CONFIG_USE_SERVER_AEC=n',
                                     'CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y']:
                         self.assertIn(setting,build['sdkconfig_append'])
-                    if board == 'wzh_dinosaur':
-                        expected = ['CONFIG_WZH_DINO_KEYWORD_BARGE_IN=y',
-                                    'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n',
-                                    'CONFIG_SR_NSN_NSNET2=n', 'CONFIG_SR_NSN_WEBRTC=y']
-                    else:
-                        expected = ['CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y',
-                                    'CONFIG_SR_NSN_NSNET2=y', 'CONFIG_SR_NSN_WEBRTC=n']
+                    expected = ['CONFIG_WZH_DINO_KEYWORD_BARGE_IN=y',
+                                'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n',
+                                'CONFIG_SR_NSN_NSNET2=n', 'CONFIG_SR_NSN_WEBRTC=y']
                     for setting in expected:
                         self.assertIn(setting, build['sdkconfig_append'])
                 for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
@@ -629,6 +626,7 @@ int main(){
         program=program.replace('std::atomic<bool>interaction_stopped_{false};','''
     BargeInReplyGate barge_in_reply_gate_;
     std::atomic<uint32_t>pending_voice_interruption_{0};
+    std::atomic<int64_t>keyword_interruption_until_us_{0};
     void HandleVoiceInterruptionEvent();
     bool ReconnectAfterVoiceInterruption(uint32_t){return false;}
     std::atomic<bool>interaction_stopped_{false};''')
@@ -725,6 +723,7 @@ int main(){
 #include <memory>
 #include <string>
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGD(...) ((void)0)
 enum DeviceState{kDeviceStateIdle,kDeviceStateConnecting,kDeviceStateListening,kDeviceStateSpeaking,
  kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateActivating};
 constexpr int kAbortReasonWakeWordDetected=1;
@@ -973,6 +972,7 @@ int mux=0,writes=0;
 int esp_codec_dev_write_reg(void*,int reg,int value){assert(reg==0x44);mux=value;++writes;return 0;}
 int esp_codec_dev_read_reg(void*,int reg,int*value){*value=reg==0x44?mux:0x0c;return 0;}
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGD(...) ((void)0)
 void gpio_set_level(int,int){}
 struct Es8311AudioCodec{
  bool input_enabled_=true,output_enabled_=true,pa_inverted_=false,input_reference_=false;

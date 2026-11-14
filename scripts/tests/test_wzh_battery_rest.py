@@ -125,6 +125,8 @@ int main(){
 #include <atomic>
 #include <cassert>
 #include "wzh_battery_voltage.h"
+#define ESP_LOGI(...) ((void)0)
+#define ESP_LOGW(...) ((void)0)
 constexpr int BATTERY_ADC_CHANNEL=2,ESP_OK=0,BATTERY_DIVIDER_RATIO=2;
 constexpr int BATTERY_LOW_MV=3300,BATTERY_RECOVER_MV=3400,BATTERY_CRITICAL_MV=3000;
 constexpr int BATTERY_EMPTY_VOLTAGE_MV=3200,BATTERY_FULL_VOLTAGE_MV=4200;
@@ -154,14 +156,41 @@ struct Power{
 };
 ''' + method + '\n' + getter + r'''
 int main(){
+    // A cold-start low filter must not latch a reminder before the divider
+    // settles, or after a healthy current resting sample has recovered.
+    Power early;clock_ms=5000;early.battery_rest_voltage_.ObserveLoad(false,3000);
+    for(int i=0;i<5;++i){reading=1600;read_count=0;early.ReadBattery(clock_ms);clock_ms+=1000;}
+    assert(!early.battery_warning_.low());
+    clock_ms=15000;reading=1950;read_count=0;early.ReadBattery(clock_ms);
+    assert(!early.battery_warning_.low());
+    Power genuine;clock_ms=15000;genuine.battery_rest_voltage_.ObserveLoad(false,13000);
+    for(int i=0;i<5;++i){reading=1680;read_count=0;genuine.ReadBattery(clock_ms);clock_ms+=1000;}
+    assert(genuine.battery_warning_.low());
+    // Successful ADC calls returning zero or an out-of-range voltage are
+    // invalid readings, not proof of an empty battery or a safe full battery.
+    Power invalid;
+    for(int raw:{0,2351}){
+        reading=raw;
+        for(int i=0;i<5;++i){read_count=0;invalid.ReadBattery(clock_ms);clock_ms+=1000;}
+        assert(!invalid.battery_sample_valid_&&invalid.battery_live_mv_==0);
+        assert((invalid.out.flags&wzh::kBatteryPending)&&invalid.shutdowns==0);
+    }
+    // With a continuously powered idle servo there is no rested sample;
+    // the display uses the latest measured voltage without relaxing protection.
+    Power loaded;loaded.battery_rest_voltage_.ObserveLoad(true,clock_ms);
+    for(int i=0;i<5;++i){reading=1711;read_count=0;loaded.ReadBattery(clock_ms);clock_ms+=1000;}
+    assert(loaded.battery_voltage_mv_==0&&loaded.battery_level_==22);
+    assert(loaded.battery_live_mv_==3422&&loaded.battery_protection_.ready());
+    for(int i=0;i<5;++i){reading=1600;read_count=0;loaded.ReadBattery(clock_ms);clock_ms+=1000;}
+    assert(loaded.out.flags&wzh::kLowBattery);
     Power p;assert(p.battery_sampling().rest_age_ms==-1);
-    p.battery_rest_voltage_.ObserveLoad(false,10000);
+    p.battery_rest_voltage_.ObserveLoad(false,clock_ms-2000);
     auto sample=[&](int mv){reading=mv/2;read_count=0;p.ReadBattery(clock_ms);clock_ms+=1000;};
     for(int i=0;i<5;++i)sample(3800);
     assert(read_count==34&&p.out.flags==0&&p.battery_voltage_mv_==3800);
     assert(p.battery_level_==60&&p.battery_sampling().rest_age_ms==1000);
     p.battery_rest_voltage_.ObserveLoad(true,clock_ms);
-    sample(3200);sample(3800);assert(!(p.out.flags&wzh::kLowBattery));
+    sample(3200);assert(p.battery_level_==0);sample(3800);assert(p.battery_level_==60);assert(!(p.out.flags&wzh::kLowBattery));
     for(int i=0;i<5;++i)sample(3200);
     assert(p.out.flags&wzh::kLowBattery);assert(p.battery_voltage_mv_==3800);
     assert(p.battery_protection_mv_==3200&&p.battery_live_mv_==3200);

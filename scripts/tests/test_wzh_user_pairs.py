@@ -178,9 +178,9 @@ int main(){
         program=case.program[:case.program.index('int main(){')]
         program='#include <cstdio>\n#include <cstring>\n#include "wzh_user_pairs.h"\n#include "wzh_sound_coverage.h"\n'+program
         program=program.replace('    auto Snapshot(){return files;}','    auto Snapshot(){return files;}\n    size_t file_count(){return files.size();}')
-        program=program.replace('    bool playback_pending_=false;','    SoundCoverage paired_coverage_,sound_coverage_;uint32_t autonomous_turn_=0;\n    bool PlayAutonomousSound(bool,uint32_t=100);\n    bool playback_pending_=false;')
+        program=program.replace('    bool playback_pending_=false;','    SoundCoverage paired_coverage_,sound_coverage_;uint32_t autonomous_turn_=0;\n    bool PlayAutonomousSound(bool,uint32_t=100,bool=true);\n    bool playback_pending_=false;')
         method=queue_function((COMMON/'wzh_audio_player.cc').read_text(),'bool AudioPlayer::PlayAutonomousSound(')
-        self.run_cpp(program+method+r'''
+        self.run_cpp(program+'\nbool IsOnboardingActive(){return false;}\nbool idle_suppressed=false;bool IdleSoundSuppressed(){return idle_suppressed;}\n'+method+r'''
 int main(){
     const uint8_t audio[]={24};const UserPairFrame frame{100,{90,90,90,0,0},2};
     const UserPair pairs[]={
@@ -199,6 +199,11 @@ int main(){
     for(unsigned i=0;i<12;++i){assert(p.PlayAutonomousSound(false));assert(queue.back().index>=32);p.playback_pending_=false;}
     p.store.files={{"nature",100,1000,0,48000,"ambient"}};
     for(unsigned i=0;i<12;++i){assert(p.PlayAutonomousSound(false));assert(queue.back().index>=32);p.playback_pending_=false;}
+    // Past the silence mark the countdown suppresses autonomous sound effects
+    // without touching the caller's motion cadence.
+    idle_suppressed=true;
+    assert(!p.PlayAutonomousSound(false));
+    idle_suppressed=false;assert(p.PlayAutonomousSound(false));p.playback_pending_=false;
 }
 ''')
 

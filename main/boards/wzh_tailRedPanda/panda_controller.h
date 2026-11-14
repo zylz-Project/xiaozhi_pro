@@ -129,6 +129,8 @@ public:
     void SetSpeaking(bool speaking);
     void SetMaintenance(bool blocked);
     void HandleTouch(uint8_t code);
+    bool TriggerOnboardingFeedback(uint8_t step);
+    bool IsOnboardingFeedbackPending() const { return tutorial_feedback_pending_.load(); }
     bool HandleSensorEvent(int event);
     void HandleAssistantSpeech(const char* text);
     bool HandlePetControl(wzh::PetControl control, bool respond = true);
@@ -159,6 +161,8 @@ private:
     std::atomic<int64_t> last_request_us_{0};
     uint32_t running_generation_ = 0;
     std::atomic<bool> request_active_{false};
+    std::atomic<bool> tutorial_feedback_pending_{false};
+    std::atomic<uint32_t> tutorial_feedback_requested_ms_{0};
     std::atomic<wzh::PetPriority> running_priority_{wzh::PetPriority::kSensor};
     bool running_speech_bound_ = false;
     std::atomic<int> pending_expression_{-1};
@@ -179,10 +183,11 @@ private:
         wzh::PetPriority priority = wzh::PetPriority::kExplicit;
         bool speech_bound = false;
         wzh::PetInteraction interaction = wzh::PetInteraction::kNone;
+        bool tutorial_shake_head = false;
     };
 
     bool QueueRequest(ActionRequest request, wzh::PetPriority priority);
-    bool QueueInteraction(wzh::PetInteraction interaction);
+    bool QueueInteraction(wzh::PetInteraction interaction, bool tutorial_shake_head = false);
     bool React(wzh::PetReaction reaction, wzh::PetPriority priority, bool speech_bound = false);
 
     PandaAudio* audio_ = nullptr;
@@ -242,7 +247,9 @@ private:
     wzh::SoundChoreography sound_motion_;
     wzh::AutoplayCadence autoplay_;
     wzh::IdleCadence idle_life_;
+    bool idle_breathing_ = false;
     bool autonomous_playback_ = false;
+    bool tutorial_motion_active_ = false;
     void ParkForShutdown();
     cJSON* RequestResult(bool accepted) const;
     void InitializeServos();

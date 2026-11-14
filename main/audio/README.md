@@ -34,8 +34,23 @@ output. There is still one capture path and one AFE instance. Kconfig selects th
 primary detector; the presence of a MultiNet model no longer overrides WakeNet.
 A WakeNet detection takes priority over a local command in the same frame and
 clears partial MultiNet input. Local commands are dispatched through the existing
-board-local event path without opening a network session. `CustomWakeWord` filters
-out ordinary wake phrases in this mode, including those in older asset metadata.
+board-local event path. Each WZH product also maps its own MultiNet name phrase
+to the existing conversation wake path; the other products' names are not
+included in that product's vocabulary. `CustomWakeWord` filters out untagged
+wake phrases in this mode, including those in older asset metadata.
+
+The three normal WZH products use the existing keyword-confirmed interruption
+gate and the same interruption vocabulary. A recognized keyword must coincide
+with a recent near-end candidate; the gate still rejects echo and stale events.
+The Chinese command vocabulary uses pinyin without tone numbers; tone-number
+permutations are not valid MultiNet commands. To accommodate short syllable
+boundaries, keyword-confirmed candidates retain verified speech across at most
+120 ms total of VAD/energy gaps. The gaps do not count toward the required
+near-end speech; clipping, missing playback reference and correlated echo still
+apply their existing checks.
+The two pandas use the lightweight WebRTC frontend for this mode because the
+neural frontend pauses the secondary MultiNet detector during voice processing.
+Recognition accuracy, CPU headroom and echo behavior require device testing.
 
 The default AFE configuration uses `AEC_MODE_VOIP_HIGH_PERF` with
 `AEC_NLP_LEVEL_VERYAGGR`; the voice-barge-in variant uses `AEC_MODE_FD_HIGH_PERF`.

@@ -35,6 +35,13 @@ public:
         voltage_ = sorted[1];
         stable_.Update(voltage_, low_mv, recover_mv, critical_mv, rested);
     }
+    // Bootstrap only before the first motion, from one calibrated ADC burst.
+    // Subsequent samples continue through the normal median and protection.
+    void InitializeFromStartupSample(int millivolts, int low_mv, int recover_mv,
+                                     int critical_mv) {
+        for (unsigned i = 0; i < 5; ++i)
+            Update(millivolts, false, low_mv, recover_mv, critical_mv);
+    }
     void Invalidate() {
         live_.Invalidate();
         stable_.Invalidate();
@@ -54,7 +61,7 @@ private:
 };
 
 // Experience warning only; never used to disable motion or cut power.
-// The percentage comes from the existing rested-voltage display estimate.
+// The caller derives the percentage from resting-voltage estimates.
 class BatteryWarningLevel {
 public:
     void Observe(int level) {

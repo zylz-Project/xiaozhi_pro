@@ -1,0 +1,351 @@
+{
+  "schema": 1,
+  "tempo": 0.92,
+  "products": {
+    "an": {
+      "intro": {
+        "text": "你好呀，我是小华，你的大熊猫伙伴。我最喜欢你摸我的头，也听得懂小口令。来认识一下吧！",
+        "sha256": "c4c37f0f71483cc3e47fcb5c87cf26f78b8a5026e1dfc47fab73baae4e8e1c51",
+        "source_sha256": "b71416fcec198f4f5c3dcd6b834430b2376e9a602e2711d591e7532f7c9c5c55",
+        "duration_seconds": 8.766,
+        "rms_dbfs": -19.66
+      },
+      "touch": {
+        "text": "我的头、肚子、背都软乎乎的，你一摸我就开心。来摸摸我的头吧。",
+        "sha256": "8c5cc2711ad7a8c172c6b616315de82944148e84bb5eb37aec5e03d8841adfbc",
+        "source_sha256": "925b4397d3242ba9b53f95d7fabc9c0f461a3e96a4952994807644b8f9061ede",
+        "duration_seconds": 7.015,
+        "rms_dbfs": -19.56
+      },
+      "motion": {
+        "text": "也可以抱起来轻轻晃一晃，我会挥挥爪子给你看。",
+        "sha256": "36dac02eb4ce1224feaeedd0984d1b1b7782626756bd910221b0005d621b9e50",
+        "source_sha256": "8edd22ae745b67a7814a3cb276b3f2918ec8975873c5bd7d8b9360006f598532",
+        "duration_seconds": 4.796,
+        "rms_dbfs": -19.68
+      },
+      "cmd1": {
+        "text": "不用连网，我也听得懂话。说一声“摇摇头”，我就摇给你看。",
+        "sha256": "10f7ddc0db57f1e19ae4ce6a33748862f07f494857ed3e68067ff82b8a2eaf9b",
+        "source_sha256": "242fd6ec2a7644f0056c9ba1bab008edcde411051f494aa19a46cbfd0b9d9035",
+        "duration_seconds": 5.423,
+        "rms_dbfs": -19.66
+      },
+      "net_invite": {
+        "text": "想跟我聊天、听我讲故事，就用手机帮我连上网。现在不连也行，我还能陪你玩。",
+        "sha256": "0471e4845be99186375e792219bd9551dbdd1da7fa15cd644b92e257f107eabb",
+        "source_sha256": "c76915f5ad318c49a365ea38868f95bd1b5c3e46fb9f3830ff43a16588be229f",
+        "duration_seconds": 7.588,
+        "rms_dbfs": -19.68
+      },
+      "wake": {
+        "text": "连上网以后，想跟我说话，就叫“小华小华”，或者快速按两下电源键。",
+        "sha256": "c1d04fdbee9c5ebbfcaf7fb7ac9a5aab34dcea5b2019e2441c36ef9c5f357d5f",
+        "source_sha256": "133c9220f09da41c1346596d53e1931fb2a149400f9f4f3ee09f1561991726cc",
+        "duration_seconds": 6.358,
+        "rms_dbfs": -19.61
+      },
+      "ap": {
+        "text": "如果想连的话，接下来要动手机啦：先打开 Wi-Fi，连上 CrawlPanda 开头的热点。",
+        "sha256": "7ef13fbfa82878cae5f114ca042ac73b709459f2bc851ab76d57758486759e07",
+        "source_sha256": "43a73fea98d9fcecad59402c2ef6c626e778a6245e08922f9b38263109610104",
+        "duration_seconds": 7.169,
+        "rms_dbfs": -19.69
+      },
+      "page": {
+        "text": "没弹出页面，就打开浏览器，输入一九二点一六八点四点一，选网络、输密码。",
+        "sha256": "5207ce3fbca12816d2c3921d4cf666514797c83e3dfa981faad7c287515f2e46",
+        "source_sha256": "53b126bfe7b9f7f87878d29e5ecfc90b12aaebab74960b513935a964bf4c4779",
+        "duration_seconds": 7.769,
+        "rms_dbfs": -19.65
+      },
+      "connected": {
+        "text": "我连上网啦！来，跟我说说话吧。",
+        "sha256": "3826e2c3e79f178eedf6f846a6f4277f75a91c216019eb958c1cea2c1504c152",
+        "source_sha256": "9d1c24942a73dbe7b325143d009bafa6a02824007f68b254588335ed75c877ed",
+        "duration_seconds": 3.199,
+        "rms_dbfs": -19.57
+      },
+      "ability": {
+        "text": "我能陪你聊天、讲故事、放音乐，还能查天气。也能学个新声音，用那个声音陪你说话。",
+        "sha256": "aecd0ec46714ceedaec25bc46b0ffa3bce5770607f4cdb6f340a3b7644d822ad",
+        "source_sha256": "fb2f337240cdcfbef7c250b686b66627304d83b1d4b75049d303037f3a7a8b02",
+        "duration_seconds": 8.579,
+        "rms_dbfs": -19.51
+      },
+      "interrupt": {
+        "text": "我说话的时候，先说一声“等一下”，或者“我要说话”，我就停下来听你。",
+        "sha256": "f70c47f16b0aa0260e268a189ad7502beddf85ea9dd84601bb7588a4d8774ca0",
+        "source_sha256": "0416dd3402c4a7041f8be1c4f6ca366f99219b5ae491f0f728c7d7cee53fa55b",
+        "duration_seconds": 6.988,
+        "rms_dbfs": -19.62
+      },
+      "clone": {
+        "text": "想让我换个声音，就说“我想复刻音色”。",
+        "sha256": "5b5686efca27b5adb537f927a1f7bd3a6e1cec362cc0fef9271bb4d47fe36f7d",
+        "source_sha256": "0048fc4f4b285a20eb8aea7ea65e269fbd0f616ff52909b14aef3965227ccb16",
+        "duration_seconds": 3.831,
+        "rms_dbfs": -19.63
+      },
+      "farewell": {
+        "text": "玩累了我就会犯困，说声“拜拜”我就睡，也可以按两下电源键。",
+        "sha256": "d3c6a4c33015873676d63b4804efdb3ffdefdbc94111ad156d001f1c09720bc2",
+        "source_sha256": "38acdbbdd407c7500cf62db38a56b1f97762bfd6e553a44eb04ce96bbcb9b147",
+        "duration_seconds": 5.97,
+        "rms_dbfs": -19.6
+      },
+      "idle_miss": {
+        "text": "你去忙什么啦？我在这儿想你。",
+        "sha256": "612a53b5e899f7bd3294d2b27033a27268f7c4cbd99def0e342294035afd81ef",
+        "source_sha256": "aba93aacbe85ed815bbb0086c59301dfe4af993e9bc22669e671a379937dff45",
+        "duration_seconds": 2.815,
+        "rms_dbfs": -19.51
+      },
+      "adv_idle_seen": {
+        "text": "我看见你啦，要不要摸摸我？",
+        "sha256": "be39db43bc84396e167277a5f54eafc18433860d5007c7a026b9b58a8e5a00c2",
+        "source_sha256": "d917df4d49ec539c46f4446a9b3b3f3c29bb58226b5d6ede60e68f616476a238",
+        "duration_seconds": 2.813,
+        "rms_dbfs": -19.64
+      },
+      "adv_wifi_waiting": {
+        "text": "还没连上呢。别急，我等你。",
+        "sha256": "4f893eb7c348d0ebda9d7093ae861f525d4921e2b452cfb7d0388ffc0cbcf00f",
+        "source_sha256": "176601ba5b5bd50ac8c25d89ae021c23c34a29ca853d95ffa7c152178e498971",
+        "duration_seconds": 3.018,
+        "rms_dbfs": -19.57
+      }
+    },
+    "xing": {
+      "intro": {
+        "text": "你好呀，我是小武，你的小熊猫伙伴。我最喜欢你摸我的头，也听得懂小口令。来认识一下吧！",
+        "sha256": "b3c092b9603dfcb28ff93464f859d848718f049278312494a77e3fcd0128cf51",
+        "source_sha256": "8a8e7f35e89383029936406fa30c8bf7aaa7c447c412638d28d2f218e04d6094",
+        "duration_seconds": 8.97,
+        "rms_dbfs": -19.69
+      },
+      "touch": {
+        "text": "嘿嘿，我的小脑袋软乎乎的，来摸摸看呀！我会很开心哦！",
+        "sha256": "66d2d71f8efe13577b3c46e9d12e8e136eeefa331f8d998b72c1e06f466f031b",
+        "source_sha256": "af6095673838b00210806d52a7f5943fda5b1385f081dec669fc0e3c9c33697d",
+        "duration_seconds": 5.808,
+        "rms_dbfs": -19.68,
+        "source_provider": "doubao-tts-2.0",
+        "source_voice": "zh_female_yingtaowanzi_uranus_bigtts",
+        "source_file": "sources/xing_touch_2026-11-13_v4.mp3"
+      },
+      "motion": {
+        "text": "抱起来晃一晃，我会摇摇尾巴给你看。",
+        "sha256": "c9fd3b5ceabcb4ead8690a43353399417d4ae55e4c3339e6fe34e5fd822518d2",
+        "source_sha256": "d0ff32d655cb474406418ec8982e4682ce231e3ce86e27afef8121d5eaa226a3",
+        "duration_seconds": 3.833,
+        "rms_dbfs": -19.67
+      },
+      "cmd1": {
+        "text": "不连网也听得懂。喊一声“摇摇头”，我就摇给你看。",
+        "sha256": "8b213ff13d669cbecc100f4f6f1d8672efec674cdf8d8be66cc0cc8340a6ef3e",
+        "source_sha256": "3372cd564035646461a9826bddb0694beb9f19f400258961143821ed1b1b8e04",
+        "duration_seconds": 4.794,
+        "rms_dbfs": -19.64
+      },
+      "net_invite": {
+        "text": "想跟我聊天、听我讲故事，或者换个声音，就用手机帮我连上网。现在不连也行，我还能陪你玩。",
+        "sha256": "1e1b4438dda3cfff3ee79206a1e6100d283224c7ae465697c438d6b0f709ef8c",
+        "source_sha256": "6280e8535783551ed3d2e4138a07bead52c168903f08195052d43e405d01006f",
+        "duration_seconds": 9.333,
+        "rms_dbfs": -19.65
+      },
+      "wake": {
+        "text": "连上网以后，想跟我说话，就叫“小武小武”，或者快速按两下电源键。",
+        "sha256": "78e254b86a3a7367fb6684816eab5aa55da03c345072775a9ea3d2332bd83958",
+        "source_sha256": "aeaddb2676905075733eb1bd06125e50bd07d2d3bfc211a57871402094b3c8f8",
+        "duration_seconds": 6.594,
+        "rms_dbfs": -19.63
+      },
+      "ap": {
+        "text": "如果想连的话，接下来要动手机啦：先打开 Wi-Fi，连上 RedPanda 开头的热点。",
+        "sha256": "de109ef2dae22b91233b14123d5019ffc87b5ffe26472d14f783e3b02c8aed46",
+        "source_sha256": "00827d18c9041dde9769acc89334a79892809e0d04e0c564af4cd7ec0a10424c",
+        "duration_seconds": 6.781,
+        "rms_dbfs": -19.66
+      },
+      "page": {
+        "text": "没弹出页面，浏览器输一九二点一六八点四点一，选网络、输密码。",
+        "sha256": "49a28f66715d7d52b069c5867a66d09de360193ca44c7dfe26df35b5ca265a83",
+        "source_sha256": "0f5fa35c251c122d64628963ab12241a6aa39d149c41b793622baea365838360",
+        "duration_seconds": 6.75,
+        "rms_dbfs": -19.51
+      },
+      "connected": {
+        "text": "我连上网啦！来，跟我说说话吧。",
+        "sha256": "b90b0de624f94a7c69cdaa5fa48ae1ec8bc68b01eee8887c9b59efcde4864fb4",
+        "source_sha256": "b6cd129f50a7d9b9baff354a936c707e5e951ddda1bd10db6e87194ab1432c68",
+        "duration_seconds": 3.022,
+        "rms_dbfs": -19.59
+      },
+      "ability": {
+        "text": "我可以跟你聊天、讲故事、放音乐，也能查天气。还能学个新声音说话。",
+        "sha256": "cf4c19dad3beda4a5ec7b76f65226e6ba7e24dd565ebf43124a5047317dab1c6",
+        "source_sha256": "5b6a302db7e925e5f661f377427c7963633efef2c16a60583121b1f0f6c29d46",
+        "duration_seconds": 6.751,
+        "rms_dbfs": -19.69
+      },
+      "interrupt": {
+        "text": "我说话的时候，先说一声“等一下”，或者“我要说话”，我就停下来听你。",
+        "sha256": "697e8bed16c8d99e3cfd8e3430d21d502828eae643929d4447b7de4cc8d50018",
+        "source_sha256": "45b950284b56974085e70db0ad675fa510316a42037cc2bbd763ca7e94ae82af",
+        "duration_seconds": 6.777,
+        "rms_dbfs": -19.63
+      },
+      "clone": {
+        "text": "想让我换个声音，就说“我想复刻音色”。",
+        "sha256": "502673eecc34ecfc0bf05d05b3a27bb6483a423b7f6936605a86e4a5f975760b",
+        "source_sha256": "372e4fe463d8a8f7eecabfc69b8f8f95e3a0521ef33752c2ea1e0ba2eec4dfeb",
+        "duration_seconds": 4.004,
+        "rms_dbfs": -19.51
+      },
+      "farewell": {
+        "text": "玩累了我就会犯困，说声“拜拜”我就睡，也可以按两下电源键。",
+        "sha256": "6e21a4bb527ce1aeaf2710e5fdb2d8a541b446fffffcc80e3b9a29dd59689214",
+        "source_sha256": "4a9c995de4ca70a9bc1dfd82204e2932628a36cec288d0074e58ac92f0ec4d6f",
+        "duration_seconds": 6.359,
+        "rms_dbfs": -19.68
+      },
+      "idle_miss": {
+        "text": "好久没听见你啦，我有点想你。",
+        "sha256": "dfb79d0241465fbb9870d7740a16d40373f7ce2d21dfa4ff35392fd06d82d259",
+        "source_sha256": "a0ba6171293988046b5eeee68280ce38ca2856b8abad0e2f14a91d9063292ca4",
+        "duration_seconds": 3.41,
+        "rms_dbfs": -19.64
+      },
+      "adv_idle_seen": {
+        "text": "你过来啦？要不要摸摸我？",
+        "sha256": "769fb271b2fafd6652c31d30d058b29fafedcc3a84a7cc282372f6ab580286d7",
+        "source_sha256": "69a84871dc10820c6ce4a918e5f710b6455f2634dfbf01ea82ee2ab69bd49f79",
+        "duration_seconds": 2.66,
+        "rms_dbfs": -19.58
+      },
+      "adv_wifi_waiting": {
+        "text": "还没连上呀，我等你。",
+        "sha256": "ee6e5909a7409ee5288c83eb2dcd5f4074f8baa4e277368ce30dccc074723070",
+        "source_sha256": "35716eaf91e5a2ac82341cfaac7ba9a4739af8671f4fbfb77392cf5e0f9c3738",
+        "duration_seconds": 2.425,
+        "rms_dbfs": -19.54
+      }
+    },
+    "long": {
+      "intro": {
+        "text": "你好呀，我是小威，你的恐龙伙伴。我最喜欢你摸我的头，也听得懂小口令。来认识一下吧！",
+        "sha256": "6d0113ccf009c5b02b03e500106322c672fec4bdb530e5f23ce5d5aaf50b7b95",
+        "source_sha256": "7aa13ee6f8f6b2209aedc96c2f714fe6f44b0352d8a54c61dd313e6e4dd07b1f",
+        "duration_seconds": 8.03,
+        "rms_dbfs": -19.7
+      },
+      "touch": {
+        "text": "别看我个子大，我其实很黏人。你摸摸我的头，我就用头蹭蹭你，尾巴也摇起来。",
+        "sha256": "4d8603d49f02549212511c98a305667c31513dc4f121f807eec910e5ce87798f",
+        "source_sha256": "98523082ea7f80205a93102c3b387e7c85dbd93b26d4a35c2a6a88c561325bb6",
+        "duration_seconds": 6.958,
+        "rms_dbfs": -19.51
+      },
+      "motion": {
+        "text": "抱起来轻轻晃一晃，我的脑袋就转过来找你。",
+        "sha256": "58b4f0b2d23160d8683e33b47a0f1c7d183b8410ab863295cf3bf1488027f1ba",
+        "source_sha256": "91d3503729a53d9c6eb0584f82b6ce3eecfa73fe2916fc7c9055c59a6c6f1430",
+        "duration_seconds": 4.639,
+        "rms_dbfs": -19.51
+      },
+      "cmd1": {
+        "text": "不联网也听得懂。说一声“摇摇头”，我就摇给你看。",
+        "sha256": "1c2f93b087e5334b4ed27ae5bea0379e5c1e02a9012af96dd14a55c6c296e7c4",
+        "source_sha256": "a37ef19375132405b6bee4397099b1a5ea6e7e30da60552d11a872a8edbe2785",
+        "duration_seconds": 4.411,
+        "rms_dbfs": -19.69
+      },
+      "net_invite": {
+        "text": "想跟我聊天、听我讲故事，就用手机帮我连上网。现在不连也行，我还能陪你玩。",
+        "sha256": "fc77f74a50e92c0b7e1693cc55b5134cdf1a3f8702ab65914b191df5e4cbc17f",
+        "source_sha256": "cbafe63a9d286219e04738ec9f446e46210ee336d4a9c39bc2b3f8e2148dd934",
+        "duration_seconds": 7.194,
+        "rms_dbfs": -19.51
+      },
+      "wake": {
+        "text": "连上网以后，想跟我说话，就叫“小威小威”，或者快速按两下电源键。",
+        "sha256": "2afd0b7520b374b3f10af77c1d6f3f79d2eca54e04093af75271e8ec619389eb",
+        "source_sha256": "aa36303021b54d555e58a5cca5d926697467b23801478e2494876bc8a8c57306",
+        "duration_seconds": 6.466,
+        "rms_dbfs": -19.51
+      },
+      "ap": {
+        "text": "如果想连的话，接下来要动手机啦：先打开 Wi-Fi，连上 Dino 开头的热点。",
+        "sha256": "386f451906ca0120e0ce644761a6c12f3c73ee5dd71b033c11c10fc462ee7871",
+        "source_sha256": "7476893c6d81a209155a4ff26faee86e7b75b02fbb4663bca6f7f4877ba0482a",
+        "duration_seconds": 6.441,
+        "rms_dbfs": -19.51
+      },
+      "page": {
+        "text": "没弹出页面，打开浏览器输入一九二点一六八点四点一，选网络、输密码。",
+        "sha256": "f453de17f89b5ba3dab25a79f79bd615a19c528b41e49307162790935cc3157c",
+        "source_sha256": "db900ac057d84d3cc5151247bc2f20ea0ce00a690b755043961218ae1095037c",
+        "duration_seconds": 7.168,
+        "rms_dbfs": -19.68
+      },
+      "connected": {
+        "text": "我连上网啦！来，跟我说说话吧。",
+        "sha256": "2a42b4cfa4642f2c4ad436548f9bce1beadcf92a19ecbad99c4347714fac0f55",
+        "source_sha256": "45989c958f519ea493d0d97f5cf099bc29f7171665988084ad6f1ba61f69d9a1",
+        "duration_seconds": 3.125,
+        "rms_dbfs": -19.63
+      },
+      "ability": {
+        "text": "我能陪你聊天、讲故事、放音乐，还能查天气。也能学个新声音。",
+        "sha256": "4016f5be206bac45990e605793e6247fd7bd7fd29b246f85bfe1e29ce27c3aa4",
+        "source_sha256": "0b384b19d7070050a8920ff634eef950bc685fbc1851a7b63aba1b33274bb223",
+        "duration_seconds": 6.153,
+        "rms_dbfs": -19.51
+      },
+      "interrupt": {
+        "text": "我说话的时候，先说一声“等一下”，或者“我要说话”，我就停下来听你。",
+        "sha256": "28174232ce4cec7a93f94569047ef26da09417bba8e44e1ccb62cc9134342788",
+        "source_sha256": "c4652f8a17ed2c913008d7e0cf3178d8f552e98315c75a1626d5c41aa351c409",
+        "duration_seconds": 5.657,
+        "rms_dbfs": -19.51
+      },
+      "clone": {
+        "text": "想让我换个声音，就说“我想复刻音色”。",
+        "sha256": "71364680cc7c18eaf2ae66c3e04f8f2dcbaa89b5cfb15925623f349025c6ff62",
+        "source_sha256": "6a4b2116548e131e8a5d8ef694585f224dcf319293baadbbb346c1f6ff5c291f",
+        "duration_seconds": 3.62,
+        "rms_dbfs": -19.67
+      },
+      "farewell": {
+        "text": "玩累了我就会犯困，说声“拜拜”我就睡，也可以按两下电源键。",
+        "sha256": "a5496c7096d34a604570474d727f356612b5208f382c13e0656f6fe171dc9c02",
+        "source_sha256": "3b22fdc815b0ce3afa7f99ffeef0b7766dd76e877343c37314977cf606d9ab58",
+        "duration_seconds": 5.63,
+        "rms_dbfs": -19.66
+      },
+      "idle_miss": {
+        "text": "你不在，我就自己玩。有点想你了。",
+        "sha256": "754e18f8d8b3f6ab64c737f73d1cc0c27335ce463988530067df90e472759cd5",
+        "source_sha256": "6125b7f3d3547479af99af4672ee5ffc8799ed00d040cdc8bfb4b70702753860",
+        "duration_seconds": 3.62,
+        "rms_dbfs": -19.69
+      },
+      "adv_idle_seen": {
+        "text": "有人过来啦，要不要摸摸我？",
+        "sha256": "3d72a6411bc71f91966d8ea94699fe3be932eb0573427dcd7f8d4b5ae06cf6a4",
+        "source_sha256": "64fdef341299fd70acb96377cfe496b2d06312b1e4b86e60e1a397afc592b893",
+        "duration_seconds": 2.58,
+        "rms_dbfs": -19.55
+      },
+      "adv_wifi_waiting": {
+        "text": "还没连上，我等着呢。",
+        "sha256": "8ff696751db743ee15a3f3f9ce927a2d5bc7d1f79e2d739b9903f6b3cc0196be",
+        "source_sha256": "39197d2b94eb24602869740aa9bddc4a539294fa86f3f890249aabc2ad74a1e7",
+        "duration_seconds": 2.368,
+        "rms_dbfs": -19.62
+      }
+    }
+  }
+}

@@ -38,14 +38,22 @@ private:
 // Calls from the power task never enqueue/decode audio. A single worker owns
 // prompt production; the application/audio tasks keep their normal priorities.
 void StartSystemPrompts();
+// Call once when the audio service starts; battery and motion protection run independently.
+void StartProductAudio();
 // First provisioning prompt waits for startup audio and initialization cleanup.
 void RequestWifiSetupPrompt();
 // Wait until network startup has decided whether to request first-time setup.
 void MarkStartupNetworkReady();
-// Startup audio can begin once the shared audio worker is available.
+// Startup gesture waits until the power-on prompt has been queued.
 bool StartupGreetingAudioReady();
+bool StartupGreetingFinished();
+void MarkPowerOnPromptQueued();
+bool StartupOnboardingPending();
 // Release the first setup prompt after the one-shot greeting has finished.
 void MarkStartupGreetingComplete();
+enum class StartupProtectionNotice : uint8_t { kNone, kLowBattery, kOverheat, kMotionBlocked, kCheckingBattery };
+void ObserveStartupProtection(StartupProtectionNotice notice);
+const char* StartupProtectionMessage();
 void ObserveSystemPromptBattery(bool ready, bool low);
 void BeginSystemPromptShutdown();
 // Power task only; bounded wait includes production AND final PCM drain. The

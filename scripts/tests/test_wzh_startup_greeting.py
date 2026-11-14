@@ -92,13 +92,14 @@ int main(){
 #include <cassert>
 #define CONFIG_WZH_SYSTEM_PROMPTS 1
 namespace wzh {
-std::atomic<bool> worker_started{false}, startup_network_ready{false}, shutting_down{false};
+std::atomic<bool> worker_started{false}, startup_network_ready{false}, shutting_down{false}, power_on_prompt_queued{false};
 std::atomic<bool> wifi_setup_requested{false}, wifi_setup_producing{false};
 ''' + method + r'''
 }
 int main(){using namespace wzh;
  assert(!StartupGreetingAudioReady());
- worker_started=true;assert(StartupGreetingAudioReady());
+ worker_started=true;assert(!StartupGreetingAudioReady());
+ power_on_prompt_queued=true;assert(StartupGreetingAudioReady());
  startup_network_ready=true;wifi_setup_requested=true;assert(StartupGreetingAudioReady());
  wifi_setup_producing=true;wifi_setup_requested=false;assert(StartupGreetingAudioReady());
  wifi_setup_producing=false;assert(StartupGreetingAudioReady());

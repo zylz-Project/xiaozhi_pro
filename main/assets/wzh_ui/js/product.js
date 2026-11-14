@@ -8,29 +8,29 @@
   var PRODUCTS = {
     crawlPanda: {
       id: 'crawlPanda', axes: '三轴', name: '爬爬熊猫', short: '熊猫', english: 'CRAWL PANDA', code: 'PANDA',
-      ap: 'CrawlPanda', hot: '1A2B', role: '小安', wake: '你好小安', model: 'WZH-CP01',
+      ap: 'CrawlPanda', hot: '1A2B', role: '小华', wake: '小华小华', model: 'WZH-CP01',
       theme: 'milk', voice: true,
       assets: { front: 'assets/crawlPanda_正面.webp', side: 'assets/crawlPanda_侧面.webp', head: 'assets/crawlPanda_icon.webp', face: 'assets/crawlPanda_icon.webp', icon: 'assets/crawlPanda_icon.webp' },
       parts: [
-        ['头部', '抬头、转头、凝视'],
+        ['头部', '转头、凝视'],
         ['双前肢', '挥爪、扒地、支撑'],
         ['触摸区', '轻触会有回应'],
         ['电源键', '开关机、双击对话'],
         ['USB-C', '充电与烧录'],
         ['扬声器', '对话与本地音效']
       ],
-      intro: '一只会抬头、会挥爪、会听你说话的桌面小伙伴。',
+      intro: '一只会转头、会挥爪、会听你说话的桌面小伙伴。',
       motion: '空闲时会轻轻呼吸、凝视、摆动前肢；被触摸、听到声音或对话时，会做出对应动作。',
       specAction: '头部 1 路 + 双前肢 2 路舵机',
       pose: '双爪搭在窗台上',
-      action: '抬头看你',
-      motionActions: ['抬头看你','挥挥前爪','扒扒垫子','安静凝视'],
+      action: '转头看你',
+      motionActions: ['转头看你','挥挥前爪','扒扒垫子','安静凝视'],
       voiceCopy: '6 个固定音色，也可以复刻家人的声音。',
       resetSub: '清除网络与本机复刻声音'
     },
     dinosaur: {
       id: 'dinosaur', axes: '五轴', name: '小恐龙', short: '恐龙', english: 'LITTLE DINO', code: 'DINO',
-      ap: 'Dino', hot: '6C3F', role: '小龙', wake: '小龙小龙', model: 'WZH-DN01',
+      ap: 'Dino', hot: '6C3F', role: '小威', wake: '小威小威', model: 'WZH-DN01',
       theme: 'bamboo', voice: true,
       assets: { front: 'assets/dinosaur_front.webp', side: 'assets/dinosaur_side.webp', head: 'assets/dinosaur_icon.webp', face: 'assets/dinosaur_icon.webp', icon: 'assets/dinosaur_icon.webp' },
       parts: [
@@ -52,23 +52,23 @@
     },
     redpanda: {
       id: 'redpanda', axes: '三轴', name: '摇尾小熊猫', short: '小熊猫', english: 'TAIL RED PANDA', code: 'RED PANDA',
-      ap: 'RedPanda', hot: '9D2E', role: '星宝', wake: '你好星宝', model: 'WZH-RP01',
+      ap: 'RedPanda', hot: '9D2E', role: '小武', wake: '小武小武', model: 'WZH-RP01',
       theme: 'berry', voice: true,
       assets: { front: 'assets/tailRedPanda_front.webp', side: 'assets/tailRedPanda_side.webp', head: 'assets/tailRedPanda_icon.webp', face: 'assets/tailRedPanda_icon.webp', icon: 'assets/tailRedPanda_icon.webp' },
       parts: [
-        ['头部', '歪头、抬头、凝视'],
+        ['头部', '转头、凝视'],
         ['大尾巴', '左右摇、上下翘'],
         ['触摸区', '轻触会有回应'],
         ['电源键', '开关机、双击对话'],
         ['USB-C', '充电与烧录'],
         ['扬声器', '对话与本地音效']
       ],
-      intro: '一只会歪头、会摇大尾巴、会听你说话的桌面小伙伴。',
+      intro: '一只会转头、会摇大尾巴、会听你说话的桌面小伙伴。',
       motion: '三轴关节让大尾巴连续画弧：开心时高高翘起，听到声音时左右轻摆，安静时停在半空。',
       specAction: '头部 1 路 + 尾巴 2 路舵机',
       pose: '大尾巴搭在坐垫上',
       action: '摇摇大尾巴',
-      motionActions: ['歪头看你','尾巴画弧','高高翘起','安静停住'],
+      motionActions: ['转头看你','尾巴画弧','高高翘起','安静停住'],
       voiceCopy: '6 个固定音色，也可以复刻家人的声音。',
       resetSub: '清除网络与本机复刻声音'
     }
@@ -98,6 +98,8 @@
   var currentId = pick();
   var P = PRODUCTS[currentId];
   P.id = currentId;
+  var titleTemplate = document.title;
+  var deviceStatus = null;
 
   function each(sel, fn) {
     Array.prototype.forEach.call(document.querySelectorAll(sel), fn);
@@ -117,9 +119,11 @@
   }
 
   function apply() {
-    if (window.PandaTheme && !localStorage.getItem(PandaTheme.key)) {
-      PandaTheme.set({ theme: P.theme });
-    }
+    try {
+      if (window.PandaTheme && !localStorage.getItem(PandaTheme.key)) {
+        PandaTheme.set({ theme: P.theme });
+      }
+    } catch (e) {}
     document.documentElement.setAttribute('data-toy', P.id);
     if (document.body) document.body.setAttribute('data-toy', P.id);
     each('.phone', function (el) { el.setAttribute('data-toy', P.id); });
@@ -143,6 +147,12 @@
     text('[data-p-voice-copy]', P.voiceCopy);
     text('[data-p-reset-sub]', P.resetSub);
     text('[data-p-axes]', P.axes);
+    var ap = deviceStatus && deviceStatus.wifi && deviceStatus.wifi.ap_ssid;
+    if (ap) {
+      text('[data-p-ap], [data-p-hot]', ap);
+      text('[data-p-pass]', 'zylz' + ap.slice(-4));
+    }
+    if (deviceStatus) text('[data-p-version]', deviceStatus.version || '--');
     (P.motionActions || []).forEach(function (v, i) { each('[data-p-action-' + (i + 1) + ']', function (el) { el.textContent = v; }); });
     text('[data-p-sound-title]', P.voice ? '声音' : '动作');
     text('[data-p-sound-meta]', P.voice ? '音色管理' : P.axes + '关节 · 动作说明');
@@ -169,13 +179,12 @@
       if (hide2) el.style.display = 'none'; else el.style.removeProperty('display');
     });
 
-    if (document.title.indexOf('爬爬熊猫') >= 0) document.title = document.title.replace(/爬爬熊猫/g, P.name);
-    if (document.title.indexOf('CrawlPanda') >= 0) document.title = document.title.replace(/CrawlPanda/g, P.ap);
+    document.title = titleTemplate.replace(/爬爬熊猫/g, P.name).replace(/CrawlPanda/g, P.ap);
 
     var setupTitle = document.getElementById('setupTitle');
     if (setupTitle) setupTitle.textContent = '连接' + P.name;
     var hotspot = document.getElementById('hotspotName');
-    if (hotspot) hotspot.textContent = P.ap + '-XXXX';
+    if (hotspot) hotspot.textContent = ap || P.ap + '-XXXX';
     each('.pg-who', function (el) { el.textContent = P.name + ' · 使用引导'; });
 
     if (P.id !== 'crawlPanda') {
@@ -187,9 +196,13 @@
     if (!PRODUCTS[id]) return;
     try { localStorage.setItem(KEY, id); } catch (e) {}
     if (!go) {
+      var changed = currentId !== id;
       currentId = id; P = PRODUCTS[id]; P.id = id;
-      try { if (window.PandaTheme) window.PandaTheme.set({ theme: P.theme }); } catch (e) {}
-      apply(); return;
+      window.PandaProduct.id = id;
+      window.PandaProduct.data = P;
+      apply();
+      if (changed) document.dispatchEvent(new CustomEvent('panda:product', { detail: P }));
+      return;
     }
     try {
       if (window.PandaTheme) {
@@ -213,12 +226,11 @@
   };
 
   fetch('/api/status', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(s){
-    var id = s.build === 'wzh-dinosaur' ? 'dinosaur' : s.build === 'wzh-tailredpanda' ? 'redpanda' : 'crawlPanda';
+    var id = {'wzh-dinosaur': 'dinosaur', 'wzh-tailredpanda': 'redpanda', 'wzh-crawlpanda': 'crawlPanda'}[s.build];
+    if (!id) return;
+    deviceStatus = s;
     var applyDevice = function () {
       set(id, false);
-      var ap = s.wifi && s.wifi.ap_ssid;
-      if (ap) { text('[data-p-hot]', ap); text('[data-p-pass]', 'zylz' + ap.slice(-4)); }
-      text('[data-p-version]', s.version || '--');
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyDevice);
     else applyDevice();

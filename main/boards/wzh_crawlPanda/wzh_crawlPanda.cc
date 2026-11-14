@@ -18,8 +18,12 @@
 #include "wifi_manager.h"
 #include "wzh_audio_hub.h"
 #include "wzh_conversation_sounds.h"
+#include "wzh_idle_power.h"
+#include "wzh_system_prompts.h"
 #include "wzh_mcp_tools.h"
+#include "wzh_onboarding.h"
 #include "wzh_power_telemetry.h"
+#include "wzh_product.h"
 #include "wzh_sensors.h"
 #include "wzh_user_pairs_catalog.inc"
 #include "wzh_voice_services.h"
@@ -68,10 +72,22 @@ public:
             while (true)
                 vTaskDelay(pdMS_TO_TICKS(1000));
         }
+        Application::GetInstance().GetAudioService().SetOutputAudioLevelListener(
+            [this](float level, float attack) { local_audio_.FeedTtsLevel(level, attack); });
+    }
+
+    void OnAudioServiceReady() override {
+        if (product_initialized_ || power_.IsShuttingDown())
+            return;
+        product_initialized_ = true;
+        wzh::StartProductAudio();
+        // Continue slower product initialization while the startup sound plays.
         wzh::RegisterUserPairs(wzh_user_assets::kPairs, std::size(wzh_user_assets::kPairs));
         local_audio_.Initialize();
         controller_.Initialize(&local_audio_);
         power_.RegisterServoOutput(&controller_.servo_output());
+        power_.RegisterHoldFeedbackHook(
+            [this]() { controller_.TriggerBodyAction(PandaBodyAction::kLookLeft); });
         InitializeTouch();
         InitializeSensors();
         // 关机序列：断电前把舵机放回默认安全姿态。
@@ -80,9 +96,6 @@ public:
             local_audio_.StopPlayback();
             controller_.SetDefaultPose();
         });
-        // 在线 TTS 的真实响度 → 本地音频模块 → 动作引擎，让说话随音频舞动。
-        Application::GetInstance().GetAudioService().SetOutputAudioLevelListener(
-            [this](float level, float attack) { local_audio_.FeedTtsLevel(level, attack); });
         controller_.RegisterMcpTools();
         // 音频管理工具（列表/试听/删除/擦除/状态），Web 控制台取消后的入口。
         wzh::RegisterAudioMcpTools("panda", &local_audio_.audio_store(), &local_audio_);
@@ -122,6 +135,7 @@ public:
         WifiManager::GetInstance().SetBeforeConfigApHook([this]() { web_console_.Stop(); });
         InitializeConversationMode();
         InitializeButton();
+        wzh::StartIdlePower([this]() { power_.RequestAutoShutdown(); });
     }
 
     AudioCodec* GetAudioCodec() override {
@@ -143,6 +157,25 @@ public:
     }
 
     bool SupportsLocalInteraction() const override { return true; }
+    bool TriggerOnboardingFeedback(uint8_t step) override {
+        return controller_.TriggerOnboardingFeedback(step);
+    }
+    bool IsOnboardingFeedbackPending() const override {
+        return controller_.IsOnboardingFeedbackPending();
+    }
+
+    bool IsLocalPlaybackPending() override {
+        return local_audio_.Playing() || !local_audio_.WorkerIdle();
+    }
+
+    void OnConversationChannelOpened() override {
+        wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceReady);
+        if (wzh::ConsumeOnboardingConnectionProbe()) {
+            Application::GetInstance().Schedule([]() {
+                Application::GetInstance().StopInteraction(false);
+            });
+        }
+    }
 
     ExternalTts* GetExternalTts() override { return wzh::ProductExternalTts(); }
 
@@ -172,17 +205,40 @@ public:
     bool HandleLocalVoiceCommand(const std::string& command) override {
         constexpr const char* prefix = "local:";
         if (command.compare(0, std::strlen(prefix), prefix) != 0) {
+            if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kWake))
+                return true;
             // An ordinary wake phrase is an explicit invitation to resume companionship.
             local_audio_.StopPlayback();
             controller_.HandlePetControl(wzh::PetControl::kWake, false);
+            wzh::NotifyOnboarding(wzh::OnboardingEvent::kWake);
+            // Talking to it offline is interaction, even without a conversation:
+            // otherwise the countdown says goodbye to a child who is playing.
+            wzh::NotifyIdleInteraction();
             return false;
         }
         const std::string name = command.substr(std::strlen(prefix));
+        // Any recognized offline command is a real interaction for the countdown.
+        wzh::NotifyIdleInteraction();
         const auto control = wzh::ParsePetControl(name);
         const bool stop = control == wzh::PetControl::kStop || control == wzh::PetControl::kRest ||
                           control == wzh::PetControl::kQuiet;
         if (!stop && local_audio_.LocalCommandEchoRisk()) {
             ESP_LOGD(TAG, "Local command ignored during speaker output: %s", name.c_str());
+            return true;
+        }
+        if (name == "chat_wake") {
+            // Offline chapter: no saved network, so opening a channel fails
+            // silently. Stay quiet instead of looking broken, but count it as
+            // proof that the wake phrase is understood.
+            if (wzh::OnboardingBlocksConversation()) {
+                if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kWake))
+                    return true;
+                wzh::NotifyOnboarding(wzh::OnboardingEvent::kWake);
+                return true;
+            }
+            local_audio_.StopPlayback();
+            controller_.HandlePetControl(wzh::PetControl::kWake, false);
+            Application::GetInstance().WakeWordInvoke(wzh::Product().wake_phrase);
             return true;
         }
         ESP_LOGI(TAG, "Input=local_voice %s", name.c_str());
@@ -192,6 +248,15 @@ public:
         if (controller_.IsConversationActive()) {
             ESP_LOGD(TAG, "Cloud conversation owns joint commands via MCP");
             return true;
+        }
+        // Deliver the spoken command even while the cloud conversation owns
+        // joint control: the tutorial deliberately waits for a real "摇摇头".
+        if (name == "shake_head") {
+            if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kCommand))
+                return true;
+            wzh::NotifyOnboarding(wzh::OnboardingEvent::kCommand);
+            if (controller_.HandleBodyCommand(name))
+                return true;
         }
         if (controller_.HandleBodyCommand(name)) {
             return true;
@@ -213,7 +278,7 @@ public:
         // 当前硬件没有接入充电状态检测脚，只能报告电池正在供电。
         charging = false;
         discharging = true;
-        return true;
+        return power_.battery_level_valid();
     }
 
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
@@ -227,6 +292,7 @@ public:
                 web_console_.Stop();
             }
             if (event == NetworkEvent::Disconnected || event == NetworkEvent::WifiConfigModeEnter) {
+                wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
                 controller_.SetConversationActive(false);
             }
             if (callback) {
@@ -236,6 +302,7 @@ public:
     }
 
 private:
+    bool product_initialized_ = false;
     i2c_master_bus_handle_t codec_i2c_bus_ = nullptr;
     Button boot_button_;
     PandaPower power_;
@@ -249,14 +316,31 @@ private:
     void InitializeSensors() {
         sensors_.Initialize(HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
                             &controller_.servo_output(), [this](wzh::Sensors::Event event) {
+                                if (event == wzh::Sensors::Event::kPickedUp ||
+                                    event == wzh::Sensors::Event::kShaken) {
+                                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion)) {
+                                        wzh::NotifyIdleInteraction();
+                                        return true;
+                                    }
+                                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
+                                    wzh::NotifyIdleInteraction();
+                                }
+                                if (event == wzh::Sensors::Event::kHuman)
+                                    wzh::NotifyIdleInteraction();
                                 return controller_.HandleSensorEvent(static_cast<int>(event));
                             });
         sensors_.RegisterMcpTools("panda");
     }
 
     void InitializeTouch() {
-        power_.RegisterTouchHook(
-            [this](uint8_t code, uint8_t, uint8_t) { controller_.HandleTouch(code); });
+        power_.RegisterTouchHook([this](uint8_t code, uint8_t pressed, uint8_t) {
+            if (pressed) {
+                if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch))
+                    return;
+                wzh::NotifyOnboarding(wzh::OnboardingEvent::kTouch);
+            }
+            controller_.HandleTouch(code);
+        });
     }
 
     void InitializeConversationMode() {
@@ -275,6 +359,7 @@ private:
                 const bool active =
                     new_state == kDeviceStateConnecting || new_state == kDeviceStateListening ||
                     new_state == kDeviceStateSpeaking || new_state == kDeviceStateAudioTesting;
+                wzh::NotifyIdleInteraction();
                 controller_.SetConversationActive(active);
                 controller_.SetSpeaking(new_state == kDeviceStateSpeaking);
             });
@@ -303,7 +388,12 @@ private:
                 return;
             }
         });
-        boot_button_.OnDoubleClick([]() { Application::GetInstance().ToggleConversation(); });
+        boot_button_.OnDoubleClick([]() {
+            if (!wzh::OnboardingBlocksConversation()) {
+                wzh::PrepareOnboardingDoubleClick();
+                Application::GetInstance().ToggleConversation();
+            }
+        });
         ESP_LOGI(TAG,
                  "Boot/power key: double click enters/exits conversation; single click only "
                  "configures Wi-Fi");

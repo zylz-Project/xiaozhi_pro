@@ -10,7 +10,10 @@
 #include <esp_random.h>
 #include <esp_timer.h>
 
+#include "wzh_idle_power.h"
+#include "wzh_onboarding.h"
 #include "wzh_pet_behavior.h"
+#include "wzh_prompt_audio_gate.h"
 
 #include "application.h"
 #include "audio_service.h"
@@ -118,6 +121,9 @@ bool AudioPlayer::QueueFile(int index, const AudioFileInfo& file) {
         store_->IsWriting() || maintenance_.load()) {
         return false;
     }
+    std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
+    if (!reservation.owns_lock())
+        return false;
     auto& app = Application::GetInstance();
     const auto state = app.GetDeviceState();
     if (state == kDeviceStateConnecting || state == kDeviceStateListening ||
@@ -154,12 +160,19 @@ bool AudioPlayer::PlayInteractionSound(PetInteraction interaction) {
         return false;
     }
     interaction_sounds_.Remember(files[index].name);
-    ESP_LOGI(TAG, "Interaction=%s external Flash sound: %s", InteractionName(interaction),
-             files[index].name);
+    ESP_LOGI(TAG, "Interaction=%s sound=%s source=%s", InteractionName(interaction),
+             files[index].name, paired ? "paired" : "external_flash");
     return true;
 }
 
-bool AudioPlayer::PlayAutonomousSound(bool include_ambient, uint32_t ambient_percent) {
+bool AudioPlayer::PlayAutonomousSound(bool include_ambient, uint32_t ambient_percent,
+                                      bool respect_idle_silence) {
+    if (IsOnboardingActive())
+        return false;
+    // Past the 10-minute silence mark only autonomous sound effects stop; the
+    // caller's motion cadence keeps its full amplitude.
+    if (respect_idle_silence && IdleSoundSuppressed())
+        return false;
     if (!store_ || store_->IsWriting())
         return false;
     std::lock_guard<std::mutex> lock(reaction_mutex_);

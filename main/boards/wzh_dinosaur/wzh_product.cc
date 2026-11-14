@@ -14,6 +14,7 @@ const ProductConfig& Product() {
         .flash_clk_pin = DINO_FLASH_CLK_PIN,
         .flash_mosi_pin = DINO_FLASH_MOSI_PIN,
         .flash_miso_pin = DINO_FLASH_MISO_PIN,
+        .wake_phrase = "小威小威",
     };
     return config;
 }

@@ -303,7 +303,7 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
             settling = voice_barge_in_.settling_ms();
         }
         if (++reference_log_frames_ % 200 == 0) {
-            ESP_LOGI(TAG,
+            ESP_LOGD(TAG,
                      "MR capture: mic=%d peak=%d, ref=%d peak=%d active=%lu/200, "
                      "clipped=%lu/200, monitor=%d ref_ready=%d settle=%dms vad=%d, "
                      "AEC residual=%d gate=%d echo_corr=%d%%",
@@ -690,7 +690,7 @@ void AudioService::OpusCodecTask() {
                                                          packet->payload.size(), pcm.data(),
                                                          pcm.size(), decoder_sample_rate_);
                     if (quality) {
-                        ESP_LOGI(TAG,
+                        ESP_LOGD(TAG,
                                  "Opus quality: decode=%dHz output=%dHz payload=%lubps "
                                  "band=%lu..%lukHz stereo=%lu/%lu SILK/HYB/CELT=%lu/%lu/%lu "
                                  "PCM peak=%lu rails=%lu/%llu failures=%lu",

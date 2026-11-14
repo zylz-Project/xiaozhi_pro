@@ -8,15 +8,19 @@
 
 namespace wzh {
 
-// Completion-based cadence. Busy/disabled intervals restart the quiet interval,
-// including conversation, touch, maintenance, protection and decoder contention.
+// Completion-based cadence for full exhibitions: one Flash sound plus its
+// choreography every 2-3 minutes, while the idle micro-motion cadence below
+// keeps the pet visibly alive in between. Busy/disabled intervals restart the
+// quiet interval, including conversation, touch, maintenance, protection and
+// decoder contention.
 class AutoplayCadence {
 public:
+    static constexpr uint32_t kMinGapMs = 120000;
+    static constexpr uint32_t kGapSpreadMs = 60000;
+
     void Busy(uint32_t now, uint32_t random = 0) {
         since_ = now;
-        // Short exhibition cadence: about two seconds after the previous
-        // audio+motion finishes. Touch responses stay immediate.
-        delay_ = 1800 + random % 600;
+        delay_ = kMinGapMs + random % kGapSpreadMs;
         armed_ = true;
     }
     bool Due(uint32_t now, bool eligible, uint32_t random) {
@@ -29,17 +33,20 @@ public:
 
 private:
     bool armed_ = false;
-    uint32_t since_ = 0, delay_ = 2100;
+    uint32_t since_ = 0, delay_ = kMinGapMs;
 };
 
-// Between sounds and interactions the pet should still look alive. This
-// cadence only fires while fully idle, then leaves the next few seconds to the
-// clip/pulse that was just started.
+// Idle motion clip cadence. The continuous breathing/gaze micro-motion keeps
+// the pet alive between clips, so a full idle clip every 2-3 minutes is enough;
+// anything denser competes with the exhibition cadence above.
 class IdleCadence {
 public:
+    static constexpr uint32_t kMinGapMs = 120000;
+    static constexpr uint32_t kGapSpreadMs = 60000;
+
     void Busy(uint32_t now, uint32_t random = 0) {
         since_ = now;
-        delay_ = 3000 + random % 4000;
+        delay_ = kMinGapMs + random % kGapSpreadMs;
         armed_ = true;
     }
     bool Due(uint32_t now, bool eligible, uint32_t random) {
@@ -52,7 +59,7 @@ public:
 
 private:
     bool armed_ = false;
-    uint32_t since_ = 0, delay_ = 6000;
+    uint32_t since_ = 0, delay_ = kMinGapMs;
 };
 
 // A bounded, allocation-free score player. Each file's measured envelope and

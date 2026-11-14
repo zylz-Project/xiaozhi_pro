@@ -111,6 +111,7 @@ int main(){
 #define ESP_OK 0
 #define ESP_LOGI(...) ((void)0)
 constexpr int BATTERY_ADC_CHANNEL=2,BATTERY_LOW_MV=3300,BATTERY_RECOVER_MV=3400,BATTERY_CRITICAL_MV=3000;
+constexpr int BATTERY_EMPTY_VOLTAGE_MV=3200,BATTERY_FULL_VOLTAGE_MV=4200;
 int raw_value=1950; bool adc_valid=true,calibration_valid=true;
 int adc_oneshot_read(int,int,int* out){*out=raw_value;return adc_valid?0:-1;}
 int adc_cali_raw_to_voltage(void*,int raw,int* mv){*mv=raw;return calibration_valid?0:-1;}
@@ -120,7 +121,7 @@ struct Power {
  wzh::FastBatteryStart fast_battery;wzh::StableBatteryProtection battery_protection_;
  wzh::BatteryRestVoltage battery_rest_voltage_;bool battery_settled=false;
  uint32_t last_fast_battery_sample_ms=0,last_fast_battery_log_ms=0,last_battery_sample_ms=0;
- std::atomic<int> battery_live_mv_{0},battery_protection_mv_{0};std::atomic<bool> battery_sample_valid_{false};
+ std::atomic<int> battery_live_mv_{0},battery_protection_mv_{0},battery_level_{0};std::atomic<bool> battery_sample_valid_{false};
  void Tick(uint32_t now){
 ''' + branch + r'''
  }
@@ -129,17 +130,56 @@ int main(){
  Power normal;for(uint32_t t=1200;t<10000&&!normal.battery_settled;t+=20)normal.Tick(t);
  assert(normal.battery_settled&&normal.last_battery_sample_ms<10000);
  assert(!(normal.output.flags&wzh::kBatteryPending)&&normal.battery_protection_.ready());
- assert(normal.battery_live_mv_==3900&&normal.battery_sample_valid_);
+ assert(normal.battery_live_mv_==3900&&normal.battery_level_==70&&normal.battery_sample_valid_);
  Power no_cal;no_cal.battery_adc_cali_=nullptr;
  for(uint32_t t=1200;t<15000;t+=20)no_cal.Tick(t);
  assert(!no_cal.battery_settled&&(no_cal.output.flags&wzh::kBatteryPending));
- Power old_cap;for(uint32_t t=1200;t<15000;t+=20){
-  // 3.3 V cell with an old 4.4 V capacitor and a 200 mV ADC overread.
-  float voltage=3300+1100*std::exp(-float(t)/6000.0f)+200;
-  raw_value=int(voltage/2);old_cap.Tick(t);
- }
- assert(!old_cap.battery_settled&&(old_cap.output.flags&wzh::kBatteryPending));
+ Power near_empty;raw_value=1650;
+ for(uint32_t t=1200;t<15000;t+=20)near_empty.Tick(t);
+ assert(!near_empty.battery_settled&&(near_empty.output.flags&wzh::kBatteryPending));
+ Power sufficient;raw_value=1711;sufficient.Tick(1200);
+ assert(sufficient.battery_settled&&sufficient.battery_protection_.ready());
+ assert(!(sufficient.output.flags&wzh::kBatteryPending));
 }
+''')
+
+    def test_power_on_sound_follows_audio_ready_without_waiting_for_battery(self):
+        from test_wzh_action_queue import queue_function
+        app=(ROOT/'main/application.cc').read_text()
+        initialize=queue_function(app, 'void Application::Initialize()')
+        self.assertLess(initialize.index('audio_service_.Start();'),
+                        initialize.index('board.OnAudioServiceReady();'))
+        for board, stem in [('wzh_crawlPanda','panda'),('wzh_tailRedPanda','panda'),('wzh_dinosaur','dinosaur')]:
+            power=(ROOT/'main/boards'/board/(stem+'_power.cc')).read_text()
+            board_source=(ROOT/'main/boards'/board/(board+'.cc')).read_text()
+            ready=queue_function(board_source, 'void OnAudioServiceReady()')
+            with self.subTest(board=board):
+                self.assertNotIn('power_on_prompt_sent',power)
+                self.assertNotIn('vTaskDelay(pdMS_TO_TICKS(1200))',power)
+                self.assertLess(ready.index('wzh::StartProductAudio();'),
+                                ready.index('local_audio_.Initialize();'))
+                self.assertIn('power_.RegisterServoOutput(&controller_.servo_output());',ready)
+                self.assertIn('wzh::StartIdlePower(',ready)
+        source=(ROOT/'main/boards/common/wzh/wzh_system_prompts.cc').read_text()
+        method=queue_function(source, 'void StartProductAudio()')
+        self.run_cpp(r'''
+#include <atomic>
+#include <cassert>
+#include <vector>
+#define ESP_LOGI(...) ((void)0)
+#define kTag "test"
+namespace Lang {namespace Sounds {constexpr int OGG_POWER_ON=1;}}
+std::vector<int> events;
+struct Audio {void PlaySound(int){events.push_back(1);}};
+struct Application {Audio audio;static Application& GetInstance(){static Application a;return a;}
+ Audio& GetAudioService(){return audio;}};
+namespace wzh {std::atomic<bool> shutting_down{false},startup_audio_started{false};
+void StartSystemPrompts(){events.push_back(2);}void MarkPowerOnPromptQueued(){events.push_back(3);}
+''' + method + r'''
+}
+int main(){wzh::shutting_down=true;wzh::StartProductAudio();assert(events.empty());
+ wzh::shutting_down=false;wzh::StartProductAudio();wzh::StartProductAudio();
+ assert((events==std::vector<int>{1,2,3}));}
 ''')
 
     def test_three_power_tasks_keep_fallback_and_share_qualification(self):

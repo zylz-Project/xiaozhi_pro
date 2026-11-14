@@ -25,6 +25,7 @@ APP_HARNESS = r'''
 #include <cstring>
 #include "cJSON.h"
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGD(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 enum DeviceState{kDeviceStateIdle,kDeviceStateConnecting,kDeviceStateListening,kDeviceStateSpeaking,
@@ -484,7 +485,10 @@ int main(){
 #define ESP_LOGI(...) ((void)0)
 enum DeviceState{kDeviceStateIdle,kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateConnecting,
  kDeviceStateListening,kDeviceStateSpeaking,kDeviceStateUpgrading,kDeviceStateFatalError,kDeviceStateAudioTesting};
-namespace wzh{enum class PetControl{kWake};}
+namespace wzh{enum class PetControl{kWake};bool onboarding_block=false;int prepared=0;
+ bool OnboardingBlocksConversation(){return onboarding_block;}
+ void PrepareOnboardingDoubleClick(){++prepared;}
+ void NotifyIdleInteraction(){}}
 struct Controller{
  int wakes=0;bool active=false,speaking=false;
  void HandlePetControl(wzh::PetControl,bool respond){assert(!respond);++wakes;}
@@ -509,7 +513,9 @@ __MODE__
 int main(){
  Board b;b.InitializeButton();b.InitializeConversationMode();auto&app=Application::GetInstance();
  b.boot_button_.click();assert(app.toggles==0&&b.configs==0);
- b.boot_button_.double_click();b.boot_button_.double_click();assert(app.toggles==2);
+ b.boot_button_.double_click();b.boot_button_.double_click();assert(app.toggles==2&&wzh::prepared==2);
+ wzh::onboarding_block=true;b.boot_button_.double_click();assert(app.toggles==2&&wzh::prepared==2);
+ wzh::onboarding_block=false;
  app.state=kDeviceStateWifiConfiguring;b.boot_button_.click();assert(b.configs==1&&app.toggles==2);
  app.listener(kDeviceStateIdle,kDeviceStateConnecting);assert(b.controller_.wakes==1&&b.controller_.active);
  app.listener(kDeviceStateConnecting,kDeviceStateListening);app.listener(kDeviceStateListening,kDeviceStateSpeaking);

@@ -13,6 +13,8 @@
 #include "assets/lang_config.h"
 #include "config.h"
 #include "wzh_fast_battery_start.h"
+#include "wzh_idle_power.h"
+#include "wzh_onboarding.h"
 #include "wzh_power_startup.h"
 #include "wzh_system_prompts.h"
 #include "wzh_touch_input.h"
@@ -139,6 +141,11 @@ void DinosaurPower::RegisterShutdownHook(ShutdownHook hook) {
     shutdown_hook_ready_.store(true, std::memory_order_release);
 }
 
+void DinosaurPower::RegisterHoldFeedbackHook(ShutdownHook hook) {
+    hold_feedback_hook_ = std::move(hook);
+    hold_feedback_ready_.store(true, std::memory_order_release);
+}
+
 void DinosaurPower::RegisterTouchHook(TouchHook hook) {
     touch_hook_ = std::move(hook);
     touch_hook_ready_.store(true, std::memory_order_release);
@@ -213,7 +220,11 @@ void DinosaurPower::ReadBattery(uint32_t now) {
         if (i >= 2)
             readings[i - 2] = raw;
     }
-    if (!valid) {
+    // A successful ADC call can still yield an impossible or saturated
+    // voltage. Treat it like a read failure, not an empty or full battery.
+    const int raw = valid ? wzh::BatteryRestVoltage::TrimmedRaw(readings) : 0;
+    const int battery_mv = valid ? AdcToMv(battery_adc_cali_, raw) * BATTERY_DIVIDER_RATIO : 0;
+    if (!valid || battery_mv <= 0 || battery_mv > 4600) {
         battery_protection_.Invalidate();
         battery_rest_voltage_.Invalidate();
         battery_sample_valid_.store(false);
@@ -224,15 +235,21 @@ void DinosaurPower::ReadBattery(uint32_t now) {
             output->SetFault(wzh::kBatteryPending, true);
         return;
     }
-    const int raw = wzh::BatteryRestVoltage::TrimmedRaw(readings);
-    const int battery_mv = AdcToMv(battery_adc_cali_, raw) * BATTERY_DIVIDER_RATIO;
     battery_live_mv_.store(battery_mv);
+    battery_level_.store(std::clamp((battery_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
+                                        (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
+                                    0, 100));
     battery_sample_valid_.store(true);
     // Normal protection uses the temporal median plus three confirmations;
     // recovery requires rest. Critical undervoltage has its own live path.
+    const bool previous_low = battery_protection_.low();
     battery_protection_.Update(battery_mv, battery_rest_voltage_.RestReady(now), BATTERY_LOW_MV,
                                BATTERY_RECOVER_MV, BATTERY_CRITICAL_MV);
     battery_protection_mv_.store(battery_protection_.millivolts());
+    if (previous_low != battery_protection_.low())
+        ESP_LOGW(TAG, "Battery protection low=%d live=%dmV stable=%dmV ready=%d",
+                 battery_protection_.low(), battery_mv, battery_protection_.millivolts(),
+                 battery_protection_.ready());
     if (auto* output = servo_output_.load()) {
         output->SetFault(wzh::kLowBattery, battery_protection_.low());
         output->SetFault(wzh::kBatteryPending, !battery_protection_.ready());
@@ -243,12 +260,24 @@ void DinosaurPower::ReadBattery(uint32_t now) {
         const int rest_mv = battery_rest_voltage_.millivolts();
         battery_voltage_mv_.store(rest_mv);
         battery_rest_updated_ms_.store(battery_rest_voltage_.updated_ms());
-        // Approximate UI percentage; protection never uses this estimate.
-        const int level = std::clamp((rest_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
-                                         (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
-                                     0, 100);
-        battery_level_.store(level);
-        battery_warning_.Observe(level);
+        const int rested_level = std::clamp((rest_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
+                                                (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
+                                            0, 100);
+        // The divider's large capacitor can still be settling after a cold
+        // power-up. Do not latch an early underestimated percentage warning.
+        if (now >= 15000) {
+            const int current_level = std::clamp((battery_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
+                                                     (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
+                                                 0, 100);
+            // A filtered value can retain an early, low startup sample. Only
+            // warn when both the filter and current rested sample are low.
+            const bool previous_warning = battery_warning_.low();
+            battery_warning_.Observe(std::max(rested_level, current_level));
+            if (previous_warning != battery_warning_.low())
+                ESP_LOGI(TAG, "Battery reminder low=%d live=%dmV rest=%dmV level=%d%%",
+                         battery_warning_.low(), battery_mv, rest_mv,
+                         std::max(rested_level, current_level));
+        }
     }
 }
 
@@ -270,22 +299,23 @@ void DinosaurPower::Task() {
     int click_count = 0;
     uint32_t last_battery_sample_ms = 0;
     bool battery_settled = false;
+    bool startup_protection_monitoring = true;
     uint32_t last_fast_battery_sample_ms = 0;
     uint32_t last_fast_battery_log_ms = 0;
     wzh::FastBatteryStart fast_battery;
     wzh::TouchInputFilter touch_filter(TOUCH_STABLE_SAMPLES);
 
-    vTaskDelay(pdMS_TO_TICKS(1200));  // 等待音频服务就绪
-    wzh::StartSystemPrompts();
-
-    // 开机提示音：内嵌上行叮咚（不读外部 Flash，硬件就绪即可响，早于
-    // 联网流程）。叮咚先播，控制器 +2s 的 Flash 开机叫声经 IsPlaybackIdle
-    // 门控自动排在叮咚之后，两者不重叠。
-    Application::GetInstance().GetAudioService().PlaySound(Lang::Sounds::OGG_POWER_ON);
-    ESP_LOGI(TAG, "Power task ready");
+    // Battery and key monitoring run independently of audio initialization.
+    ESP_LOGI(TAG, "Power task ready; monitoring battery and power key");
     uint32_t last_battery_log_ms = 0;
 
     while (true) {
+        if (auto_shutdown_requested_.load()) {
+            // 10 分钟无互动：这里直接走完整 Shutdown()，它在播完 OGG_POWER_OFF
+            // 后才断开电源锁存，与长按关机共用同一套顺序。
+            ESP_LOGI(TAG, "Auto shutdown after idle timeout");
+            Shutdown();
+        }
         if (auto* output = servo_output_.load()) {
             output->Watchdog();
         }
@@ -346,6 +376,7 @@ void DinosaurPower::Task() {
                         state = BtnState::kPressed;  // 消抖确认按下
                         press_start_ms = now;
                         hold_tip = 0;
+                        wzh::NotifyIdleInteraction();
                         ESP_LOGI(TAG, "Power key pressed (raw=%d)", raw);
                     }
                     break;
@@ -361,6 +392,10 @@ void DinosaurPower::Task() {
                         }
                         // 长按进度提示（每 500ms 一次），松开可取消。
                         const int tip = hold_ms / 500;
+                        if (hold_tip < 2 && tip >= 2 &&
+                            hold_feedback_ready_.load(std::memory_order_acquire)) {
+                            hold_feedback_hook_();
+                        }
                         if (tip != hold_tip && tip > 0) {
                             hold_tip = tip;
                             ESP_LOGI(TAG, "Long press %d.%d s (need %d s), release to cancel",
@@ -377,7 +412,11 @@ void DinosaurPower::Task() {
                         const int dur =
                             press_start_ms != 0 ? static_cast<int>(now - press_start_ms) : 0;
                         ESP_LOGI(TAG, "Power key released (held %d ms)", dur);
-                        if (dur < POWER_LONG_PRESS_MS) {
+                        if (dur >= 1000) {
+                            // A released long hold is not a click and must not complete a double
+                            // click.
+                            click_count = 0;
+                        } else if (dur < POWER_LONG_PRESS_MS) {
                             // 短按只统计双击；对话切换及提示音由主任务串行处理。
                             const TickType_t tick_now = xTaskGetTickCount();
                             if (tick_now - last_click_tick <= pdMS_TO_TICKS(400)) {
@@ -389,7 +428,10 @@ void DinosaurPower::Task() {
                             if (click_count >= 2) {
                                 click_count = 0;
                                 ESP_LOGI(TAG, "Power key double click: toggle chat");
-                                Application::GetInstance().ToggleConversation();
+                                if (!wzh::OnboardingBlocksConversation()) {
+                                    wzh::PrepareOnboardingDoubleClick();
+                                    Application::GetInstance().ToggleConversation();
+                                }
                             }
                         }
                         state = BtnState::kIdle;
@@ -434,9 +476,11 @@ void DinosaurPower::Task() {
                          code, touch_event.voltage_mv, pressed_mask, released_mask);
                 if (accept_interaction && touch_hook_ready_.load(std::memory_order_acquire) &&
                     touch_hook_) {
-                    if (pressed_mask)
+                    if (pressed_mask) {
                         ESP_LOGI(TAG, "Input=touch code=0x%02X voltage=%dmV", code,
                                  touch_event.voltage_mv);
+                        wzh::NotifyIdleInteraction();
+                    }
                     touch_hook_(code, pressed_mask, released_mask);
                 }
             }
@@ -449,9 +493,8 @@ void DinosaurPower::Task() {
         battery_rest_voltage_.ObserveLoad(battery_loaded, now);
         battery_load_active_.store(battery_loaded);
         battery_rest_ready_.store(battery_rest_voltage_.RestReady(now));
-        // Probe early without changing low-voltage state. Only a calibrated,
-        // conservative five-sample qualification can release the startup lock;
-        // otherwise the original 15 s + one-second confirmation path runs.
+        // An initial calibrated battery observation can release startup motion.
+        // Runtime low/critical protection continues using normal sampling.
         if (!battery_settled && now < 15000 &&
             now - last_fast_battery_sample_ms >= wzh::FastBatteryStart::kProbeIntervalMs) {
             last_fast_battery_sample_ms = now;
@@ -467,17 +510,36 @@ void DinosaurPower::Task() {
                                adc_cali_raw_to_voltage(battery_adc_cali_, raw, &mv) == ESP_OK;
                     },
                     measured_mv);
+            if (valid && measured_mv > 0 && measured_mv <= 4600) {
+                battery_live_mv_.store(measured_mv);
+                battery_level_.store(std::clamp((measured_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
+                                                    (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
+                                                0, 100));
+                battery_sample_valid_.store(true);
+            } else {
+                battery_sample_valid_.store(false);
+            }
+            if (valid && measured_mv > BATTERY_LOW_MV && measured_mv <= 4600) {
+                if (auto* output = servo_output_.load()) {
+                    battery_protection_.InitializeFromStartupSample(
+                        measured_mv, BATTERY_LOW_MV, BATTERY_RECOVER_MV, BATTERY_CRITICAL_MV);
+                    battery_protection_mv_.store(battery_protection_.millivolts());
+                    output->SetFault(wzh::kLowBattery, false);
+                    output->SetFault(wzh::kBatteryPending, false);
+                    battery_settled = true;
+                    last_battery_sample_ms = now;
+                    ESP_LOGI(TAG, "Battery startup sample accepted: %d mV", measured_mv);
+                }
+            }
             if (now - last_fast_battery_log_ms >= 3000) {
                 last_fast_battery_log_ms = now;
                 ESP_LOGI(TAG,
                          "Fast battery probe: %lu ms calibration=%s valid=%s measured=%d mV "
-                         "required=%d mV",
+                         "motion_threshold=%d mV",
                          static_cast<unsigned long>(now), battery_adc_cali_ ? "yes" : "no",
-                         valid ? "yes" : "no", measured_mv,
-                         static_cast<int>(std::ceil(
-                             wzh::FastBatteryStart::RequiredMillivolts(now, BATTERY_RECOVER_MV))));
+                         valid ? "yes" : "no", measured_mv, BATTERY_LOW_MV);
             }
-            if (fast_battery.Observe(now, valid, measured_mv, BATTERY_RECOVER_MV)) {
+            if (!battery_settled && fast_battery.Observe(now, valid, measured_mv, BATTERY_RECOVER_MV)) {
                 if (auto* output = servo_output_.load()) {
                     if (wzh::CommitFastBatteryStart(
                             fast_battery, battery_protection_, battery_rest_voltage_.RestReady(now),
@@ -504,13 +566,21 @@ void DinosaurPower::Task() {
             last_battery_sample_ms = now;
             ReadBattery(now);
 #if CONFIG_WZH_SYSTEM_PROMPTS
-            wzh::ObserveSystemPromptBattery(battery_protection_.ready(),
+            wzh::ObserveSystemPromptBattery(now >= 15000 && battery_protection_.ready(),
                                             battery_protection_.low() || battery_warning_.low());
 #endif
             if (last_battery_log_ms == 0 || now - last_battery_log_ms >= 30000) {
-                ESP_LOGI(TAG, "Battery rest=%dmV live=%dmV level=%d%% valid=%d load=%d",
-                         battery_voltage_mv_.load(), battery_live_mv_.load(), battery_level_.load(),
-                         battery_sample_valid_.load(), battery_loaded);
+                const long rest_age_ms = battery_voltage_mv_.load() > 0
+                                             ? static_cast<long>(now - battery_rest_updated_ms_.load())
+                                             : -1;
+                ESP_LOGI(TAG,
+                         "Battery live=%dmV rest=%dmV rest_age=%ldms level=%d%% source=%s "
+                         "valid=%d load=%d protection=%dmV ready=%d low=%d",
+                         battery_live_mv_.load(), battery_voltage_mv_.load(), rest_age_ms,
+                         battery_level_.load(),
+                         battery_sample_valid_.load() ? "live_estimate" : "pending",
+                         battery_sample_valid_.load(), battery_loaded, battery_protection_mv_.load(),
+                         battery_protection_.ready(), battery_protection_.low());
                 last_battery_log_ms = now;
             }
         }
@@ -530,6 +600,26 @@ void DinosaurPower::Task() {
             } else {
                 temperature_valid_.store(false);
             }
+        }
+        if (startup_protection_monitoring && now >= 5000) {
+            const auto* output = servo_output_.load();
+            const auto faults = output != nullptr ? output->faults() : 0U;
+            auto notice = wzh::StartupProtectionNotice::kNone;
+            if (now >= 15000 && battery_protection_.ready() && battery_protection_.low()) {
+                notice = wzh::StartupProtectionNotice::kLowBattery;
+            } else if (faults & wzh::kOverheat) {
+                notice = wzh::StartupProtectionNotice::kOverheat;
+            } else if (output == nullptr ||
+                       (faults & (wzh::kFalling | wzh::kMotionTimeout | 16U))) {
+                notice = wzh::StartupProtectionNotice::kMotionBlocked;
+            } else if ((faults & (wzh::kBatteryPending | wzh::kLowBattery)) ||
+                       (battery_sample_valid_.load() && battery_live_mv_.load() <= BATTERY_LOW_MV)) {
+                notice = wzh::StartupProtectionNotice::kCheckingBattery;
+            }
+            wzh::ObserveStartupProtection(notice);
+            if (notice == wzh::StartupProtectionNotice::kNone &&
+                wzh::StartupGreetingFinished())
+                startup_protection_monitoring = false;
         }
         vTaskDelay(pdMS_TO_TICKS(kPollMs));
     }

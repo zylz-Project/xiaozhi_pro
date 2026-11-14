@@ -601,7 +601,7 @@
       setTimeout(function () {
         var active = document.activeElement;
         var editing = active && (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
-        if (!rootEl && !editing) start(which);
+        if (!rootEl && !editing && (forced || !seen(cfg.store || which))) start(which);
       }, forced ? 320 : 760);
     }
   }
@@ -629,6 +629,17 @@
     reset: reset,
     state: function () { return JSON.parse(JSON.stringify(state)); }
   };
+
+  document.addEventListener('panda:product', function (event) {
+    STORE_KEY = 'panda-guide-v1:' + event.detail.id;
+    state = readLocal();
+    if (rootEl) {
+      rootEl.setAttribute('aria-label', event.detail.name + '使用引导');
+      rootEl.querySelector('.pg-avatar img').src = event.detail.assets.face;
+      rootEl.querySelector('.pg-kicker').textContent = event.detail.code + ' GUIDE';
+      rootEl.querySelector('.pg-who').textContent = event.detail.name + ' · 使用引导';
+    }
+  });
 
   remoteGet();
 })(window, document);

@@ -34,7 +34,7 @@ class WzhJointVoiceTest(unittest.TestCase):
                 self.assertEqual({p['text'] for p in commands},
                                  {'local:' + name for name in body} |
                                  {'local:' + name for name in
-                                  ['happy', 'affection', 'eat', 'sleepy', 'stop', 'quiet', 'rest', 'wake']})
+                                  ['happy', 'affection', 'eat', 'sleepy', 'stop', 'quiet', 'rest', 'wake', 'chat_wake']})
                 for bits, action, _, pinyin in rows:
                     if int(bits) & mask:
                         self.assertEqual(packed[pinyin], 'local:' + action)
@@ -70,6 +70,7 @@ class WzhJointVoiceTest(unittest.TestCase):
 #include <string>
 #include <variant>
 #include "wzh_body_commands.h"
+#include "wzh_onboarding.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
@@ -113,6 +114,10 @@ struct Controller{
     '__CAPABILITIES__', tool_registration(source, prefix+'.body_capabilities')).replace(
     'BODY', body_type).replace('ACTION', action_type) + methods + r'''
 struct Audio{bool echo=false;void StopPlayback(){}bool LocalCommandEchoRisk(){return echo;}};
+namespace wzh {struct ProductInfo{const char* wake_phrase="test";};ProductInfo Product(){return {};}}
+namespace wzh {void NotifyOnboarding(OnboardingEvent){}bool CaptureOnboardingInteraction(OnboardingEvent){return false;}void NotifyIdleInteraction(){}bool OnboardingBlocksConversation(){return false;}}
+struct Application{static Application& GetInstance(){static Application app;return app;}
+    void WakeWordInvoke(const std::string&){} };
 struct Board{Controller controller_;Audio local_audio_;__ROUTE__};
 int main(){
     Board board;auto& c=board.controller_;Registry mcp;c.Register(mcp);

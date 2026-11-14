@@ -140,6 +140,7 @@ struct Request {
     wzh::PetPriority priority=wzh::PetPriority::kExplicit;
     bool speech_bound=false;
     wzh::PetInteraction interaction=wzh::PetInteraction::kNone;
+    bool tutorial_shake_head=false;
 };
 int64_t clock_us=30000000;
 int64_t esp_timer_get_time(){return clock_us;}
@@ -163,7 +164,7 @@ struct Controller {
     wzh::PetMode pet_mode(){return pet_.Get(clock_us/1000).mode;}
     bool TriggerAction(Action,bool,wzh::PetPriority,bool=false){return true;}
     bool QueueRequest(ActionRequest,wzh::PetPriority);
-    bool QueueInteraction(wzh::PetInteraction);
+    bool QueueInteraction(wzh::PetInteraction, bool = false);
     bool HandleSensorEvent(int);
     void HandleTouch(uint8_t);
     void PollInteraction(uint32_t);
@@ -275,8 +276,10 @@ int main() {
 #include <array>
 #include <cassert>
 #include <mutex>
+#include <thread>
 #include <vector>
 #include "wzh_interaction_sound.h"
+#include "wzh_prompt_audio_gate.h"
 using namespace wzh;
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
@@ -322,6 +325,11 @@ struct AudioPlayer {
         exercise=r'''
 int main(){
     AudioPlayer p;auto& app=Application::GetInstance();
+    std::atomic<bool> held{false},release{false};
+    std::thread other([&]{std::lock_guard<std::mutex> lock(PromptAudioGate());
+        held=true;while(!release.load())std::this_thread::yield();});
+    while(!held.load())std::this_thread::yield();
+    assert(!p.PlayIndex(0));release=true;other.join();
     assert(p.PlayInteractionSound(PetInteraction::kTouch1));
     assert(queue.back().file.offset==100&&queue.back().generation==7);
     assert(!p.PlayInteractionSound(PetInteraction::kTouch1)); // Reserved before decoder starts.
@@ -345,8 +353,13 @@ int main(){
     p.playback_pending_=false;
     assert(p.PlayIndex(0));assert(queue.back().file.offset==200);
     assert(!p.PlayIndex(-1));assert(!p.PlayIndex(10));
-    p.store.files.clear();auto count=queue.size();
+    p.store.files.clear();auto count=queue.size();p.playback_pending_=false;
     assert(!p.PlayInteractionSound(PetInteraction::kTouch1));assert(queue.size()==count);
+    // The existing authored pair remains usable when the external Flash directory is empty.
+    const uint8_t ogg[]={1,2,3};const UserPair pair={"撒娇",nullptr,ogg,3,1000,nullptr,0,1000,3};
+    RegisterUserPairs(&pair,1);assert(p.PlayInteractionSound(PetInteraction::kTouch1));
+    assert(queue.back().index==kUserPairIndexBase&&queue.back().file.size==3);
+    RegisterUserPairs(nullptr,0);
 }
 '''
         self.run_cpp(program+methods+exercise)

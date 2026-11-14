@@ -217,6 +217,7 @@ int main(){
 #include <functional>
 #include <optional>
 #include <string_view>
+#include <thread>
 #define CONFIG_WZH_SYSTEM_PROMPTS 1
 #define CONFIG_BOARD_TYPE_WZH_CRAWLPANDA 1
 #define ESP_LOGE(...) ((void)0)
@@ -234,7 +235,7 @@ int xTaskCreate(void(*callback)(void*),const char*,int,void*,int,void*){entry=ca
 void vTaskDelay(unsigned);
 constexpr int kDeviceStateIdle=0;
 struct Audio {
- uint32_t generation=0,until=0,drained=0;int low=0,off=0,wifi=0,resets=0;bool stalled=false;
+ uint32_t generation=0,until=0,drained=0;int low=0,off=0,wifi=0,warning=0,resets=0;bool stalled=false;
  void settle(){if(!stalled&&until&&clock_ms>=until){++drained;until=0;}}
  void EnableWakeWordDetection(bool){}
  void EnableVoiceProcessing(bool){}
@@ -250,7 +251,8 @@ struct Audio {
    ++off;until=clock_ms+1200;
    // Simulate an application-side reset landing right after enqueue.
    if(cancel_shutdown_after_play){cancel_shutdown_after_play=false;++generation;++resets;until=0;}
-  }else{++low;until=clock_ms+500;}
+  }else if(sound=="warning"){++warning;until=clock_ms+500;}
+  else{++low;until=clock_ms+500;}
  }
 };
 struct Application {
@@ -264,7 +266,11 @@ struct Board {
  static Board& GetInstance(){static Board board;return board;}
  bool IsAudioMaintenanceActive(){return maintenance;}
 };
-namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi";}}
+namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_ON="on",OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi",OGG_EXCLAMATION="warning";}}
+#include "wzh_onboarding_store.h"
+namespace wzh {bool PeekOnboardingProgress(OnboardingProgress&){return true;} int onboarding_starts=0;bool IsOnboardingActive(){return false;}
+ void StartOnboarding(){++onboarding_starts;}void StopOnboarding(){}
+ void StartIdlePower(std::function<void()>){}void StopIdlePower(){}}
 #include "''' + str(ROOT/'main/boards/common/wzh/wzh_system_prompts.cc') + r'''"
 void run_worker(unsigned turns=1){
  worker_turns=turns;inside_worker=true;try{entry(nullptr);}catch(StopWorker&){}inside_worker=false;
@@ -280,11 +286,24 @@ void vTaskDelay(unsigned ms){
 }
 int main(){
  auto& app=Application::GetInstance();auto& audio=app.audio;
- wzh::StartSystemPrompts();assert(entry);
+ wzh::StartSystemPrompts();assert(entry&&wzh::onboarding_starts==0);
+ // Startup protection feedback has priority, waits for audio and only plays once.
+ wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kLowBattery);
+ app.state=1;run_worker();assert(audio.low==0);app.state=0;
+ run_worker();assert(audio.low==1);clock_ms+=1000;run_worker();assert(audio.low==1);
+ wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kNone);
+ wzh::ObserveSystemPromptBattery(true,false);
+ wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kOverheat);
+ run_worker();assert(audio.warning==1);clock_ms+=1000;run_worker();assert(audio.warning==1);
+ wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kMotionBlocked);
+ wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kNone);run_worker();
+ assert(audio.warning==1);audio.low=0;audio.until=0;clock_ms=0;
  // Startup audio and asynchronous queue resets must finish before the prompt.
  audio.until=1000;wzh::RequestWifiSetupPrompt();clock_ms=700;run_worker();assert(audio.wifi==0);
  audio.ResetDecoder();clock_ms=1100;run_worker();assert(audio.wifi==0);
- wzh::MarkStartupGreetingComplete();run_worker();assert(audio.wifi==1);
+ wzh::MarkPowerOnPromptQueued();
+ wzh::MarkStartupGreetingComplete();wzh::MarkStartupGreetingComplete();
+ assert(wzh::onboarding_starts==1);run_worker();assert(audio.wifi==1);
  clock_ms=1700;run_worker();assert(audio.wifi==1);
  wzh::RequestWifiSetupPrompt();app.state=1;run_worker();app.state=0;
  clock_ms=2500;run_worker();assert(audio.wifi==1);
@@ -292,7 +311,13 @@ int main(){
  wzh::ObserveSystemPromptBattery(true,true);
  app.state=1;run_worker();assert(audio.low==0);
  app.state=0;Board::GetInstance().maintenance=true;run_worker();assert(audio.low==0);
- Board::GetInstance().maintenance=false;run_worker();assert(audio.low==1);
+ Board::GetInstance().maintenance=false;
+ std::atomic<bool> held{false},release{false};
+ std::thread other([&]{std::lock_guard<std::mutex> lock(wzh::PromptAudioGate());
+  held=true;while(!release.load())std::this_thread::yield();});
+ while(!held.load())std::this_thread::yield();
+ run_worker();assert(audio.low==0);release=true;other.join();
+ run_worker();assert(audio.low==1);
  clock_ms=1000;run_worker();assert(audio.low==1);
  // Real worker loop: cancellation after the producer returned must re-arm the
  // reminder, not silently consume the episode. The second loop retries it.
@@ -335,7 +360,7 @@ int main(){
         for board, stem in [('wzh_crawlPanda', 'panda'), ('wzh_tailRedPanda', 'panda'),
                             ('wzh_dinosaur', 'dinosaur')]:
             source = (ROOT/'main/boards'/board/(stem+'_power.cc')).read_text()
-            self.assertIn('ObserveSystemPromptBattery(battery_protection_.ready()', source)
+            self.assertIn('ObserveSystemPromptBattery(now >= 15000 && battery_protection_.ready()', source)
             self.assertIn('PlayShutdownPromptAndWait([this]() { ReadBattery(', source)
             emergency = source.split('::EmergencyShutdown() {', 1)[1].split('battery_sampling()', 1)[0]
             self.assertNotIn('PlaySound', emergency)

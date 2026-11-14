@@ -59,7 +59,7 @@ bool WebsocketProtocol::SendText(const std::string& text) {
     }
 
     if (!websocket_->Send(text)) {
-        ESP_LOGE(TAG, "Failed to send text: %s", text.c_str());
+        ESP_LOGE(TAG, "Failed to send text (%u bytes)", static_cast<unsigned>(text.size()));
         SetError(Lang::Strings::SERVER_ERROR);
         return false;
     }
@@ -77,6 +77,13 @@ void WebsocketProtocol::CloseAudioChannel(bool send_goodbye) {
 }
 
 bool WebsocketProtocol::OpenAudioChannel() {
+    auto& board = Board::GetInstance();
+    if (!board.IsNetworkAvailable() || board.IsAudioMaintenanceActive()) {
+        ESP_LOGI(TAG, "WebSocket connection deferred: network unavailable or maintenance active");
+        if (!board.IsAudioMaintenanceActive())
+            SetError(Lang::Strings::SERVER_NOT_CONNECTED);
+        return false;
+    }
     Settings settings("websocket", false);
     std::string url = settings.GetString("url");
     std::string token = settings.GetString("token");
@@ -87,7 +94,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
 
     error_occurred_ = false;
 
-    auto network = Board::GetInstance().GetNetwork();
+    auto network = board.GetNetwork();
     websocket_ = network->CreateWebSocket(1);
     if (websocket_ == nullptr) {
         ESP_LOGE(TAG, "Failed to create websocket");
@@ -151,7 +158,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
                     }
                 }
             } else {
-                ESP_LOGE(TAG, "Missing message type, data: %s", std::string(data, len).c_str());
+                ESP_LOGE(TAG, "Missing message type (%u bytes)", static_cast<unsigned>(len));
             }
             cJSON_Delete(root);
         }
@@ -165,7 +172,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
         }
     });
 
-    ESP_LOGI(TAG, "Connecting to websocket server: %s with version: %d", url.c_str(), version_);
+    ESP_LOGI(TAG, "Connecting to websocket server (protocol version %d)", version_);
     if (!websocket_->Connect(url.c_str())) {
         ESP_LOGE(TAG, "Failed to connect to websocket server, code=%d", websocket_->GetLastError());
         SetError(Lang::Strings::SERVER_NOT_CONNECTED);
@@ -235,7 +242,7 @@ void WebsocketProtocol::ParseServerHello(const cJSON* root) {
     auto session_id = cJSON_GetObjectItem(root, "session_id");
     if (cJSON_IsString(session_id)) {
         session_id_ = session_id->valuestring;
-        ESP_LOGI(TAG, "Session ID: %s", session_id_.c_str());
+        ESP_LOGI(TAG, "Session established");
     }
 
     auto audio_params = cJSON_GetObjectItem(root, "audio_params");

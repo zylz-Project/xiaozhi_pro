@@ -39,7 +39,7 @@ int main() {
         source = (ROOT / 'main/application.cc').read_text()
         stt = source.split('} else if (strcmp(type->valuestring, "stt") == 0)', 1)[1].split(
             '} else if (strcmp(type->valuestring, "llm") == 0)', 1)[0]
-        self.assertLess(stt.index('ESP_LOGI(TAG, ">> %s"'), stt.index('IsVoiceEnrollmentRequest'))
+        self.assertLess(stt.index('Speech transcript received'), stt.index('IsVoiceEnrollmentRequest'))
         self.assertLess(stt.index('enrollment->IsConfigured()'), stt.index('voice_enrollment_active_.exchange'))
         interception = stt.split('if (enrollment &&', 1)[1].split('Schedule(', 1)[0]
         self.assertNotIn('voice_operation_configured &&', interception)

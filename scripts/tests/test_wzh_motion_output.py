@@ -362,6 +362,7 @@ int main(){
 #include "wzh_body_commands.h"
 #include "wzh_voice_motion.h"
 #include "wzh_quiet_center.h"
+namespace wzh { bool tutorial_voice=false; bool IsOnboardingVoiceMotionActive(){return tutorial_voice;} }
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
@@ -404,7 +405,7 @@ struct DinosaurController{
     wzh::QuietCenter<5> quiet_center_;void SettleToCenter(uint32_t);
     std::atomic<bool> request_active_{false};
     std::atomic<wzh::PetPriority> running_priority_{wzh::PetPriority::kEmotion};
-    std::atomic<bool> flash_performance_active_{false},speaking_{false},sky_roar_active_{false};
+    std::atomic<bool> flash_performance_active_{false},speaking_{false},sky_roar_active_{false},shutdown_requested_{false};
     std::atomic<float> output_audio_level_{0},output_audio_attack_{0};
     std::atomic<int64_t> output_audio_updated_us_{0};
     float audio_motion_level_=0,audio_motion_emphasis_=0,audio_motion_phase_=0,audio_motion_direction_=1;
@@ -591,6 +592,27 @@ struct DinosaurController{
     }
     for(float range:movement)assert(range>=15);
     assert(head_turns>=6);
+    // The tutorial reuses the same PCM-driven motion, but cannot animate
+    // during a stop or while the shutdown pose is being parked.
+    wzh::tutorial_voice=true;
+    DinosaurController tutorial, stopped, shutting_down;
+    tutorial.audio_=stopped.audio_=shutting_down.audio_=&audio;
+    stopped.pet_.Control(wzh::PetControl::kStop,clock_ms);
+    shutting_down.shutdown_requested_=true;
+    float tutorial_motion=0,blocked_motion=0;
+    for(unsigned t=0;t<2000;t+=20){
+        clock_ms=40000+t;
+        tutorial.SetPose({70,90,90,90,90});
+        stopped.SetPose({70,90,90,90,90});
+        shutting_down.SetPose({70,90,90,90,90});
+        for(int axis=0;axis<5;++axis){
+            const float rest=axis==0?70.f:90.f;
+            tutorial_motion=std::max(tutorial_motion,std::abs(Values(tutorial.last_output_pose_)[axis]-rest));
+            blocked_motion=std::max(blocked_motion,std::abs(Values(stopped.last_output_pose_)[axis]-rest));
+            blocked_motion=std::max(blocked_motion,std::abs(Values(shutting_down.last_output_pose_)[axis]-rest));
+        }
+    }
+    assert(tutorial_motion>3&&blocked_motion<.1f);
 }
 '''
         self.run_cpp(program)

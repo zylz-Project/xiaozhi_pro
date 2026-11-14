@@ -395,7 +395,8 @@ void WifiStation::WifiEventHandler(void* arg, esp_event_base_t event_base, int32
         this_->was_connected_ = false;
         wifi_event_sta_disconnected_t* event =
             static_cast<wifi_event_sta_disconnected_t*>(event_data);
-        ESP_LOGI(TAG, "WiFi disconnected, reason: %d", event->reason);
+        ESP_LOGI(TAG, "WiFi disconnected, reason: %d (%s)", event->reason,
+                 event->reason == WIFI_REASON_BEACON_TIMEOUT ? "beacon timeout" : "other");
         if (was_connected && this_->on_disconnected_) {
             this_->on_disconnected_(event->reason);
         }

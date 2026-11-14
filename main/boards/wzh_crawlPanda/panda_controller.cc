@@ -1,6 +1,7 @@
 #include "panda_controller.h"
 #include "wzh_body_commands.h"
 #include "wzh_pet_feedback.h"
+#include "wzh_onboarding.h"
 #include "wzh_startup_greeting.h"
 #include "wzh_system_prompts.h"
 
@@ -1358,6 +1359,11 @@ void PandaController::Task() {
             ParkForShutdown();
         }
         now_ms = esp_log_timestamp();
+        if (tutorial_feedback_pending_.load() &&
+            now_ms - tutorial_feedback_requested_ms_.load() >= 250 &&
+            uxQueueMessagesWaiting(action_queue_) == 0 && !request_active_.load() && !clip_active_ &&
+            (audio_ == nullptr || !audio_->Playing()))
+            tutorial_feedback_pending_.store(false);
         if (stop_audio_requested_.exchange(false) && audio_ != nullptr) {
             audio_->StopPlayback();
             CancelSoundMotion();
@@ -1388,21 +1394,28 @@ void PandaController::Task() {
              Application::GetInstance().IsExternalVoicePreviewActive())) {
             startup_sound_started = false;
         }
-        // Remember preemption even while battery protection blocks movement.
+        // Record why startup did not reach its one-shot motion.
+        const bool startup_was_pending = startup.Pending();
         startup.Due(now_ms, false,
                     conversation_active_.load() || shutdown_requested_.load() ||
-                        last_request_us_.load() > 0 || pet_state.mode != wzh::PetMode::kNormal ||
+                        pet_state.mode != wzh::PetMode::kNormal ||
                         Application::GetInstance().IsVoiceEnrollmentActive() ||
                         Application::GetInstance().IsExternalVoicePreviewActive());
+        if (startup_was_pending && !startup.Pending())
+            ESP_LOGW(TAG, "Startup gesture skipped: elapsed=%lums blocked=%d mode=%d conversation=%d shutdown=%d",
+                     static_cast<unsigned long>(now_ms - startup_origin_ms), servo_output_.blocked(),
+                     static_cast<int>(pet_state.mode), conversation_active_.load(),
+                     shutdown_requested_.load());
         if (MotionInterrupted()) {
             clip_active_ = false;
             request_active_.store(false);
             running_speech_bound_ = false;
         }
         const bool offline = !conversation_active_.load();
-        if (!startup.Pending() && !startup_sound_pending && !startup_sound_started)
+        if (!startup.Pending() && !startup_sound_pending && !startup_sound_started && !clip_active_)
             wzh::MarkStartupGreetingComplete();
         if (servo_output_.blocked() || !pet_state.motion) {
+            idle_breathing_ = false;
             CancelSoundMotion();
             autoplay_.Busy(now_ms, esp_random());
             autonomous_playback_ = false;
@@ -1435,6 +1448,7 @@ void PandaController::Task() {
             CancelSoundMotion();
             autoplay_.Busy(now_ms, esp_random());
             bool sound_started = false;
+            tutorial_motion_active_ = request.tutorial_shake_head;
             running_generation_ = request.generation;
             running_priority_.store(request.priority);
             running_speech_bound_ = request.speech_bound;
@@ -1448,7 +1462,7 @@ void PandaController::Task() {
                     sound_started = true;
                 }
             }
-            if (sound_started) {
+            if (sound_started && !request.tutorial_shake_head) {
                 clip_active_ = false;
             } else if (request.is_body) {
                 auto interaction = request.interaction;
@@ -1457,7 +1471,7 @@ void PandaController::Task() {
                     interaction = wzh::PetInteraction::kTouch4;
                 }
                 const int clip_id =
-                    interaction != wzh::PetInteraction::kNone
+                    interaction != wzh::PetInteraction::kNone && !request.tutorial_shake_head
                         ? static_cast<int>(C_COUNT) + BODY_COUNT +
                               interaction_motion_.Select(interaction, esp_random())
                         : static_cast<int>(C_COUNT) +
@@ -1478,24 +1492,27 @@ void PandaController::Task() {
             }
         }
 
-        const bool local_motion = UpdateSoundMotion(now_ms);
+        // Keep the explicit shake-head clip while its selected audio plays.
+        const bool local_motion = tutorial_motion_active_ ? false : UpdateSoundMotion(now_ms);
         if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
             autonomous_playback_ = false;
-        // Motion starts as soon as the safety gate permits; setup audio never delays it.
+        // Wait for the power-on prompt to drain before the startup gesture.
         const bool startup_interrupted = conversation_active_.load() ||
-                                         shutdown_requested_.load() || last_request_us_.load() > 0;
-        const bool startup_ready = !request_active_.load() && !clip_active_ && !local_motion &&
+                                         shutdown_requested_.load();
+        const bool startup_ready = wzh::StartupGreetingAudioReady() &&
+                                   Application::GetInstance().GetAudioService().IsPlaybackIdle() &&
+                                   !request_active_.load() && !clip_active_ && !local_motion &&
                                    uxQueueMessagesWaiting(action_queue_) == 0;
         if (startup.Due(now_ms, startup_ready, startup_interrupted)) {
             startup.Accepted();
             running_generation_ = intent_generation_.load();
             running_speech_bound_ = false;
             StartClip(kStartupClips[startup_variant], now_ms);
-            startup_sound_pending = true;
+            startup_sound_pending = !wzh::StartupOnboardingPending();
             autoplay_.Busy(now_ms, esp_random());
             ESP_LOGI(TAG, "Startup gesture started");
         }
-        // Queue the matching sound once setup audio is ready; never hold up motion.
+        // Returning users may also hear the matching existing sound.
         if (startup_sound_pending && audio_ != nullptr && pet_state.local_sound &&
             wzh::StartupGreetingAudioReady() && !audio_->Playing() &&
             Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
@@ -1505,15 +1522,16 @@ void PandaController::Task() {
             startup_sound_started = true;
             autonomous_playback_ = true;
         }
-        if (!startup.Pending() && !startup_sound_pending &&
+        if (!startup.Pending() && !startup_sound_pending && !clip_active_ &&
             (!startup_sound_started ||
              (!local_motion && !clip_active_ && audio_ != nullptr && !audio_->Playing() &&
               Application::GetInstance().GetAudioService().IsPlaybackIdle()))) {
             wzh::MarkStartupGreetingComplete();
         }
         if (autoplay_.Due(now_ms,
-                          offline && pet_state.local_sound && !startup_sound_pending &&
-                              !servo_output_.powered() &&
+                          offline && pet_state.local_sound && wzh::StartupGreetingAudioReady() &&
+                              !startup.Pending() && !startup_sound_pending &&
+                              (!servo_output_.powered() || idle_breathing_) &&
                               !clip_active_ && !request_active_.load() && !local_motion &&
                               (audio_ == nullptr || !audio_->Playing()),
                           esp_random())) {
@@ -1526,6 +1544,7 @@ void PandaController::Task() {
             autoplay_.Busy(now_ms, esp_random());
         }
         if (local_motion) {
+            idle_breathing_ = false;
             quiet_center_.Reset();
             request_active_.store(false);  // A touch can immediately take over an autonomous show.
             last_motion_ms_ = now_ms;
@@ -1538,7 +1557,8 @@ void PandaController::Task() {
         PandaMotionData motion = audio_ != nullptr ? audio_->GetMotionData() : PandaMotionData{};
 
         // 在线用真实 TTS 包络驱动带头、跟爪和换边；无声时不启动。
-        if (!offline && (speaking_.load() || speech_tail_.load())) {
+        const bool tutorial_voice = wzh::IsOnboardingVoiceMotionActive();
+        if ((!offline && (speaking_.load() || speech_tail_.load())) || tutorial_voice) {
             PandaMotionData tts =
                 audio_ != nullptr ? audio_->GetTtsMotionData() : PandaMotionData{};
             if (tts.playing) {
@@ -1548,14 +1568,16 @@ void PandaController::Task() {
             }
         }
 
-        if (offline) {
+        if (offline && !tutorial_voice) {
             motion = {};  // Offline gestures own their finite choreography.
         }
-        // Idle life: when nothing else owns the output, start a small idle clip
-        // every few seconds so the pet never freezes at neutral between sounds.
+        // Full idle clips remain on their existing 2–3 minute cadence.
         const bool idle_eligible = !conversation_active_.load() && pet_state.motion &&
                                    !request_active_.load() && !clip_active_ && !motion.playing &&
-                                   !local_motion && !servo_output_.powered();
+                                   !local_motion && (!servo_output_.powered() || idle_breathing_) &&
+                                   (audio_ == nullptr || !audio_->Playing()) &&
+                                   !startup.Pending() && !startup_sound_pending &&
+                                   !wzh::IsOnboardingActive();
         if (idle_life_.Due(now_ms, idle_eligible, esp_random())) {
             static constexpr Behaviour kIdleFamilies[] = {Behaviour::kIdle, Behaviour::kCurious,
                                                           Behaviour::kAmbient};
@@ -1567,6 +1589,8 @@ void PandaController::Task() {
         }
         UpdatePlayer(now_ms);
         if (!clip_active_) {
+            if (audio_ == nullptr || !audio_->Playing())
+                tutorial_motion_active_ = false;
             request_active_.store(false);
             running_speech_bound_ = false;
         }
@@ -1578,11 +1602,21 @@ void PandaController::Task() {
             expressive = {90 + (pose_.head - 90) * .25f, 90 + (pose_.left_arm - 90) * .12f,
                           90 + (pose_.right_arm - 90) * .12f};
         }
+        idle_breathing_ = offline && pet_state.motion && !request_active_.load() &&
+                          !clip_active_ && !motion.playing && !local_motion &&
+                          !startup.Pending() && !startup_sound_pending &&
+                          wzh::StartupGreetingAudioReady() && !wzh::IsOnboardingActive() &&
+                          Application::GetInstance().GetAudioService().IsPlaybackIdle();
         if (clip_active_ && !motion.playing) {
             AddMicroMotion(expressive, now_ms, 1.0f);
+        } else if (idle_breathing_) {
+            // A small, slow version of the existing breathing motion around rest.
+            const float phase = static_cast<float>(now_ms % 12000U) / 12000.f;
+            const float breath = 0.5f - 0.5f * std::cos(phase * 6.2831853f);
+            expressive = {90.f + breath * 1.0f, 90.f + breath * 1.5f, 90.f - breath * 1.0f};
         }
         const wzh_panda::Pose out = ApplyAudioMotion(expressive, motion, now_ms);
-        if (clip_active_ || motion.playing) {
+        if (clip_active_ || motion.playing || idle_breathing_) {
             quiet_center_.Reset();
             last_motion_ms_ = now_ms;
             OutputPose(out);
@@ -2114,7 +2148,19 @@ bool PandaController::MotionInterrupted() const {
             (audio_ == nullptr || !audio_->GetTtsMotionData().playing));
 }
 
-bool PandaController::QueueInteraction(wzh::PetInteraction interaction) {
+bool PandaController::TriggerOnboardingFeedback(uint8_t step) {
+    const auto interaction = step == 2 ? wzh::PetInteraction::kShaken
+                             : step == 5 ? wzh::PetInteraction::kPickedUp
+                                         : wzh::PetInteraction::kTouch1;
+    tutorial_feedback_requested_ms_.store(static_cast<uint32_t>(esp_timer_get_time() / 1000));
+    tutorial_feedback_pending_.store(true);
+    if (QueueInteraction(interaction, step == 3))
+        return true;
+    tutorial_feedback_pending_.store(false);
+    return false;
+}
+
+bool PandaController::QueueInteraction(wzh::PetInteraction interaction, bool tutorial_shake_head) {
     PandaBodyAction body = PandaBodyAction::kShakeHead;
     switch (interaction) {
         case wzh::PetInteraction::kTouch1:
@@ -2147,6 +2193,7 @@ bool PandaController::QueueInteraction(wzh::PetInteraction interaction) {
     }
     ActionRequest request{static_cast<PandaAction>(body), false, true};
     request.interaction = interaction;
+    request.tutorial_shake_head = tutorial_shake_head;
     const bool accepted = QueueRequest(request, wzh::PetPriority::kExplicit);
     if (accepted) {
         ESP_LOGD(TAG, "Interaction=%s accepted", wzh::InteractionName(interaction));

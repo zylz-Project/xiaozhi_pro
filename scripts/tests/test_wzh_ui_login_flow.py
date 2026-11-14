@@ -19,6 +19,7 @@ class Portal(SimpleHTTPRequestHandler):
     requests = []
     reject = False
     state = 'idle'
+    product = 'wzh-crawlpanda'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -43,10 +44,11 @@ class Portal(SimpleHTTPRequestHandler):
                 return self.reply({'hub': {'available': False}})
             if path == '/api/hub/diff':
                 return self.reply({'ready': False})
-            return self.reply({'ok': True, 'build': 'wzh-crawlpanda', 'state': Portal.state,
-                               'version': 'test', 'wifi': {'connected': True, 'ssid': 'Home'},
+            return self.reply({'ok': True, 'build': Portal.product, 'state': Portal.state,
+                               'version': 'test', 'wifi': {'connected': True, 'ssid': 'Home',
+                                                           'ap_ssid': 'CrawlPanda-ABCD'},
                                'battery': {'available': False}, 'audio': {'volume': 40}})
-        self.path = {'/': '/index.html', '/login': '/login.html',
+        self.path = {'/': '/index.html', '/login': '/login.html', '/manual': '/manual.html',
                      '/developer': '/developer.html'}.get(path, self.path)
         return super().do_GET()
 
@@ -82,12 +84,47 @@ class LoginFlowTest(unittest.TestCase):
         Portal.requests.clear()
         Portal.reject = False
         Portal.state = 'idle'
+        Portal.product = 'wzh-crawlpanda'
         self.page = self.browser.new_page(viewport={'width': 390, 'height': 720}, is_mobile=True, has_touch=True)
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
 
     def tearDown(self):
         self.page.close()
+
+    def test_product_switch_preserves_theme_and_updates_guide_and_manual(self):
+        p = self.page
+        p.goto(self.url + '/manual?guide=off')
+        p.wait_for_function("document.querySelector('[data-p-ap]').textContent === 'CrawlPanda-ABCD'")
+        self.assertEqual(p.locator('[data-p-pass]').inner_text(), 'zylzABCD')
+        p.evaluate("PandaTheme.set({theme:'salt'}); PandaGuide.open('manual')")
+        for product, name, part in [('crawlPanda', '爬爬熊猫', '双前肢'),
+                                    ('redpanda', '摇尾小熊猫', '大尾巴'),
+                                    ('dinosaur', '小恐龙', '颈部、尾巴')]:
+            p.evaluate('(id) => PandaProduct.set(id, false)', product)
+            self.assertEqual(p.evaluate('PandaProduct.id'), product)
+            self.assertEqual(p.evaluate('PandaProduct.data.id'), product)
+            self.assertEqual(p.locator('.pg-who').inner_text(), name + ' · 使用引导')
+            self.assertIn(name, p.title())
+            self.assertIn(part, p.locator('[data-p-inline="' + product + '"]').first.inner_text())
+            self.assertTrue(p.locator('[data-p-inline="' + product + '"]').first.is_visible())
+            for other in {'crawlPanda', 'redpanda', 'dinosaur'} - {product}:
+                self.assertFalse(p.locator('[data-p-inline="' + other + '"]').first.is_visible())
+            self.assertEqual(p.evaluate('PandaTheme.get().theme'), 'salt')
+        self.assertEqual(self.errors, [])
+
+    def test_product_guide_state_changes_with_device_identity(self):
+        p = self.page
+        p.goto(self.url + '/manual?guide=off')
+        p.evaluate("""() => {
+          PandaProduct.set('crawlPanda', false); PandaGuide.reset();
+          localStorage.setItem('panda-guide-v1:redpanda', JSON.stringify({seen:{manual:true}}));
+          PandaProduct.set('redpanda', false);
+        }""")
+        self.assertTrue(p.evaluate("PandaGuide.seen('manual')"))
+        p.evaluate("PandaProduct.set('crawlPanda', false)")
+        self.assertFalse(p.evaluate("PandaGuide.seen('manual')"))
+        self.assertEqual(self.errors, [])
 
     def test_login_does_not_open_guide_or_restore_password_focus(self):
         p = self.page

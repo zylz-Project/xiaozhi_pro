@@ -76,6 +76,7 @@ void Application::Initialize() {
     auto codec = board.GetAudioCodec();
     audio_service_.Initialize(codec);
     audio_service_.Start();
+    board.OnAudioServiceReady();
 
     AudioServiceCallbacks callbacks;
     callbacks.on_processed_audio = [this](const int16_t* pcm, size_t count, bool speech) {
@@ -100,7 +101,13 @@ void Application::Initialize() {
 #if CONFIG_USE_VOICE_BARGE_IN
     callbacks.on_voice_interruption = [this](uint32_t token) {
         pending_voice_interruption_.store(token);
-#if !CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        auto until = keyword_interruption_until_us_.load();
+        const auto now = esp_timer_get_time();
+        if (until > 0 && now <= until &&
+            keyword_interruption_until_us_.compare_exchange_strong(until, 0))
+            xEventGroupSetBits(event_group_, MAIN_EVENT_VOICE_INTERRUPTION);
+#else
         xEventGroupSetBits(event_group_, MAIN_EVENT_VOICE_INTERRUPTION);
 #endif
     };
@@ -437,6 +444,10 @@ void Application::HandleActivationDoneEvent() {
 
     Schedule([this]() {
         // Play the success sound to indicate the device is ready
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+        ESP_LOGI(TAG, "Voice request: success text=我准备好啦！");
+#endif
         audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
     });
 }
@@ -676,6 +687,7 @@ void Application::InitializeProtocol() {
         [this, protocol_generation, callback_protocol, codec, &board]() {
             if (protocol_generation != protocol_generation_.load())
                 return;
+            board.OnConversationChannelOpened();
             board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
             if (callback_protocol->server_sample_rate() != codec->output_sample_rate()) {
                 ESP_LOGW(TAG,
@@ -741,8 +753,8 @@ void Application::InitializeProtocol() {
             if (strcmp(type->valuestring, "stt") == 0) {
                 const auto* text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text) && text->valuestring != nullptr && text->valuestring[0]) {
-                    ESP_LOGI(TAG, "Official ASR probe transcript playback_busy=%d: %s",
-                             !audio_service_.IsPlaybackIdle(), text->valuestring);
+                    ESP_LOGD(TAG, "Official ASR probe transcript playback_busy=%d bytes=%u",
+                             !audio_service_.IsPlaybackIdle(), static_cast<unsigned>(strlen(text->valuestring)));
                     official_probe_stt_received_.store(true);
                 } else {
                     ESP_LOGI(TAG, "Official ASR probe received empty transcript");
@@ -751,8 +763,9 @@ void Application::InitializeProtocol() {
             }
             if (strcmp(type->valuestring, "tts") == 0) {
                 const auto* state = cJSON_GetObjectItem(root, "state");
-                ESP_LOGI(TAG, "Official ASR probe server TTS: %s",
-                         cJSON_IsString(state) && state->valuestring ? state->valuestring : "unknown");
+                ESP_LOGI(
+                    TAG, "Official ASR probe server TTS: %s",
+                    cJSON_IsString(state) && state->valuestring ? state->valuestring : "unknown");
             }
             if (strcmp(type->valuestring, "mcp") == 0) {
                 ESP_LOGW(TAG, "Official ASR probe: ignoring device MCP command");
@@ -873,14 +886,15 @@ void Application::InitializeProtocol() {
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
                 auto text = cJSON_GetObjectItem(root, "text");
-                if (cJSON_IsString(text)) {
+                if (cJSON_IsString(text) && text->valuestring != nullptr) {
                     const auto external_turn = external_tts_turn_.load();
                     std::vector<TextGlyph> glyphs;
                     uint8_t bpp = 0;
                     if (!TextGlyphPayload::Parse(root, glyphs, bpp)) {
                         glyphs.clear();
                     }
-                    ESP_LOGI(TAG, "<< %s", text->valuestring);
+                    ESP_LOGD(TAG, "TTS sentence received (%u bytes)",
+                             static_cast<unsigned>(std::strlen(text->valuestring)));
                     Schedule([this, display, generation, external_turn,
                               message = std::string(text->valuestring), glyphs = std::move(glyphs),
                               bpp]() {
@@ -889,6 +903,10 @@ void Application::InitializeProtocol() {
                             external_turn != external_tts_turn_.load()) {
                             return;
                         }
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+                        ESP_LOGI(TAG, "Voice server sentence: %.512s", message.c_str());
+#endif
                         display->AddTextGlyphs(glyphs, bpp);
                         display->SetChatMessage("assistant", message.c_str());
                         if (external_tts_selected_.load()) {
@@ -970,7 +988,8 @@ void Application::InitializeProtocol() {
             const auto generation = interaction_generation_.load();
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text) && text->valuestring != nullptr) {
-                ESP_LOGI(TAG, ">> %s", text->valuestring);
+                ESP_LOGD(TAG, "Speech transcript received (%u bytes)",
+                         static_cast<unsigned>(std::strlen(text->valuestring)));
 #if CONFIG_USE_VOICE_BARGE_IN
                 if (text->valuestring[0] != '\0') {
                     barge_in_reply_gate_.OnTranscript();
@@ -1048,9 +1067,10 @@ void Application::InitializeProtocol() {
                             });
                         };
                         const bool started =
-                            clone_request ? enrollment->Start(capture, completion)
-                                          : enrollment->StartSelection(
-                                                selection_pending ? recognized : "切换音色", completion);
+                            clone_request
+                                ? enrollment->Start(capture, completion)
+                                : enrollment->StartSelection(
+                                      selection_pending ? recognized : "切换音色", completion);
                         if (!started) {
                             ESP_LOGW(TAG,
                                      "Voice operation unavailable: check Ali settings or memory");
@@ -1122,11 +1142,7 @@ void Application::InitializeProtocol() {
 #if CONFIG_RECEIVE_CUSTOM_MESSAGE
         } else if (strcmp(type->valuestring, "custom") == 0) {
             auto payload = cJSON_GetObjectItem(root, "payload");
-            char* message_json = cJSON_PrintUnformatted(root);
-            if (message_json != nullptr) {
-                ESP_LOGI(TAG, "Received custom message: %s", message_json);
-                cJSON_free(message_json);
-            }
+            ESP_LOGD(TAG, "Received custom message");
             if (cJSON_IsObject(payload)) {
                 char* payload_json = cJSON_PrintUnformatted(payload);
                 if (payload_json == nullptr) {
@@ -1151,6 +1167,10 @@ void Application::InitializeProtocol() {
 }
 
 void Application::ShowActivationCode(const std::string& code, const std::string& message) {
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    ESP_LOGI(TAG, "Voice request: activation text=请在小智控制台添加设备，验证码是：（数字不写入日志）");
+#endif
     struct digit_sound {
         char digit;
         const std::string_view& sound;
@@ -1176,12 +1196,17 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
 
 void Application::Alert(const char* status, const char* message, const char* emotion,
                         const std::string_view& sound) {
-    ESP_LOGW(TAG, "Alert [%s] %s: %s", emotion, status, message);
+    ESP_LOGW(TAG, "Alert displayed (emotion=%s)", emotion ? emotion : "unknown");
     auto display = Board::GetInstance().GetDisplay();
     display->SetStatus(status);
     display->SetEmotion(emotion);
     display->SetChatMessage("system", message);
     if (!sound.empty()) {
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+        if (sound == Lang::Sounds::OGG_UPGRADE)
+            ESP_LOGI(TAG, "Voice request: upgrade text=正在更新，请勿断电。");
+#endif
         audio_service_.PlaySound(sound);
     }
 }
@@ -1385,15 +1410,20 @@ void Application::HandleWakeWordDetectedEvent() {
 #if CONFIG_USE_VOICE_BARGE_IN
     if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
-        const bool keyword =
-            wake_word == "local:interrupt" || wake_word == "local:stop" || wake_word == "小龙小龙";
+        const bool keyword = wake_word == "local:interrupt" || wake_word == "local:stop" ||
+                             wake_word == "local:chat_wake" || wake_word == "小龙小龙";
         if (keyword && audio_service_.IsVoiceInterruptionMonitoring()) {
+            // MultiNet and the AEC/VAD candidate run independently; either may
+            // arrive first. Keep the keyword briefly for a later candidate.
+            keyword_interruption_until_us_.store(esp_timer_get_time() + 1000000);
             const auto token = pending_voice_interruption_.load();
             if (audio_service_.IsVoiceInterruptionPending(token)) {
-                ESP_LOGI(TAG, "Dino keyword interruption accepted: %s", wake_word.c_str());
+                keyword_interruption_until_us_.store(0);
+                ESP_LOGI(TAG, "Keyword interruption accepted: %s", wake_word.c_str());
                 HandleVoiceInterruptionEvent();
             } else {
-                ESP_LOGI(TAG, "Dino keyword ignored: no recent near-end voice candidate");
+                ESP_LOGI(TAG, "Keyword detected: %s; waiting briefly for near-end voice confirmation",
+                         wake_word.c_str());
             }
         }
 #endif
@@ -1840,6 +1870,9 @@ void Application::ResumeAfterVoiceEnrollment(uint32_t generation) {
 }
 
 void Application::StopInteraction(bool play_exit_sound) {
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    keyword_interruption_until_us_.store(0);
+#endif
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
     official_probe_active_.store(false);
 #endif
@@ -2114,7 +2147,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         ESP_LOGI(TAG, "Closing audio channel before firmware upgrade");
         protocol_->CloseAudioChannel();
     }
-    ESP_LOGI(TAG, "Starting firmware upgrade from URL: %s", upgrade_url.c_str());
+    ESP_LOGI(TAG, "Starting firmware upgrade");
 
     Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "download",
           Lang::Sounds::OGG_UPGRADE);
@@ -2432,8 +2465,8 @@ void Application::HandleVoiceInterruptionEvent() {
              "echo_corr=%d%% required_ms=%d servo_known=%d powered=%d command_age_ms=%lld",
              static_cast<unsigned long>(token), diagnostic.pending, diagnostic.vad,
              diagnostic.residual, diagnostic.threshold, diagnostic.correlation_percent,
-             diagnostic.required_speech_ms,
-             servo_known, servo_powered, static_cast<long long>(servo_age_ms));
+             diagnostic.required_speech_ms, servo_known, servo_powered,
+             static_cast<long long>(servo_age_ms));
 #endif
     ConfigureWakeWordForListening();
     if (channel_open) {

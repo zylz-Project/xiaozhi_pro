@@ -334,7 +334,7 @@ void WifiConfigurationAp::StartWebServer() {
             httpd_resp_sendstr_chunk(req, support_5g ? "true" : "false");
             httpd_resp_sendstr_chunk(req, ",\"aps\":[");
             for (int i = 0; i < this_->ap_records_.size(); i++) {
-                ESP_LOGI(TAG, "SSID: %s, RSSI: %d, Authmode: %d", (char*)this_->ap_records_[i].ssid,
+                ESP_LOGD(TAG, "SSID: %s, RSSI: %d, Authmode: %d", (char*)this_->ap_records_[i].ssid,
                          this_->ap_records_[i].rssi, this_->ap_records_[i].authmode);
                 char buf[128];
                 snprintf(buf, sizeof(buf), "{\"ssid\":\"%s\",\"rssi\":%d,\"authmode\":%d}",
@@ -910,7 +910,7 @@ void WifiConfigurationAp::SmartConfigEventHandler(void* arg, esp_event_base_t ev
                 char ssid[32], password[64];
                 memcpy(ssid, evt->ssid, sizeof(evt->ssid));
                 memcpy(password, evt->password, sizeof(evt->password));
-                ESP_LOGI(TAG, "SmartConfig SSID: %s, Password: %s", ssid, password);
+                ESP_LOGI(TAG, "SmartConfig network credentials received");
                 // 尝试连接WiFi会失败，故不连接
                 self->Save(ssid, password);
                 // 延迟退出配网模式

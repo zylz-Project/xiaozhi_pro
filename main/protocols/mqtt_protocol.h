@@ -19,6 +19,7 @@
 
 #define MQTT_PING_INTERVAL_SECONDS 90
 #define MQTT_RECONNECT_INTERVAL_MS 60000
+#define MQTT_DEFERRED_RETRY_MS 5000
 
 #define MQTT_PROTOCOL_SERVER_HELLO_EVENT (1 << 0)
 
@@ -43,6 +44,8 @@ private:
 
     mutable std::mutex channel_mutex_;
     std::mutex crypto_mutex_;
+    std::mutex mqtt_mutex_;
+    std::atomic<bool> suspend_queued_{false};
     std::unique_ptr<Mqtt> mqtt_;
     // A sender keeps the transport alive while sending without the channel lock.
     std::shared_ptr<Udp> udp_;
@@ -55,6 +58,7 @@ private:
     esp_timer_handle_t reconnect_timer_;
 
     bool StartMqttClient(bool report_error = false);
+    void SuspendUnavailableMqtt();
     void ParseServerHello(const cJSON* root);
     bool DecodeHexString(const std::string& hex_string, std::string& decoded);
     bool CryptAesCtr(const uint8_t* input, size_t input_size, const uint8_t* nonce,

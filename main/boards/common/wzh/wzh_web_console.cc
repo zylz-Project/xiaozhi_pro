@@ -1,6 +1,7 @@
 #include "wzh_web_console.h"
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include "wzh_onboarding.h"
 #include "wzh_user_web.h"
 #include "wzh_voice_services.h"
 #include "wzh_web_assets.h"
@@ -732,6 +733,10 @@ esp_err_t WebConsole::HandleChat(httpd_req_t* req) {
     auto* self = static_cast<WebConsole*>(req->user_ctx);
     if (self->maintenance_active())
         return SendError(req, 409, "maintenance_active");
+    // Mirrors the power/boot key gate: the offline tutorial chapter must not
+    // open a conversation that is guaranteed to fail.
+    if (wzh::OnboardingBlocksConversation())
+        return SendError(req, 409, "tutorial_active");
     Application::GetInstance().ToggleConversation();
     cJSON* out = cJSON_CreateObject();
     if (out == nullptr) {
@@ -1203,7 +1208,7 @@ esp_err_t WebConsole::HandleDeveloperDemo(httpd_req_t* req) {
     Application::GetInstance().Schedule([self]() {
         if (!self->maintenance_active() &&
             Application::GetInstance().GetDeviceState() == kDeviceStateIdle)
-            self->options_.player->PlayAutonomousSound(false);
+            self->options_.player->PlayAutonomousSound(false, 100, false);
     });
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_status(req, "202 Accepted");

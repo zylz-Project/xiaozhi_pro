@@ -47,7 +47,10 @@ public:
     // Fair coverage of every valid Flash entry, including ambient; no replacement
     // within a round, and a failed/busy enqueue does not consume a turn.
     // ambient_percent biases the mix: 0 = never ambient, 100 = original pool.
-    bool PlayAutonomousSound(bool include_ambient = true, uint32_t ambient_percent = 100);
+    // `respect_idle_silence` is false only for an explicit user request (console
+    // preview), which must still play after the idle countdown went quiet.
+    bool PlayAutonomousSound(bool include_ambient = true, uint32_t ambient_percent = 100,
+                             bool respect_idle_silence = true);
     bool Playing() const { return is_playing_.load() || playback_pending_.load(); }
     // MultiNet commands can echo our Flash calls/TTS. Keep ordinary WakeNet
     // interruption available; board routing only gates local action commands.

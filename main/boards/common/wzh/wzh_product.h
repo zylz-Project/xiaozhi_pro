@@ -22,6 +22,8 @@ struct ProductConfig {
     gpio_num_t flash_clk_pin;
     gpio_num_t flash_mosi_pin;
     gpio_num_t flash_miso_pin;
+    // Human-readable phrase corresponding to this product's MultiNet command.
+    const char* wake_phrase;
 };
 
 const ProductConfig& Product();

@@ -118,11 +118,18 @@ int main(){
     ++sound.sequence;assert(motion.Update(sound,PetMechanism::kTail,rest,740,out,powered));
     sound.playing=false;
     assert(!motion.Update(sound,PetMechanism::kTail,rest,6000,out,powered)||out==rest);
+    // One exhibition per 2-3 minutes; the random term picks within that band.
     AutoplayCadence cadence;uint32_t now=UINT32_MAX-5000;
     assert(!cadence.Due(now,true,0));
-    assert(!cadence.Due(now+1799,true,0));assert(cadence.Due(now+1800,true,0));
+    assert(!cadence.Due(now+119999,true,0));assert(cadence.Due(now+120000,true,0));
     assert(!cadence.Due(now+10000,false,0));
-    assert(!cadence.Due(now+11799,true,0));assert(cadence.Due(now+11800,true,0));
+    assert(!cadence.Due(now+129999,true,0));assert(cadence.Due(now+130000,true,0));
+    // Any random draw still stays inside the documented two-to-three minute band.
+    AutoplayCadence spread;now=1000;spread.Busy(now,59999);
+    assert(!spread.Due(now+179998,true,0)&&spread.Due(now+179999,true,0));
+    spread.Busy(now,0);assert(!spread.Due(now+119999,true,0)&&spread.Due(now+120000,true,0));
+    IdleCadence idle;idle.Busy(now,0);
+    assert(!idle.Due(now+119999,true,0)&&idle.Due(now+120000,true,0));
     uint8_t p60[]={24},p20[]={0x98},p120[]={25},bad[]={3,0};
     assert(OpusPacketDurationMs(p60,1)==60&&OpusPacketDurationMs(p20,1)==20);
     assert(OpusPacketDurationMs(p120,1)==120);

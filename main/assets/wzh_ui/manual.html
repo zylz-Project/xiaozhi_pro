@@ -73,7 +73,7 @@
               <p>第一次使用，按下面四步走。设备需要连接家里的 <b>2.4GHz Wi-Fi</b>，不支持 5GHz。</p>
               <ol class="step-list">
                 <li><b>充电。</b>用 USB-C 线连接充电器，建议使用 5V 电源。电量低时设备会限制动作并提示。</li>
-                <li><b>开机。</b>长按电源键约 1.5 秒，听到启动音、头部回中即开机。</li>
+                <li><b>开机。</b>长按电源键约 1 秒，听到启动音、头部回中即开机。</li>
                 <li><b>配网。</b>手机连接设备热点 <b data-p-ap>CrawlPanda-XXXX</b>，打开 <b>192.168.4.1</b>，选择家里的 2.4GHz 网络并输入密码。</li>
                 <li><b>开始对话。</b>配网完成后双击电源键；听到提示音后说话，再双击退出。</li>
               </ol>
@@ -83,9 +83,9 @@
             <section class="manual-section" id="m-parts">
               <div class="sec-head"><span class="sec-no">02</span><h2>认识它</h2></div>
               <div data-p-block="crawlPanda">
-                <p>爬爬熊猫由头部、双前肢和身体组成。头部与两只前肢各有一个舵机，所以它能抬头、转头、左右挥爪。</p>
+                <p>爬爬熊猫由头部、双前肢和身体组成。头部与两只前肢各有一个舵机，所以它能转头、左右挥爪。</p>
                 <div class="parts">
-                  <div class="part"><span class="n">A</span><span><b>头部</b>抬头、转头、凝视</span></div>
+                  <div class="part"><span class="n">A</span><span><b>头部</b>转头、凝视</span></div>
                   <div class="part"><span class="n">B</span><span><b>双前肢</b>挥爪、扒地、支撑</span></div>
                   <div class="part"><span class="n">C</span><span><b>触摸区</b>轻触会有回应</span></div>
                   <div class="part"><span class="n">D</span><span><b>电源键</b>开关机、双击对话</span></div>
@@ -105,9 +105,9 @@
                 </div>
               </div>
               <div data-p-block="redpanda">
-                <p>摇尾小熊猫由头部、圆身体和一条大尾巴组成。头部 1 路、尾巴 2 路舵机，让它能歪头、翘尾和左右摇尾。</p>
+                <p>摇尾小熊猫由头部、圆身体和一条大尾巴组成。头部 1 路、尾巴 2 路舵机，让它能转头、翘尾和左右摇尾。</p>
                 <div class="parts">
-                  <div class="part"><span class="n">A</span><span><b>头部</b>歪头、抬头、凝视</span></div>
+                  <div class="part"><span class="n">A</span><span><b>头部</b>转头、凝视</span></div>
                   <div class="part"><span class="n">B</span><span><b>大尾巴</b>左右摇、上下翘</span></div>
                   <div class="part"><span class="n">C</span><span><b>触摸区</b>轻触会有回应</span></div>
                   <div class="part"><span class="n">D</span><span><b>电源键</b>开关机、双击对话</span></div>
@@ -121,8 +121,9 @@
             <section class="manual-section" id="m-power">
               <div class="sec-head"><span class="sec-no">03</span><h2>充电、开机与关机</h2></div>
               <p><b>充电：</b>使用 USB-C 线连接 5V 充电器。设备没有独立的充电状态灯；电量可以在网页详情页查看。请使用干燥、通风的环境充电。</p>
-              <p><b>开机：</b>长按电源键约 1.5 秒，设备会播放启动音并回到默认姿态。首次开机若没有保存网络，会自动进入配网模式。</p>
+              <p><b>开机：</b>长按电源键约 1 秒，设备会播放启动音并回到默认姿态。首次开机若没有保存网络，会自动进入配网模式。</p>
               <p><b>关机：</b>再次长按电源键约 1.5 秒。设备会先停止本地声音、回到安全姿态、断开舵机电，再关闭电源，请不要在动作过程中拔电。</p>
+              <div class="callout"><b>自动关机：</b>连续 10 分钟没有人互动，它会说一句「我要休息啦」，然后自动关机。听到这句就说明是它自己睡了，不是坏了；<b>再开机请长按电源键约 1 秒</b>。</div>
               <div class="callout"><b>自动保护：</b>电量过低、芯片温度过高或舵机连续通电过久时，设备会限制动作或自动关机。这是正常保护，不是故障。</div>
             </section>
 
@@ -133,9 +134,9 @@
                 <tbody>
                   <tr><td>双击电源键</td><td>开始对话；再双击完整退出对话</td></tr>
                   <tr><td>长按电源键 1.5 秒</td><td>关机</td></tr>
-                  <tr><td>单击 BOOT 键</td><td>启动或配网阶段单击进入配网；正常状态下双击切换对话</td></tr>
-                  <tr><td>双击 BOOT 键</td><td>停止 / 恢复宠物活动</td></tr>
-                  <tr><td>轻触一个触摸区</td><td>亲昵回应：抬头、看你、轻轻挥爪</td></tr>
+                  <tr><td>单击 BOOT 键</td><td>启动或配网阶段进入配网；正常使用时不切换对话</td></tr>
+                  <tr><td>双击 BOOT 键</td><td>开始或退出对话</td></tr>
+                  <tr><td>轻触一个触摸区</td><td>亲昵回应：转头或做出动作</td></tr>
                   <tr><td>同时触摸两个以上</td><td>开心回应：更大幅度的动作与声音</td></tr>
                 </tbody>
               </table>
@@ -145,7 +146,7 @@
 
             <section class="manual-section" id="m-chat">
               <div class="sec-head"><span class="sec-no">05</span><h2>和小智对话</h2></div>
-              <p>设备需要先配网并完成小智激活。双击电源键后，看到头部抬起、听到提示音，就可以说话；说完稍等，它会回答。</p>
+              <p>设备需要先配网并完成小智激活。双击电源键后，听到提示音就可以说话；说完稍等，它会回答。</p>
               <ul class="manual-list">
                 <li>说话时尽量靠近设备，环境不要太吵。</li>
                 <li>回答过程中双击电源键，可以立即结束本轮对话。</li>
@@ -201,7 +202,7 @@
               <div data-p-block="crawlPanda">
                 <p>设备会在空闲时轻轻呼吸、凝视、摆动前肢；被触摸、听到声音或对话时，会做出对应动作。动作结束后会回到默认姿态并释放舵机，避免长时间通电。</p>
                 <ul class="manual-list">
-                  <li><b>亲昵：</b>轻触一个触摸区，抬头看你。</li>
+                  <li><b>亲昵：</b>轻触一个触摸区，转头看你。</li>
                   <li><b>开心：</b>同时触摸两个以上，双爪一起动。</li>
                   <li><b>对话随动：</b>说话越响，动作越明显；停止说话后慢慢回到安静。</li>
                   <li><b>被抱起：</b>设备能感知姿态变化，放稳后会重新建立基准。</li>
@@ -217,9 +218,9 @@
                 </ul>
               </div>
               <div data-p-block="redpanda">
-                <p>摇尾小熊猫会在空闲时歪头、轻轻摇尾；被触摸、听到声音或对话时，会做出对应动作。动作结束后回到默认姿态并释放舵机。</p>
+                <p>摇尾小熊猫会在空闲时转头、轻轻摇尾；被触摸、听到声音或对话时，会做出对应动作。动作结束后回到默认姿态并释放舵机。</p>
                 <ul class="manual-list">
-                  <li><b>亲昵：</b>轻触触摸区，歪头看你。</li>
+                  <li><b>亲昵：</b>轻触触摸区，转头看你。</li>
                   <li><b>开心：</b>同时触摸两个以上，大尾巴高高翘起。</li>
                   <li><b>对话随动：</b>说话越响，尾巴摆幅越大。</li>
                   <li><b>被抱起：</b>放稳后重新建立姿态基准；动作中请先等它停下。</li>

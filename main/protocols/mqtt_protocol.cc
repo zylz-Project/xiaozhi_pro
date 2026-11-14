@@ -20,14 +20,48 @@ MqttProtocol::MqttProtocol() {
             [](void* arg) {
                 MqttProtocol* protocol = (MqttProtocol*)arg;
                 auto& app = Application::GetInstance();
-                if (app.GetDeviceState() == kDeviceStateIdle) {
+                auto& board = Board::GetInstance();
+                if (app.GetDeviceState() == kDeviceStateIdle && board.IsNetworkAvailable() &&
+                    !board.IsAudioMaintenanceActive()) {
                     ESP_LOGI(TAG, "Reconnecting to MQTT server");
                     auto alive = protocol->alive_;  // Capture alive flag
                     app.Schedule([protocol, alive]() {
-                        if (*alive) {
-                            protocol->StartMqttClient(false);
+                        if (!*alive)
+                            return;
+                        {
+                            std::unique_lock<std::mutex> lock(protocol->mqtt_mutex_, std::try_to_lock);
+                            if (!lock.owns_lock()) {
+                                esp_timer_start_once(protocol->reconnect_timer_,
+                                                     MQTT_DEFERRED_RETRY_MS * 1000);
+                                return;
+                            }
+                            if (protocol->mqtt_ != nullptr && protocol->mqtt_->IsConnected())
+                                return;
+                        }
+                        auto& board = Board::GetInstance();
+                        auto& app = Application::GetInstance();
+                        if (app.GetDeviceState() != kDeviceStateIdle ||
+                            !board.IsNetworkAvailable() || board.IsAudioMaintenanceActive()) {
+                            esp_timer_start_once(protocol->reconnect_timer_,
+                                                 MQTT_DEFERRED_RETRY_MS * 1000);
+                        } else if (!protocol->StartMqttClient(false)) {
+                            esp_timer_start_once(protocol->reconnect_timer_,
+                                                 MQTT_RECONNECT_INTERVAL_MS * 1000);
                         }
                     });
+                } else {
+                    if ((!board.IsNetworkAvailable() || board.IsAudioMaintenanceActive()) &&
+                        !protocol->suspend_queued_.exchange(true)) {
+                        auto alive = protocol->alive_;
+                        app.Schedule([protocol, alive]() {
+                            if (*alive) {
+                                protocol->suspend_queued_.store(false);
+                                protocol->SuspendUnavailableMqtt();
+                            }
+                        });
+                    }
+                    esp_timer_start_once(protocol->reconnect_timer_,
+                                         MQTT_DEFERRED_RETRY_MS * 1000);
                 }
             },
         .arg = this,
@@ -52,7 +86,10 @@ MqttProtocol::~MqttProtocol() {
         udp = std::move(udp_);
     }
     udp.reset();
-    mqtt_.reset();
+    {
+        std::lock_guard<std::mutex> lock(mqtt_mutex_);
+        mqtt_.reset();
+    }
 
     {
         std::lock_guard<std::mutex> lock(crypto_mutex_);
@@ -67,9 +104,28 @@ MqttProtocol::~MqttProtocol() {
     }
 }
 
-bool MqttProtocol::Start() { return StartMqttClient(false); }
+bool MqttProtocol::Start() {
+    const bool connected = StartMqttClient(false);
+    if (!connected) {
+        const auto& board = Board::GetInstance();
+        const int delay_ms = !board.IsNetworkAvailable() ? MQTT_DEFERRED_RETRY_MS
+                                                          : MQTT_RECONNECT_INTERVAL_MS;
+        esp_timer_start_once(reconnect_timer_, delay_ms * 1000);
+    }
+    return connected;
+}
 
 bool MqttProtocol::StartMqttClient(bool report_error) {
+    std::unique_lock<std::mutex> lock(mqtt_mutex_, std::try_to_lock);
+    if (!lock.owns_lock())
+        return false;
+    auto& board = Board::GetInstance();
+    if (!board.IsNetworkAvailable() || board.IsAudioMaintenanceActive()) {
+        ESP_LOGI(TAG, "MQTT connection deferred: network unavailable or maintenance active");
+        if (report_error && !board.IsAudioMaintenanceActive())
+            SetError(Lang::Strings::SERVER_NOT_CONNECTED);
+        return false;
+    }
     if (mqtt_ != nullptr) {
         ESP_LOGW(TAG, "Mqtt client already started");
         mqtt_.reset();
@@ -91,14 +147,47 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
         return false;
     }
 
-    auto network = Board::GetInstance().GetNetwork();
+    auto network = board.GetNetwork();
     mqtt_ = network->CreateMqtt(0);
+    if (!mqtt_) {
+        ESP_LOGE(TAG, "Failed to create MQTT client");
+        if (report_error)
+            SetError(Lang::Strings::SERVER_NOT_CONNECTED);
+        return false;
+    }
     mqtt_->SetKeepAlive(keepalive_interval);
 
     mqtt_->OnDisconnected([this]() {
         if (on_disconnected_ != nullptr) {
             on_disconnected_();
         }
+        std::shared_ptr<Udp> disconnected_channel;
+        {
+            std::lock_guard<std::mutex> lock(channel_mutex_);
+            disconnected_channel = udp_;
+        }
+        // The ESP MQTT transport has its own automatic reconnect. Stop that
+        // client on the application task if the link is gone or the board is
+        // shutting down, so it cannot keep resolving DNS behind our retry gate.
+        auto alive = alive_;
+        Application::GetInstance().Schedule([this, alive, disconnected_channel]() {
+            if (!*alive)
+                return;
+            std::shared_ptr<Udp> closed_channel;
+            {
+                std::lock_guard<std::mutex> lock(channel_mutex_);
+                if (disconnected_channel && udp_ == disconnected_channel)
+                    closed_channel = std::move(udp_);
+            }
+            if (closed_channel && on_audio_channel_closed_)
+                on_audio_channel_closed_();
+            auto& board = Board::GetInstance();
+            if (!board.IsNetworkAvailable() || board.IsAudioMaintenanceActive()) {
+                SuspendUnavailableMqtt();
+                esp_timer_stop(reconnect_timer_);
+                esp_timer_start_once(reconnect_timer_, MQTT_DEFERRED_RETRY_MS * 1000);
+            }
+        });
         ESP_LOGI(TAG, "MQTT disconnected, schedule reconnect in %d seconds",
                  MQTT_RECONNECT_INTERVAL_MS / 1000);
         esp_timer_start_once(reconnect_timer_, MQTT_RECONNECT_INTERVAL_MS * 1000);
@@ -114,7 +203,8 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     mqtt_->OnMessage([this](const std::string& topic, const std::string& payload) {
         cJSON* root = cJSON_Parse(payload.c_str());
         if (root == nullptr) {
-            ESP_LOGE(TAG, "Failed to parse json message %s", payload.c_str());
+            ESP_LOGE(TAG, "Failed to parse JSON message (%u bytes)",
+                     static_cast<unsigned>(payload.size()));
             return;
         }
         cJSON* type = cJSON_GetObjectItem(root, "type");
@@ -128,8 +218,7 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
             ParseServerHello(root);
         } else if (strcmp(type->valuestring, "goodbye") == 0) {
             auto session_id = cJSON_GetObjectItem(root, "session_id");
-            ESP_LOGI(TAG, "Received goodbye message, session_id: %s",
-                     cJSON_IsString(session_id) ? session_id->valuestring : "null");
+            ESP_LOGI(TAG, "Received goodbye message");
             if (cJSON_IsString(session_id) && session_id_ == session_id->valuestring) {
                 auto alive = alive_;  // Capture alive flag
                 Application::GetInstance().Schedule([this, alive]() {
@@ -146,7 +235,7 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
         last_incoming_time_ = std::chrono::steady_clock::now();
     });
 
-    ESP_LOGI(TAG, "Connecting to endpoint %s", endpoint.c_str());
+    ESP_LOGI(TAG, "Connecting to MQTT endpoint");
     std::string broker_address;
     int broker_port = 8883;
     size_t pos = endpoint.find(':');
@@ -166,7 +255,10 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     }
     if (!mqtt_->Connect(broker_address, broker_port, client_id, username, password)) {
         ESP_LOGE(TAG, "Failed to connect to endpoint, code=%d", mqtt_->GetLastError());
-        SetError(Lang::Strings::SERVER_NOT_CONNECTED);
+        // EspMqtt otherwise keeps retrying internally after Connect fails.
+        mqtt_->Disconnect();
+        if (report_error)
+            SetError(Lang::Strings::SERVER_NOT_CONNECTED);
         return false;
     }
 
@@ -174,12 +266,25 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     return true;
 }
 
+void MqttProtocol::SuspendUnavailableMqtt() {
+    auto& board = Board::GetInstance();
+    if (board.IsNetworkAvailable() && !board.IsAudioMaintenanceActive())
+        return;
+    std::unique_lock<std::mutex> lock(mqtt_mutex_, std::try_to_lock);
+    if (lock.owns_lock() && mqtt_)
+        mqtt_->Disconnect();
+}
+
 bool MqttProtocol::SendText(const std::string& text) {
-    if (publish_topic_.empty()) {
+    std::unique_lock<std::mutex> lock(mqtt_mutex_, std::try_to_lock);
+    if (!lock.owns_lock())
+        return false;
+    if (publish_topic_.empty() || mqtt_ == nullptr || !mqtt_->IsConnected()) {
         return false;
     }
     if (!mqtt_->Publish(publish_topic_, text)) {
-        ESP_LOGE(TAG, "Failed to publish message: %s", text.c_str());
+        ESP_LOGE(TAG, "Failed to publish message (%u bytes)",
+                 static_cast<unsigned>(text.size()));
         SetError(Lang::Strings::SERVER_ERROR);
         return false;
     }
@@ -256,7 +361,21 @@ void MqttProtocol::CloseAudioChannel(bool send_goodbye) {
 }
 
 bool MqttProtocol::OpenAudioChannel() {
-    if (mqtt_ == nullptr || !mqtt_->IsConnected()) {
+    auto& board = Board::GetInstance();
+    if (!board.IsNetworkAvailable() || board.IsAudioMaintenanceActive()) {
+        ESP_LOGI(TAG, "MQTT audio connection deferred: network unavailable or maintenance active");
+        if (!board.IsAudioMaintenanceActive())
+            SetError(Lang::Strings::SERVER_NOT_CONNECTED);
+        return false;
+    }
+    bool connected = false;
+    {
+        std::unique_lock<std::mutex> lock(mqtt_mutex_, std::try_to_lock);
+        if (!lock.owns_lock())
+            return false;
+        connected = mqtt_ != nullptr && mqtt_->IsConnected();
+    }
+    if (!connected) {
         ESP_LOGI(TAG, "MQTT is not connected, try to connect now");
         if (!StartMqttClient(true)) {
             return false;
@@ -281,7 +400,7 @@ bool MqttProtocol::OpenAudioChannel() {
         return false;
     }
 
-    auto network = Board::GetInstance().GetNetwork();
+    auto network = board.GetNetwork();
     auto udp = network->CreateUdp(2);
     udp->OnMessage([this](const std::string& data) {
         /*
@@ -403,7 +522,7 @@ void MqttProtocol::ParseServerHello(const cJSON* root) {
     auto session_id = cJSON_GetObjectItem(root, "session_id");
     if (cJSON_IsString(session_id)) {
         session_id_ = session_id->valuestring;
-        ESP_LOGI(TAG, "Session ID: %s", session_id_.c_str());
+        ESP_LOGI(TAG, "Session established");
     }
 
     // Get sample rate from hello message
