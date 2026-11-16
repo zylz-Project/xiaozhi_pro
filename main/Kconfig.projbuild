@@ -374,8 +374,8 @@ config VOICE_BARGE_IN_NEURAL_FRONTEND
         memory must be measured on the device. Does not change speaker volume.
 
 config WZH_DINO_KEYWORD_BARGE_IN
-    bool "Dinosaur keyword-confirmed voice interruption"
-    depends on BOARD_TYPE_WZH_DINOSAUR && USE_VOICE_BARGE_IN && WZH_OFFLINE_COMMANDS
+    bool "WZH keyword-confirmed voice interruption"
+    depends on (BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA) && USE_VOICE_BARGE_IN && WZH_OFFLINE_COMMANDS
     depends on !VOICE_BARGE_IN_NEURAL_FRONTEND && !VOICE_BARGE_IN_VADNET_EXPERIMENT
     default n
     help
