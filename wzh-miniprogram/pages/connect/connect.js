@@ -50,6 +50,13 @@ function windowInfo() {
   } catch (e) { return { statusBarHeight: 20 } }
 }
 
+function safeAreaBottom(info) {
+  const h = Number(info.windowHeight) || 0
+  const safe = info.safeArea
+  if (!h || !safe || typeof safe.bottom !== 'number') return 0
+  return Math.max(0, Math.round(h - safe.bottom))
+}
+
 function readLast() {
   try {
     const v = wx.getStorageSync(LAST_KEY)
@@ -80,6 +87,7 @@ function markGuideSeen() {
 Page({
   data: {
     statusBarHeight: 20,
+    safeBottom: 0,
     scanning: false,
     devices: [],
     error: '',
@@ -124,6 +132,7 @@ Page({
     this._guidePending = null
     this.setData({
       statusBarHeight: info.statusBarHeight || 20,
+      safeBottom: safeAreaBottom(info),
       heroIcon: toy.icon,
       isDevtools: isDevtools(),
       activeToy: picked,

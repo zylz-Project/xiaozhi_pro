@@ -1,4 +1,4 @@
-<view class="connect-page">
+<view class="connect-page" style="--safe-bottom: {{safeBottom}}px">
   <view class="connect-bg" aria-hidden="true">
     <view class="blob b1"></view><view class="blob b2"></view><view class="blob b3"></view>
   </view>

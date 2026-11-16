@@ -118,7 +118,7 @@ page { background: #f6eadc; }
 .empty-title { margin-top: 18rpx; font-size: 24rpx; font-weight: 650; }
 .empty-sub { margin-top: 6rpx; color: rgba(47,40,34,.46); font-size: 18rpx; line-height: 1.5; }
 
-.connect-actions { position: relative; z-index: 2; padding: 12rpx 34rpx calc(22rpx + env(safe-area-inset-bottom)); }
+.connect-actions { position: relative; z-index: 2; padding: 12rpx 34rpx calc(22rpx + var(--safe-bottom, 0px)); }
 .scan-btn {
   display: flex; align-items: center; justify-content: center; gap: 10rpx; width: 100% !important; height: 88rpx;
   border-radius: 999rpx; color: #fffaf2; background: #352b24;

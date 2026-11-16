@@ -189,6 +189,13 @@ function windowInfo() {
   } catch (e) { return { statusBarHeight: 20 } }
 }
 
+function safeAreaBottom(info) {
+  const h = Number(info.windowHeight) || 0
+  const safe = info.safeArea
+  if (!h || !safe || typeof safe.bottom !== 'number') return 0
+  return Math.max(0, Math.round(h - safe.bottom))
+}
+
 function pad(n) { return n < 10 ? '0' + n : '' + n }
 
 function stateCopy(online, state) {
@@ -206,6 +213,7 @@ Page({
   data: {
     statusBarHeight: 20,
     menuBottom: 86,
+    safeBottom: 0,
     product: products.get('crawlPanda'),
     toys: ['crawlPanda', 'dinosaur', 'redpanda'].map(function (id) {
       const p = products.get(id)
@@ -300,6 +308,27 @@ Page({
     guideBubble: { place: 'below', style: 'opacity:0' }
   },
 
+  onReady() { this.syncSafeBottom() },
+
+  onShow() { this.syncSafeBottom() },
+
+  /* The simulator/WeChat may report the window before the device safe area is
+     applied, so recompute once the page is laid out. */
+  syncSafeBottom() {
+    const info = windowInfo()
+    const sb = safeAreaBottom(info)
+    if (sb === this.data.safeBottom) return
+    const patch = { safeBottom: sb }
+    if (!this._assistantCustom) {
+      const winW = Number(info.windowWidth) || 390
+      const winH = Number(info.windowHeight) || 844
+      const faSize = winW * 100 / 750
+      const faMargin = winW * 26.92 / 750
+      patch.assistantY = Math.max((info.statusBarHeight || 20) + 8, winH - faSize - faMargin - sb)
+    }
+    this.setData(patch)
+  },
+
   onLoad(options) {
     const info = windowInfo()
     const product = products.get((options && options.toy) || store.getToy())
@@ -327,12 +356,15 @@ Page({
     const winH = Number(info.windowHeight) || 844
     const faSize = winW * 100 / 750
     const faMargin = winW * 26.92 / 750
+    const safeBottom = safeAreaBottom(info)
+    this._assistantCustom = false
     const assistantX = Math.max(8, winW - faSize - faMargin)
-    const assistantY = Math.max((info.statusBarHeight || 20) + 8, winH - faSize - faMargin)
+    const assistantY = Math.max((info.statusBarHeight || 20) + 8, winH - faSize - faMargin - safeBottom)
 
     this.setData({
       statusBarHeight: info.statusBarHeight || 20,
       menuBottom: menuBottom,
+      safeBottom: safeBottom,
       assistantX: assistantX,
       assistantY: assistantY,
       product: product,
@@ -689,7 +721,7 @@ Page({
     const minX = 8
     const minY = (this.data.statusBarHeight || 20) + 8
     const maxX = Math.max(minX, winW - size - 8)
-    const maxY = Math.max(minY, winH - size - 8)
+    const maxY = Math.max(minY, winH - size - 8 - (this.data.safeBottom || 0))
     this.setData({
       assistantX: Math.min(maxX, Math.max(minX, this._assistantStart.left + dx)),
       assistantY: Math.min(maxY, Math.max(minY, this._assistantStart.top + dy)),
@@ -701,6 +733,7 @@ Page({
     const moved = this._assistantMoved
     this._assistantStart = null
     this._assistantMoved = false
+    if (moved) this._assistantCustom = true
     this.setData({ assistantDragging: false })
     if (!moved) this.onPrimary()
   },

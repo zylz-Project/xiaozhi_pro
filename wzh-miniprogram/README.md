@@ -232,5 +232,15 @@ wzh-miniprogram/
   改为只动 `transform: scale`；气泡去掉 `bubbleMorph`；光晕改用 `radial-gradient` 代替
   `conic-gradient + blur`（对比网页三变体截图确认观感一致）；关键层加 `will-change`；
   控制台/说明书打开时暂停球体动画（16 个显式选择器，WXSS 不支持通配符 `*`）。
+- [x] 全机型安全区统一：微信开发者工具里 `env(safe-area-inset-bottom)` 恒为 0（即使 iPhone 预设
+  `safeArea.bottom=840`），导致 iPhone 上底部内容被 Home 指示条压住。改为 JS 计算
+  `safeBottom = windowHeight - safeArea.bottom`（`device.js safeAreaBottom()`，`onReady/onShow`
+  里 `syncSafeBottom()` 兜底，因为 `onLoad` 时 safeArea 还没生效），通过根节点
+  `--safe-bottom` 变量下发给 CSS，6 处 `env()` 全部替换，`.console-scroll` 高度与展开态
+  `.sheet` 的 `bottom` 同步减去该值。实测 iPhone 预设：`.sheet` 底 834 / `.reset-bar` 底 826 /
+  悬浮小助手底 825（均高于 840 的 Home 区）；模拟 Android（`safeBottom=0`）时数值与改动前
+  完全一致（`.sheet` 底 868、`.console-scroll` 高 700），Android 像素零变化。
+- [x] 悬浮小助手默认位置同样上移 `safeBottom`；手动拖动过（`_assistantCustom`）后不再被
+  `syncSafeBottom` 复位，拖动下边界也扣掉安全区。
 - [ ] 真机 BLE 扫描/连接/断线重连/分片。
 - [ ] 真机设备录音、WAV 上传、云端克隆。

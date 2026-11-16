@@ -1,4 +1,4 @@
-<view class="phone {{material === 'a' ? 'a' : 'b'}} {{mode === 'dark' ? 'dark' : ''}} {{manualOpen ? 'manual-open' : ''}} {{expanded ? 'expanded' : ''}}" style="--safe-top: {{statusBarHeight}}px; --menu-bottom: {{menuBottom}}px" data-theme="{{theme}}" data-layout="{{layout}}" data-state="{{deviceState}}" data-toy="{{product.id}}">
+<view class="phone {{material === 'a' ? 'a' : 'b'}} {{mode === 'dark' ? 'dark' : ''}} {{manualOpen ? 'manual-open' : ''}} {{expanded ? 'expanded' : ''}}" style="--safe-top: {{statusBarHeight}}px; --menu-bottom: {{menuBottom}}px; --safe-bottom: {{safeBottom}}px" data-theme="{{theme}}" data-layout="{{layout}}" data-state="{{deviceState}}" data-toy="{{product.id}}">
   <view class="wallpaper">
     <view class="blob b1"></view>
     <view class="blob b2"></view>

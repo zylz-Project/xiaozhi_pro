@@ -3770,7 +3770,7 @@
 /* The native scroll-view caches its viewport when it is created. While the
    sheet slides up its flex height is still small, so the lower half of the
    console stays unpainted. Give it an explicit height instead of flex:1. */
-.console-scroll { flex: none; height: calc(100vh - var(--menu-bottom, 86px) - 8px - 12rpx - 131rpx); }
+.console-scroll { flex: none; height: calc(100vh - var(--menu-bottom, 86px) - 8px - 12rpx - 131rpx - var(--safe-bottom, 0px)); }
 page { width: 100%; height: 100%; overflow: hidden; }
 .page, .stage, .phone-col, .phone-label, .under { display: none !important; }
 .phone { width: 100vw; height: 100vh; border-radius: 0; box-shadow: none; --sheet-h: 654rpx; }
@@ -3951,8 +3951,8 @@ input { border: 0; outline: none; }
 .orb-wrap { top: calc(var(--safe-top, 34.62rpx) + 78px); }
 .phone.expanded .sheet { top: calc(var(--safe-top, 34.62rpx) + 38px); }
 .manual-sheet { top: calc(var(--safe-top, 34.62rpx) + 38px); }
-.sheet { bottom: calc(12px + env(safe-area-inset-bottom)); }
-.manual-sheet { bottom: calc(12px + env(safe-area-inset-bottom)); }
+.sheet { bottom: calc(12px + var(--safe-bottom, 0px)); }
+.manual-sheet { bottom: calc(12px + var(--safe-bottom, 0px)); }
 
 
 
@@ -4110,7 +4110,7 @@ page { background: transparent; }
 .console .con-head { padding-top: 24rpx; }
 
 /* Home indicator must not cover the voice-manager primary action. */
-.modal-foot { padding-bottom: calc(25rpx + env(safe-area-inset-bottom)); }
+.modal-foot { padding-bottom: calc(25rpx + var(--safe-bottom, 0px)); }
 
 /* The toy switcher lives behind the wordmark; make the affordance visible. */
 .brand-chev { width: 22rpx; height: 22rpx; opacity: .55; }
@@ -4151,7 +4151,7 @@ page { background: transparent; }
   background: rgba(255,255,255,.72);
 }
 .manual-body {
-  padding: calc(var(--safe-top, 34.62rpx) + 52px) 26.92rpx calc(24rpx + env(safe-area-inset-bottom));
+  padding: calc(var(--safe-top, 34.62rpx) + 52px) 26.92rpx calc(24rpx + var(--safe-bottom, 0px));
 }
 .manual-page {
   padding-top: 0;
@@ -4236,7 +4236,7 @@ page { background: transparent; }
 .vm-new { height: 80.77rpx; font-size: 21.15rpx; }
 
 /* Bottom sheets must clear the iPhone home indicator. */
-.panda-modal { padding-bottom: calc(19.23rpx + env(safe-area-inset-bottom)); }
+.panda-modal { padding-bottom: calc(19.23rpx + var(--safe-bottom, 0px)); }
 
 /* Selected theme buttons must not become a pale block under white text in dark
    mode, and the A/B previews must read as glass vs. milk rather than checkboxes. */
@@ -4298,7 +4298,7 @@ page { background: transparent; }
   right: 20rpx;
   top: calc(var(--menu-bottom, 86px) + 8px);
 }
-.manual-body { padding: calc(var(--safe-top, 34.62rpx) + 14px) 0 calc(30rpx + env(safe-area-inset-bottom)); }
+.manual-body { padding: calc(var(--safe-top, 34.62rpx) + 14px) 0 calc(30rpx + var(--safe-bottom, 0px)); }
 .mn-page {
   padding: 0 26.92rpx 44rpx;
   color: var(--ink);
@@ -4701,4 +4701,8 @@ page { background: transparent; }
 /* 滚到控制台底部时淡出小助手，避免遮住“恢复出厂”条 */
 .float-assistant { transition: opacity .22s ease; }
 .float-assistant.dim { opacity: 0 !important; pointer-events: none; }
+
+/* 展开态同样要让出底部安全区（iPhone Home 指示条），
+   高度由 device.js 的 --safe-bottom 决定，Android 为 0 时与原来完全一致。 */
+.phone.expanded .sheet { bottom: calc(12rpx + var(--safe-bottom, 0px)); }
 
