@@ -310,8 +310,6 @@ Page({
 
   onReady() { this.syncSafeBottom() },
 
-  onShow() { this.syncSafeBottom() },
-
   /* The simulator/WeChat may report the window before the device safe area is
      applied, so recompute once the page is laid out. */
   syncSafeBottom() {
@@ -406,6 +404,7 @@ Page({
   },
 
   onShow() {
+    this.syncSafeBottom()
     if (this.client) {
       this.refreshStatus()
       this.startStatusTimer()
