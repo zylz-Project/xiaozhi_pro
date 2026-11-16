@@ -38,7 +38,11 @@ def wzh_offline_commands(product=None, keyword_barge=False):
     masks = {'crawl': 1, 'tail': 2, 'dinosaur': 4, None: 7}
     if product not in masks:
         raise ValueError(f'Unknown WZH local-command product: {product}')
-    if product == 'dinosaur' and keyword_barge:
+    product_wake = {'crawl': 'xiao hua xiao hua', 'tail': 'xiao wu xiao wu',
+                    'dinosaur': 'xiao wei xiao wei'}
+    if product in product_wake:
+        phrases.append((product_wake[product], 'chat_wake'))
+    if product in product_wake and keyword_barge:
         phrases.extend((phrase, 'interrupt') for phrase in (
             'ting', 'ting yi xia', 'deng yi xia', 'bie shuo hua',
             'bie shuo le', 'xian bie shuo', 'ni hao', 'wo you wen ti',

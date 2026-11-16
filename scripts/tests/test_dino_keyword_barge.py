@@ -81,14 +81,22 @@ int main(){Application a;a.Install();a.callbacks.on_voice_interruption(42);
 }
 ''')
 
-    def test_keyword_vocabulary_is_opt_in_and_dinosaur_only(self):
+    def test_keyword_vocabulary_is_opt_in_for_all_products(self):
         wanted = {'ting', 'ting yi xia', 'deng yi xia', 'bie shuo hua',
                   'bie shuo le', 'xian bie shuo', 'ni hao', 'wo you wen ti', 'wo yao shuo hua'}
         def keywords(product, enabled):
             return {entry['command'] for entry in assets.wzh_offline_commands(product, enabled)
                     if entry['text'] == 'local:interrupt'}
-        self.assertEqual(keywords('dinosaur', True), wanted)
         for product in ('dinosaur', 'crawl', 'tail'):
             self.assertFalse(keywords(product, False))
-        self.assertFalse(keywords('crawl', True))
-        self.assertFalse(keywords('tail', True))
+            self.assertEqual(keywords(product, True), wanted)
+
+    def test_each_product_has_its_own_wake_phrase(self):
+        phrases = {'crawl': 'xiao hua xiao hua', 'tail': 'xiao wu xiao wu',
+                   'dinosaur': 'xiao wei xiao wei'}
+        for product, phrase in phrases.items():
+            for enabled in (False, True):
+                with self.subTest(product=product, keyword_barge=enabled):
+                    commands = assets.wzh_offline_commands(product, enabled)
+                    wake = [item['command'] for item in commands if item['text'] == 'local:chat_wake']
+                    self.assertEqual(wake, [phrase])
