@@ -119,8 +119,15 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         input_format.push_back('R');
     }
 
+#if CONFIG_SR_VADN_WEBRTC
+    // Resource partitions can outlive the application. Do not let a VADNet
+    // model left by an older image override the configured lightweight VAD.
+    char* vad_model_name = nullptr;
+    ESP_LOGI(TAG, "Configured VAD: WebRTC");
+#else
     char* vad_model_name =
         models_ == nullptr ? nullptr : esp_srmodel_filter(models_, ESP_VADN_PREFIX, nullptr);
+#endif
 #if CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
     vadnet_ready_ = vad_model_name != nullptr;
     if (!vadnet_ready_) {
@@ -161,9 +168,9 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     afe_config->vad_mode = VAD_MODE_2;
 #endif
     afe_config->vad_min_noise_ms = 100;
-    if (vad_model_name != nullptr) {
-        afe_config->vad_model_name = vad_model_name;
-    }
+    // afe_config_init may infer a model from the assets, so assigning nullptr
+    // is necessary as well: it selects WebRTC even with older VADNet assets.
+    afe_config->vad_model_name = vad_model_name;
 #if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
     // Keep the AFE's wake pipeline lightweight. Uplink VAD is run again after
     // the explicit NSNet2 stage, never inherited from this pre-NSNet result.
@@ -259,6 +266,13 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
                                : (wake_detector_ == WakeDetector::kMultiNet ? "MultiNet" : "none");
     ESP_LOGI(TAG, "Initialized FD AFE, detector: %s, NS: off, feed: %d, fetch: %d", detector,
              afe_iface_->get_feed_chunksize(afe_data_), afe_iface_->get_fetch_chunksize(afe_data_));
+    const auto internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    const auto dma_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
+    ESP_LOGI(TAG, "After AFE: internal=%u largest=%u dma=%u dma_largest=%u",
+             static_cast<unsigned>(heap_caps_get_free_size(internal_caps)),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(internal_caps)),
+             static_cast<unsigned>(heap_caps_get_free_size(dma_caps)),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(dma_caps)));
     return true;
 }
 
