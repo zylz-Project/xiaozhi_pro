@@ -44,8 +44,18 @@ void RequestWifiSetupPrompt();
 void MarkStartupNetworkReady();
 // Startup audio can begin once the shared audio worker is available.
 bool StartupGreetingAudioReady();
+bool StartupGreetingFinished();
 // Release the first setup prompt after the one-shot greeting has finished.
 void MarkStartupGreetingComplete();
+enum class StartupProtectionNotice : uint8_t {
+    kNone,
+    kLowBattery,
+    kOverheat,
+    kMotionBlocked,
+    kCheckingBattery
+};
+void ObserveStartupProtection(StartupProtectionNotice notice);
+const char* StartupProtectionMessage();
 void ObserveSystemPromptBattery(bool ready, bool low);
 void BeginSystemPromptShutdown();
 // Power task only; bounded wait includes production AND final PCM drain. The

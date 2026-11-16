@@ -32,7 +32,9 @@ std::atomic<bool> startup_greeting_complete{false};
 std::atomic<bool> startup_greeting_complete{true};
 #endif
 std::atomic<bool> shutting_down{false};
+std::atomic<StartupProtectionNotice> startup_protection{StartupProtectionNotice::kNone};
 #if CONFIG_WZH_SYSTEM_PROMPTS
+std::atomic<StartupProtectionNotice> startup_protection_pending{StartupProtectionNotice::kNone};
 std::atomic<bool> wifi_setup_requested{false};
 std::atomic<bool> wifi_setup_producing{false};
 std::atomic<uint32_t> wifi_setup_requested_ms{0};
@@ -94,7 +96,29 @@ void Worker(void*) {
             }
         }
 #if CONFIG_WZH_SYSTEM_PROMPTS
-        else if (!shutting_down.load() && wifi_setup_requested.load()) {
+        else if (!shutting_down.load() &&
+                 startup_protection_pending.load() != StartupProtectionNotice::kNone) {
+            const auto notice = startup_protection_pending.load();
+            if (notice == startup_protection.load() && app.GetDeviceState() == kDeviceStateIdle &&
+                audio.IsPlaybackIdle() && !audio.IsAudioProcessorRunning() &&
+                !Board::GetInstance().IsAudioMaintenanceActive()) {
+                auto expected = notice;
+                if (startup_protection_pending.compare_exchange_strong(
+                        expected, StartupProtectionNotice::kNone)) {
+                    if (notice == StartupProtectionNotice::kLowBattery) {
+                        std::lock_guard<std::mutex> lock(gate_mutex);
+                        battery_gate.Observe(true, true);
+                        battery_gate.Take(esp_log_timestamp());
+                        low_generation = audio.GetPlaybackGeneration();
+                        low_drained_before = audio.GetPlaybackDrainedCount();
+                    }
+                    audio.PlaySound(notice == StartupProtectionNotice::kLowBattery
+                                        ? Lang::Sounds::OGG_LOW_BATTERY
+                                        : Lang::Sounds::OGG_EXCLAMATION,
+                                    audio.GetPlaybackGeneration());
+                }
+            }
+        } else if (!shutting_down.load() && wifi_setup_requested.load()) {
             const auto now = esp_log_timestamp();
             const auto elapsed = now - wifi_setup_requested_ms.load();
             // Startup feedback owns audio first. Bound the wait even when the
@@ -164,7 +188,32 @@ bool StartupGreetingAudioReady() {
     return worker_started.load() && !shutting_down.load();
 }
 
+bool StartupGreetingFinished() { return startup_greeting_complete.load(); }
+
 void MarkStartupGreetingComplete() { startup_greeting_complete.store(true); }
+
+void ObserveStartupProtection(StartupProtectionNotice notice) {
+    if (startup_protection.exchange(notice) == notice)
+        return;
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    startup_protection_pending.store(notice);
+#endif
+}
+
+const char* StartupProtectionMessage() {
+    switch (startup_protection.load()) {
+        case StartupProtectionNotice::kLowBattery:
+            return "电池电量不足，暂时无法活动，请先充电。";
+        case StartupProtectionNotice::kOverheat:
+            return "设备温度过高，暂时无法活动，请等待冷却。";
+        case StartupProtectionNotice::kMotionBlocked:
+            return "动作暂时受保护，请将设备平稳放置后重试。";
+        case StartupProtectionNotice::kCheckingBattery:
+            return "正在检查电池状态，动作暂未启动，请稍候。";
+        default:
+            return "";
+    }
+}
 
 void ObserveSystemPromptBattery(bool ready, bool low) {
     std::lock_guard<std::mutex> lock(gate_mutex);

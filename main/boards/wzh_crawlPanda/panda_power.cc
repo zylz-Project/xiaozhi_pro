@@ -270,6 +270,7 @@ void PandaPower::Task() {
     int click_count = 0;
     uint32_t last_battery_sample_ms = 0;
     bool battery_settled = false;
+    bool startup_protection_monitoring = true;
     uint32_t last_fast_battery_sample_ms = 0;
     uint32_t last_fast_battery_log_ms = 0;
     wzh::FastBatteryStart fast_battery;
@@ -543,6 +544,26 @@ void PandaPower::Task() {
             } else {
                 temperature_valid_.store(false);
             }
+        }
+        if (startup_protection_monitoring && now >= 5000) {
+            const auto* output = servo_output_.load();
+            const auto faults = output != nullptr ? output->faults() : 0U;
+            auto notice = wzh::StartupProtectionNotice::kNone;
+            if (now >= 15000 && battery_protection_.ready() && battery_protection_.low()) {
+                notice = wzh::StartupProtectionNotice::kLowBattery;
+            } else if (faults & wzh::kOverheat) {
+                notice = wzh::StartupProtectionNotice::kOverheat;
+            } else if (output == nullptr ||
+                       (faults & (wzh::kFalling | wzh::kMotionTimeout | 16U))) {
+                notice = wzh::StartupProtectionNotice::kMotionBlocked;
+            } else if ((faults & (wzh::kBatteryPending | wzh::kLowBattery)) ||
+                       (battery_sample_valid_.load() &&
+                        battery_live_mv_.load() <= BATTERY_LOW_MV)) {
+                notice = wzh::StartupProtectionNotice::kCheckingBattery;
+            }
+            wzh::ObserveStartupProtection(notice);
+            if (notice == wzh::StartupProtectionNotice::kNone && wzh::StartupGreetingFinished())
+                startup_protection_monitoring = false;
         }
         delay_started_ms = esp_log_timestamp();
         previous_work_ms = delay_started_ms - now;

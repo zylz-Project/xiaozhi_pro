@@ -216,6 +216,7 @@ int main(){
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <string>
 #include <string_view>
 #define CONFIG_WZH_SYSTEM_PROMPTS 1
 #define CONFIG_BOARD_TYPE_WZH_CRAWLPANDA 1
@@ -234,7 +235,7 @@ int xTaskCreate(void(*callback)(void*),const char*,int,void*,int,void*){entry=ca
 void vTaskDelay(unsigned);
 constexpr int kDeviceStateIdle=0;
 struct Audio {
- uint32_t generation=0,until=0,drained=0;int low=0,off=0,wifi=0,resets=0;bool stalled=false;
+ uint32_t generation=0,until=0,drained=0;int low=0,off=0,wifi=0,alert=0,resets=0;bool stalled=false;
  void settle(){if(!stalled&&until&&clock_ms>=until){++drained;until=0;}}
  void EnableWakeWordDetection(bool){}
  void EnableVoiceProcessing(bool){}
@@ -246,6 +247,7 @@ struct Audio {
  void PlaySound(std::string_view sound,std::optional<uint32_t> expected={}){
   if(expected&&*expected!=generation)return;
   if(sound=="wifi"){++wifi;until=clock_ms+500;}
+  else if(sound=="alert"){++alert;until=clock_ms+500;}
   else if(sound=="off"){
    ++off;until=clock_ms+1200;
    // Simulate an application-side reset landing right after enqueue.
@@ -264,7 +266,7 @@ struct Board {
  static Board& GetInstance(){static Board board;return board;}
  bool IsAudioMaintenanceActive(){return maintenance;}
 };
-namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi";}}
+namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi",OGG_EXCLAMATION="alert";}}
 #include "''' + str(ROOT/'main/boards/common/wzh/wzh_system_prompts.cc') + r'''"
 void run_worker(unsigned turns=1){
  worker_turns=turns;inside_worker=true;try{entry(nullptr);}catch(StopWorker&){}inside_worker=false;
@@ -281,6 +283,13 @@ void vTaskDelay(unsigned ms){
 int main(){
  auto& app=Application::GetInstance();auto& audio=app.audio;
  wzh::StartSystemPrompts();assert(entry);
+ assert(std::string(wzh::StartupProtectionMessage()).empty());
+ wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kOverheat);
+ assert(!std::string(wzh::StartupProtectionMessage()).empty());
+ run_worker();assert(audio.alert==1);
+ wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kNone);
+ assert(std::string(wzh::StartupProtectionMessage()).empty());
+ audio.until=0;
  // Startup audio and asynchronous queue resets must finish before the prompt.
  audio.until=1000;wzh::RequestWifiSetupPrompt();clock_ms=700;run_worker();assert(audio.wifi==0);
  audio.ResetDecoder();clock_ms=1100;run_worker();assert(audio.wifi==0);
