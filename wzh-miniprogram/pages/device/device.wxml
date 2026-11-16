@@ -329,8 +329,8 @@
           <view class="mn-p">第一次使用，按下面五步走。设备需要连接家里的 <text class="mn-b">2.4GHz Wi-Fi</text>，不支持 5GHz。</view>
           <view class="mn-steps">
             <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text class="mn-b">充电。</text><text>用 USB-C 线连接 5V 充电器。电量低时设备会限制动作并提示。</text></view></view>
-            <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text class="mn-b">开机。</text><text>长按电源键约 1.5 秒，听到启动音、头部回中即开机。</text></view></view>
-            <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text class="mn-b">连接。</text><text>打开「泽元灵智」小程序，保持手机蓝牙开启，在附近设备里选择 </text><text class="mn-b">{{product.ap}}-{{product.hot}}</text><text>。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text class="mn-b">开机。</text><text>长按电源键约 1 秒，听到启动音、头部回中即开机。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text class="mn-b">连接。</text><text>打开「泽元灵智」小程序，保持手机蓝牙开启，在附近设备里选择以 </text><text class="mn-b">{{product.ap}}-</text><text> 开头的设备。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text class="mn-b">配网。</text><text>进入详情页后点「更改网络」，选择家里的 2.4GHz 网络并输入密码。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">05</text><view class="mn-step-copy"><text class="mn-b">开始对话。</text><text>双击电源键；听到提示音后说话，再双击退出。</text></view></view>
           </view>
@@ -352,7 +352,7 @@
         <view class="mn-sec" id="m-power">
           <view class="mn-sec-head"><text class="mn-sec-no">03</text><text class="mn-sec-title">充电、开机与关机</text></view>
           <view class="mn-p"><text class="mn-b">充电：</text><text>使用 USB-C 线连接 5V 充电器。设备没有独立的充电状态灯，电量可以在小程序详情页查看。请使用干燥、通风的环境充电。</text></view>
-          <view class="mn-p"><text class="mn-b">开机：</text><text>长按电源键约 1.5 秒，设备会播放启动音并回到默认姿态。首次开机若没有保存网络，会保持等待配网状态。</text></view>
+          <view class="mn-p"><text class="mn-b">开机：</text><text>长按电源键约 1 秒，设备会播放启动音并回到默认姿态。首次开机若没有保存网络，可通过小程序蓝牙连接并配网。</text></view>
           <view class="mn-p"><text class="mn-b">关机：</text><text>再次长按电源键约 1.5 秒。设备会先停止本地声音、回到安全姿态、断开舵机电，再关闭电源，请不要在动作过程中拔电。</text></view>
           <view class="mn-callout"><text class="mn-b">自动保护：</text><text>电量过低、芯片温度过高或舵机连续通电过久时，设备会限制动作或自动关机。这是正常保护，不是故障。</text></view>
         </view>
@@ -363,9 +363,9 @@
             <view class="mn-tr mn-th"><text class="mn-td">操作</text><text class="mn-td">会发生什么</text></view>
             <view class="mn-tr"><text class="mn-td">双击电源键</text><text class="mn-td">开始对话；再双击完整退出对话</text></view>
             <view class="mn-tr"><text class="mn-td">长按电源键 1.5 秒</text><text class="mn-td">关机</text></view>
-            <view class="mn-tr"><text class="mn-td">单击 BOOT 键</text><text class="mn-td">正常状态下切换对话</text></view>
-            <view class="mn-tr"><text class="mn-td">双击 BOOT 键</text><text class="mn-td">停止 / 恢复宠物活动</text></view>
-            <view class="mn-tr"><text class="mn-td">轻触一个触摸区</text><text class="mn-td">亲昵回应：抬头、看你、轻轻挥爪</text></view>
+            <view class="mn-tr"><text class="mn-td">单击 BOOT 键</text><text class="mn-td">启动或配网阶段使用；正常使用时不切换对话</text></view>
+            <view class="mn-tr"><text class="mn-td">双击 BOOT 键</text><text class="mn-td">开始或退出对话</text></view>
+            <view class="mn-tr"><text class="mn-td">轻触一个触摸区</text><text class="mn-td">亲昵回应：转头或做出动作</text></view>
             <view class="mn-tr"><text class="mn-td">同时触摸两个以上</text><text class="mn-td">开心回应：更大幅度的动作与声音</text></view>
           </view>
           <view class="mn-p mn-gap">在线对话时，触摸只驱动动作，不额外播放本地声音，避免打断说话。连续触摸不会堆积播放。</view>
@@ -374,7 +374,7 @@
 
         <view class="mn-sec" id="m-chat">
           <view class="mn-sec-head"><text class="mn-sec-no">05</text><text class="mn-sec-title">和小智对话</text></view>
-          <view class="mn-p">设备需要先配网并完成小智激活。双击电源键后，看到头部抬起、听到提示音，就可以说话；说完稍等，它会回答。</view>
+          <view class="mn-p">设备需要先配网并完成小智激活。双击电源键后，听到提示音，就可以说话；说完稍等，它会回答。</view>
           <view class="mn-list">
             <view class="mn-li">说话时尽量靠近设备，环境不要太吵。</view>
             <view class="mn-li">回答过程中双击电源键，可以立即结束本轮对话。</view>
@@ -385,16 +385,16 @@
 
         <view class="mn-sec" id="m-network">
           <view class="mn-sec-head"><text class="mn-sec-no">06</text><text class="mn-sec-title">配网与换网</text></view>
-          <view class="mn-p">设备只支持 <text class="mn-b">2.4GHz Wi-Fi</text>。小程序会过滤掉 5GHz 网络，避免选完才发现连不上。</view>
+          <view class="mn-p">设备支持 <text class="mn-b">2.4GHz Wi-Fi</text>。双频路由器请确保 2.4GHz 网络已开启。</view>
           <view class="mn-steps">
-            <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text>手机打开蓝牙，在「泽元灵智」小程序里连接 </text><text class="mn-b">{{product.ap}}-{{product.hot}}</text><text>。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text>手机打开蓝牙，在「泽元灵智」小程序里连接以 </text><text class="mn-b">{{product.ap}}-</text><text> 开头的设备。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text>进入设备详情页，点网络条右侧的</text><text class="mn-b">「更改」</text><text>。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text>选择家里的 2.4GHz 网络，输入 Wi-Fi 密码（至少 8 位）。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text>连接成功后弹窗自动关闭，设备保持在线，不会跳转页面。</text></view></view>
           </view>
           <view class="mn-p mn-gap"><text class="mn-b">换网：</text><text>新网络连接成功前，旧网络会保留；失败会自动恢复旧网络。</text></view>
           <view class="mn-p"><text class="mn-b">离线：</text><text>设备离线时仍可用蓝牙连接小程序查看状态、修改网络；已保存的凭据不会删除，设备会在范围内自动重连。</text></view>
-          <view class="mn-callout"><text class="mn-b">不需要登录。</text><text>蓝牙配对请求由设备硬件确认，小程序没有账号和页面密码。</text></view>
+          <view class="mn-callout"><text class="mn-b">小程序连接：</text><text>请在设备附近通过蓝牙连接；小程序没有账号和页面密码。</text></view>
         </view>
 
         <view class="mn-sec" id="m-app">
