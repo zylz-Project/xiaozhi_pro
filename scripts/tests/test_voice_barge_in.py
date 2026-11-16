@@ -537,13 +537,9 @@ int main(){
                                     'CONFIG_USE_SERVER_AEC=n',
                                     'CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y']:
                         self.assertIn(setting,build['sdkconfig_append'])
-                    if board == 'wzh_dinosaur':
-                        expected = ['CONFIG_WZH_DINO_KEYWORD_BARGE_IN=y',
-                                    'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n',
-                                    'CONFIG_SR_NSN_NSNET2=n', 'CONFIG_SR_NSN_WEBRTC=y']
-                    else:
-                        expected = ['CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=y',
-                                    'CONFIG_SR_NSN_NSNET2=y', 'CONFIG_SR_NSN_WEBRTC=n']
+                    expected = ['CONFIG_WZH_DINO_KEYWORD_BARGE_IN=y',
+                                'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n',
+                                'CONFIG_SR_NSN_NSNET2=n', 'CONFIG_SR_NSN_WEBRTC=y']
                     for setting in expected:
                         self.assertIn(setting, build['sdkconfig_append'])
                 for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
