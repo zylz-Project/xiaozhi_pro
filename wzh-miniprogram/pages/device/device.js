@@ -4,6 +4,7 @@ const products = require('../../services/products')
 const store = require('../../services/store')
 const fmt = require('../../utils/format')
 const audio = require('../../services/audio')
+const DEVICE_GUIDE_KEY = 'panda-guide-v1:'
 
 const FIXED = ['龙安欢', '龙安灵心', '龙安风悦', '许南川', '于小云', '温怀清']
 const THEME_LABEL = { milk: '奶糖', salt: '海盐', berry: '莓果', bamboo: '竹青' }
@@ -196,6 +197,18 @@ function safeAreaBottom(info) {
   return Math.max(0, Math.round(h - safe.bottom))
 }
 
+function deviceGuideSeen(productId) {
+  try { return !!wx.getStorageSync(DEVICE_GUIDE_KEY + productId) } catch (e) { return true }
+}
+
+function markDeviceGuideSeen(productId) {
+  try { wx.setStorageSync(DEVICE_GUIDE_KEY + productId, true) } catch (e) {}
+}
+
+function clearDeviceGuideSeen(productId) {
+  try { wx.removeStorageSync(DEVICE_GUIDE_KEY + productId) } catch (e) {}
+}
+
 function pad(n) { return n < 10 ? '0' + n : '' + n }
 
 function stateCopy(online, state) {
@@ -308,7 +321,11 @@ Page({
     guideBubble: { place: 'below', style: 'opacity:0' }
   },
 
-  onReady() { this.syncSafeBottom() },
+  onReady() {
+    this.syncSafeBottom()
+    this._guideReady = true
+    this.scheduleFirstGuide()
+  },
 
   /* The simulator/WeChat may report the window before the device safe area is
      applied, so recompute once the page is laid out. */
@@ -409,9 +426,12 @@ Page({
       this.refreshStatus()
       this.startStatusTimer()
     }
+    this.scheduleFirstGuide()
   },
 
   onHide() {
+    if (this._guideAutoTimer) clearTimeout(this._guideAutoTimer)
+    this._guideAutoTimer = null
     this.stopStatusTimer()
   },
 
@@ -436,6 +456,8 @@ Page({
   },
 
   onUnload() {
+    if (this._guideAutoTimer) clearTimeout(this._guideAutoTimer)
+    this._guideAutoTimer = null
     this.stopStatusTimer()
     this.stopRailDrift()
     if (this._recordTimer) clearInterval(this._recordTimer)
@@ -799,6 +821,20 @@ Page({
   },
 
 
+  scheduleFirstGuide() {
+    const productId = this.data.product && this.data.product.id
+    if (!this._guideReady || !this.client || !productId || this._leaving ||
+        this._guideAutoTimer || this.data.guideOpen || deviceGuideSeen(productId)) return
+    this._guideAutoTimer = setTimeout(() => {
+      this._guideAutoTimer = null
+      if (!this.client || this._leaving || this.data.guideOpen) return
+      if (!this.data.product || this.data.product.id !== productId) return this.scheduleFirstGuide()
+      if (deviceGuideSeen(productId) || this.data.wifiModal || this.data.resetModal ||
+          this.data.audioModal || this.data.manualOpen) return
+      this.openGuide()
+    }, 900)
+  },
+
   openGuide() {
     this._guidePending = null
     this.setData({
@@ -880,6 +916,7 @@ Page({
 
   closeGuide() {
     this._guidePending = null
+    if (this.data.guideOpen && this.data.product) markDeviceGuideSeen(this.data.product.id)
     this.setData({ guideOpen: false, expanded: false, manualOpen: false, scrollIntoView: '' }, () => this.syncRailDrift())
   },
 
@@ -1560,6 +1597,7 @@ Page({
       if (!outcome || !outcome.ok) {
         throw new Error(outcome && outcome.timeout ? '设备未确认恢复完成，请重试' : (outcome.message || '恢复失败，请重试'))
       }
+      if (this.data.product) clearDeviceGuideSeen(this.data.product.id)
       this._leaving = true
       this.setData({ resetModal: false, resetting: false, resetStage: '' })
       this.toast('已恢复出厂设置')
