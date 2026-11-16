@@ -25,7 +25,7 @@ const CONNECT_GUIDE = [
   {
     target: '.pair-guide',
     title: '长按开机',
-    text: '长按机身上的按钮约 2 秒，听到开机音后回来点“重新扫描”。'
+    text: '长按机身上的电源键约 1 秒，听到开机音后回来点“重新扫描”。'
   }
 ]
 
