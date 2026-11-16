@@ -41,6 +41,7 @@
 #include "voice_tts/voice_names.h"
 #include "voice_tts/voice_web.h"
 #include "wifi_manager.h"
+#include "wzh_ble_rx_stream.h"
 #include "wzh_voice_services.h"
 #include "wzh_web_console.h"
 
@@ -239,7 +240,11 @@ bool BleService::Prepare() {
     adv_name_ = prefix + "-" + suffix;
 
     if (stream_ == nullptr) {
-        stream_ = xStreamBufferCreate(8192, 1);
+        bool external = false;
+        stream_ = CreateBleRxStream(8192, external);
+        if (stream_ != nullptr) {
+            ESP_LOGI(kTag, "BLE 接收缓冲: %s, capacity=8192", external ? "PSRAM" : "internal");
+        }
     }
     if (stream_ == nullptr) {
         ESP_LOGE(kTag, "BLE 接收缓冲创建失败");
