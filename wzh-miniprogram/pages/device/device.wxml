@@ -363,7 +363,7 @@
             <view class="mn-tr mn-th"><text class="mn-td">操作</text><text class="mn-td">会发生什么</text></view>
             <view class="mn-tr"><text class="mn-td">双击电源键</text><text class="mn-td">开始对话；再双击完整退出对话</text></view>
             <view class="mn-tr"><text class="mn-td">长按电源键 1.5 秒</text><text class="mn-td">关机</text></view>
-            <view class="mn-tr"><text class="mn-td">单击 BOOT 键</text><text class="mn-td">启动或配网阶段使用；正常使用时不切换对话</text></view>
+            <view class="mn-tr"><text class="mn-td">单击 BOOT 键</text><text class="mn-td">不切换对话；配网请使用小程序</text></view>
             <view class="mn-tr"><text class="mn-td">双击 BOOT 键</text><text class="mn-td">开始或退出对话</text></view>
             <view class="mn-tr"><text class="mn-td">轻触一个触摸区</text><text class="mn-td">亲昵回应：转头或做出动作</text></view>
             <view class="mn-tr"><text class="mn-td">同时触摸两个以上</text><text class="mn-td">开心回应：更大幅度的动作与声音</text></view>

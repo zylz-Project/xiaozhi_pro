@@ -334,7 +334,7 @@ private:
     void InitializeButton() {
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
-            // 单击仅在启动/配网阶段打开门户；正常对话统一使用双击。
+            // WZH 使用蓝牙配网，旧的单击配网入口不再打开热点。
             if (app.GetDeviceState() == kDeviceStateStarting ||
                 app.GetDeviceState() == kDeviceStateWifiConfiguring) {
                 EnterWifiConfigMode();
@@ -343,8 +343,7 @@ private:
         });
         boot_button_.OnDoubleClick([]() { Application::GetInstance().ToggleConversation(); });
         ESP_LOGI(TAG,
-                 "Boot/power key: double click enters/exits conversation; single click only "
-                 "configures Wi-Fi");
+                 "Boot/power key: double click enters/exits conversation; Wi-Fi setup uses BLE");
     }
 };
 
