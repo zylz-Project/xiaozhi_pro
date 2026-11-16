@@ -104,8 +104,8 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list,
     }
 
     if (local_commands_only_) {
-        // Assets may be older than the app: never let a MultiNet wake phrase
-        // bypass the product's dedicated WakeNet model.
+        // Accept only explicitly local commands from assets; this includes
+        // the per-product local:chat_wake command used by WZH products.
         commands_.erase(std::remove_if(commands_.begin(), commands_.end(),
                                        [](const Command& command) {
                                            return command.action != "wake" ||

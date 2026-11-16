@@ -172,6 +172,15 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     afe_config->vad_delay_ms = 128;
 #endif
     afe_config->ns_init = false;
+#if CONFIG_SR_NSN_WEBRTC && !CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+    if (kUseProductMultiNet && kUseAfeForVoiceProcessing) {
+        // Selecting the model in Kconfig alone does not enable AFE noise
+        // suppression. Do not inherit a stale NSNet model from older assets.
+        afe_config->ns_model_name = nullptr;
+        afe_config->afe_ns_mode = AFE_NS_MODE_WEBRTC;
+        afe_config->ns_init = true;
+    }
+#endif
     afe_config->vad_init = kUseAfeForVoiceProcessing;
     afe_config->vad_mode = VAD_MODE_0;
 #if CONFIG_USE_VOICE_BARGE_IN
@@ -198,7 +207,20 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     afe_iface_ = esp_afe_handle_from_config(afe_config);
     if (afe_iface_ != nullptr) {
         afe_data_ = afe_iface_->create_from_config(afe_config);
+#if CONFIG_SR_NSN_WEBRTC && !CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+        if (afe_data_ == nullptr && afe_config->ns_init && kUseProductMultiNet) {
+            ESP_LOGE(TAG, "WebRTC noise suppression unavailable; retrying audio without it");
+            afe_config->ns_init = false;
+            afe_data_ = afe_iface_->create_from_config(afe_config);
+        }
+#endif
     }
+#if CONFIG_SR_NSN_WEBRTC && !CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
+    if (kUseProductMultiNet) {
+        ESP_LOGI(TAG, "WebRTC noise suppression: %s",
+                 afe_data_ != nullptr && afe_config->ns_init ? "enabled" : "unavailable");
+    }
+#endif
     afe_config_free(afe_config);
 
     if (afe_iface_ == nullptr || afe_data_ == nullptr) {
