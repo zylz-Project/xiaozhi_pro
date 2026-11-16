@@ -24,6 +24,7 @@
 #include "wzh_conversation_sounds.h"
 #include "wzh_mcp_tools.h"
 #include "wzh_power_telemetry.h"
+#include "wzh_product.h"
 #include "wzh_sensors.h"
 #include "wzh_user_pairs_catalog.inc"
 #include "wzh_voice_services.h"
@@ -200,6 +201,12 @@ public:
                           control == wzh::PetControl::kQuiet;
         if (!stop && local_audio_.LocalCommandEchoRisk()) {
             ESP_LOGD(TAG, "Local command ignored during speaker output: %s", name.c_str());
+            return true;
+        }
+        if (name == "chat_wake") {
+            local_audio_.StopPlayback();
+            controller_.HandlePetControl(wzh::PetControl::kWake, false);
+            Application::GetInstance().WakeWordInvoke(wzh::Product().wake_phrase);
             return true;
         }
         ESP_LOGI(TAG, "Input=local_voice %s", name.c_str());

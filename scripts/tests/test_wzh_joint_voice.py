@@ -34,7 +34,8 @@ class WzhJointVoiceTest(unittest.TestCase):
                 self.assertEqual({p['text'] for p in commands},
                                  {'local:' + name for name in body} |
                                  {'local:' + name for name in
-                                  ['happy', 'affection', 'eat', 'sleepy', 'stop', 'quiet', 'rest', 'wake']})
+                                  ['happy', 'affection', 'eat', 'sleepy', 'stop', 'quiet', 'rest',
+                                   'wake', 'chat_wake']})
                 for bits, action, _, pinyin in rows:
                     if int(bits) & mask:
                         self.assertEqual(packed[pinyin], 'local:' + action)
@@ -73,6 +74,10 @@ class WzhJointVoiceTest(unittest.TestCase):
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
+namespace wzh { struct ProductConfig{const char* wake_phrase="test wake";};
+const ProductConfig& Product(){static ProductConfig p;return p;} }
+struct Application{static Application& GetInstance(){static Application a;return a;}
+ void WakeWordInvoke(const std::string&){} };
 constexpr int kPropertyTypeString=1,kPropertyTypeBoolean=2;
 struct Property{Property(const char*,int,bool=false){}};
 struct Value{

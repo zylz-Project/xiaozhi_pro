@@ -270,6 +270,11 @@ int main(){
 #include "wzh_pet_behavior.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
+namespace wzh { struct ProductConfig{const char* wake_phrase="test wake";};
+const ProductConfig& Product(){static ProductConfig p;return p;} }
+struct Application{int wakes=0;std::string last;
+ static Application& GetInstance(){static Application app;return app;}
+ void WakeWordInvoke(const std::string& phrase){++wakes;last=phrase;}};
 enum class Action{kHappy,kAffection,kEat};using PandaAction=Action;using DinoAction=Action;
 enum class Body{kShakeHead,kLookLeft,kLookRight};using PandaBodyAction=Body;using DinoBodyAction=Body;
 struct Controller{
@@ -304,10 +309,12 @@ int main(){
         assert(board.controller_.last==wzh::PetControl::kWake);
     }
     board.local_audio_.echo=false;
+    assert(board.HandleLocalVoiceCommand("local:chat_wake"));
+    assert(Application::GetInstance().wakes==1 && Application::GetInstance().last=="test wake");
     assert(board.HandleLocalVoiceCommand("local:happy"));
     assert(board.HandleLocalVoiceCommand("local:shake_head"));
     assert(board.HandleLocalVoiceCommand("local:wake"));
-    assert(board.controller_.actions==1&&board.controller_.bodies==1&&board.controller_.controls==8);
+    assert(board.controller_.actions==1&&board.controller_.bodies==1&&board.controller_.controls==9);
 }
 '''
         for board, _ in BOARDS:
