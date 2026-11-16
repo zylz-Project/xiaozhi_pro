@@ -103,7 +103,9 @@ bool WifiManager::Initialize(const WifiManagerConfig& config) {
     }
 
     station_ = std::make_unique<WifiStation>();
-    config_ap_ = std::make_unique<WifiConfigurationAp>();
+    if (config_.allow_config_ap) {
+        config_ap_ = std::make_unique<WifiConfigurationAp>();
+    }
 
     initialized_ = true;
     ESP_LOGI(TAG, "Initialized");
@@ -296,8 +298,8 @@ void WifiManager::SetPortalRegistrar(
 
 void WifiManager::StartPersistentPortal() {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!initialized_ || !config_.persistent_portal || !portal_registrar_ ||
-        persistent_portal_active_ || config_mode_active_ || station_active_) {
+    if (!initialized_ || !config_.allow_config_ap || !config_.persistent_portal ||
+        !portal_registrar_ || persistent_portal_active_ || config_mode_active_ || station_active_) {
         return;
     }
     // Create the STA netif before esp_wifi_start so it receives STA_START and
@@ -387,6 +389,10 @@ void WifiManager::StartConfigAp() {
 
     if (!initialized_) {
         ESP_LOGE(TAG, "Not initialized");
+        return;
+    }
+    if (!config_.allow_config_ap || !config_ap_) {
+        ESP_LOGI(TAG, "Configuration access point disabled");
         return;
     }
     if (config_mode_active_ || persistent_portal_active_) {

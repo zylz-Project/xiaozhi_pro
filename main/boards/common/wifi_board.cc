@@ -66,6 +66,7 @@ void WifiBoard::StartNetwork() {
     // over BLE from the mini program, and :8080 stays available on the station
     // LAN as the developer console. The device does not own a SoftAP.
     config.persistent_portal = false;
+    config.allow_config_ap = false;
     config.station_scan_min_interval_seconds = 5;
     config.station_scan_max_interval_seconds = 60;
 #else
@@ -199,14 +200,24 @@ void WifiBoard::SetNetworkEventCallback(NetworkEventCallback callback) {
 }
 
 void WifiBoard::OnWifiConnectTimeout(void* arg) {
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    (void)arg;
+    ESP_LOGI(TAG, "Wi-Fi reconnect remains active; provisioning uses BLE");
+#else
     auto* board = static_cast<WifiBoard*>(arg);
     ESP_LOGW(TAG, "WiFi connection timeout, entering config mode");
 
     WifiManager::GetInstance().StopStation();
     board->StartWifiConfigMode();
+#endif
 }
 
 void WifiBoard::StartWifiConfigMode() {
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    ESP_LOGI(TAG, "Wi-Fi configuration is available through the mini program");
+#else
     in_config_mode_ = true;
     // Transition to wifi configuring state
     Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
@@ -230,28 +241,18 @@ void WifiBoard::StartWifiConfigMode() {
     // initialize esp-blufi protocol
     blufi.init();
 #endif
+#endif
 }
 
 void WifiBoard::EnterWifiConfigMode() {
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    ESP_LOGI(TAG, "Wi-Fi configuration is available through the mini program");
+#else
     ESP_LOGI(TAG, "EnterWifiConfigMode called");
     GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
 
     auto& app = Application::GetInstance();
-#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
-    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
-    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
-        app.Schedule([]() {
-            auto& wifi = WifiManager::GetInstance();
-            std::string hint = Lang::Strings::CONNECT_TO_HOTSPOT;
-            hint += wifi.GetApSsid();
-            hint += Lang::Strings::ACCESS_VIA_BROWSER;
-            hint += wifi.GetApWebUrl();
-            Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "gear",
-                                             Lang::Sounds::OGG_WIFICONFIG);
-        });
-        return;
-    }
-#endif
     auto state = app.GetDeviceState();
 
     if (state == kDeviceStateSpeaking || state == kDeviceStateListening ||
@@ -292,6 +293,7 @@ void WifiBoard::EnterWifiConfigMode() {
     WifiManager::GetInstance().StopStation();
 
     StartWifiConfigMode();
+#endif
 }
 
 bool WifiBoard::IsInWifiConfigMode() const { return WifiManager::GetInstance().IsConfigMode(); }

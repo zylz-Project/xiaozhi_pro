@@ -62,6 +62,10 @@ struct WifiManagerConfig {
     // WZH portal may keep the access point up while the station reconnects.
     bool persistent_portal = false;
 
+    // A product may provision exclusively via another transport, without
+    // creating or starting the legacy configuration access point.
+    bool allow_config_ap = true;
+
     // Whether to show the OTA URL field in the config portal advanced tab.
     // Defaults to false so the field is hidden unless explicitly enabled.
     bool show_ota_config = false;
