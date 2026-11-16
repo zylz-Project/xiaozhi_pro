@@ -9,6 +9,9 @@ const PRODUCTS = {
     hot: '1A2B',
     theme: 'milk',
     model: 'WZH-CP01',
+    role: '小华',
+    wake: '小华小华',
+    onboardingProfile: 'an',
     icon: '/assets/crawlPanda_icon.png',
     voice: true
   },
@@ -22,6 +25,9 @@ const PRODUCTS = {
     hot: '6C3F',
     theme: 'bamboo',
     model: 'WZH-DN01',
+    role: '小威',
+    wake: '小威小威',
+    onboardingProfile: 'long',
     icon: '/assets/dinosaur_icon.png',
     voice: true
   },
@@ -35,6 +41,9 @@ const PRODUCTS = {
     hot: '9D2E',
     theme: 'berry',
     model: 'WZH-RP01',
+    role: '小武',
+    wake: '小武小武',
+    onboardingProfile: 'xing',
     icon: '/assets/tailRedPanda_icon.png',
     voice: true
   }
