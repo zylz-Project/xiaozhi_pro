@@ -40,7 +40,8 @@ class AfeWakeRoutingTest(unittest.TestCase):
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
-constexpr bool kUseWakeNet = USE_WN, kUseMultiNetWakeWord = USE_MN, kUseLocalCommands = LOCAL;
+constexpr bool kUseWakeNet = USE_WN, kUseMultiNetWakeWord = USE_MN, kUseLocalCommands = LOCAL,
+               kUseProductMultiNet = PRODUCT_MN;
 using EventBits_t = unsigned;
 void xEventGroupSetBits(unsigned* group, unsigned bits) { *group |= bits; }
 void xEventGroupClearBits(unsigned* group, unsigned bits) { *group &= ~bits; }
@@ -91,8 +92,9 @@ int main() {
     AfeAudioEngine engine;
     char wn[] = "wn9", mn[] = "mn7";
     assert(engine.InitializeWakeWordDetectors(wn, mn));
-    assert(engine.HasWakeWord() == (kUseWakeNet || kUseMultiNetWakeWord));
-    assert((engine.wake_detector_ == AfeAudioEngine::WakeDetector::kWakeNet) == kUseWakeNet);
+    bool real_wakenet = kUseWakeNet && !kUseProductMultiNet;
+    assert(engine.HasWakeWord() == (kUseWakeNet || kUseMultiNetWakeWord || kUseProductMultiNet));
+    assert((engine.wake_detector_ == AfeAudioEngine::WakeDetector::kWakeNet) == real_wakenet);
     bool needs_mn = kUseMultiNetWakeWord || (kUseWakeNet && kUseLocalCommands);
     assert(bool(engine.custom_wake_word_) == needs_mn);
     if (!engine.HasWakeWord()) return 0;
@@ -113,7 +115,7 @@ int main() {
     if (needs_mn) {
         engine.bits |= 2;
         engine.HandleWakeWordResult(&result);
-        if (kUseWakeNet) {
+        if (real_wakenet) {
             assert(engine.custom_wake_word_->feeds == expected_feeds);
             assert(!engine.custom_wake_word_->running);
             int stopped = engine.custom_wake_word_->stops;
@@ -138,7 +140,7 @@ int main() {
         engine.bits &= ~2;
     }
 #endif
-    if (kUseWakeNet) {
+    if (real_wakenet) {
         result.wakeup_state = WAKENET_DETECTED;
         result.wakenet_model_index = 99;
         engine.HandleWakeWordResult(&result);
@@ -155,6 +157,15 @@ int main() {
         }
         AfeAudioEngine missing;
         assert(!missing.InitializeWakeWordDetectors(nullptr, mn));
+    } else if (kUseProductMultiNet) {
+        AfeAudioEngine no_old_model;
+        assert(no_old_model.InitializeWakeWordDetectors(nullptr, mn));
+        // Even if an old WakeNet result is presented, only MultiNet is fed.
+        result.wakeup_state = WAKENET_DETECTED;
+        engine.HandleWakeWordResult(&result);
+        assert(detected.empty() && engine.bits == 1);
+        engine.custom_wake_word_->callback("local:chat_wake");
+        assert(detected.back() == "local:chat_wake" && engine.bits == 0);
     }
     engine.EnableWakeWordDetection(true);
     engine.EnableWakeWordDetection(false);
@@ -163,7 +174,7 @@ int main() {
         assert(!engine.custom_wake_word_->running);
         AfeAudioEngine missing;
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
-        if (kUseWakeNet) {
+        if (real_wakenet) {
             assert(missing.InitializeWakeWordDetectors(wn, nullptr));
             assert(missing.HasWakeWord()&&!missing.custom_wake_word_);
             AfeAudioEngine failed;CustomWakeWord::init_ok=false;
@@ -172,6 +183,10 @@ int main() {
         } else
 #endif
         assert(!missing.InitializeWakeWordDetectors(wn, nullptr));
+        if (kUseProductMultiNet) {
+            AfeAudioEngine failed; CustomWakeWord::init_ok = false;
+            assert(!failed.InitializeWakeWordDetectors(wn, mn));
+        }
     }
 }
 '''
@@ -180,8 +195,14 @@ int main() {
                 with self.subTest(wakenet=wn, multinet=mn, local=local, neural=neural):
                     self.compile_and_run(program, [f'-DUSE_WN={wn}', f'-DUSE_MN={mn}',
                                                    f'-DLOCAL={local}',
+                                                   '-DPRODUCT_MN=0',
                                                    f'-DCONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND={neural}'])
         self.compile_and_run(program, ['-DUSE_WN=1', '-DUSE_MN=0', '-DLOCAL=1',
+                                       '-DPRODUCT_MN=0',
+                                       '-DCONFIG_WZH_DINO_KEYWORD_BARGE_IN=1',
+                                       '-DCONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=0'])
+        self.compile_and_run(program, ['-DUSE_WN=1', '-DUSE_MN=0', '-DLOCAL=1',
+                                       '-DPRODUCT_MN=1',
                                        '-DCONFIG_WZH_DINO_KEYWORD_BARGE_IN=1',
                                        '-DCONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=0'])
 

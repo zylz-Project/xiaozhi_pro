@@ -37,6 +37,16 @@ static constexpr bool kUseLocalCommands = true;
 static constexpr bool kUseLocalCommands = false;
 #endif
 
+// WZH's product names are MultiNet commands. Do not initialize an older
+// WakeNet model whose baked-in name would still respond to a retired phrase.
+#if (CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+     CONFIG_BOARD_TYPE_WZH_TAILREDPANDA) &&                                \
+    CONFIG_USE_AFE_WAKE_WORD && CONFIG_WZH_OFFLINE_COMMANDS
+static constexpr bool kUseProductMultiNet = true;
+#else
+static constexpr bool kUseProductMultiNet = false;
+#endif
+
 AfeAudioEngine::AfeAudioEngine() { event_group_ = xEventGroupCreate(); }
 
 AfeAudioEngine::~AfeAudioEngine() {
@@ -280,7 +290,7 @@ bool AfeAudioEngine::InitializeWakeWordDetectors(char* wakenet_model_name,
                                                  char* multinet_model_name) {
     // Select the primary detector from Kconfig, rather than whichever model is
     // found first. Local MultiNet commands may coexist with WakeNet assets.
-    if (kUseWakeNet) {
+    if (kUseWakeNet && !kUseProductMultiNet) {
         if (wakenet_model_name == nullptr) {
             ESP_LOGE(TAG, "Configured WakeNet model is missing from assets");
             return false;
@@ -305,7 +315,7 @@ bool AfeAudioEngine::InitializeWakeWordDetectors(char* wakenet_model_name,
             ESP_LOGW(TAG, "Wake-word audio upload disabled: PSRAM cache allocation failed");
         }
 #endif
-    } else if (kUseMultiNetWakeWord) {
+    } else if (kUseMultiNetWakeWord || kUseProductMultiNet) {
         wake_detector_ = WakeDetector::kMultiNet;
     }
 
@@ -313,7 +323,7 @@ bool AfeAudioEngine::InitializeWakeWordDetectors(char* wakenet_model_name,
         if (multinet_model_name == nullptr) {
             ESP_LOGE(TAG, "Configured MultiNet model is missing from assets");
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
-            if (kUseWakeNet) {
+            if (wake_detector_ == WakeDetector::kWakeNet) {
                 ESP_LOGW(TAG, "MultiNet keywords unavailable; keep WakeNet and conversation");
                 return true;
             }
@@ -327,7 +337,7 @@ bool AfeAudioEngine::InitializeWakeWordDetectors(char* wakenet_model_name,
             ESP_LOGE(TAG, "Failed to initialize MultiNet commands");
             custom_wake_word_.reset();
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
-            if (kUseWakeNet) {
+            if (wake_detector_ == WakeDetector::kWakeNet) {
                 ESP_LOGW(TAG, "MultiNet keywords unavailable; keep WakeNet and conversation");
                 return true;
             }
