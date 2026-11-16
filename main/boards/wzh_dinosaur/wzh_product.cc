@@ -9,6 +9,7 @@ const ProductConfig& Product() {
         .product_name = "dinosaur",
         .ap_prefix = PANDA_AP_PREFIX,
         .hub_product_id = "dinosaur",
+        .wake_phrase = "小威小威",
         .flash_host = DINO_FLASH_HOST,
         .flash_cs_pin = DINO_FLASH_CS_PIN,
         .flash_clk_pin = DINO_FLASH_CLK_PIN,

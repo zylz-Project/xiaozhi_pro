@@ -16,6 +16,8 @@ struct ProductConfig {
     const char* ap_prefix;
     // Audio Hub 产品 ID（crawling-panda / dinosaur / tail-wagging-panda）
     const char* hub_product_id;
+    // 用户可呼叫的产品唤醒词。
+    const char* wake_phrase;
     // 外部音频 Flash（三款硬件引脚一致，取值来自板级 config.h）
     spi_host_device_t flash_host;
     gpio_num_t flash_cs_pin;

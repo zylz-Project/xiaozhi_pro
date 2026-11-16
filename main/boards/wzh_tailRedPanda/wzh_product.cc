@@ -9,6 +9,7 @@ const ProductConfig& Product() {
         .product_name = "tail_red_panda",
         .ap_prefix = PANDA_AP_PREFIX,
         .hub_product_id = "tail-wagging-panda",
+        .wake_phrase = "小武小武",
         .flash_host = SPI2_HOST,
         .flash_cs_pin = PANDA_FLASH_CS_PIN,
         .flash_clk_pin = PANDA_FLASH_CLK_PIN,
