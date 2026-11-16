@@ -1407,8 +1407,8 @@ void Application::HandleWakeWordDetectedEvent() {
 #if CONFIG_USE_VOICE_BARGE_IN
     if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
-        const bool keyword =
-            wake_word == "local:interrupt" || wake_word == "local:stop" || wake_word == "小龙小龙";
+        const bool keyword = wake_word == "local:interrupt" || wake_word == "local:stop" ||
+                             wake_word == "local:chat_wake";
         if (keyword && audio_service_.IsVoiceInterruptionMonitoring()) {
             const auto token = pending_voice_interruption_.load();
             if (audio_service_.IsVoiceInterruptionPending(token)) {

@@ -76,6 +76,7 @@ int main(){Application a;a.Install();a.callbacks.on_voice_interruption(42);
  a.HandleWakeWordDetectedEvent();assert(a.aborts==0&&a.audio_service_.wake);
  a.audio_service_.pending=true;a.HandleWakeWordDetectedEvent();assert(a.aborts==1);
  a.audio_service_.word="local:stop";a.HandleWakeWordDetectedEvent();assert(a.aborts==2);
+ a.audio_service_.word="local:chat_wake";a.HandleWakeWordDetectedEvent();assert(a.aborts==3);
  a.audio_service_.word="小龙小龙";a.HandleWakeWordDetectedEvent();assert(a.aborts==3);
  a.audio_service_.monitoring=false;a.HandleWakeWordDetectedEvent();assert(a.aborts==3);
 }
