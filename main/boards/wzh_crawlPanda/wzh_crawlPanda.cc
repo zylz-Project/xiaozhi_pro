@@ -21,6 +21,7 @@
 #include "wzh_conversation_sounds.h"
 #include "wzh_mcp_tools.h"
 #include "wzh_power_telemetry.h"
+#include "wzh_onboarding.h"
 #include "wzh_product.h"
 #include "wzh_sensors.h"
 #include "wzh_user_pairs_catalog.inc"
@@ -159,6 +160,16 @@ public:
     bool IsOnboardingFeedbackPending() const override {
         return controller_.IsOnboardingFeedbackPending();
     }
+    bool IsOnboardingBlockingConversation() const override {
+        return wzh::OnboardingBlocksConversation();
+    }
+    void OnProtocolServiceAvailable(bool connected) override {
+        wzh::NotifyOnboarding(connected ? wzh::OnboardingEvent::kServiceReady
+                                       : wzh::OnboardingEvent::kServiceConfigured);
+    }
+    void OnProtocolServiceUnavailable() override {
+        wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceLost);
+    }
     bool IsLocalPlaybackPending() override {
         return local_audio_.Playing() || !local_audio_.WorkerIdle();
     }
@@ -205,6 +216,11 @@ public:
             return true;
         }
         if (name == "chat_wake") {
+            if (wzh::OnboardingBlocksConversation()) {
+                if (!wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kWake))
+                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kWake);
+                return true;
+            }
             local_audio_.StopPlayback();
             controller_.HandlePetControl(wzh::PetControl::kWake, false);
             Application::GetInstance().WakeWordInvoke(wzh::Product().wake_phrase);
@@ -217,6 +233,11 @@ public:
         if (controller_.IsConversationActive()) {
             ESP_LOGD(TAG, "Cloud conversation owns joint commands via MCP");
             return true;
+        }
+        if (name == "shake_head" && wzh::OnboardingBlocksConversation()) {
+            if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kCommand))
+                return true;
+            wzh::NotifyOnboarding(wzh::OnboardingEvent::kCommand);
         }
         if (controller_.HandleBodyCommand(name)) {
             return true;
@@ -246,6 +267,10 @@ public:
         // 防止语音通道关闭回调尚未到达时继续保留在线状态。
         WifiBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
                                                NetworkEvent event, const std::string& data) {
+            if (event == NetworkEvent::Connected) {
+                wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkConnected);
+            } else if (event == NetworkEvent::Disconnected)
+                wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
             if (event == NetworkEvent::WifiConfigModeEnter) {
                 web_console_.Stop();
             }
@@ -288,14 +313,26 @@ private:
     void InitializeSensors() {
         sensors_.Initialize(HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
                             &controller_.servo_output(), [this](wzh::Sensors::Event event) {
+                                if (event == wzh::Sensors::Event::kPickedUp ||
+                                    event == wzh::Sensors::Event::kShaken) {
+                                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion))
+                                        return true;
+                                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
+                                }
                                 return controller_.HandleSensorEvent(static_cast<int>(event));
                             });
         sensors_.RegisterMcpTools("panda");
     }
 
     void InitializeTouch() {
-        power_.RegisterTouchHook(
-            [this](uint8_t code, uint8_t, uint8_t) { controller_.HandleTouch(code); });
+        power_.RegisterTouchHook([this](uint8_t code, uint8_t pressed, uint8_t) {
+            if (pressed) {
+                if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch))
+                    return;
+                wzh::NotifyOnboarding(wzh::OnboardingEvent::kTouch);
+            }
+            controller_.HandleTouch(code);
+        });
     }
 
     void InitializeConversationMode() {
@@ -342,7 +379,13 @@ private:
                 return;
             }
         });
-        boot_button_.OnDoubleClick([]() { Application::GetInstance().ToggleConversation(); });
+        boot_button_.OnDoubleClick([]() {
+            if (wzh::OnboardingBlocksConversation()) {
+                wzh::PrepareOnboardingDoubleClick();
+                return;
+            }
+            Application::GetInstance().ToggleConversation();
+        });
         ESP_LOGI(TAG,
                  "Boot/power key: double click enters/exits conversation; Wi-Fi setup uses BLE");
     }

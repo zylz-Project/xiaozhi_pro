@@ -45,6 +45,8 @@ void MarkStartupNetworkReady();
 // Startup audio can begin once the shared audio worker is available.
 bool StartupGreetingAudioReady();
 bool StartupGreetingFinished();
+// The power task calls this after queuing the opening sound.
+void MarkPowerOnPromptQueued();
 // Release the first setup prompt after the one-shot greeting has finished.
 void MarkStartupGreetingComplete();
 enum class StartupProtectionNotice : uint8_t {

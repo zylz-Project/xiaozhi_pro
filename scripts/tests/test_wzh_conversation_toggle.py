@@ -73,6 +73,7 @@ struct Board{
     VoiceEnrollment* GetVoiceEnrollment(){return enrollment;}
     void SetVoiceEnrollmentRecording(bool){}
     bool maintenance=false;bool IsAudioMaintenanceActive(){return maintenance;}
+    bool onboarding=false;bool IsOnboardingBlockingConversation()const{return onboarding;}
     std::string_view exit_sound="exit";
     std::string_view GetConversationExitSound() const{return exit_sound;}
     Display display;
@@ -274,6 +275,20 @@ int main(){
     }
     Application open;open.Install();open.protocol.opened=true;open.Button();open.Drain();
     assert(open.local_stops==1&&open.protocol.opens==0&&open.state==kDeviceStateListening);
+}
+''')
+
+    def test_onboarding_blocks_new_conversation_and_scheduled_open(self):
+        self.run_cpp(self.application()+r'''
+int main(){
+ auto& board=Board::GetInstance();Application app;app.Install();
+ board.onboarding=true;app.Button();app.Drain();
+ assert(app.state==kDeviceStateIdle && app.protocol.opens==0);
+ board.onboarding=false;app.Button();assert(app.state==kDeviceStateConnecting);
+ board.onboarding=true;app.Drain();
+ assert(app.state==kDeviceStateIdle && app.protocol.opens==0);
+ board.onboarding=false;app.Button();app.Drain();
+ assert(app.protocol.opens==1 && app.state==kDeviceStateListening);
 }
 ''')
 
@@ -484,7 +499,8 @@ int main(){
 #define ESP_LOGI(...) ((void)0)
 enum DeviceState{kDeviceStateIdle,kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateConnecting,
  kDeviceStateListening,kDeviceStateSpeaking,kDeviceStateUpgrading,kDeviceStateFatalError,kDeviceStateAudioTesting};
-namespace wzh{enum class PetControl{kWake};}
+namespace wzh{enum class PetControl{kWake};bool guide=false;int acknowledgements=0;
+bool OnboardingBlocksConversation(){return guide;}void PrepareOnboardingDoubleClick(){++acknowledgements;}}
 struct Controller{
  int wakes=0;bool active=false,speaking=false;
  void HandlePetControl(wzh::PetControl,bool respond){assert(!respond);++wakes;}
@@ -509,6 +525,8 @@ __MODE__
 int main(){
  Board b;b.InitializeButton();b.InitializeConversationMode();auto&app=Application::GetInstance();
  b.boot_button_.click();assert(app.toggles==0&&b.configs==0);
+ wzh::guide=true;b.boot_button_.double_click();
+ assert(app.toggles==0&&wzh::acknowledgements==1);wzh::guide=false;
  b.boot_button_.double_click();b.boot_button_.double_click();assert(app.toggles==2);
  app.state=kDeviceStateWifiConfiguring;b.boot_button_.click();assert(b.configs==1&&app.toggles==2);
  app.listener(kDeviceStateIdle,kDeviceStateConnecting);assert(b.controller_.wakes==1&&b.controller_.active);

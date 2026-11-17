@@ -267,6 +267,7 @@ struct Board {
  bool IsAudioMaintenanceActive(){return maintenance;}
 };
 namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi",OGG_EXCLAMATION="alert";}}
+namespace wzh {int guide_starts=0;void StartOnboarding(){++guide_starts;}void TryResumeOnboarding(){}void StopOnboarding(){}}
 #include "''' + str(ROOT/'main/boards/common/wzh/wzh_system_prompts.cc') + r'''"
 void run_worker(unsigned turns=1){
  worker_turns=turns;inside_worker=true;try{entry(nullptr);}catch(StopWorker&){}inside_worker=false;
@@ -290,10 +291,11 @@ int main(){
  wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kNone);
  assert(std::string(wzh::StartupProtectionMessage()).empty());
  audio.until=0;
+ wzh::MarkPowerOnPromptQueued();assert(wzh::guide_starts==0);
  // Startup audio and asynchronous queue resets must finish before the prompt.
  audio.until=1000;wzh::RequestWifiSetupPrompt();clock_ms=700;run_worker();assert(audio.wifi==0);
  audio.ResetDecoder();clock_ms=1100;run_worker();assert(audio.wifi==0);
- wzh::MarkStartupGreetingComplete();run_worker();assert(audio.wifi==1);
+ wzh::MarkStartupGreetingComplete();assert(wzh::guide_starts==1);run_worker();assert(audio.wifi==1);
  clock_ms=1700;run_worker();assert(audio.wifi==1);
  wzh::RequestWifiSetupPrompt();app.state=1;run_worker();app.state=0;
  clock_ms=2500;run_worker();assert(audio.wifi==1);

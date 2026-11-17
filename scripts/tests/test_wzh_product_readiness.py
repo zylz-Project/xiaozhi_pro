@@ -493,6 +493,7 @@ using esp_err_t=int;
 const char* esp_err_to_name(int){return "error";}
 constexpr int kDeviceStateIdle=0;
 namespace Lang{namespace Sounds{constexpr int OGG_SUCCESS=1,OGG_POPUP=2;}}
+namespace wzh{bool OnboardingBlocksConversation(){return false;} void PrepareOnboardingDoubleClick(){}}
 using TickType_t=uint32_t;
 uint32_t clock_ms=0;int voltage=3300;bool valid=true;
 uint32_t esp_log_timestamp(){return clock_ms;}uint32_t xTaskGetTickCount(){return clock_ms;}

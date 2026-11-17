@@ -42,6 +42,8 @@
 #include "voice_tts/voice_web.h"
 #include "wifi_manager.h"
 #include "wzh_ble_rx_stream.h"
+#include "wzh_onboarding.h"
+#include "wzh_onboarding_store.h"
 #include "wzh_system_prompts.h"
 #include "wzh_voice_services.h"
 #include "wzh_web_console.h"
@@ -413,6 +415,7 @@ int BleService::GapEvent(struct ble_gap_event* event, void* arg) {
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status == 0) {
                 self->conn_handle_.store(event->connect.conn_handle);
+                NotifyOnboarding(OnboardingEvent::kBleConnected);
                 ESP_LOGI(kTag, "手机已连接，conn=%u", event->connect.conn_handle);
             } else {
                 self->StartAdvertising();
@@ -421,6 +424,7 @@ int BleService::GapEvent(struct ble_gap_event* event, void* arg) {
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(kTag, "手机断开，reason=%d", event->disconnect.reason);
             self->conn_handle_.store(0xFFFF);
+            NotifyOnboarding(OnboardingEvent::kBleDisconnected);
             self->ResetSession();
             self->StartAdvertising();
             break;
@@ -700,6 +704,10 @@ void BleService::HandleStatus(int id) { SendResponse(id, BuildStatusObject()); }
 void BleService::HandleChat(int id, bool start) {
     auto& app = Application::GetInstance();
     if (start) {
+        if (OnboardingBlocksConversation()) {
+            SendError(id, 1010, "首次使用引导进行中，请先完成引导");
+            return;
+        }
         if (app.GetDeviceState() != kDeviceStateIdle) {
             SendError(id, 1010, "设备正在对话或连接中");
             return;
@@ -1061,6 +1069,7 @@ void BleService::HandleWifiConnect(int id, cJSON* data) {
         SendError(id, 1005, "Wi-Fi 切换失败，请稍后重试");
         return;
     }
+    NotifyOnboarding(OnboardingEvent::kWifiRequest);
 
     auto* args = new WifiWatchArgs{this, ssid};
     if (xTaskCreate(
@@ -1154,6 +1163,19 @@ cJSON* BleService::BuildStatusObject() {
                                 StateName(Application::GetInstance().GetDeviceState()));
     }
     cJSON_AddStringToObject(status, "startup_notice", StartupProtectionMessage());
+    OnboardingProgress progress;
+    if (PeekOnboardingProgress(progress)) {
+        cJSON* onboarding = cJSON_CreateObject();
+        if (onboarding != nullptr) {
+            cJSON_AddBoolToObject(onboarding, "done", progress.Done());
+            cJSON_AddBoolToObject(onboarding, "active", IsOnboardingActive());
+            cJSON_AddBoolToObject(onboarding, "blocked", OnboardingBlocksConversation());
+            cJSON_AddNumberToObject(onboarding, "next_step", progress.step);
+            cJSON_AddNumberToObject(onboarding, "step_count", OnboardingProgress::kStepCount);
+            if (!cJSON_AddItemToObject(status, "onboarding", onboarding))
+                cJSON_Delete(onboarding);
+        }
+    }
 
     auto& manager = WifiManager::GetInstance();
     bool connected = manager.IsConnected();

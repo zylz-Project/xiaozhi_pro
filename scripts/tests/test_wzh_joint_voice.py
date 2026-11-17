@@ -75,7 +75,10 @@ class WzhJointVoiceTest(unittest.TestCase):
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 namespace wzh { struct ProductConfig{const char* wake_phrase="test wake";};
-const ProductConfig& Product(){static ProductConfig p;return p;} }
+const ProductConfig& Product(){static ProductConfig p;return p;}
+enum class OnboardingEvent{kWake,kCommand};bool OnboardingBlocksConversation(){return false;}
+bool CaptureOnboardingInteraction(OnboardingEvent){return false;}
+void NotifyOnboarding(OnboardingEvent){} }
 struct Application{static Application& GetInstance(){static Application a;return a;}
  void WakeWordInvoke(const std::string&){} };
 constexpr int kPropertyTypeString=1,kPropertyTypeBoolean=2;

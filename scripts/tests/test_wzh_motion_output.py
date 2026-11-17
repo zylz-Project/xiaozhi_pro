@@ -362,6 +362,7 @@ int main(){
 #include "wzh_body_commands.h"
 #include "wzh_voice_motion.h"
 #include "wzh_quiet_center.h"
+namespace wzh { bool IsOnboardingVoiceMotionActive(){return false;} }
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
@@ -404,7 +405,7 @@ struct DinosaurController{
     wzh::QuietCenter<5> quiet_center_;void SettleToCenter(uint32_t);
     std::atomic<bool> request_active_{false};
     std::atomic<wzh::PetPriority> running_priority_{wzh::PetPriority::kEmotion};
-    std::atomic<bool> flash_performance_active_{false},speaking_{false},sky_roar_active_{false};
+    std::atomic<bool> flash_performance_active_{false},speaking_{false},sky_roar_active_{false},shutdown_requested_{false};
     std::atomic<float> output_audio_level_{0},output_audio_attack_{0};
     std::atomic<int64_t> output_audio_updated_us_{0};
     float audio_motion_level_=0,audio_motion_emphasis_=0,audio_motion_phase_=0,audio_motion_direction_=1;

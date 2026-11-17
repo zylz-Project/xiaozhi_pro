@@ -17,6 +17,8 @@
 #include "application.h"
 #include "assets/lang_config.h"
 #include "board.h"
+#include "wzh_onboarding.h"
+#include "wzh_prompt_audio_gate.h"
 
 namespace wzh {
 namespace {
@@ -32,6 +34,8 @@ std::atomic<bool> startup_greeting_complete{false};
 std::atomic<bool> startup_greeting_complete{true};
 #endif
 std::atomic<bool> shutting_down{false};
+std::atomic<bool> power_on_prompt_queued{false};
+std::atomic<bool> onboarding_decided{false};
 std::atomic<StartupProtectionNotice> startup_protection{StartupProtectionNotice::kNone};
 #if CONFIG_WZH_SYSTEM_PROMPTS
 std::atomic<StartupProtectionNotice> startup_protection_pending{StartupProtectionNotice::kNone};
@@ -66,11 +70,17 @@ uint32_t QueueShutdownPrompt() {
 void Worker(void*) {
     auto& app = Application::GetInstance();
     auto& audio = app.GetAudioService();
+    uint32_t last_onboarding_retry = 0;
 #if CONFIG_WZH_SYSTEM_PROMPTS
     std::optional<uint32_t> low_generation;
     uint32_t low_drained_before = 0;
 #endif
     while (true) {
+        const auto now_ms = esp_log_timestamp();
+        if (now_ms - last_onboarding_retry >= 1000) {
+            last_onboarding_retry = now_ms;
+            TryResumeOnboarding();
+        }
 #if CONFIG_WZH_SYSTEM_PROMPTS
         if (low_generation) {
             if (*low_generation != audio.GetPlaybackGeneration()) {
@@ -99,7 +109,9 @@ void Worker(void*) {
         else if (!shutting_down.load() &&
                  startup_protection_pending.load() != StartupProtectionNotice::kNone) {
             const auto notice = startup_protection_pending.load();
-            if (notice == startup_protection.load() && app.GetDeviceState() == kDeviceStateIdle &&
+            std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
+            if (reservation.owns_lock() && notice == startup_protection.load() &&
+                app.GetDeviceState() == kDeviceStateIdle &&
                 audio.IsPlaybackIdle() && !audio.IsAudioProcessorRunning() &&
                 !Board::GetInstance().IsAudioMaintenanceActive()) {
                 auto expected = notice;
@@ -127,9 +139,10 @@ void Worker(void*) {
                 vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
             }
+            std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
             if (elapsed >= 45000 || app.GetDeviceState() != kDeviceStateIdle) {
                 wifi_setup_requested.store(false);
-            } else if (elapsed >= 500 && audio.IsPlaybackIdle() &&
+            } else if (reservation.owns_lock() && elapsed >= 500 && audio.IsPlaybackIdle() &&
                        !audio.IsAudioProcessorRunning() &&
                        !Board::GetInstance().IsAudioMaintenanceActive()) {
                 // Reserve this producer until the setup prompt is enqueued.
@@ -143,7 +156,9 @@ void Worker(void*) {
             // Capture BEFORE the state/idle checks: entering conversation in
             // between invalidates this generation and cancels the old prompt.
             const auto generation = audio.GetPlaybackGeneration();
-            if (app.GetDeviceState() == kDeviceStateIdle && audio.IsPlaybackIdle() &&
+            std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
+            if (reservation.owns_lock() && app.GetDeviceState() == kDeviceStateIdle &&
+                audio.IsPlaybackIdle() &&
                 !audio.IsAudioProcessorRunning() &&
                 !Board::GetInstance().IsAudioMaintenanceActive()) {
                 bool play = false;
@@ -164,6 +179,14 @@ void Worker(void*) {
 }
 }  // namespace
 
+void MaybeStartOnboarding() {
+    if (worker_started.load() && startup_greeting_complete.load() &&
+        power_on_prompt_queued.load() && !shutting_down.load() && !onboarding_decided.load() &&
+        !onboarding_decided.exchange(true)) {
+        StartOnboarding();
+    }
+}
+
 void StartSystemPrompts() {
     // Exactly one board power task calls this once, after AudioService startup.
     if (!worker_started.load()) {
@@ -172,6 +195,8 @@ void StartSystemPrompts() {
         worker_started.store(started);
         if (!started)
             ESP_LOGE(kTag, "Cannot start prompt worker; safety and shutdown remain available");
+        else
+            MaybeStartOnboarding();
     }
 }
 
@@ -190,7 +215,15 @@ bool StartupGreetingAudioReady() {
 
 bool StartupGreetingFinished() { return startup_greeting_complete.load(); }
 
-void MarkStartupGreetingComplete() { startup_greeting_complete.store(true); }
+void MarkPowerOnPromptQueued() {
+    power_on_prompt_queued.store(true);
+    MaybeStartOnboarding();
+}
+
+void MarkStartupGreetingComplete() {
+    startup_greeting_complete.store(true);
+    MaybeStartOnboarding();
+}
 
 void ObserveStartupProtection(StartupProtectionNotice notice) {
     if (startup_protection.exchange(notice) == notice)
@@ -220,7 +253,10 @@ void ObserveSystemPromptBattery(bool ready, bool low) {
     battery_gate.Observe(ready, low);
 }
 
-void BeginSystemPromptShutdown() { shutting_down.store(true); }
+void BeginSystemPromptShutdown() {
+    shutting_down.store(true);
+    StopOnboarding();
+}
 
 bool PlayShutdownPromptAndWait(const std::function<void()>& check_battery) {
     if (!worker_started.load())

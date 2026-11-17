@@ -1,6 +1,7 @@
 #include "panda_controller.h"
 #include "wzh_body_commands.h"
 #include "wzh_pet_feedback.h"
+#include "wzh_onboarding.h"
 #include "wzh_startup_greeting.h"
 #include "wzh_system_prompts.h"
 
@@ -1439,7 +1440,8 @@ void PandaController::Task() {
 
         // 在线说话使用真实 TTS 包络，动作助手负责平滑和有限语句编排，
         // 避免把每个音节的 attack 尖峰直接变成头尾抖动。
-        if (!offline && (speaking_.load() || speech_tail_.load())) {
+        const bool tutorial_voice = wzh::IsOnboardingVoiceMotionActive();
+        if ((!offline && (speaking_.load() || speech_tail_.load())) || tutorial_voice) {
             PandaMotionData tts =
                 audio_ != nullptr ? audio_->GetTtsMotionData() : PandaMotionData{};
             if (tts.playing) {
@@ -1449,14 +1451,15 @@ void PandaController::Task() {
             }
         }
 
-        if (offline) {
+        if (offline && !tutorial_voice) {
             motion = {};  // Offline gestures own their finite choreography.
         }
         // Idle life: when nothing else owns the output, start a small idle clip
         // every few seconds so the tail never stays parked at neutral.
         const bool idle_eligible = !conversation_active_.load() && pet_state.motion &&
                                    !request_active_.load() && !clip_active_ && !motion.playing &&
-                                   !local_motion && !servo_output_.powered();
+                                   !local_motion && !servo_output_.powered() &&
+                                   !wzh::IsOnboardingActive();
         if (idle_life_.Due(now_ms, idle_eligible, esp_random())) {
             static constexpr Behaviour kIdleFamilies[] = {Behaviour::kIdle, Behaviour::kCurious,
                                                           Behaviour::kAmbient};

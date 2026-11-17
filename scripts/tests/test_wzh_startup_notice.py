@@ -28,6 +28,9 @@ void LoadVoiceNames(std::vector<VoiceName>&){} }
 constexpr int kVoiceCapacity=10;
 const char* notice="";
 const char* StartupProtectionMessage(){return notice;}
+struct OnboardingProgress{static constexpr int kStepCount=13;int step=7;bool Done(){return false;}};
+bool PeekOnboardingProgress(OnboardingProgress&){return true;}
+bool IsOnboardingActive(){return false;}bool OnboardingBlocksConversation(){return true;}
 const char* StateName(int){return "idle";}
 struct Application{static Application& GetInstance(){static Application app;return app;}
  int GetDeviceState(){return 0;}};
@@ -48,6 +51,9 @@ int main(){
   notice=value;auto* status=service.BuildStatusObject();
   auto* item=cJSON_GetObjectItem(status,"startup_notice");
   assert(cJSON_IsString(item) && std::strcmp(item->valuestring,value)==0);
+  auto* guide=cJSON_GetObjectItem(status,"onboarding");
+  assert(cJSON_IsObject(guide) && cJSON_IsTrue(cJSON_GetObjectItem(guide,"blocked")));
+  assert(cJSON_GetObjectItem(guide,"next_step")->valueint==7);
   cJSON_Delete(status);
  }
 }

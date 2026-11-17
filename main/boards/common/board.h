@@ -85,6 +85,10 @@ public:
     }
     virtual bool IsOnboardingFeedbackPending() const { return false; }
     virtual bool IsLocalPlaybackPending() { return false; }
+    virtual bool IsOnboardingBlockingConversation() const { return false; }
+    // A deferred service is configured but connects only when a conversation opens.
+    virtual void OnProtocolServiceAvailable(bool connected) { (void)connected; }
+    virtual void OnProtocolServiceUnavailable() {}
     // Optional bundled exit cue; empty keeps the application's default sound.
     virtual std::string_view GetConversationExitSound() const { return {}; }
     // Optional, bounded lookup for trusted bundled source loudness calibration.

@@ -271,7 +271,11 @@ int main(){
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 namespace wzh { struct ProductConfig{const char* wake_phrase="test wake";};
-const ProductConfig& Product(){static ProductConfig p;return p;} }
+const ProductConfig& Product(){static ProductConfig p;return p;}
+enum class OnboardingEvent{kWake,kCommand};bool guide=false;int guide_events=0;
+bool OnboardingBlocksConversation(){return guide;}
+bool CaptureOnboardingInteraction(OnboardingEvent){return false;}
+void NotifyOnboarding(OnboardingEvent){++guide_events;} }
 struct Application{int wakes=0;std::string last;
  static Application& GetInstance(){static Application app;return app;}
  void WakeWordInvoke(const std::string& phrase){++wakes;last=phrase;}};
@@ -309,6 +313,9 @@ int main(){
         assert(board.controller_.last==wzh::PetControl::kWake);
     }
     board.local_audio_.echo=false;
+    wzh::guide=true;assert(board.HandleLocalVoiceCommand("local:chat_wake"));
+    assert(Application::GetInstance().wakes==0 && wzh::guide_events==1);
+    wzh::guide=false;
     assert(board.HandleLocalVoiceCommand("local:chat_wake"));
     assert(Application::GetInstance().wakes==1 && Application::GetInstance().last=="test wake");
     assert(board.HandleLocalVoiceCommand("local:happy"));

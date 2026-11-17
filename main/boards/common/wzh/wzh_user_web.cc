@@ -32,6 +32,7 @@
 #include "wifi_configuration_ap.h"
 #include "wifi_manager.h"
 #include "wzh_factory_reset_policy.h"
+#include "wzh_onboarding.h"
 #include "wzh_web_peer.h"
 
 namespace wzh {
@@ -185,6 +186,24 @@ bool SetSetupGuide(bool complete) {
         complete ? nvs_set_u8(handle, "setup_guide", 1) : nvs_erase_key(handle, "setup_guide");
     if (!complete && result == ESP_ERR_NVS_NOT_FOUND)
         result = ESP_OK;
+    if (result == ESP_OK)
+        result = nvs_commit(handle);
+    nvs_close(handle);
+    return result == ESP_OK;
+}
+bool ClearOnboarding() {
+    StopOnboarding();
+    const auto deadline = Now() + 8000;
+    while (IsOnboardingActive() && Now() < deadline)
+        vTaskDelay(pdMS_TO_TICKS(20));
+    if (IsOnboardingActive() || !SetSetupGuide(false))
+        return false;
+    // Clear the legacy marker first so it cannot recreate completed progress
+    // if power is lost between the two NVS transactions.
+    nvs_handle_t handle = 0;
+    if (nvs_open("onboarding", NVS_READWRITE, &handle) != ESP_OK)
+        return false;
+    auto result = nvs_erase_all(handle);
     if (result == ESP_OK)
         result = nvs_commit(handle);
     nvs_close(handle);
@@ -406,9 +425,9 @@ void UserWebPortal::RunReset() {
         return voice_tts::ResetManagedVoices([&wifi]() { return !wifi.IsConnected(); }, progress,
                                              local) == voice_tts::VoiceOperation::kOk;
     };
+    operations.clear_onboarding = [&wifi]() { return wifi.IsConnected() && ClearOnboarding(); };
     operations.clear_wifi = [&wifi]() {
-        return wifi.IsConnected() && SetSetupGuide(false) && wifi.IsConnected() &&
-               SsidManager::GetInstance().ClearChecked();
+        return wifi.IsConnected() && SsidManager::GetInstance().ClearChecked();
     };
     operations.report = [this](const FactoryResetPolicy::Progress& progress) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -418,6 +437,9 @@ void UserWebPortal::RunReset() {
                 break;
             case Phase::kDeletingVoices:
                 reset_phase_ = "deleting_cloud";
+                break;
+            case Phase::kClearingOnboarding:
+                reset_phase_ = "clearing_onboarding";
                 break;
             case Phase::kClearingWifi:
                 reset_phase_ = "clearing_wifi";
@@ -436,6 +458,7 @@ void UserWebPortal::RunReset() {
         vTaskDelay(pdMS_TO_TICKS(1200));
         esp_restart();
     }
+    ResumeOnboardingAfterAbort();
     voice_tts::EndVoiceReset();
     if (options_.end_factory_reset)
         options_.end_factory_reset();

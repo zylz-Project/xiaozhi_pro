@@ -13,6 +13,7 @@
 #include "assets/lang_config.h"
 #include "config.h"
 #include "wzh_fast_battery_start.h"
+#include "wzh_onboarding.h"
 #include "wzh_power_startup.h"
 #include "wzh_system_prompts.h"
 #include "wzh_touch_input.h"
@@ -283,6 +284,7 @@ void DinosaurPower::Task() {
     // 联网流程）。叮咚先播，控制器 +2s 的 Flash 开机叫声经 IsPlaybackIdle
     // 门控自动排在叮咚之后，两者不重叠。
     Application::GetInstance().GetAudioService().PlaySound(Lang::Sounds::OGG_POWER_ON);
+    wzh::MarkPowerOnPromptQueued();
     ESP_LOGI(TAG, "Power task ready");
     uint32_t last_battery_log_ms = 0;
     uint32_t previous_work_ms = 0;
@@ -402,8 +404,12 @@ void DinosaurPower::Task() {
                             last_click_tick = tick_now;
                             if (click_count >= 2) {
                                 click_count = 0;
-                                ESP_LOGI(TAG, "Power key double click: toggle chat");
-                                Application::GetInstance().ToggleConversation();
+                                if (wzh::OnboardingBlocksConversation()) {
+                                    wzh::PrepareOnboardingDoubleClick();
+                                } else {
+                                    ESP_LOGI(TAG, "Power key double click: toggle chat");
+                                    Application::GetInstance().ToggleConversation();
+                                }
                             }
                         }
                         state = BtnState::kIdle;

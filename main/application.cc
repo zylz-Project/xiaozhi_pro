@@ -636,10 +636,12 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
+    bool protocol_connection_deferred = false;
     if (ota_->HasMqttConfig()) {
         protocol_ = std::make_unique<MqttProtocol>();
     } else if (ota_->HasWebsocketConfig()) {
         protocol_ = std::make_unique<WebsocketProtocol>();
+        protocol_connection_deferred = true;
     } else {
         ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
         protocol_ = std::make_unique<MqttProtocol>();
@@ -647,8 +649,16 @@ void Application::InitializeProtocol() {
 
     protocol_->OnConnected([this, protocol_generation]() {
         Schedule([this, protocol_generation]() {
-            if (protocol_generation == protocol_generation_.load())
+            if (protocol_generation == protocol_generation_.load()) {
                 DismissAlert();
+                Board::GetInstance().OnProtocolServiceAvailable(true);
+            }
+        });
+    });
+    protocol_->OnDisconnected([this, protocol_generation]() {
+        Schedule([this, protocol_generation]() {
+            if (protocol_generation == protocol_generation_.load())
+                Board::GetInstance().OnProtocolServiceUnavailable();
         });
     });
 
@@ -1169,7 +1179,8 @@ void Application::InitializeProtocol() {
         }
     });
 
-    protocol_->Start();
+    if (protocol_->Start() && protocol_connection_deferred)
+        board.OnProtocolServiceAvailable(false);
 }
 
 void Application::ShowActivationCode(const std::string& code, const std::string& message) {
@@ -1248,6 +1259,8 @@ void Application::HandleToggleConversationEvent() {
         StopInteraction(true);
         return;
     }
+    if (Board::GetInstance().IsOnboardingBlockingConversation())
+        return;
     if (state != kDeviceStateIdle || !protocol_)
         return;
     interaction_generation_.fetch_add(1);
@@ -1270,6 +1283,8 @@ void Application::HandleToggleChatEvent() {
         return;
     auto state = GetDeviceState();
     entry_prompt_before_listening_ = false;
+    if (state == kDeviceStateIdle && Board::GetInstance().IsOnboardingBlockingConversation())
+        return;
 
     if (state == kDeviceStateActivating) {
         SetDeviceState(kDeviceStateIdle);
@@ -1312,6 +1327,10 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
     if (GetDeviceState() != kDeviceStateConnecting || interaction_stopped_.load()) {
         return;
     }
+    if (Board::GetInstance().IsOnboardingBlockingConversation()) {
+        SetDeviceState(kDeviceStateIdle);
+        return;
+    }
 
     // Switch to performance mode before connecting to reduce latency
     auto& board = Board::GetInstance();
@@ -1340,6 +1359,8 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
 }
 
 void Application::HandleStartListeningEvent() {
+    if (Board::GetInstance().IsOnboardingBlockingConversation())
+        return;
     if (voice_enrollment_active_.load())
         return;
     if ((voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load()) &&
@@ -1502,6 +1523,10 @@ void Application::HandleWakeWordDetectedEvent() {
 }
 
 void Application::BeginWakeWordInvoke(const std::string& wake_word) {
+    if (Board::GetInstance().IsOnboardingBlockingConversation()) {
+        audio_service_.EnableWakeWordDetection(true);
+        return;
+    }
     if (voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load()) {
         audio_service_.EnableWakeWordDetection(true);
         return;
@@ -1950,6 +1975,7 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
         (conversation && interaction_stopped_.load()) || voice_enrollment_reconnecting_.load() ||
         barge_in_reconnecting_.load() || external_voice_preview_active_.load() ||
         Board::GetInstance().IsAudioMaintenanceActive() ||
+        Board::GetInstance().IsOnboardingBlockingConversation() ||
         !Board::GetInstance().GetVoiceEnrollment() || voice_enrollment_active_.exchange(true))
         return false;
     const auto generation = interaction_generation_.fetch_add(1) + 1;
@@ -1966,7 +1992,8 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
         if (!enrollment ||
             (conversation ? (!still_conversation || interaction_stopped_.load())
                           : current != kDeviceStateIdle) ||
-            Board::GetInstance().IsAudioMaintenanceActive()) {
+            Board::GetInstance().IsAudioMaintenanceActive() ||
+            Board::GetInstance().IsOnboardingBlockingConversation()) {
             device_voice_enrollment_status_.store(4);
             voice_enrollment_active_.store(false);
             return;
@@ -2058,6 +2085,7 @@ bool Application::RequestExternalVoicePreview(const std::string& voice) {
     if (GetDeviceState() != kDeviceStateIdle || voice_enrollment_active_.load() ||
         voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load() ||
         Board::GetInstance().IsAudioMaintenanceActive() ||
+        Board::GetInstance().IsOnboardingBlockingConversation() ||
         external_voice_preview_active_.exchange(true))
         return false;
     external_voice_preview_status_.store(1);
@@ -2072,7 +2100,8 @@ bool Application::RequestExternalVoicePreview(const std::string& voice) {
             return;
         }
         if (GetDeviceState() != kDeviceStateIdle ||
-            Board::GetInstance().IsAudioMaintenanceActive() || !external ||
+            Board::GetInstance().IsAudioMaintenanceActive() ||
+            Board::GetInstance().IsOnboardingBlockingConversation() || !external ||
             !external->ReadyForVoice(voice)) {
             external_voice_preview_active_.store(false);
             external_voice_preview_status_.store(3);
@@ -2189,6 +2218,8 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
 }
 
 void Application::WakeWordInvoke(const std::string& wake_word) {
+    if (Board::GetInstance().IsOnboardingBlockingConversation())
+        return;
     if (voice_enrollment_active_.load() || voice_enrollment_reconnecting_.load() ||
         barge_in_reconnecting_.load())
         return;

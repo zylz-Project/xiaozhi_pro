@@ -1,6 +1,7 @@
 #include "dinosaur_controller.h"
 #include "wzh_body_commands.h"
 #include "wzh_pet_feedback.h"
+#include "wzh_onboarding.h"
 #include "wzh_startup_greeting.h"
 #include "wzh_system_prompts.h"
 
@@ -1492,9 +1493,12 @@ void DinosaurController::SetPose(const Pose& requested) {
     base.tail_ud = std::clamp(base.tail_ud, float(SERVO_TAIL_UD_MIN), float(SERVO_TAIL_UD_MAX));
     base.tail_lr = std::clamp(base.tail_lr, 0.0f, 180.0f);
     Pose pose = base;
+    const auto pet_state = pet_.Get(esp_timer_get_time() / 1000);
     const bool commanded =
         request_active_.load() && running_priority_.load() == wzh::PetPriority::kExplicit;
-    const bool talking = (speaking_.load() || speech_tail_.load()) && !servo_test_active_ &&
+    const bool talking = (speaking_.load() || speech_tail_.load() ||
+                          wzh::IsOnboardingVoiceMotionActive()) && pet_state.motion &&
+                         !shutdown_requested_.load() && !servo_test_active_ &&
                          !commanded && audio_ != nullptr;
     const auto voice = audio_ != nullptr ? audio_->GetTtsMotionData() : DinoMotionData{};
     const auto gesture =
@@ -1572,7 +1576,6 @@ void DinosaurController::SetPose(const Pose& requested) {
         }
     }
     // 所有入口最终都在这里限幅。尾巴上下轴机械空间最紧，使用板级专用限位。
-    const auto pet_state = pet_.Get(esp_timer_get_time() / 1000);
     const float desired_gain =
         pet_state.gentle || pet_state.mode == wzh::PetMode::kQuiet ? .60f : 1.0f;
     const float gain = servo_test_active_ || quiet_center_.active() ? 1.0f
@@ -2593,10 +2596,12 @@ void DinosaurController::Task() {
                 continue;
             }
             const auto voice = audio_ != nullptr ? audio_->GetTtsMotionData() : DinoMotionData{};
-            const bool audible = conversation_active_.load() &&
-                                 (speaking_.load() || speech_tail_.load()) && voice.playing;
+            const bool audible = ((conversation_active_.load() &&
+                                   (speaking_.load() || speech_tail_.load())) ||
+                                  wzh::IsOnboardingVoiceMotionActive()) && voice.playing;
             const bool idle_eligible = !conversation_active_.load() && pet_state.motion &&
-                                       !request_active_.load() && !local_motion && !audible;
+                                       !request_active_.load() && !local_motion && !audible &&
+                                       !wzh::IsOnboardingActive();
             if (audible) {
                 idle_breathing_ = false;
                 quiet_center_.Reset();

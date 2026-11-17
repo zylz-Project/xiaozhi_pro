@@ -42,10 +42,11 @@ struct Enrollment : VoiceEnrollment {
  const char* Status() const override { return "recording"; }
 };
 struct Board {
- Enrollment enrollment; bool recording=false; bool maintenance=false;
+ Enrollment enrollment; bool recording=false; bool maintenance=false; bool onboarding=false;
  static Board& GetInstance(){static Board b;return b;}
  VoiceEnrollment* GetVoiceEnrollment(){return &enrollment;}
  bool IsAudioMaintenanceActive(){return maintenance;}
+ bool IsOnboardingBlockingConversation(){return onboarding;}
  void SetVoiceEnrollmentRecording(bool v){recording=v;}
 };
 struct Audio {
@@ -72,6 +73,9 @@ struct Application {
 int main() {
  Application app; auto& board=Board::GetInstance();
  assert(!app.RequestDeviceVoiceEnrollment(""));
+ board.onboarding=true;assert(!app.RequestDeviceVoiceEnrollment("name"));board.onboarding=false;
+ assert(app.RequestDeviceVoiceEnrollment("name"));board.onboarding=true;app.Drain();
+ assert(!std::strcmp(app.DeviceVoiceEnrollmentStatus(),"failed"));board.onboarding=false;
  app.state=kDeviceStateConnecting;assert(!app.RequestDeviceVoiceEnrollment("name"));app.state=kDeviceStateIdle;
  assert(app.RequestDeviceVoiceEnrollment("妈妈"));assert(!std::strcmp(app.DeviceVoiceEnrollmentStatus(),"starting"));
  assert(!app.RequestDeviceVoiceEnrollment("other"));app.Drain();assert(board.enrollment.name=="妈妈");

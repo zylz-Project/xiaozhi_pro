@@ -287,6 +287,8 @@ int main() {
 #include <mutex>
 #include <vector>
 #include "wzh_interaction_sound.h"
+#include "wzh_prompt_audio_gate.h"
+namespace wzh { bool IsOnboardingActive(){return false;} }
 using namespace wzh;
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)

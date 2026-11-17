@@ -40,7 +40,7 @@ constexpr uint32_t kIdleTestDurationMs = 60000U;
 int scenario = 0, auto_sounds = 0, stops = 0;
 int animations = 0, sounds = 0, writes = 0, releases = 0, invites = 0;
 int startup_sounds = 0, startup_gestures = 0;uint32_t startup_at=0, gesture_at=0;
-namespace wzh { void MarkStartupGreetingComplete(){} bool StartupGreetingAudioReady(){return scenario>=8 && (scenario!=10 || clock_ms>=61000) && (scenario!=15 || clock_ms>=50000);} }
+namespace wzh { void MarkStartupGreetingComplete(){} bool IsOnboardingActive(){return false;} bool IsOnboardingVoiceMotionActive(){return false;} bool StartupGreetingAudioReady(){return scenario>=8 && (scenario!=10 || clock_ms>=61000) && (scenario!=15 || clock_ms>=50000);} }
 constexpr int kDeviceStateIdle=0;
 struct AudioService { bool IsAudioProcessorRunning(){return false;} bool IsPlaybackIdle(){return true;} };
 struct Application { static Application& GetInstance(){static Application app;return app;}
@@ -78,7 +78,7 @@ struct Pose {
 };
 namespace wzh_panda { using Pose = ::Pose; }
 enum class Behaviour { kIdle, kCurious, kAmbient, kPlayful };
-enum class Action { kDiscover, kAffection, kHappy, kProud, kEat, kListen, kStartled, kSleepy };
+enum class Action { kDiscover, kAffection, kHappy, kProud, kEat, kListen, kStartled, kSleepy, kShakeHead };
 using DinoAction = Action;
 using PandaAction = Action;
 using DinoBodyAction = Action;
@@ -111,7 +111,7 @@ const ClipSet kActionClips[]={{&reference_clips[0],1},{&reference_clips[1],1},{&
 constexpr float kCompactRoarTailAngles[]={166,112,130,154,120,148,140};
 struct ActionRequest {
     Action action = Action::kDiscover;
-    bool with_local_sound = true, is_body = false, speech_bound = false;
+    bool with_local_sound = true, is_body = false, speech_bound = false, tutorial_shake_head = false;
     int test_gpio = -1;
     uint32_t created_ms = 0, generation = 0;
     wzh::PetPriority priority = wzh::PetPriority::kExplicit;
@@ -171,6 +171,9 @@ public:
     Audio* audio_ = &audio;
     Output servo_output_;
     std::atomic<bool> shutdown_requested_{false}, stop_audio_requested_{false};
+    std::atomic<bool> tutorial_feedback_pending_{false};
+    std::atomic<uint32_t> tutorial_feedback_requested_ms_{0};
+    bool tutorial_motion_active_ = false, tutorial_audio_active_ = false;
     std::atomic<bool> conversation_active_{false}, speaking_{false}, request_active_{false};
     std::atomic<bool> flash_performance_active_{false}, sky_roar_active_{false};
     int last_sky_roar_clip_index_=0;
