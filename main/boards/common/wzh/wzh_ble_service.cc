@@ -42,6 +42,7 @@
 #include "voice_tts/voice_web.h"
 #include "wifi_manager.h"
 #include "wzh_ble_rx_stream.h"
+#include "wzh_system_prompts.h"
 #include "wzh_voice_services.h"
 #include "wzh_web_console.h"
 
@@ -1152,6 +1153,7 @@ cJSON* BleService::BuildStatusObject() {
         cJSON_AddStringToObject(status, "state",
                                 StateName(Application::GetInstance().GetDeviceState()));
     }
+    cJSON_AddStringToObject(status, "startup_notice", StartupProtectionMessage());
 
     auto& manager = WifiManager::GetInstance();
     bool connected = manager.IsConnected();

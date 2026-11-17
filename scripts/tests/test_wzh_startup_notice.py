@@ -12,6 +12,56 @@ COMMON = ROOT / 'main/boards/common/wzh'
 
 
 class StartupNoticeTest(unittest.TestCase):
+    def test_ble_status_serializes_and_clears_the_notice(self):
+        if not shutil.which('g++') or not shutil.which('gcc'):
+            self.skipTest('g++ and gcc required')
+        source = (COMMON / 'wzh_ble_service.cc').read_text()
+        method = queue_function(source, 'cJSON* BleService::BuildStatusObject()')
+        program = r'''
+#include <cassert>
+#include <cstring>
+#include <string>
+#include <vector>
+#include "cJSON.h"
+namespace voice_tts { struct VoiceName{}; constexpr int kBuiltinVoiceCount=2;
+void LoadVoiceNames(std::vector<VoiceName>&){} }
+constexpr int kVoiceCapacity=10;
+const char* notice="";
+const char* StartupProtectionMessage(){return notice;}
+const char* StateName(int){return "idle";}
+struct Application{static Application& GetInstance(){static Application app;return app;}
+ int GetDeviceState(){return 0;}};
+struct WifiManager{static WifiManager& GetInstance(){static WifiManager wifi;return wifi;}
+ bool IsConnected(){return true;}int GetRssi(){return -50;}int GetChannel(){return 1;}
+ std::string GetSsid(){return "home";}};
+std::string BandText(int){return "2.4G";}const char* SignalText(int){return "ok";}
+int SignalBars(int){return 3;}std::string RuntimeText(int){return "0";}
+int JsonInt(cJSON* obj,const char* key,int fallback){auto* n=cJSON_GetObjectItem(obj,key);return cJSON_IsNumber(n)?n->valueint:fallback;}
+struct Console{void BuildStatus(cJSON*){}};
+struct BleService{struct Config{Console* console=nullptr;}config_;
+ cJSON* BuildStatusObject();std::string CurrentVoiceId(){return "v";}
+ std::string CurrentVoiceName(){return "voice";}};
+''' + method + r'''
+int main(){
+ BleService service;
+ for(const char* value:{"", "设备温度过高"}){
+  notice=value;auto* status=service.BuildStatusObject();
+  auto* item=cJSON_GetObjectItem(status,"startup_notice");
+  assert(cJSON_IsString(item) && std::strcmp(item->valuestring,value)==0);
+  cJSON_Delete(status);
+ }
+}
+'''
+        cjson = ROOT / 'managed_components/espressif__cjson/cJSON'
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory); cpp = tmp / 'status.cc'; cpp.write_text(program)
+            subprocess.run(['gcc', '-c', str(cjson / 'cJSON.c'), '-o', str(tmp / 'cjson.o')], check=True)
+            result = subprocess.run(['g++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                                     '-I', str(cjson), str(cpp), str(tmp / 'cjson.o'),
+                                     '-o', str(tmp / 'status')], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            subprocess.run([str(tmp / 'status')], check=True, timeout=5)
+
     def test_all_boards_report_protection_and_clear_only_after_greeting(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')
