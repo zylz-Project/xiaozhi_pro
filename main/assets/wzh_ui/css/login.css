@@ -417,3 +417,36 @@
   .phone.dark .login-foot b { color: rgba(247,238,228,.54); }
   .phone.dark .login-foot i { background: rgba(255,255,255,.16); }
   .phone.dark .login-sheet .step-count, .phone.dark .login-sheet .kicker { color: rgba(247,238,228,.40); }
+
+/* ===== UI OPTIMIZATION LAYER · login 页 (2026-11-16) ===== */
+.phone { --fs-0: 10px; --fs-1: 11.5px; --fs-2: 12.5px; --fs-3: 13.5px; --fs-4: 15px; }
+.phone .login-copy h1 { font-size: 26px !important; }
+.phone .login-copy .kicker, .phone .login-sheet .kicker,
+.phone .login-copy .step-count, .phone .login-sheet .step-count { font-size: var(--fs-0) !important; }
+.phone .login-copy .sub { font-size: var(--fs-3) !important; line-height: 1.55 !important; }
+.phone .login-state { font-size: var(--fs-0) !important; }
+.phone .login-state b { font-size: var(--fs-0) !important; }
+.phone .login-card .field span, .phone .login-card .field label { font-size: var(--fs-0) !important; }
+.phone .login-card .field input { height: 46px !important; font-size: var(--fs-4) !important; }
+.phone .login-help { font-size: var(--fs-1) !important; }
+.phone .login-note { font-size: var(--fs-1) !important; line-height: 1.5 !important; }
+.phone .login-foot { font-size: var(--fs-0) !important; }
+.phone .login-foot b { font-size: var(--fs-0) !important; }
+.phone .login-foot span { font-size: var(--fs-0) !important; }
+.phone .login-phone .appbar-title { font-size: var(--fs-4) !important; }
+.phone .login-scene .scene-note { font-size: var(--fs-0) !important; }
+.phone .login-scene .scene-note b { font-size: var(--fs-0) !important; }
+.phone .btn, .phone .login-submit { min-height: 46px !important; font-size: var(--fs-3) !important; }
+.phone .login-state, .phone .login-help, .phone .login-note,
+.phone .login-foot, .phone .login-foot b, .phone .login-copy .sub,
+.phone .login-copy .kicker, .phone .login-copy .step-count,
+.phone .login-scene .scene-note, .phone .login-scene .scene-note b,
+.phone .login-foot span { color: rgba(47,40,34,.66) !important; }
+.phone.dark .login-state, .phone.dark .login-help, .phone.dark .login-note,
+.phone.dark .login-foot, .phone.dark .login-foot b, .phone.dark .login-copy .sub,
+.phone.dark .login-copy .kicker, .phone.dark .login-copy .step-count,
+.phone.dark .login-scene .scene-note, .phone.dark .login-scene .scene-note b,
+.phone.dark .login-foot span { color: rgba(246,236,226,.74) !important; }
+.phone .login-scene .scene-note { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; background: rgba(255,252,246,.92) !important; }
+.phone.dark .login-scene .scene-note { background: rgba(34,25,19,.92) !important; }
+

@@ -474,3 +474,52 @@ h3 { margin-bottom: 0; font-size: 13px; line-height: 1.3; font-weight: 650; }
   font-size: 9px; letter-spacing: .02em; color: var(--ink-3);
 }
 .phone.dark .voice-alt .va-row em { background: rgba(255,255,255,.08); }
+
+/* ===== UI OPTIMIZATION LAYER · shared base (2026-11-16) ===== */
+.phone, .phone-page { --fs-0: 10px; --fs-1: 11.5px; --fs-2: 12.5px; --fs-3: 13.5px; --fs-4: 15px; }
+.phone .kicker, .phone .step-count, .phone .small, .phone .notes,
+.phone .page-nav a, .phone .page-nav button { font-size: var(--fs-0) !important; }
+.phone .appbar-title { font-size: var(--fs-4) !important; }
+.phone .appbar .tiny-pill { font-size: var(--fs-0) !important; }
+.phone h2 { font-size: 17px !important; }
+.phone h3 { font-size: var(--fs-3) !important; }
+.phone .sub { font-size: var(--fs-3) !important; line-height: 1.55 !important; }
+.phone .field label, .phone .field .hint { font-size: var(--fs-0) !important; }
+.phone .field input { height: 44px !important; font-size: var(--fs-4) !important; }
+.phone .btn { min-height: 44px !important; font-size: var(--fs-3) !important; }
+.phone .link-btn { font-size: var(--fs-1) !important; }
+.phone .form-error { font-size: var(--fs-0) !important; }
+.phone .chip { font-size: var(--fs-0) !important; }
+.phone .toast { font-size: var(--fs-1) !important; }
+.phone .sheet-head p { font-size: var(--fs-1) !important; }
+.phone .status-pill { font-size: var(--fs-0) !important; }
+.phone .scene-note { font-size: var(--fs-0) !important; }
+.phone .kicker, .phone .step-count, .phone .small, .phone .notes,
+.phone .page-nav a, .phone .field label, .phone .field .hint,
+.phone .form-error, .phone .chip, .phone .sheet-head p,
+.phone .scene-note, .phone .status-pill { color: rgba(47,40,34,.66) !important; }
+.phone.dark .kicker, .phone.dark .step-count, .phone.dark .small, .phone.dark .notes,
+.phone.dark .page-nav a, .phone.dark .field label, .phone.dark .field .hint,
+.phone.dark .form-error, .phone.dark .chip, .phone.dark .sheet-head p,
+.phone.dark .scene-note, .phone.dark .status-pill { color: rgba(246,236,226,.74) !important; }
+.phone .status-pill, .phone .glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+/* ===== 反馈修复 2026-11-16：深色墙纸 =====
+   以前深色只靠 .phone.dark .wallpaper{filter:brightness(.32)} 压暗奶油色墙纸，
+   结果整屏偏灰（setup/done/login/manual 都受影响）。改为直接用暗色墙纸变量，
+   与设备详情页 index.css 的暗色调色板保持一致。 */
+.phone.dark { --wall-glow:#34251c; --wall-1:#1d1612; --wall-2:#2b1f19; --wall-3:#3a2a20; --blob-1:#3b2a20; --blob-2:#5a3525; --blob-3:#25352c; --blob-4:#4a2e21; --blob-5:#5b3a27; }
+.phone.dark[data-theme="salt"] { --wall-glow:#0f2426; --wall-1:#0b1719; --wall-2:#122629; --wall-3:#1b3234; --blob-1:#14373a; --blob-2:#20595c; --blob-3:#294640; --blob-4:#31504b; --blob-5:#173b3e; }
+.phone.dark[data-theme="berry"] { --wall-glow:#2b1720; --wall-1:#1a0f14; --wall-2:#2a1720; --wall-3:#38212a; --blob-1:#3a1f2a; --blob-2:#5b2d3d; --blob-3:#4b2f35; --blob-4:#5a3038; --blob-5:#2f1a22; }
+.phone.dark[data-theme="bamboo"] { --wall-glow:#1a2418; --wall-1:#121a10; --wall-2:#1d281a; --wall-3:#283424; --blob-1:#24351f; --blob-2:#3e5a35; --blob-3:#4a5b3a; --blob-4:#59633f; --blob-5:#1f2e1b; }
+.phone.dark .wallpaper { filter: none; }
+
+/* ================= 用户反馈修复 · 2026-11-17 ================= */
+/* 顶部假时间已删除，状态胶囊保持右对齐 */
+.statusbar { justify-content: flex-end; }
+/* 手机视口：整页锁死，只允许页面内部滚动 */
+@media (max-width: 720px) {
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { position: fixed; inset: 0; width: 100%; }
+  .page { height: 100%; padding: 0; overflow: hidden; }
+  .phone { height: 100svh; min-height: 0; }
+}

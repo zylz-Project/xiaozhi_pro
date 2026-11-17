@@ -26,7 +26,7 @@
       action: '转头看你',
       motionActions: ['转头看你','挥挥前爪','扒扒垫子','安静凝视'],
       voiceCopy: '6 个固定音色，也可以复刻家人的声音。',
-      resetSub: '清除网络与本机复刻声音'
+      resetSub: '会清空 Wi-Fi 和本机录制的音色'
     },
     dinosaur: {
       id: 'dinosaur', axes: '五轴', name: '小恐龙', short: '恐龙', english: 'LITTLE DINO', code: 'DINO',
@@ -48,7 +48,7 @@
       action: '仰天吼叫',
       motionActions: ['抬头看你','前倾取食','仰天吼叫','尾巴慢摆'],
       voiceCopy: '6 个固定音色，也可以复刻家人的声音。',
-      resetSub: '清除网络与本机复刻声音'
+      resetSub: '会清空 Wi-Fi 和本机录制的音色'
     },
     redpanda: {
       id: 'redpanda', axes: '三轴', name: '摇尾小熊猫', short: '小熊猫', english: 'TAIL RED PANDA', code: 'RED PANDA',
@@ -70,7 +70,7 @@
       action: '摇摇大尾巴',
       motionActions: ['转头看你','尾巴画弧','高高翘起','安静停住'],
       voiceCopy: '6 个固定音色，也可以复刻家人的声音。',
-      resetSub: '清除网络与本机复刻声音'
+      resetSub: '会清空 Wi-Fi 和本机录制的音色'
     }
   };
 
@@ -155,7 +155,7 @@
     if (deviceStatus) text('[data-p-version]', deviceStatus.version || '--');
     (P.motionActions || []).forEach(function (v, i) { each('[data-p-action-' + (i + 1) + ']', function (el) { el.textContent = v; }); });
     text('[data-p-sound-title]', P.voice ? '声音' : '动作');
-    text('[data-p-sound-meta]', P.voice ? '音色管理' : P.axes + '关节 · 动作说明');
+    if (!P.voice) text('[data-p-sound-meta]', P.axes + '关节 · 动作说明');
 
     each('[data-p-img]', function (el) {
       var key = el.getAttribute('data-p-img');

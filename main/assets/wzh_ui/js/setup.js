@@ -19,14 +19,31 @@
       let d=await api('/scan');
       if (!d.aps?.length) { await wait(1200); d=await api('/scan'); }
       const list=$('netList'); list.textContent='';
-      for (const ap of d.aps || []) {
+      // The current network already has its own card at the top of the page.
+      const aps=(d.aps||[]).filter(ap=>!(online&&ap.current));
+      const strength=ap=>ap.unavailable?'暂不可用':ap.rssi==null?'信号未知':ap.rssi>=-55?'信号很强':ap.rssi>=-67?'信号强':ap.rssi>=-75?'信号一般':'信号较弱';
+      const bars=ap=>ap.rssi==null?0:ap.rssi>=-55?4:ap.rssi>=-67?3:ap.rssi>=-75?2:1;
+      for (const ap of aps) {
         const row=document.createElement('button'); row.type='button'; row.className='net-row';
+        if (ap.band===5 || ap.unavailable) row.classList.add('is-5g');
+        const sig=document.createElement('span'); sig.className='net-sig'; sig.setAttribute('aria-hidden','true');
+        const on=bars(ap);
+        for (let i=0;i<4;i++){ const bar=document.createElement('i'); if(i<on) bar.className='on'; sig.append(bar); }
         const text=document.createElement('span'); text.className='net-copy';
         const title=document.createElement('b'); title.textContent=ap.ssid;
-        const sub=document.createElement('small'); sub.textContent=ap.unavailable?'暂不可用':((ap.current?'当前连接 · ':ap.saved?'已保存 · ':'')+(ap.rssi == null?'信号未知':ap.rssi+' dBm'));
-        text.append(title,sub); row.append(text); row.addEventListener('click',()=>{ selected=ap; $('pwTitle').textContent='连接到 '+ap.ssid; $('pwSsid').textContent=ap.ssid; $('pwInput').value=''; $('pwError').textContent=''; show('pwLayer',true); }); list.append(row);
+        if (ap.saved) { const tag=document.createElement('span'); tag.className='net-tag'; tag.textContent='已保存'; title.append(tag); }
+        const lock=document.createElementNS('http://www.w3.org/2000/svg','svg'); lock.setAttribute('class','ico'); lock.setAttribute('viewBox','0 0 24 24');
+        const use=document.createElementNS('http://www.w3.org/2000/svg','use'); use.setAttribute('href','#i-lock'); lock.append(use); title.append(lock);
+        const sub=document.createElement('small'); sub.textContent=strength(ap);
+        text.append(title,sub);
+        const band=document.createElement('span'); band.className='net-band'; band.textContent=(ap.band===5||ap.unavailable)?'5G':'2.4G';
+        const chev=document.createElementNS('http://www.w3.org/2000/svg','svg'); chev.setAttribute('class','chev'); chev.setAttribute('viewBox','0 0 24 24'); chev.setAttribute('fill','none'); chev.setAttribute('stroke','currentColor'); chev.setAttribute('stroke-width','1.9');
+        const cu=document.createElementNS('http://www.w3.org/2000/svg','use'); cu.setAttribute('href','#i-chev'); chev.append(cu);
+        row.append(sig,text,band,chev);
+        row.addEventListener('click',()=>{ selected=ap; $('pwTitle').textContent='连接到 '+ap.ssid; $('pwSsid').textContent=ap.ssid; $('pwInput').value=''; $('pwError').textContent=''; show('pwLayer',true); });
+        list.append(row);
       }
-      $('scanMeta').textContent=(d.aps||[]).length+' 个网络';
+      $('scanMeta').textContent=aps.length+' 个网络';
     } catch(e) { $('scanMeta').textContent=e.message; }
     finally { await wait(4000); $('scanBtn').disabled=false; }
   }
@@ -47,5 +64,9 @@
   function showStartupNotice(s) { const el=$('startupNotice'); const text=s.startup_notice||''; el.textContent=text; el.hidden=!text; }
   async function refreshStartupNotice(){if(document.hidden)return;try{showStartupNotice(await api('/api/status'));}catch(e){ /* Connection status is handled by the existing setup flow. */ }}
   setInterval(refreshStartupNotice,5000);
-  (async()=>{ try { const s=await api('/api/status'); showStartupNotice(s); online=!!s.wifi?.connected; const mode=online?'change':s.saved_network?'offline':'first'; $('setupPhone').dataset.mode=mode; $('setupBack').hidden=!online; $('currentNet').hidden=!online; $('currentSsid').textContent=s.wifi?.ssid||'--'; $('currentSub').textContent=online?'当前连接':'离线'; $('setupSub').textContent=online?'旧网络会保留；新网络连接失败后会恢复。':'选择家里的 2.4 GHz 网络。'; if(window.PandaProduct){const id=s.build==='wzh-dinosaur'?'dinosaur':s.build==='wzh-tailredpanda'?'redpanda':'crawlPanda';PandaProduct.set(id,false);} await scan(); if(window.PandaGuide) PandaGuide.auto(mode==='change'?'setupChange':mode==='offline'?'setupOffline':'setupFirst'); } catch(e){toast(e.message);} })();
+  (async()=>{ try { const s=await api('/api/status'); showStartupNotice(s); online=!!s.wifi?.connected; const mode=online?'change':s.saved_network?'offline':'first'; $('setupPhone').dataset.mode=mode; $('setupBack').hidden=!online; $('currentNet').hidden=!online; $('currentSsid').textContent=s.wifi?.ssid||'--'; $('currentSub').textContent=online?'当前连接':'离线';
+        const copy={change:{kicker:'CHANGE NETWORK · 更换网络',title:'换一个 Wi-Fi',sub:'选一个新的 2.4GHz 网络。连不上会自动回到现在的网络。',steps:['选网络','输密码','等待连接']},offline:{kicker:'RECONNECT · 重新联网',title:'重新连上 Wi-Fi',sub:'设备现在不在线。选一个网络重新连上，原来的凭据会保留。',steps:['选网络','输密码','等待连接']},first:{kicker:'FIRST CONNECTION · 第一次配网',title:'连上家里的 Wi-Fi',sub:'只支持 2.4GHz。选一个网络，输入密码就好。',steps:['连热点','选网络','输密码']}}[mode];
+        $('setupKicker').textContent=copy.kicker; $('setupHeading').textContent=copy.title; $('setupSub').textContent=copy.sub;
+        document.querySelectorAll('.setup-flow span').forEach((el,i)=>{ el.innerHTML='<b>'+(i+1)+'</b>'+(copy.steps[i]||''); el.classList.toggle('on', mode==='first' ? i<2 : i<1); });
+        const stepCount=document.querySelector('.step-count'); if(stepCount) stepCount.textContent=(mode==='first'?'01':'02')+' / 03'; if(window.PandaProduct){const id=s.build==='wzh-dinosaur'?'dinosaur':s.build==='wzh-tailredpanda'?'redpanda':'crawlPanda';PandaProduct.set(id,false);} await scan(); if(window.PandaGuide) PandaGuide.auto(mode==='change'?'setupChange':mode==='offline'?'setupOffline':'setupFirst'); } catch(e){toast(e.message);} })();
 })();

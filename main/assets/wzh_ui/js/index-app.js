@@ -151,6 +151,17 @@
     var prefKey = 'panda';
     var themeNames = { milk: '奶糖', salt: '海盐', berry: '莓果', bamboo: '竹青' };
 
+    function paintCapacity(count) {
+      count = Number(count) || 0;
+      var cap = document.querySelector('[data-sound-cap]');
+      if (cap) cap.classList.toggle('is-full', count >= 10);
+      var num = document.querySelector('[data-cap-num]');
+      if (num) num.textContent = count;
+      var fill = document.querySelector('[data-cap-fill]');
+      if (fill) fill.style.width = Math.max(0, Math.min(100, count * 10)) + '%';
+      document.querySelectorAll('[data-vm-count],[data-manage-count]').forEach(function (el) { el.textContent = count; });
+    }
+
     function toast(message) {
       var el = phone.querySelector('.toast');
       if (!el) {
@@ -170,7 +181,8 @@
       var label = phone.querySelector('.theme-now');
       if (!label) return;
       var material = phone.classList.contains('b') ? '奶润' : '通透';
-      label.textContent = (themeNames[phone.dataset.theme] || '奶糖') + ' · ' + material;
+      var mode = phone.classList.contains('dark') ? '深色' : '浅色';
+      label.textContent = (themeNames[phone.dataset.theme] || '奶糖') + ' · ' + material + ' · ' + mode;
     }
 
     function setTheme(theme, silent) {
@@ -339,8 +351,7 @@
         var count = phone.querySelectorAll('.clone-chip').length;
         var labCount = phone.querySelector('.lab-count');
         if (labCount) labCount.textContent = count + ' / 10';
-        var meta = phone.querySelector('.panel-sound .panel-meta');
-        if (meta) meta.textContent = '固定 6 · 复刻 ' + count;
+        paintCapacity(count);
       }
 
       function addCloneChip(name) {
@@ -395,6 +406,26 @@
         '<span class="fa-mic"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mic"></use></svg></span>' +
         '';
       phone.appendChild(btn);
+      var POS_KEY = 'panda-assistant-pos';
+      function clampPos(left, top) {
+        var size = btn.offsetWidth || 48;
+        var maxX = phone.clientWidth - size - 8, maxY = phone.clientHeight - size - 8;
+        return { left: Math.max(8, Math.min(maxX, left)), top: Math.max(8, Math.min(maxY, top)) };
+      }
+      function applySavedPos() {
+        try {
+          var raw = localStorage.getItem(POS_KEY);
+          if (!raw) return;
+          var saved = JSON.parse(raw);
+          if (!saved || typeof saved.left !== 'number' || typeof saved.top !== 'number') return;
+          var pos = clampPos(saved.left, saved.top);
+          btn.style.left = pos.left + 'px';
+          btn.style.top = pos.top + 'px';
+          btn.style.right = 'auto';
+          btn.style.bottom = 'auto';
+        } catch (e) {}
+      }
+      requestAnimationFrame(applySavedPos);
       var drag = { active: false, moved: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 };
       var suppressClick = false;
       function beginDrag(event) {
@@ -433,12 +464,26 @@
         drag.active = false;
         btn.classList.remove('dragging');
         try { btn.releasePointerCapture(event.pointerId); } catch (err) {}
-        if (drag.moved) suppressClick = true;
+        if (drag.moved) {
+          suppressClick = true;
+          try {
+            localStorage.setItem(POS_KEY, JSON.stringify({ left: parseInt(btn.style.left, 10) || 0, top: parseInt(btn.style.top, 10) || 0 }));
+          } catch (err) {}
+        }
       }
       btn.addEventListener('pointerdown', beginDrag);
       btn.addEventListener('pointermove', moveDrag);
       btn.addEventListener('pointerup', endDrag);
       btn.addEventListener('pointercancel', endDrag);
+      var scroller = phone.querySelector('.console-scroll');
+      if (scroller) {
+        var awayTimer = null;
+        scroller.addEventListener('scroll', function () {
+          btn.classList.add('fa-away');
+          clearTimeout(awayTimer);
+          awayTimer = setTimeout(function () { btn.classList.remove('fa-away'); }, 1100);
+        }, { passive: true });
+      }
       btn.addEventListener('click', function (event) {
         if (suppressClick) { suppressClick = false; event.preventDefault(); return; }
         var state = phone.getAttribute('data-state');
@@ -490,6 +535,18 @@
     function $(sel, root) { return (root || phone).querySelector(sel); }
     function $$(sel, root) { return Array.prototype.slice.call((root || phone).querySelectorAll(sel)); }
 
+    /* 容量展示：声音面板右侧 “我的音色 N/10” + 进度条，管理入口徽标 */
+    function paintCapacity(count) {
+      count = Number(count) || 0;
+      var cap = phone.querySelector('[data-sound-cap]');
+      if (cap) cap.classList.toggle('is-full', count >= 10);
+      var num = phone.querySelector('[data-cap-num]');
+      if (num) num.textContent = count;
+      var fill = phone.querySelector('[data-cap-fill]');
+      if (fill) fill.style.width = Math.max(0, Math.min(100, count * 10)) + '%';
+      phone.querySelectorAll('[data-vm-count],[data-manage-count]').forEach(function (el) { el.textContent = count; });
+    }
+
     function openModal(el) {
       if (!el) return;
       el.classList.add('show');
@@ -514,12 +571,7 @@
       var count = cloneChips().length;
       var labCount = $('.lab-count');
       if (labCount) labCount.textContent = count + ' / 10';
-      var meta = $('.panel-sound .panel-meta');
-      if (meta) meta.textContent = '固定 6 · 复刻 ' + count;
-      var vmCount = $('[data-vm-count]');
-      if (vmCount) vmCount.textContent = count;
-      var badge = $('[data-manage-count]');
-      if (badge) badge.textContent = count;
+      paintCapacity(count);
     }
 
     function chipTemplate(name) {
@@ -808,7 +860,7 @@
       if (uploadPanel) uploadPanel.hidden = createMode !== 'upload';
       resetRecording();
       if (createMode === 'upload') {
-        setGenerateEnabled(true);
+        setGenerateEnabled(false);
         if (audioHint) audioHint.textContent = '保留 5–20 秒的人声；生成后会出现在“我的复刻”，也会同步到云端。';
       } else if (audioHint) {
         audioHint.textContent = '录完 10 秒后生成；建议用平常说话的音量。';
@@ -834,7 +886,12 @@
     }
     createTabs.forEach(function (tab) {
       tab.addEventListener('click', function () {
-        setCreateMode(tab.getAttribute('data-create-tab'));
+        var mode = tab.getAttribute('data-create-tab');
+        setCreateMode(mode);
+        if (mode === 'upload') {
+          var input = $('.audio-modal input[type=file]');
+          if (input) input.click();
+        }
       });
     });
     if (recordPuck) recordPuck.addEventListener('click', function () {
@@ -856,29 +913,8 @@
       });
     }
 
-    var audioFileInput = document.createElement('input');
-    audioFileInput.type = 'file';
-    audioFileInput.accept = 'audio/*';
-    audioFileInput.className = 'lab-file';
-    audioFileInput.setAttribute('aria-label', '选择要上传的音频');
-    if (audioModal) audioModal.appendChild(audioFileInput);
-
-    $$('.audio-file').forEach(function (row) {
-      row.addEventListener('click', function () { audioFileInput.click(); });
-    });
-    audioFileInput.addEventListener('change', function () {
-      var file = audioFileInput.files && audioFileInput.files[0];
-      if (!file) return;
-      var base = file.name.replace(/\.[^.]+$/, '').slice(0, 8) || '我的音色';
-      var nameEl = $('[data-audio-file]');
-      if (nameEl) nameEl.textContent = file.name;
-      var copy = $('.audio-file-copy small');
-      if (copy) copy.textContent = '已选择 · 读取时长中 · ' + Math.max(1, Math.round(file.size / 1024)) + ' KB';
-      var nameInput = $('[data-audio-name-input]');
-      if (nameInput) nameInput.value = base;
-      toast('已选择 ' + file.name);
-      audioFileInput.value = '';
-    });
+    // The real input lives in the markup inside a <label>: iOS Safari refuses to
+    // open the picker for a display:none input created on the fly.
 
     $$('[data-audio-trim]').forEach(function (trim) {
       trim.addEventListener('input', function () {
@@ -934,12 +970,23 @@
       });
     }
 
+    // 主题摘要：本 IIFE 看不到外层 updateThemeMeta，这里自带一份（2026-11-17 修复）
+    function syncThemeMeta() {
+      var label = $('.theme-now');
+      if (!label) return;
+      var names = { milk: '奶糖', salt: '海盐', berry: '莓果', bamboo: '竹青' };
+      var material = phone.classList.contains('b') ? '奶润' : '通透';
+      var mode = phone.classList.contains('dark') ? '深色' : '浅色';
+      label.textContent = (names[phone.dataset.theme] || '奶糖') + ' · ' + material + ' · ' + mode;
+    }
+
     // Dark mode is a preview switch; the chosen mode persists locally.
     function setMode(mode, silent) {
       phone.classList.toggle('dark', mode === 'dark');
       $$('[data-mode]').forEach(function (btn) {
         btn.setAttribute('aria-pressed', btn.getAttribute('data-mode') === mode ? 'true' : 'false');
       });
+      syncThemeMeta();
       if (!silent && window.PandaTheme) window.PandaTheme.set({ mode: mode });
     }
     $$('[data-mode]').forEach(function (btn) {
@@ -954,27 +1001,61 @@
     var rail = $('[data-fixed-rail]');
     var track = rail ? rail.querySelector('.fixed-track') : null;
     if (rail && track) {
-      var originals = Array.prototype.slice.call(track.children);
-      var originalCount = originals.length;
-      originals.forEach(function (chip) {
-        var clone = chip.cloneNode(true);
-        clone.setAttribute('aria-hidden', 'true');
-        clone.setAttribute('tabindex', '-1');
-        track.appendChild(clone);
-      });
       var loopPoint = 0;
-      var loopDirty = true;
-      function measureLoop() {
-        if (!loopDirty && window.MutationObserver) return;
-        loopDirty = false;
-        var firstClone = track.children[originalCount];
-        if (!firstClone) return;
-        var delta = firstClone.offsetLeft - track.children[0].offsetLeft;
-        if (delta > 0) loopPoint = delta;
-      }
+      var lastStep = 0;
+      var visibleSince = 0;
+      var frame = 0;
+      var intersecting = true;
+      var driftActive = false;
       var paused = false;
       var resumeTimer = null;
+      var syncing = false;
       var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var SPEED = 16; // px per second, time-based so low frame rates do not slow it down
+
+      function originals() {
+        return Array.prototype.slice.call(track.children).filter(function (node) {
+          return !node.hasAttribute('data-clone');
+        });
+      }
+
+      function measureLoop() {
+        var list = originals();
+        var firstClone = track.querySelector('[data-clone]');
+        if (!list.length || !firstClone) { loopPoint = 0; return; }
+        var delta = firstClone.offsetLeft - list[0].offsetLeft;
+        loopPoint = delta > 0 ? delta : 0;
+      }
+
+      // The detail renderer rebuilds .fixed-track from /api/user/voices, which wipes
+      // the clone tail; regenerate it whenever the chip list changes.
+      var lastSignature = null;
+      function chipSignature() {
+        return originals().map(function (node) {
+          return (node.getAttribute('data-voice-id') || node.getAttribute('data-voice') || '') + ':' + node.textContent.trim();
+        }).join('|');
+      }
+      function refreshClones(force) {
+        if (syncing) return;
+        var signature = chipSignature();
+        if (!force && signature === lastSignature) { measureLoop(); return; }
+        lastSignature = signature;
+        syncing = true;
+        Array.prototype.slice.call(track.querySelectorAll('[data-clone]')).forEach(function (node) {
+          if (node.parentNode) node.parentNode.removeChild(node);
+        });
+        originals().forEach(function (chip) {
+          var clone = chip.cloneNode(true);
+          clone.setAttribute('data-clone', '1');
+          clone.setAttribute('aria-hidden', 'true');
+          clone.setAttribute('tabindex', '-1');
+          track.appendChild(clone);
+        });
+        syncing = false;
+        measureLoop();
+        syncDrift();
+      }
+
       function pause() {
         paused = true;
         clearTimeout(resumeTimer);
@@ -991,11 +1072,7 @@
       rail.addEventListener('wheel', function () { pause(); resumeSoon(); }, { passive: true });
       rail.addEventListener('touchstart', pause, { passive: true });
       rail.addEventListener('touchend', resumeSoon);
-      var lastStep = 0;
-      var visibleSince = 0;
-      var frame = 0;
-      var intersecting = true;
-      var driftActive = false;
+
       function railVisible() {
         if (document.hidden || !intersecting || reduced || !rail.getClientRects().length) return false;
         if (getComputedStyle(rail).visibility === 'hidden') return false;
@@ -1010,14 +1087,17 @@
         }
         if (!visibleSince) {
           visibleSince = ts;
+          lastStep = ts;
           rail.scrollLeft = 0;
           measureLoop();
         }
         if (!paused && ts - visibleSince > 2600) {
-          measureLoop();
-          if (loopPoint > 0 && ts - lastStep > 55) {
-            lastStep = ts;
-            var next = rail.scrollLeft + 1;
+          if (loopPoint <= 0) measureLoop();
+          if (!lastStep) lastStep = ts;
+          var dt = Math.min(140, ts - lastStep);
+          lastStep = ts;
+          if (loopPoint > 0) {
+            var next = rail.scrollLeft + SPEED * dt / 1000;
             if (next >= loopPoint) next -= loopPoint;
             rail.scrollLeft = next;
           }
@@ -1036,23 +1116,16 @@
         }
       }
       document.addEventListener('visibilitychange', syncDrift);
-      // Opening the console changes visibility through the phone's class.
       if (window.MutationObserver) {
         new MutationObserver(syncDrift).observe(phone, { attributes: true, attributeFilter: ['class'] });
         new MutationObserver(function () {
-          loopPoint = 0;
-          loopDirty = true;
-          syncDrift();
-        }).observe(track, { childList: true, subtree: true, characterData: true });
+          refreshClones(false);
+        }).observe(track, { childList: true });
       }
       if (window.ResizeObserver) {
-        new ResizeObserver(function () {
-          loopPoint = 0;
-          loopDirty = true;
-        }).observe(track);
-      }
-      if (!window.ResizeObserver) {
-        window.addEventListener('resize', function () { loopPoint = 0; loopDirty = true; syncDrift(); });
+        new ResizeObserver(function () { measureLoop(); }).observe(track);
+      } else {
+        window.addEventListener('resize', function () { measureLoop(); syncDrift(); });
       }
       if (window.IntersectionObserver) {
         new IntersectionObserver(function (entries) {
@@ -1060,12 +1133,14 @@
           syncDrift();
         }).observe(rail);
       }
-      syncDrift();
+      refreshClones(true);
       track.addEventListener('click', function (event) {
         var chip = event.target.closest('.voice-chip');
         if (!chip) return;
+        var id = chip.getAttribute('data-voice-id') || chip.getAttribute('data-voice');
+        if (!id) return;
         event.preventDefault();
-        selectVoice(chip.getAttribute('data-voice'));
+        if (typeof selectVoice === 'function') selectVoice(id);
       });
     }
 

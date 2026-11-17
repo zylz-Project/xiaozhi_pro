@@ -50,10 +50,12 @@
           <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i><i class="blob b5"></i>
         </div>
         <div class="statusbar">
-          <span class="status-time">9:41</span>
           <span class="status-pill"><i class="status-dot"></i><span class="status-text">在线</span></span>
         </div>
-        <div class="brand"><b data-p-name>爬爬熊猫</b><span data-p-en>CRAWL PANDA</span></div>
+        <div class="brand">
+          <img class="brand-mark" src="assets/zeyuan-logo.webp" alt="泽元灵智" width="100" height="29">
+          <div class="brand-copy"><b data-p-name>爬爬熊猫</b><span data-p-en>CRAWL PANDA</span></div>
+        </div>
         <div class="orb-wrap">
           <div class="orb-aurora"></div>
           <div class="orb-glow"></div>
@@ -111,10 +113,9 @@
                 <div class="con-sub"><span class="net-val">Home · 2.4G</span> · <span data-p-version>v1.0.8</span></div>
               </div>
               <div class="con-actions">
-                <button class="con-guide" type="button" data-guide-open aria-label="查看使用引导"><img data-p-img="face" src="assets/crawlPanda_icon.webp" alt=""></button>
+                <button class="con-guide" type="button" data-guide-open aria-label="查看使用引导"><span class="con-guide-q" aria-hidden="true">?</span></button>
                 <button class="con-manual" type="button" aria-label="打开使用说明书" aria-haspopup="dialog" aria-expanded="false">
                   <span class="con-manual-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-book"></use></svg></span>
-                  <span class="con-manual-copy"><b>说明书</b><small>P.01</small></span>
                 </button>
                 <button class="con-close" type="button" aria-label="关闭控制台"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
               </div>
@@ -142,7 +143,7 @@
                     <div class="readout">
                       <span class="readout-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-clock"></use></svg></span>
                       <span class="readout-copy"><small>运行</small><b>2h18</b></span>
-                      <em>本次开机</em>
+                      <em>开机时长</em>
                     </div>
                   </div>
                 </div>
@@ -161,7 +162,7 @@
               </section>
 
               <section class="panel panel-sound">
-                <div class="panel-head"><h3 data-p-sound-title>声音</h3><span class="panel-meta" data-p-sound-meta>固定 6 · 复刻 6</span></div>
+                <div class="panel-head"><h3 data-p-sound-title>声音</h3><span class="panel-meta sound-cap" data-p-sound-meta data-sound-cap><span class="cap-text">我的音色 <b data-cap-num>6</b>/10</span><i class="cap-bar"><i class="cap-fill" data-cap-fill></i></i></span></div>
                 <div class="now-voice">
                   <div>
                     <span class="voice-cap">当前音色</span>
@@ -192,7 +193,6 @@
                         <b class="lab-title">复刻声音</b>
                         <small class="lab-sub">录 10 秒，留住家人的声音</small>
                       </div>
-                      <span class="lab-count">6 / 10</span>
                     </div>
                     <div class="lab-steps" aria-label="复刻流程">
                       <span class="lab-step is-on"><i>1</i>录制</span><span class="lab-line"></span>
@@ -237,7 +237,7 @@
               </section>
 
               <section class="panel panel-theme">
-                <div class="panel-head"><h3>主题</h3><span class="panel-meta theme-now">奶糖 · 奶润</span></div>
+                <div class="panel-head"><h3>主题</h3><span class="panel-meta theme-now">奶糖 · 奶润 · 浅色</span></div>
                 <div class="theme-pair">
                   <div class="theme-mini">
                     <span class="theme-key">布局</span>
@@ -273,7 +273,7 @@
 
             <button class="reset-bar" type="button" aria-label="恢复出厂设置">
               <span class="reset-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-reset"></use></svg></span>
-              <span class="reset-copy"><b>恢复出厂设置</b><small data-p-reset-sub>清除网络与本机复刻声音</small></span>
+              <span class="reset-copy"><b>恢复出厂设置</b><small data-p-reset-sub>会清空 Wi-Fi 和本机录制的音色</small></span>
               <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
             </button>
             </div>
@@ -296,7 +296,7 @@
               <button class="modal-close" type="button" data-close-voice aria-label="关闭音色管理"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
             </div>
             <div class="modal-body">
-              <div class="vm-cap">复刻音色 <b data-vm-count>6</b> / 10</div>
+              <div class="vm-cap">我的音色 <b data-vm-count>6</b>/10</div>
               <div class="vm-hero">
                 <span class="vm-hero-avatar" data-vm-current-avatar>欢</span>
                 <span class="vm-hero-copy"><small>当前音色</small><b data-vm-current>龙安欢</b></span>
@@ -378,10 +378,12 @@
                 <div class="record-steps"><span class="is-on"><i>1</i>录制</span><span class="lab-line"></span><span><i>2</i>生成</span><span class="lab-line"></span><span><i>3</i>保存</span></div>
               </div>
               <div class="upload-panel" data-upload-panel hidden>
-                <div class="audio-file">
+                <input class="audio-file-input" id="audio-file-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac" aria-label="选择要上传的音频">
+                <label class="audio-file" for="audio-file-input">
                   <span class="audio-file-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-upload"></use></svg></span>
-                  <span class="audio-file-copy"><b data-audio-file>我的音频.mp3</b><small>已选择 · 14 秒 · 1.2 MB</small></span>
-                </div>
+                  <span class="audio-file-copy"><b data-audio-file>点击选择音频文件</b><small>支持 MP3 / WAV，5–20 秒人声</small></span>
+                  <span class="audio-file-cta">选择</span>
+                </label>
                 <div class="audio-wave" data-audio-wave aria-hidden="true"></div>
                 <div class="audio-trim"><span>0:00</span><input type="range" min="0" max="9" value="1" data-audio-trim aria-label="截取起点"><span data-audio-trim-end>0:15</span></div>
               </div>
@@ -403,7 +405,7 @@
               <div class="modal-head-copy">
                 <span class="modal-kicker">FACTORY RESET · DANGER</span>
                 <b>恢复出厂设置</b>
-                <small data-p-reset-sub>清除网络和本机复刻声音</small>
+                <small data-p-reset-sub>会清空 Wi-Fi 和本机录制的音色</small>
               </div>
               <button class="modal-close" type="button" data-close-reset aria-label="关闭恢复出厂设置"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
             </div>

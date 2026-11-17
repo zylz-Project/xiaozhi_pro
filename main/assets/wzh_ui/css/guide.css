@@ -280,3 +280,18 @@
   .pg-avatar img { width: 35px; height: 35px; }
   .pg-who { font-size: 9.5px; }
 }
+/* ===== UI OPTIMIZATION LAYER · guide 引导气泡 (2026-11-16) ===== */
+.pg-kicker { font-size: 10px !important; }
+.pg-who { font-size: 11.5px !important; }
+.pg-badge { font-size: 10px !important; }
+.pg-title { font-size: 17px !important; }
+.pg-text { font-size: 13.5px !important; line-height: 1.6 !important; }
+.pg-hint { font-size: 11.5px !important; }
+.pg-tip { font-size: 10px !important; }
+.pg-skip, .pg-next { font-size: 13.5px !important; min-height: 44px !important; }
+.guide-open:after { font-size: 10px !important; }
+.con-actions .con-guide:after { content: none !important; }
+.pg-bubble { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.pg-bubble[data-style="glass"] { -webkit-backdrop-filter: blur(18px) !important; backdrop-filter: blur(18px) !important; }
+.phone.dark .pg-skip { color: rgba(246,236,226,.62) !important; }
+

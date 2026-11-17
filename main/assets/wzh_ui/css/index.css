@@ -3759,3 +3759,635 @@
   .al-grid i { font-style: normal; font-family: var(--mono); font-size: 8px; color: var(--ink-3); }
   .al-grid b { font-size: 10.5px; font-weight: 600; white-space: nowrap; }
   .phone.dark .al-grid span { background: rgba(255,255,255,.06); }
+
+/* ==========================================================================
+   UI OPTIMIZATION LAYER · 2026-11-16
+   7 级字号阶梯 / 触控 ≥34–44px / 小字对比度 ≥ .66 / 常驻动画与毛玻璃收敛。
+   只做末尾覆盖，不改上方既有规则，整段可回退。
+   ========================================================================== */
+
+/* ---------- 0. 字号令牌 ---------- */
+.phone {
+  --fs-0: 10px;    /* 微标签、kicker、单位、说明 */
+  --fs-1: 11.5px;  /* 次级文字、小按钮 */
+  --fs-2: 12.5px;  /* 行标题、数值 */
+  --fs-3: 13.5px;  /* 正文、主按钮 */
+  --fs-4: 15px;    /* 区块标题、强调数值 */
+  --fs-5: 17px;    /* 面板标题、大数值 */
+  --fs-6: 22px;    /* 品牌、电量 */
+}
+
+/* ---------- 1. 收起态排版 ---------- */
+.phone .brand b { font-size: var(--fs-6) !important; letter-spacing: -.02em; }
+.phone .brand span { font-size: var(--fs-0) !important; letter-spacing: .14em; }
+.phone .status-time { font-size: var(--fs-2) !important; }
+.phone .status-pill { font-size: var(--fs-0) !important; }
+.phone .sheet-head h2 { font-size: var(--fs-5) !important; }
+.phone .sheet-state { font-size: var(--fs-2) !important; }
+.phone .metric small { font-size: var(--fs-1) !important; }
+.phone .metric b { font-size: var(--fs-6) !important; }
+.phone .metric b span { font-size: var(--fs-1) !important; }
+.phone .metric b.ssid { font-size: var(--fs-5) !important; }
+.phone .metric em { font-size: var(--fs-1) !important; }
+.phone .row-label { font-size: var(--fs-2) !important; }
+.phone .volume-val { font-size: var(--fs-2) !important; }
+.phone .voice-meta span { font-size: var(--fs-1) !important; }
+.phone .voice-meta b { font-size: var(--fs-3) !important; }
+.phone .voice-try { font-size: var(--fs-1) !important; }
+.phone .primary { font-size: var(--fs-4) !important; }
+.phone .cta-label { font-size: var(--fs-4) !important; }
+.phone .more-eyebrow { font-size: var(--fs-0) !important; }
+.phone .more-head { font-size: var(--fs-5) !important; }
+.phone .more-state { font-size: var(--fs-1) !important; }
+.phone .group-title { font-size: var(--fs-1) !important; }
+.phone .row-label2 { font-size: var(--fs-3) !important; }
+.phone .row-val { font-size: var(--fs-2) !important; }
+.phone .toast { font-size: var(--fs-1) !important; }
+
+/* ---------- 2. 控制台排版 ---------- */
+.phone .con-eyebrow { font-size: var(--fs-0) !important; }
+.phone .con-title { font-size: 20px !important; }
+.phone .con-sub { font-size: var(--fs-1) !important; }
+.phone .panel-head h3 { font-size: var(--fs-3) !important; }
+.phone .panel-meta { font-size: var(--fs-1) !important; }
+.phone .sec-head h3 { font-size: var(--fs-3) !important; }
+.phone .sec-meta { font-size: var(--fs-0) !important; }
+.phone .now-voice .voice-cap { font-size: var(--fs-0) !important; }
+.phone .now-voice .voice-now { font-size: var(--fs-5) !important; }
+.phone .listen-mini { font-size: var(--fs-1) !important; }
+.phone .voice-chip { font-size: var(--fs-2) !important; }
+.phone .voice-rail .voice-chip { font-size: var(--fs-2) !important; }
+.phone .fixed-rail .voice-chip { font-size: var(--fs-2) !important; }
+.phone .clone-rail .voice-chip { font-size: var(--fs-2) !important; }
+.phone .voice-add { font-size: var(--fs-1) !important; }
+.phone .clone-rail .voice-add { font-size: var(--fs-1) !important; }
+.phone .chip-face, .phone .clone-face { font-size: var(--fs-0) !important; }
+.phone .clone-label { font-size: var(--fs-0) !important; }
+.phone .clone-chip { font-size: var(--fs-1) !important; }
+.phone .text-action { font-size: var(--fs-1) !important; }
+.phone .con-volume .row-label { font-size: var(--fs-2) !important; }
+.phone .con-volume .volume-val { font-size: var(--fs-2) !important; }
+.phone .theme-key, .phone .mode-key { font-size: var(--fs-0) !important; }
+.phone .theme-mini .layout-btn, .phone .theme-mini .mat-btn { font-size: var(--fs-1) !important; }
+.phone .theme-mini .layout-btn b, .phone .theme-mini .mat-btn b { font-size: var(--fs-0) !important; }
+.phone .layout-btn, .phone .mat-btn { font-size: var(--fs-1) !important; }
+.phone .layout-btn b, .phone .mat-btn b { font-size: var(--fs-0) !important; }
+.phone .swatch { font-size: var(--fs-0) !important; }
+.phone .mode-btn { font-size: var(--fs-1) !important; }
+.phone .stat-line small { font-size: var(--fs-0) !important; }
+.phone .stat-line b { font-size: var(--fs-4) !important; }
+.phone .stat-line b i { font-size: var(--fs-0) !important; }
+.phone .stat-line em { font-size: var(--fs-0) !important; }
+.phone .net-copy b { font-size: var(--fs-2) !important; }
+.phone .net-copy span { font-size: var(--fs-0) !important; }
+.phone .net-change, .phone .net-change-txt { font-size: var(--fs-1) !important; }
+.phone .net-chip { font-size: var(--fs-0) !important; }
+.phone .quiet-link, .phone .util-btn { font-size: var(--fs-1) !important; }
+.phone .card-head h3 { font-size: var(--fs-3) !important; }
+.phone .card-head span { font-size: var(--fs-0) !important; }
+.phone .mini-stat b { font-size: var(--fs-4) !important; }
+.phone .mini-stat span { font-size: var(--fs-0) !important; }
+.phone .net-big b { font-size: var(--fs-3) !important; }
+.phone .net-big em { font-size: var(--fs-0) !important; }
+.phone .con-foot > span, .phone .foot { font-size: var(--fs-0) !important; }
+.phone .battery-core b { font-size: var(--fs-5) !important; }
+.phone .battery-core i { font-size: var(--fs-0) !important; }
+.phone .battery-caption { font-size: var(--fs-0) !important; }
+.phone .battery-dial.lg .battery-core b { font-size: var(--fs-5) !important; }
+.phone .battery-dial.lg .battery-core i { font-size: var(--fs-0) !important; }
+.phone .readout-copy small { font-size: var(--fs-0) !important; }
+.phone .readout-copy b { font-size: var(--fs-3) !important; }
+.phone .readout-copy b i { font-size: var(--fs-0) !important; }
+.phone .readout > em { font-size: var(--fs-0) !important; }
+.phone .network-tile .net-copy b { font-size: var(--fs-2) !important; }
+.phone .network-tile .net-copy span { font-size: var(--fs-0) !important; }
+
+/* ---------- 3. 声音 / 复刻 / 上传 ---------- */
+.phone .lab-kicker { font-size: var(--fs-0) !important; }
+.phone .lab-copy b, .phone .lab-title { font-size: var(--fs-3) !important; }
+.phone .lab-copy small, .phone .lab-sub { font-size: var(--fs-1) !important; }
+.phone .lab-count { font-size: var(--fs-1) !important; }
+.phone .lab-steps span { font-size: var(--fs-0) !important; }
+.phone .lab-steps b { font-size: var(--fs-0) !important; }
+.phone .lab-step { font-size: var(--fs-0) !important; }
+.phone .lab-step i { font-size: var(--fs-0) !important; }
+.phone .lab-btn { font-size: var(--fs-0) !important; }
+.phone .lab-record .lab-kicker { font-size: var(--fs-0) !important; }
+.phone .lab-record .lab-copy b { font-size: var(--fs-4) !important; }
+.phone .lab-record .lab-copy small { font-size: var(--fs-1) !important; }
+.phone .lab-record .lab-count { font-size: var(--fs-1) !important; }
+.phone .upload-copy b { font-size: var(--fs-2) !important; }
+.phone .upload-copy small { font-size: var(--fs-0) !important; }
+.phone .upload-go { font-size: var(--fs-0) !important; }
+.phone .clone-voice b, .phone .clone-manage { font-size: var(--fs-0) !important; }
+.phone .manage-btn { font-size: var(--fs-0) !important; }
+.phone .manage-count { font-size: var(--fs-0) !important; }
+.phone .reset-copy b { font-size: var(--fs-1) !important; }
+.phone .reset-copy small { font-size: var(--fs-0) !important; }
+.phone .reset-copy-block h4 { font-size: var(--fs-3) !important; }
+.phone .reset-copy-block p { font-size: var(--fs-1) !important; }
+.phone .reset-warning { font-size: var(--fs-0) !important; }
+
+/* ---------- 4. 弹窗 ---------- */
+.phone .modal-kicker { font-size: var(--fs-0) !important; }
+.phone .modal-head b { font-size: var(--fs-5) !important; }
+.phone .modal-head small { font-size: var(--fs-0) !important; }
+.phone .modal-btn { font-size: var(--fs-3) !important; }
+.phone .vm-cap { font-size: var(--fs-0) !important; }
+.phone .vm-cap b { font-size: var(--fs-5) !important; }
+.phone .vm-hero-avatar { font-size: var(--fs-4) !important; }
+.phone .vm-hero-copy small { font-size: var(--fs-0) !important; }
+.phone .vm-hero-copy b { font-size: var(--fs-4) !important; }
+.phone .vm-hero-play { font-size: var(--fs-0) !important; }
+.phone .vm-row-avatar { font-size: var(--fs-2) !important; }
+.phone .vm-row-copy b { font-size: var(--fs-2) !important; }
+.phone .vm-row-copy small { font-size: var(--fs-0) !important; }
+.phone .vm-use { font-size: var(--fs-0) !important; }
+.phone .vm-new { font-size: var(--fs-1) !important; }
+.phone .vm-rename-input { font-size: var(--fs-2) !important; }
+.phone .vm-confirm-card b { font-size: var(--fs-4) !important; }
+.phone .vm-confirm-card p { font-size: var(--fs-1) !important; }
+.phone .vm-error { font-size: var(--fs-0) !important; }
+.phone .audio-file-copy b { font-size: var(--fs-2) !important; }
+.phone .audio-file-copy small { font-size: var(--fs-0) !important; }
+.phone .audio-trim span { font-size: var(--fs-0) !important; }
+.phone .field span { font-size: var(--fs-0) !important; }
+.phone .field input { font-size: var(--fs-3) !important; }
+.phone .audio-hint, .phone .field-hint { font-size: var(--fs-0) !important; }
+.phone .create-tab { font-size: var(--fs-1) !important; }
+.phone .record-readout b { font-size: var(--fs-6) !important; }
+.phone .record-readout small { font-size: var(--fs-0) !important; }
+.phone .record-script span { font-size: var(--fs-0) !important; }
+.phone .record-script b { font-size: var(--fs-2) !important; }
+.phone .record-steps span { font-size: var(--fs-0) !important; }
+.phone .record-steps i { font-size: var(--fs-0) !important; }
+
+/* ---------- 5. 原型预览外框（非设备页，仅保证 ≥10px） ---------- */
+.phone .eyebrow, .phone .head-copy, .phone .phone-label .tag,
+.phone .phone-label .rec-word, .phone .under, .phone .statebar button { font-size: var(--fs-0) !important; }
+.phone .phone-label b { font-size: var(--fs-2) !important; }
+.phone .voice-alt .va-row b { font-size: var(--fs-4) !important; }
+.phone .voice-alt .va-row em, .phone .voice-alt .va-chips span { font-size: var(--fs-0) !important; }
+.phone .voice-alt .va-desc { font-size: var(--fs-2) !important; }
+.phone .sa-ico { font-size: var(--fs-2) !important; }
+.phone .sa-meta small, .phone .sa-tag { font-size: var(--fs-0) !important; }
+.phone .sa-meta b { font-size: var(--fs-3) !important; }
+.phone .al-head b { font-size: var(--fs-3) !important; }
+.phone .al-head span { font-size: var(--fs-0) !important; }
+.phone .al-grid i { font-size: var(--fs-0) !important; }
+.phone .al-grid b { font-size: var(--fs-1) !important; }
+
+/* ---------- 6. 小字对比度 ---------- */
+.phone .metric small, .phone .metric em, .phone .row-label, .phone .voice-meta span,
+.phone .panel-meta, .phone .sec-meta, .phone .voice-cap, .phone .con-sub,
+.phone .con-eyebrow, .phone .lab-kicker, .phone .lab-copy small, .phone .lab-sub,
+.phone .lab-count, .phone .lab-step, .phone .lab-steps span, .phone .lab-btn,
+.phone .upload-copy small, .phone .upload-go, .phone .clone-label, .phone .chip-face,
+.phone .manage-btn, .phone .manage-count, .phone .reset-copy small, .phone .reset-warning,
+.phone .theme-key, .phone .mode-key, .phone .battery-caption, .phone .readout-copy small,
+.phone .readout > em, .phone .stat-line small, .phone .stat-line em, .phone .stat-line b i,
+.phone .net-copy span, .phone .card-head span, .phone .mini-stat span, .phone .net-big em,
+.phone .con-foot > span, .phone .foot, .phone .modal-kicker, .phone .modal-head small,
+.phone .vm-cap, .phone .vm-row-copy small, .phone .vm-hero-copy small, .phone .audio-hint,
+.phone .field-hint, .phone .field span, .phone .audio-trim span, .phone .audio-file-copy small,
+.phone .vm-confirm-card p, .phone .record-script span, .phone .record-steps span,
+.phone .clone-voice b, .phone .clone-manage, .phone .more-state, .phone .group-title,
+.phone .quiet-link, .phone .voice-try, .phone .net-chip, .phone .net-change-txt,
+.phone .upload-copy small, .phone .card-head span, .phone .lab-record .lab-copy small {
+  color: rgba(47, 40, 34, .66) !important;
+}
+.phone.dark .metric small, .phone.dark .metric em, .phone.dark .row-label,
+.phone.dark .voice-meta span, .phone.dark .panel-meta, .phone.dark .sec-meta,
+.phone.dark .voice-cap, .phone.dark .con-sub, .phone.dark .con-eyebrow,
+.phone.dark .lab-kicker, .phone.dark .lab-copy small, .phone.dark .lab-sub,
+.phone.dark .lab-count, .phone.dark .lab-step, .phone.dark .lab-steps span,
+.phone.dark .lab-btn, .phone.dark .upload-copy small, .phone.dark .upload-go,
+.phone.dark .clone-label, .phone.dark .chip-face, .phone.dark .manage-btn,
+.phone.dark .manage-count, .phone.dark .reset-copy small, .phone.dark .reset-warning,
+.phone.dark .theme-key, .phone.dark .mode-key, .phone.dark .battery-caption,
+.phone.dark .readout-copy small, .phone.dark .readout > em, .phone.dark .stat-line small,
+.phone.dark .stat-line em, .phone.dark .stat-line b i, .phone.dark .net-copy span,
+.phone.dark .card-head span, .phone.dark .mini-stat span, .phone.dark .net-big em,
+.phone.dark .con-foot > span, .phone.dark .foot, .phone.dark .modal-kicker,
+.phone.dark .modal-head small, .phone.dark .vm-cap, .phone.dark .vm-row-copy small,
+.phone.dark .vm-hero-copy small, .phone.dark .audio-hint, .phone.dark .field-hint,
+.phone.dark .field span, .phone.dark .audio-trim span, .phone.dark .audio-file-copy small,
+.phone.dark .vm-confirm-card p, .phone.dark .record-script span, .phone.dark .record-steps span,
+.phone.dark .clone-voice b, .phone.dark .clone-manage, .phone.dark .more-state,
+.phone.dark .group-title, .phone.dark .quiet-link, .phone.dark .voice-try,
+.phone.dark .net-chip, .phone.dark .net-change-txt {
+  color: rgba(246, 236, 226, .74) !important;
+}
+
+/* ---------- 7. 触控与容器 ---------- */
+.phone .voice-try { height: 34px !important; min-width: 52px !important; padding: 0 12px !important; }
+.phone .listen-mini { height: 34px !important; min-width: 60px !important; padding: 0 12px !important; }
+.phone .net-change { height: 34px !important; min-width: 58px !important; padding: 0 12px !important; }
+.phone .primary { height: 48px !important; }
+.phone .fixed-rail .voice-chip, .phone .clone-rail .voice-chip,
+.phone .voice-rail .voice-chip { height: 36px !important; }
+.phone .voice-add { height: 36px !important; min-width: 58px !important; }
+.phone .manage-btn { min-height: 40px !important; min-width: 54px !important; }
+.phone .lab-btn { min-height: 34px !important; }
+.phone .layout-btn, .phone .mat-btn { min-height: 40px !important; }
+.phone .swatch { min-height: 40px !important; }
+.phone .mode-btn { height: 34px !important; min-width: 58px !important; }
+.phone .text-action, .phone .quiet-link { min-height: 32px !important; }
+.phone .modal-btn { height: 44px !important; }
+.phone .modal-close { width: 40px !important; height: 40px !important; }
+.phone .vm-new { height: 44px !important; }
+.phone .create-tab { height: 36px !important; }
+.phone .vm-use { height: 34px !important; min-width: 52px !important; padding: 0 10px !important; }
+.phone .vm-icon { width: 34px !important; height: 34px !important; }
+.phone .vm-icon .ico { width: 16px !important; height: 16px !important; }
+.phone .vm-hero-play { height: 34px !important; min-width: 60px !important; padding: 0 12px !important; }
+.phone .vm-row { min-height: 58px !important; padding: 8px !important; gap: 8px !important; }
+.phone .vm-row-actions { gap: 4px !important; }
+.phone .field input { height: 44px !important; }
+.phone .reset-bar { min-height: 52px !important; }
+
+/* ---------- 8. 控制台头部：三个等大圆钮 ---------- */
+.phone .con-head { gap: 8px !important; }
+.phone .con-head > div:first-child { min-width: 0; flex: 1 1 auto; }
+.phone .con-actions { gap: 8px !important; }
+.phone .con-guide, .phone .con-manual, .phone .con-close {
+  flex: 0 0 44px !important;
+  width: 44px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  display: grid !important;
+  place-items: center !important;
+}
+.phone .con-manual { gap: 1px !important; }
+.phone .con-manual-ico { width: auto !important; height: auto !important; background: none !important; border: 0 !important; border-radius: 0 !important; }
+.phone .con-manual-ico .ico { width: 18px !important; height: 18px !important; }
+.phone .con-manual-tag { font-size: var(--fs-0) !important; line-height: 1; letter-spacing: .06em; color: rgba(47,40,34,.66); }
+.phone.dark .con-manual-tag { color: rgba(246,236,226,.74); }
+.phone .con-actions .con-guide { position: relative; }
+.phone .con-guide-q { font-size: 16px !important; font-weight: 700; line-height: 1; color: var(--ink); }
+.phone .con-actions .con-guide:after { content: none !important; }
+.phone .con-close .ico { width: 18px !important; height: 18px !important; }
+.phone .con-guide img, .phone .con-manual-copy { display: none !important; }
+
+/* ---------- 9. 容量：只留一处 + 进度条 ---------- */
+.phone .sound-cap { display: inline-flex !important; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.phone .sound-cap b { font-size: var(--fs-1) !important; font-weight: 700; color: var(--ink-2); }
+.phone .cap-bar { display: inline-block; width: 46px; height: 4px; border-radius: 99px; background: rgba(47,40,34,.14); overflow: hidden; }
+.phone .cap-fill { display: block; height: 100%; width: 60%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-deep)); opacity: .85; transition: width .3s ease; }
+.phone .sound-cap.is-full b { color: var(--danger); }
+.phone .sound-cap.is-full .cap-fill { background: var(--danger); opacity: .9; }
+.phone.dark .cap-bar { background: rgba(255,255,255,.18); }
+.phone .vm-cap { color: rgba(47,40,34,.66) !important; }
+.phone.dark .vm-cap { color: rgba(246,236,226,.74) !important; }
+
+/* ---------- 10. 性能：常驻动画与毛玻璃收敛 ---------- */
+.phone .orb-aurora { animation: none !important; }
+.phone .panda { animation: none !important; }
+.phone .status-dot { animation: none !important; }
+.phone .net-sweep { animation: none !important; }
+.phone .orb-aurora { filter: blur(16px) !important; }
+.phone .status-pill, .phone .orb, .phone .orb-bubbles i, .phone .orb-foam i,
+.phone .scrim, .phone .con-manual, .phone .con-close, .phone .manual-close-float,
+.phone .panda-modal, .phone .vm-confirm { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.phone .panda-modal { background: rgba(38,28,21,.42) !important; }
+
+
+/* ==========================================================================
+   UI FIX 1 · 2026-11-16（实测微调：容量条、主题双行、试听按钮、当前音色行）
+   ========================================================================== */
+/* 容量条：去掉 HTML 空白节点造成的 “6 /10” 间隙 */
+.phone .sound-cap { display: inline-flex !important; align-items: center !important; gap: 4px !important; font-size: 0 !important; line-height: 1 !important; }
+.phone .sound-cap > span,
+.phone .sound-cap > b { font-size: var(--fs-1) !important; line-height: 1 !important; }
+.phone .sound-cap > b { font-variant-numeric: tabular-nums; font-weight: 700; }
+.phone .sound-cap .cap-bar { flex: 0 0 46px !important; width: 46px !important; margin-left: 2px; }
+
+/* 主题：布局/玻璃保持左右两列（沿用原设计），仅在 <360 宽时改为上下两行 */
+.phone .theme-pair { align-items: stretch !important; gap: 7px !important; }
+.phone .theme-mini { flex: 1 1 0 !important; width: auto !important; min-width: 0 !important; gap: 4px !important; }
+.phone .theme-mini .theme-key { flex: 0 0 22px !important; }
+.phone .theme-mini .layout-switch,
+.phone .theme-mini .mat-switch { flex: 1 1 auto !important; min-width: 0 !important; gap: 4px !important; }
+.phone .theme-mini .layout-btn,
+.phone .theme-mini .mat-btn { flex: 1 1 0 !important; min-width: 0 !important; height: 40px !important; padding: 0 4px !important; gap: 3px !important; }
+.phone .theme-mini .layout-btn span,
+.phone .theme-mini .mat-btn span { white-space: nowrap !important; }
+.phone .theme-mini .layout-prev,
+.phone .theme-mini .mat-prev { flex: 0 0 12px !important; width: 12px !important; height: 12px !important; }
+@media (max-width: 359px) {
+  .phone .theme-pair { flex-direction: column !important; gap: 8px !important; }
+  .phone .theme-mini { flex: 0 0 auto !important; width: 100% !important; gap: 8px !important; }
+  .phone .theme-mini .theme-key { flex: 0 0 34px !important; }
+}
+
+/* 声音区：试听按钮不再把内容挤出面板 */
+.phone .now-voice { min-width: 0 !important; }
+.phone .now-voice .listen-mini { flex: 0 0 auto !important; padding: 0 10px !important; white-space: nowrap; }
+.phone .now-voice .voice-name,
+.phone .now-voice .voice-now { min-width: 0 !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+
+/* 收起态「当前音色」整行可点，补足触控高度 */
+.phone .voice-open { min-height: 44px !important; }
+
+
+/* 试听按钮：内边距与图标收紧，避免 320–390 宽下内容外溢 */
+.phone .now-voice .listen-mini { min-width: 0 !important; padding: 0 8px !important; gap: 4px !important; }
+.phone .now-voice .listen-mini .ico { flex: 0 0 14px !important; width: 14px !important; height: 14px !important; }
+
+
+.phone .now-voice .listen-mini { padding: 0 6px !important; gap: 2px !important; }
+
+/* 容量文案 “我的音色 6/10” 作为整体，与进度条之间留 6px */
+.phone .sound-cap { gap: 6px !important; }
+.phone .sound-cap > .cap-text { font-size: var(--fs-1) !important; line-height: 1 !important; white-space: nowrap; }
+.phone .sound-cap > .cap-text > b { font-size: var(--fs-1) !important; font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* 录音 puck 与文案同步放大（原 70px 偏小） */
+.phone .record-puck { flex: 0 0 84px !important; width: 84px !important; height: 84px !important; }
+.phone .record-puck .record-ico, .phone .record-puck .record-ico .ico { width: 32px !important; height: 32px !important; }
+.phone .record-readout small { font-size: var(--fs-0) !important; }
+
+/* 小助手：缩小到 48px，滚动时自动让位，底部留出安全区 */
+.phone .float-assistant { width: 48px !important; height: 48px !important; right: 12px !important; bottom: 12px !important;
+  transition: opacity .22s ease, transform .22s ease, box-shadow .22s ease !important; }
+.phone .float-assistant .fa-face { width: 29px !important; height: 29px !important; }
+.phone .float-assistant .fa-mic { width: 17px !important; height: 17px !important; }
+.phone .float-assistant.fa-away { opacity: 0 !important; transform: translateY(8px) scale(.9) !important; pointer-events: none !important; }
+.phone .console-scroll { padding-bottom: 76px !important; }
+
+/* 玻璃材质预览：通透A / 奶润B 区分明显 */
+.phone .theme-mini .mat-prev { position: relative; overflow: hidden; }
+.phone .theme-mini .mat-prev.a {
+  background: linear-gradient(142deg, rgba(255,255,255,.98) 0%, rgba(255,255,255,.42) 52%, rgba(201,119,82,.16) 100%);
+  border-color: rgba(255,255,255,.92);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(120,95,75,.10);
+}
+.phone .theme-mini .mat-prev.a::after {
+  content: ''; position: absolute; left: -8px; top: -9px; width: 24px; height: 24px;
+  background: radial-gradient(circle at 34% 34%, rgba(255,255,255,.98), rgba(255,255,255,0) 68%);
+}
+.phone .theme-mini .mat-prev.b {
+  background: linear-gradient(158deg, rgba(255,253,249,.99) 0%, rgba(243,231,218,.95) 62%, rgba(226,207,189,.92) 100%);
+  border-color: rgba(255,255,255,.96);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), inset 0 -2px 5px rgba(158,126,100,.18);
+}
+
+/* 控制台滚动区顶部柔化，避免内容被硬切一半 */
+.phone .console-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 12px);
+}
+/* 恢复出厂说明：窄屏折行时均衡断行，避免末行只剩一个字 */
+.phone .reset-copy small,
+.phone [data-p-reset-sub] { text-wrap: balance; }
+
+/* ===== COMPONENT POLISH 2026-11-16（组件效果层） =====
+   1) 状态球去 backdrop-filter：球体 + 16 个气泡/泡沫各自一层背景模糊，
+      在手机上每帧合成成本很高；这些元素本身已有自足的径向渐变，
+      去掉背景模糊视觉几乎无差。
+   2) 展开态不再对整棵球体子树做 filter: blur()，改为淡出后隐藏，
+      避免动画期间持续重绘模糊图层（与小程序做法一致）。
+   3) 触控反馈：去掉点击高亮块，按下给轻微缩放；禁用双击缩放延迟。
+   4) 数字等宽，避免数值跳动时抖动。
+   5) 刘海屏安全区：底部控制台/恢复出厂条不压在 Home 指示条下。
+   6) 滚动容器 overscroll 收敛，避免带动整页回弹。 */
+
+/* --- 1) 去掉动画图层上的背景模糊 --- */
+.phone .orb,
+.phone .orb-bubbles i,
+.phone .orb-foam i { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+/* 球体失去背景模糊后略加不透明度，保持通透感 */
+.phone.b .orb { background:
+  radial-gradient(circle at 28% 16%, rgba(255,255,255,.74) 0%, rgba(255,255,255,.26) 26%, rgba(255,255,255,.10) 54%, rgba(255,255,255,.20) 100%) !important; }
+.phone.a .orb { background:
+  radial-gradient(circle at 28% 16%, rgba(255,255,255,.60) 0%, rgba(255,255,255,.14) 28%, rgba(255,255,255,.06) 58%, rgba(255,255,255,.14) 100%) !important; }
+
+/* --- 2) 展开态：淡出后隐藏，不做子树模糊 --- */
+.phone.expanded .orb-wrap {
+  opacity: 0 !important;
+  filter: none !important;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .24s ease, transform .45s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s;
+}
+.phone:not(.expanded) .orb-wrap { visibility: visible; }
+
+/* --- 3) 触控反馈 --- */
+.phone, .phone * { -webkit-tap-highlight-color: transparent; }
+.phone button, .phone .voice-chip, .phone .mode-btn, .phone .layout-btn,
+.phone .mat-btn, .phone .swatch, .phone .vm-use, .phone .vm-icon,
+.phone .net-row, .phone .net-change, .phone .manage-btn, .phone .listen-mini,
+.phone .con-guide, .phone .con-manual, .phone .con-close, .phone .modal-btn,
+.phone .create-tab, .phone .reset-bar, .phone .voice-add, .phone .voice-try {
+  touch-action: manipulation;
+  -webkit-user-select: none; user-select: none;
+  transition: transform .14s ease, background-color .18s ease, color .18s ease, opacity .18s ease;
+}
+.phone button:active, .phone .voice-chip:active, .phone .mode-btn:active,
+.phone .layout-btn:active, .phone .mat-btn:active, .phone .swatch:active,
+.phone .vm-use:active, .phone .vm-icon:active, .phone .net-row:active,
+.phone .net-change:active, .phone .manage-btn:active, .phone .listen-mini:active,
+.phone .con-guide:active, .phone .con-manual:active, .phone .con-close:active,
+.phone .modal-btn:active, .phone .create-tab:active, .phone .reset-bar:active,
+.phone .voice-add:active, .phone .voice-try:active { transform: scale(.972); }
+.phone button:disabled, .phone .modal-btn[disabled] { transform: none; }
+
+/* --- 4) 数字等宽 --- */
+.phone .metric b, .phone .volume-val, .phone .status-time, .phone .cap-num,
+.phone .battery-num, .phone .vm-count, .phone .manage-count,
+.phone [data-cap-num], .phone .panel-meta b { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+/* --- 5) 安全区 --- */
+.phone .console-scroll { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+.phone .reset-bar { margin-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+.phone .sheet { padding-bottom: calc(var(--sheet-pad, 0px) + env(safe-area-inset-bottom, 0px)); }
+
+/* --- 6) 滚动收敛 --- */
+.phone .console-scroll, .phone .manual-body, .phone .fixed-track,
+.phone .clone-rail, .phone .net-list, .phone .vm-list {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* --- 7) 减少动态效果偏好 --- */
+@media (prefers-reduced-motion: reduce) {
+  .phone .orb-aurora, .phone .orb-glow, .phone .orb-ripples i,
+  .phone .orb-bubbles i, .phone .orb-foam i, .phone .orb,
+  .phone .status-dot, .phone .net-sweep, .phone .panda {
+    animation: none !important;
+  }
+  .phone * { transition-duration: .01ms !important; }
+}
+
+/* ===== COMPONENT POLISH 2 · 2026-11-16（状态反馈与玻璃收敛） =====
+   待机保持静止（省电、和小程序一致），只在“聆听 / 说话”时恢复球体与熊猫动效；
+   这些动画只跑 transform / opacity，且由用户操作触发、时长有限。 */
+.phone[data-state="speaking"] .orb-aurora {
+  animation: auroraSpin 8.5s linear infinite, auroraBreathe 1.7s ease-in-out infinite !important;
+}
+.phone[data-state="speaking"] .orb-glow { animation: glowPulse 1.55s ease-in-out infinite !important; }
+.phone[data-state="speaking"] .orb { animation: orbJelly 3.4s ease-in-out infinite !important; }
+.phone[data-state="speaking"] .orb-ripples i { animation: orbRing 2.05s cubic-bezier(.16,.7,.24,1) infinite !important; }
+.phone[data-state="listening"] .orb-ripples i { animation: orbRing 3.2s cubic-bezier(.16,.7,.24,1) infinite !important; }
+.phone[data-state="speaking"] .panda { animation: pandaTalk 2.2s cubic-bezier(.42,0,.2,1) infinite !important; }
+.phone[data-state="listening"] .panda { animation: pandaTalk 2.6s cubic-bezier(.42,0,.2,1) infinite !important; }
+.phone[data-state="speaking"] .orb-bubbles i,
+.phone[data-state="speaking"] .orb-foam i { will-change: transform, border-radius; }
+.phone[data-state="listening"] .orb-bubbles i { will-change: transform; }
+
+/* 底部玻璃卡：32px 背景模糊在手机上偏重，降到 18px 视觉几乎无差 */
+.phone .sheet { -webkit-backdrop-filter: blur(18px) saturate(1.7) !important; backdrop-filter: blur(18px) saturate(1.7) !important; }
+
+/* ================= 用户反馈修复 · 2026-11-17 ================= */
+/* 1. 顶部：去掉假时间；品牌改成“公司 logo + 产品名” */
+.phone .statusbar { justify-content: flex-end !important; }
+.phone .brand {
+  top: 38px !important;
+  left: 23px !important;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 118px);
+}
+.phone .brand .brand-mark {
+  flex: 0 0 auto;
+  width: 100px;
+  height: 29px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 6px rgba(30, 50, 90, .10));
+}
+.phone.dark .brand .brand-mark {
+  filter: brightness(0) invert(1) drop-shadow(0 3px 6px rgba(0, 0, 0, .18));
+  opacity: .92;
+}
+.phone .brand .brand-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 1px solid rgba(47, 40, 34, .12);
+}
+.phone.dark .brand .brand-copy { border-left-color: rgba(246, 236, 226, .18); }
+.phone .brand .brand-copy b { font-size: 15px !important; line-height: 1.1; letter-spacing: -.02em; }
+.phone .brand .brand-copy span { margin-top: 2px !important; font-size: 10px !important; line-height: 1; letter-spacing: .1em; }
+.phone.dark .brand .brand-copy span { color: rgba(246, 236, 226, .52) !important; }
+
+/* 2. 说明书按钮只留图标（去掉 P.01），尺寸保持引导第 12 步一致 */
+.phone .con-manual { gap: 0 !important; }
+.phone .con-manual-tag { display: none !important; }
+
+/* 3. 弹窗：关闭按钮正圆；底部按钮严格同高 */
+.phone .modal-close { flex: 0 0 40px !important; }
+.phone .modal-actions .modal-btn { width: auto !important; margin-top: 0 !important; }
+
+/* 4. 上传音频：真实 file input（sr-only 渲染，iOS 才会弹资源库） */
+.phone .audio-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.phone .audio-file {
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform .14s ease, background .18s ease;
+}
+.phone .audio-file:active { transform: scale(.99); }
+.phone .audio-file-cta {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(201, 119, 82, .22);
+  border-radius: 999px;
+  color: var(--accent-deep);
+  background: rgba(201, 119, 82, .12);
+  font-size: var(--fs-1);
+  font-weight: 650;
+}
+.phone.dark .audio-file-cta {
+  border-color: rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .08);
+}
+
+/* 5. 手机视口：整页锁死，只允许内部组件滚动（去掉下滑刷新/整页滚动） */
+@media (max-width: 720px) {
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { position: fixed; inset: 0; width: 100%; }
+  .page { width: 100%; height: 100%; padding: 0; overflow: hidden; }
+  .phone-label, .under, .page-head { display: none !important; }
+  .stage { display: block; height: 100%; }
+  .phone-col { width: 100%; height: 100%; flex: 1 1 auto; }
+  .phone { width: 100%; height: 100%; border-radius: 0; box-shadow: none; }
+  .statusbar { top: max(14px, env(safe-area-inset-top)) !important; left: 16px; right: 16px; }
+  .brand { top: calc(max(14px, env(safe-area-inset-top)) + 30px) !important; left: 16px !important; max-width: calc(100% - 100px); }
+  .sheet {
+    left: 10px;
+    right: 10px;
+    top: auto !important;
+    bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    height: auto;
+    max-height: calc(100% - 118px);
+  }
+  .phone.expanded .sheet {
+    top: max(8px, env(safe-area-inset-top)) !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    max-height: none;
+  }
+  .console-scroll { padding-bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+  .manual-sheet { left: 8px; right: 8px; }
+}
+@media (max-width: 720px) and (max-height: 720px) {
+  .orb-wrap { top: 64px; height: 232px; }
+  .orb { width: 224px; height: 224px; }
+  .panda { width: 140px; height: 140px; }
+  .orb-glow { width: 260px; height: 210px; }
+}
+
+/* ---------- 用户反馈修复 · 2026-11-17 (2) ---------- */
+.phone [data-upload-panel]:not(.has-file) .audio-wave,
+.phone [data-upload-panel]:not(.has-file) .audio-trim { display: none !important; }
+.phone .audio-trim[hidden] { display: none !important; }
+.phone .audio-modal .modal-btn.primary:disabled {
+  opacity: .38 !important;
+  box-shadow: none !important;
+  cursor: default !important;
+}
+.phone .audio-wave:empty { display: none !important; }
+
+/* Wi-Fi 名称不应与电量/温度数字同号，窄屏会被挤到换行/截断 */
+.phone .metric b.ssid { font-size: var(--fs-5) !important; letter-spacing: -.02em !important; }
+.phone .metric-net em { min-width: 0; white-space: nowrap; }
+@media (max-width: 359px) {
+  .phone .metric-net em { font-size: 10px !important; gap: 3px !important; }
+  .phone .metric-net em span[data-metric-signal] { display: none !important; }
+}
+
+/* ---------- 审计修复 · 2026-11-17 深色状态胶囊 ---------- */
+/* index.html 不加载 panda.css，深色下 .status-pill 仍是浅色页的深墨字，几乎不可读 */
+.phone.dark .statusbar { color: rgba(246,236,226,.72) !important; }
+.phone.dark .status-pill {
+  color: rgba(246,236,226,.86) !important;
+  background: rgba(255,255,255,.10) !important;
+  border-color: rgba(255,255,255,.16) !important;
+  box-shadow: 0 5px 14px -10px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08) !important;
+}
+
+/* 深色下“恢复出厂设置”危险条文字 #9f493a 压在深底上仅 ~2.8:1，提亮到暖珊瑚 */
+.phone.dark .reset-bar,
+.phone.dark .reset-copy,
+.phone.dark .reset-bar b { color: #e89a80 !important; }
+.phone.dark .reset-bar .reset-ico,
+.phone.dark .reset-bar .chev { color: #e89a80 !important; opacity: .9; }
+.phone.dark .reset-bar:hover { background: rgba(232,154,128,.10) !important; }
+
