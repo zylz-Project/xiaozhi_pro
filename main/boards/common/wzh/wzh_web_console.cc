@@ -149,11 +149,14 @@ void WebConsole::Configure(Options options) {
 bool WebConsole::Start() {
     if (started_.load())
         return true;
+    if (server_start_failed_.load())
+        return false;
     // Starting the bootstrap and HTTP tasks at once needs two internal stacks.
-    // Leave headroom for Wi-Fi/audio; the idle tick retries after memory recovers.
-    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 24 * 1024 ||
-        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 8192) {
-        ESP_LOGW(
+    // Give user-facing audio and networking priority over the developer page.
+    // Insufficient memory is transient; the idle tick can retry it safely.
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 48 * 1024 ||
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 12 * 1024) {
+        ESP_LOGD(
             TAG, "管理页等待内存恢复: internal=%u largest=%u",
             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
             static_cast<unsigned>(
@@ -355,8 +358,14 @@ bool WebConsole::StartHttpServer() {
     config.lru_purge_enable = true;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
-    if (httpd_start(&server_, &config) != ESP_OK) {
-        ESP_LOGE(TAG, "启动管理页 HTTP 服务失败");
+    const esp_err_t start_error = httpd_start(&server_, &config);
+    if (start_error != ESP_OK) {
+        // Some IDF failure paths have already opened sockets without exposing a
+        // handle to close. Retrying can permanently conflict with the listener.
+        // Keep BLE and user functions running; a reboot allows a fresh attempt.
+        server_start_failed_.store(true);
+        ESP_LOGE(TAG, "启动管理页 HTTP 服务失败 (%s)，本次开机不再重试",
+                 esp_err_to_name(start_error));
         server_ = nullptr;
         return false;
     }

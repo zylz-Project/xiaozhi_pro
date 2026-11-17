@@ -134,6 +134,9 @@ private:
     size_t route_count_ = 0;
     std::mutex lifecycle_mutex_;
     std::atomic<bool> started_{false};
+    // IDF 6.0.2 can leave listener sockets open when httpd_start fails after
+    // creating them. Do not repeatedly create bootstrap tasks in that state.
+    std::atomic<bool> server_start_failed_{false};
     esp_netif_t* ap_netif_ = nullptr;
     httpd_handle_t server_ = nullptr;
     std::string ap_ssid_;
