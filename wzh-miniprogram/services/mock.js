@@ -102,6 +102,7 @@ class MockClient {
     this.status = {
       online: true,
       state: 'idle',
+      startup_notice: '',
       battery: 86,
       charging: true,
       temp: 41,

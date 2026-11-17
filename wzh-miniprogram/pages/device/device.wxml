@@ -44,6 +44,8 @@
         <view class="sheet-state"><text>{{sheetState}}</text></view>
       </view>
 
+      <view wx:if="{{status.startupNotice}}" class="startup-notice" aria-role="alert">{{status.startupNotice}}</view>
+
       <view class="metrics">
         <view class="metric">
           <view class="tx-small"><view class="ico ico-battery"></view><text>电量</text></view>

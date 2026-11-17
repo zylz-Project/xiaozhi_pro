@@ -4706,3 +4706,14 @@ page { background: transparent; }
    高度由 device.js 的 --safe-bottom 决定，Android 为 0 时与原来完全一致。 */
 .phone.expanded .sheet { bottom: calc(12rpx + var(--safe-bottom, 0px)); }
 
+.startup-notice {
+  margin: 18rpx 0 8rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(185, 119, 34, .12);
+  color: #805018;
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+.phone.dark .startup-notice { color: #f6cf91; background: rgba(185, 119, 34, .20); }
+

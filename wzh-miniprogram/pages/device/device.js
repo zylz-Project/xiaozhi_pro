@@ -153,6 +153,7 @@ function faqFor(product) {
 const DEFAULT_STATUS = {
   online: true,
   state: 'idle',
+  startupNotice: '',
   battery: 86,
   charging: true,
   temp: 41,
@@ -483,6 +484,9 @@ Page({
     return {
       online: s.online !== false,
       state: s.state || 'idle',
+      startupNotice: typeof s.startup_notice === 'string'
+        ? s.startup_notice
+        : (typeof s.startupNotice === 'string' ? s.startupNotice : ''),
       battery: fmt.clamp(Number(s.battery != null ? s.battery : 0), 0, 100),
       charging: !!s.charging,
       // 真机上报的是浮点（51.79999…），界面只显示取整值；分级文案也在这里统一算。

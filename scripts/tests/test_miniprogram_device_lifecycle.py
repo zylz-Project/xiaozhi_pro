@@ -10,6 +10,29 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class DeviceLifecycleTest(unittest.TestCase):
+    def test_startup_notice_appears_persists_across_partial_update_and_clears(self):
+        if not shutil.which('node'):
+            self.skipTest('node required')
+        program = r'''
+const assert = require('assert');
+let definition;
+global.Page = value => { definition = value; };
+global.getApp = () => ({ globalData: {} });
+require('./wzh-miniprogram/pages/device/device.js');
+const page = Object.assign({}, definition, {
+ data: Object.assign({}, definition.data),
+ setData(patch) { Object.assign(this.data, patch); },
+ orbVars() { return ''; }
+});
+page.applyStatus({startup_notice: '设备温度过高'});
+assert.strictEqual(page.data.status.startupNotice, '设备温度过高');
+page.applyStatus({volume: 42});
+assert.strictEqual(page.data.status.startupNotice, '设备温度过高');
+page.applyStatus({startup_notice: ''});
+assert.strictEqual(page.data.status.startupNotice, '');
+'''
+        subprocess.run(['node', '-e', program], cwd=ROOT, check=True, timeout=15)
+
     def test_show_refreshes_safe_area_and_connected_device(self):
         if not shutil.which('node'):
             self.skipTest('node required')
