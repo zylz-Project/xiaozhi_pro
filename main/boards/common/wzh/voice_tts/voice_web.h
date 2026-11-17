@@ -19,6 +19,10 @@ public:
     bool Upload(uint8_t* data, size_t length);
     bool Cancel();
     bool Busy() const { return busy_.load(); }
+    bool BusyWithMutation() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return busy_.load() && action_ != "list";
+    }
     void AddStatus(cJSON* out);
 
 private:

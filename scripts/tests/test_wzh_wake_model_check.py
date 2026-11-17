@@ -1,4 +1,4 @@
-"""Exercise the actual CMake guard used by both IDE and scripted builds."""
+"""Exercise the CMake guard that reports a stale cross-product wake model."""
 from pathlib import Path
 import subprocess
 import unittest
@@ -24,13 +24,31 @@ class WakeModelCheckTest(unittest.TestCase):
             for model in pairs.values():
                 with self.subTest(board=board, model=model):
                     result = self.run_check(board, model)
-                    self.assertEqual(result.returncode == 0, model == expected, result.stderr)
+                    # A stale model is reported but must never fail configuration:
+                    # the SDK configuration editor has to stay reachable.
+                    self.assertEqual(result.returncode, 0, result.stderr)
                     if model != expected:
                         self.assertIn('WZH wake model mismatch', result.stderr)
-                        self.assertEqual(self.run_check(board, model, allow=True).returncode, 0)
-                        self.assertEqual(self.run_check(board, model, enabled=False).returncode, 0)
-            self.assertEqual(self.run_check(board, 'WN9_NIHAOXIAOZHI_TTS').returncode, 0)
+                    else:
+                        self.assertNotIn('WZH wake model mismatch', result.stderr)
+            self.assertNotIn('WZH wake model mismatch',
+                             self.run_check(board, 'WN9_NIHAOXIAOZHI_TTS').stderr)
+
+    def test_allow_and_disabled_suppress_the_warning(self):
+        for board, model in [('CRAWLPANDA', 'WN9_XIAOLONGXIAOLONG_TTS'),
+                             ('DINOSAUR', 'WN9_NIHAOXIAOAN_TTS2')]:
+            with self.subTest(board=board, model=model):
+                self.assertIn('WZH wake model mismatch',
+                              self.run_check(board, model).stderr)
+                self.assertNotIn('WZH wake model mismatch',
+                                 self.run_check(board, model, allow=True).stderr)
+                self.assertNotIn('WZH wake model mismatch',
+                                 self.run_check(board, model, enabled=False).stderr)
 
     def test_main_build_includes_guard(self):
         self.assertIn('boards/common/wzh/wake_model_check.cmake',
                       (ROOT / 'main/CMakeLists.txt').read_text())
+
+
+if __name__ == '__main__':
+    unittest.main()

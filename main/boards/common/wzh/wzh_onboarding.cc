@@ -85,7 +85,7 @@ bool Available() {
            !Board::GetInstance().IsAudioMaintenanceActive();
 }
 
-bool Play(std::string_view sound, bool voice_motion, uint8_t step) {
+bool Play(std::string_view sound, bool voice_motion, uint8_t step, const char* message = nullptr) {
     auto& audio = Application::GetInstance().GetAudioService();
     std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::defer_lock);
     const TickType_t wait_start = xTaskGetTickCount();
@@ -106,7 +106,7 @@ bool Play(std::string_view sound, bool voice_motion, uint8_t step) {
     const auto generation = audio.GetPlaybackGeneration();
     voice_motion_active.store(voice_motion);
     ESP_LOGI(kTag, "Voice request: tutorial=%s text=%s", StepName(step),
-             OnboardingTranscript(step));
+             message ? message : OnboardingTranscript(step));
     audio.PlaySound(sound, generation);
     while (!stopping.load() && Available() && audio.GetPlaybackGeneration() == generation &&
            !audio.IsPlaybackIdle())
@@ -146,7 +146,13 @@ bool WaitFor(std::atomic<uint32_t>* counter, uint32_t before, uint32_t timeout_m
 }
 
 bool SaveInterrupted(OnboardingProgress& progress) {
-    progress.Interrupted();
+    if (progress.step < 8) {
+        // The first chapter must finish before double-click is enabled.
+        // Retry an interrupted sentence instead of skipping past the gate.
+        progress.attempts = (progress.attempts + 1) % OnboardingProgress::kMaxAttempts;
+    } else {
+        progress.Interrupted();
+    }
     // Factory reset stops the worker before clearing NVS. Other maintenance
     // delays the write until it releases the shared audio and storage paths.
     while (!stopping.load() && Board::GetInstance().IsAudioMaintenanceActive())
@@ -178,6 +184,7 @@ void Worker(void*) {
         vTaskDelete(nullptr);
         return;
     }
+    current_step.store(progress.step);
     if (progress.Done()) {
         ESP_LOGI(kTag, "Tutorial already completed; skipping");
         FinishWorker();
@@ -192,13 +199,25 @@ void Worker(void*) {
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
+        // Skip Wi-Fi setup instructions when cellular is the selected network.
+        if (Board::GetInstance().UsesCellularNetwork() &&
+            (progress.step == 4 || progress.step == 6 || progress.step == 7)) {
+            ESP_LOGI(kTag, "Skipping Wi-Fi-dependent step=%s for cellular", StepName(progress.step));
+            progress.Finish(true);
+            if (!SaveOnboardingProgress(progress)) {
+                ESP_LOGE(kTag, "Cannot save tutorial progress");
+                break;
+            }
+            current_step.store(progress.step);
+            continue;
+        }
         if (progress.step == 7) {
             ESP_LOGI(kTag, "step=page waiting for hotspot client");
             // Wait for a phone on the AP unless the device is already online.
             // Keep the saved step while waiting.
             wifi_sta_list_t stations{};
             while (!stopping.load()) {
-                if (WifiManager::GetInstance().IsConnected())
+                if (Board::GetInstance().IsNetworkAvailable())
                     break;
                 if (esp_wifi_ap_get_sta_list(&stations) == ESP_OK && stations.num > 0 &&
                     Available()) {
@@ -215,9 +234,25 @@ void Worker(void*) {
         }
         if (progress.step == 8) {
             ESP_LOGI(kTag, "step=connected waiting for double click and conversation service");
+            if (Board::GetInstance().UsesCellularNetwork() &&
+                !Board::GetInstance().IsNetworkAvailable()) {
+                // Give normal cellular registration time to complete before
+                // telling the child that the device is still offline.
+                const auto grace_start = xTaskGetTickCount();
+                while (!stopping.load() && !Board::GetInstance().IsNetworkAvailable() &&
+                       xTaskGetTickCount() - grace_start < pdMS_TO_TICKS(15000))
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                // Reuse the product's neutral offline voice, without Wi-Fi setup instructions.
+                while (!stopping.load() && !Board::GetInstance().IsNetworkAvailable()) {
+                    if (Play(Lang::Sounds::OGG_ADV_WIFI_WAITING, false, progress.step,
+                             "还没连上，我等着呢。"))
+                        break;
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                }
+            }
             const auto start = xTaskGetTickCount();
             while (!stopping.load() && xTaskGetTickCount() - start < pdMS_TO_TICKS(180000)) {
-                if (!WifiManager::GetInstance().IsConnected()) {
+                if (!Board::GetInstance().IsNetworkAvailable()) {
                     service_verified.store(false);
                 }
                 if (online_double_click.load() && service_verified.load() && Available())
@@ -230,7 +265,7 @@ void Worker(void*) {
                 active.store(false);
                 ESP_LOGI(kTag, "step=connected waiting in background");
                 while (!stopping.load()) {
-                    if (!WifiManager::GetInstance().IsConnected())
+                    if (!Board::GetInstance().IsNetworkAvailable())
                         service_verified.store(false);
                     if (online_double_click.load() && service_verified.load() && Available()) {
                         active.store(true);
@@ -345,7 +380,7 @@ void PrepareOnboardingDoubleClick() {
 #if CONFIG_WZH_SYSTEM_PROMPTS
     const auto step = current_step.load();
     if (worker_running.load() && step == 8 &&
-        WifiManager::GetInstance().IsConnected()) {
+        Board::GetInstance().IsNetworkAvailable()) {
         connection_probe.store(Application::GetInstance().GetDeviceState() == kDeviceStateIdle);
         online_double_click.store(true);
     }
@@ -370,7 +405,11 @@ void NotifyPortalRequest() { ++portal_requests; }
 bool IsOnboardingActive() { return active.load(); }
 bool IsOnboardingVoiceMotionActive() { return voice_motion_active.load(); }
 bool OnboardingBlocksConversation() {
-    return worker_running.load() && current_step.load() < 8;
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    return !stopping.load() && current_step.load() < 8;
+#else
+    return false;
+#endif
 }
 void StopOnboarding() {
     std::lock_guard<std::mutex> lock(lifecycle_mutex);

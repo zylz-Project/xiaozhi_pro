@@ -45,6 +45,14 @@ int main(){
  assert(pending.empty() && pending_bytes==0);
  pending={"one","two"};pending_bytes=6;
  assert(PopTextBatch(pending,pending_bytes,false)=="one" && pending_bytes==3);
+ std::deque<std::string> short_text={"你好"};
+ assert(voice_tts::WaitForShortCellularBatch(short_text,false,0));
+ assert(!voice_tts::WaitForShortCellularBatch(short_text,true,0));
+ assert(!voice_tts::WaitForShortCellularBatch(short_text,false,1800));
+ short_text.push_back("朋友");
+ assert(!voice_tts::WaitForShortCellularBatch(short_text,false,100));
+ short_text={std::string(37,'x')};
+ assert(!voice_tts::WaitForShortCellularBatch(short_text,false,0));
  assert(IsToolStatus("% search_music..."));
  assert(IsToolStatus(" \t% self.panda.react_to_user_emotion...\n"));
  assert(IsToolStatus("% play_music..."));

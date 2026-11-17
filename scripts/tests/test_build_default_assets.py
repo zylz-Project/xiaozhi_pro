@@ -140,6 +140,33 @@ class BuildDefaultAssetsTest(unittest.TestCase):
             self.assertEqual(info['threshold'], 0.5)
             self.assertEqual(info['commands'], BUILD.wzh_offline_commands())
 
+    def test_board_wake_model_overrides_stale_sdkconfig_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            sdkconfig = directory / 'sdkconfig'
+            # The product was switched to the dinosaur board, but the previous
+            # red panda wake model is still selected in sdkconfig.
+            sdkconfig.write_text('\n'.join([
+                'CONFIG_USE_AFE_WAKE_WORD=y', 'CONFIG_WZH_OFFLINE_COMMANDS=y',
+                'CONFIG_WZH_OFFLINE_COMMAND_THRESHOLD=50',
+                'CONFIG_SR_WN_WN9L_NI3HAO3XING1BAO3_TTS3=y',
+                'CONFIG_SR_MN_CN_MULTINET7_QUANT=y',
+            ]))
+            for name in ['wakenet_model/wn9_xiaolongxiaolong_tts',
+                         'wakenet_model/wn9l_ni3hao3xing1bao3_tts3',
+                         'multinet_model/mn7_cn', 'multinet_model/fst']:
+                (directory / name).mkdir(parents=True)
+            args = ['build_default_assets.py', '--sdkconfig', str(sdkconfig),
+                    '--esp_sr_model_path', str(directory),
+                    '--noto_fonts_path', str(directory),
+                    '--wakenet_model', 'wn9_xiaolongxiaolong_tts',
+                    '--output', str(directory / 'assets.bin')]
+            with mock.patch('sys.argv', args), mock.patch.object(
+                    BUILD, 'build_assets_integrated', return_value=True) as pack:
+                BUILD.main()
+            wn_paths = pack.call_args.args[0]
+            self.assertEqual([Path(p).name for p in wn_paths], ['wn9_xiaolongxiaolong_tts'])
+
     def test_custom_wake_remains_compatible_with_local_commands(self):
         custom = dict(wake_word='ni hao xiao zhi', display='你好小智', threshold=0.6)
         info = BUILD.make_multinet_model_info(['mn7_cn'], custom, {'threshold': 0.5})

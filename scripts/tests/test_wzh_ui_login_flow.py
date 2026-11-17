@@ -20,6 +20,8 @@ class Portal(SimpleHTTPRequestHandler):
     reject = False
     state = 'idle'
     product = 'wzh-crawlpanda'
+    cellular = False
+    cellular_connected = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -44,10 +46,13 @@ class Portal(SimpleHTTPRequestHandler):
                 return self.reply({'hub': {'available': False}})
             if path == '/api/hub/diff':
                 return self.reply({'ready': False})
-            return self.reply({'ok': True, 'build': Portal.product, 'state': Portal.state,
-                               'version': 'test', 'wifi': {'connected': True, 'ssid': 'Home',
-                                                           'ap_ssid': 'CrawlPanda-ABCD'},
-                               'battery': {'available': False}, 'audio': {'volume': 40}})
+            data = {'ok': True, 'build': Portal.product, 'state': Portal.state,
+                    'version': 'test', 'wifi': {'connected': not Portal.cellular, 'ssid': 'Home',
+                                                'ap_ssid': 'CrawlPanda-ABCD'},
+                    'battery': {'available': False}, 'audio': {'volume': 40}}
+            if Portal.cellular:
+                data['cellular'] = {'connected': Portal.cellular_connected}
+            return self.reply(data)
         self.path = {'/': '/index.html', '/login': '/login.html', '/manual': '/manual.html',
                      '/developer': '/developer.html'}.get(path, self.path)
         return super().do_GET()
@@ -85,6 +90,8 @@ class LoginFlowTest(unittest.TestCase):
         Portal.reject = False
         Portal.state = 'idle'
         Portal.product = 'wzh-crawlpanda'
+        Portal.cellular = False
+        Portal.cellular_connected = True
         self.page = self.browser.new_page(viewport={'width': 390, 'height': 720}, is_mobile=True, has_touch=True)
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
@@ -111,6 +118,26 @@ class LoginFlowTest(unittest.TestCase):
             for other in {'crawlPanda', 'redpanda', 'dinosaur'} - {product}:
                 self.assertFalse(p.locator('[data-p-inline="' + other + '"]').first.is_visible())
             self.assertEqual(p.evaluate('PandaTheme.get().theme'), 'salt')
+        self.assertEqual(self.errors, [])
+
+    def test_cellular_online_without_wifi_stays_on_device_page(self):
+        Portal.cellular = True
+        Portal.product = 'wzh-dinosaur'
+        self.page.goto(self.url + '/?guide=off')
+        self.page.wait_for_function("document.querySelector('.net-name').textContent === '4G'")
+        self.page.wait_for_timeout(3500)
+        self.assertEqual(urlsplit(self.page.url).path, '/')
+        self.assertEqual(self.errors, [])
+
+    def test_cellular_offline_does_not_redirect_to_wifi_setup(self):
+        Portal.cellular = True
+        Portal.cellular_connected = False
+        Portal.product = 'wzh-dinosaur'
+        self.page.goto(self.url + '/?guide=off')
+        self.page.wait_for_function("document.querySelector('.net-name').textContent === '4G'")
+        self.page.wait_for_timeout(3500)
+        self.assertEqual(urlsplit(self.page.url).path, '/')
+        self.assertEqual(self.page.locator('.net-sub').first.inner_text(), '离线')
         self.assertEqual(self.errors, [])
 
     def test_product_guide_state_changes_with_device_identity(self):

@@ -6,6 +6,26 @@
 #include <driver/spi_master.h>
 #include <esp_adc/adc_oneshot.h>
 
+// 1：4G（AT）；0：Wi-Fi。修改后需要重新编译并烧录。
+#ifndef DINOSAUR_ENABLE_4G
+#define DINOSAUR_ENABLE_4G 0
+#endif
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+#undef DINOSAUR_ENABLE_4G
+#define DINOSAUR_ENABLE_4G 1
+#endif
+#if DINOSAUR_ENABLE_4G != 0 && DINOSAUR_ENABLE_4G != 1
+#error "DINOSAUR_ENABLE_4G must be 0 or 1"
+#endif
+
+// ESP32 UART: TX connects to ML307 RX, RX connects to ML307 TX.
+#ifndef DINOSAUR_ML307_TX_GPIO
+#define DINOSAUR_ML307_TX_GPIO GPIO_NUM_12
+#endif
+#ifndef DINOSAUR_ML307_RX_GPIO
+#define DINOSAUR_ML307_RX_GPIO GPIO_NUM_11
+#endif
+
 // ES8311 同时服务于在线语音和离线本地声音。二者共用 XiaoZhi AudioService，
 // 不允许离线模块再次安装 I2S 驱动。
 #define AUDIO_INPUT_SAMPLE_RATE 24000

@@ -389,7 +389,7 @@
       btn.type = 'button';
       btn.className = 'float-assistant';
       btn.setAttribute('aria-label', '小助手：拖动可移动，单击开始对话');
-      var faceSrc = window.PandaProduct ? PandaProduct.get().assets.face : 'assets/crawlPanda_icon.webp';
+      var faceSrc = window.PandaProduct ? PandaProduct.get().assets.face : 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
       var face = '<img src="' + faceSrc + '" alt="">';
       btn.innerHTML = '<span class="fa-pulse"></span><span class="fa-face">' + face + '</span>' +
         '<span class="fa-mic"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mic"></use></svg></span>' +

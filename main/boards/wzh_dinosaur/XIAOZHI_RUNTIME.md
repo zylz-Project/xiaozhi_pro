@@ -1,3 +1,5 @@
+> 2026-11-17：PPP 方案已删除（实机无法拨通）。恐龙普通构建默认 Wi-Fi；`wzh-dinosaur-ml307-at-diagnostic` 构建使用 ML307 AT 4G，音色复刻和外部 TTS 走自定义 HTTPS over AT，云端对话与 Audio Hub 仍需要系统网络。见[4G 接入说明](../../../docs/wzh/hardware/dinosaur_ml307_2026-11-15.md)。
+
 2026-11-11 恐龙扬声器同步熊猫：限幅前补偿为 21 dB、音量 100 输出目标为 −0.5 dB；麦克风与关键词打断不变。尚待实机检查音质、供电和打断表现，见[音量对照](../../../docs/wzh/audio/pandas_loudness_2026-11-11.md)。
 
 2026-11-11 恐龙关键词打断测试：普通及 barge-in 构建使用 FD AEC 和 MultiNet，需近端候选及指定关键词共同满足才停止说话；暂停额外 NSNet2，固定词表之外的说话不触发。未完成实机声学和实时性验收。见[方案与验证](../../../docs/wzh/audio/dinosaur_keyword_barge_2026-11-11.md)。

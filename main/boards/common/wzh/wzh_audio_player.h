@@ -16,6 +16,8 @@
 #include "wzh_sound_score.h"
 #include "wzh_user_pairs.h"
 
+class OggDemuxer;
+
 namespace wzh {
 
 using MotionData = SoundPlayback;
@@ -75,6 +77,8 @@ protected:
     bool PlayFile(const PlayRequest& request);
 
     AudioStore* store_ = nullptr;
+    // Allocated once at startup, preferably in PSRAM; owned by the playback task.
+    OggDemuxer* demuxer_ = nullptr;
     QueueHandle_t play_queue_ = nullptr;
     // 每次停止播放都会增加代次；旧播放看到代次变化后退出。
     std::atomic<uint32_t> playback_generation_{0};

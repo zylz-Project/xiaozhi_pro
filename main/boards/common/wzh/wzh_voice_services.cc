@@ -16,11 +16,11 @@ voice_tts::VoiceWeb& Management() {
     return service;
 }
 
-bool CanChangeVoice() {
+bool CanChangeVoice(bool allow_list = false) {
     auto& app = Application::GetInstance();
     return !voice_tts::VoiceResetActive() && !Board::GetInstance().IsAudioMaintenanceActive() &&
-           !Management().Busy() && !app.IsVoiceEnrollmentActive() &&
-           !app.IsExternalVoicePreviewActive();
+           !(allow_list ? Management().BusyWithMutation() : Management().Busy()) &&
+           !app.IsVoiceEnrollmentActive() && !app.IsExternalVoicePreviewActive();
 }
 }  // namespace
 
@@ -55,7 +55,7 @@ void ConfigureVoiceConsole(WebConsole::Options& options) {
     };
     options.has_ali_key = [] { return !voice_tts::LoadAliKey().empty(); };
     options.save_ali_voice = [](const std::string& voice) {
-        return CanChangeVoice() && voice_tts::SaveAliVoice(voice);
+        return CanChangeVoice(voice == "xiaozhi-native") && voice_tts::SaveAliVoice(voice);
     };
     options.ali_voice = voice_tts::LoadAliVoice;
     options.previous_ali_voice = voice_tts::LoadPreviousAliVoice;

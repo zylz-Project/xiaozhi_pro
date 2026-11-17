@@ -5,6 +5,8 @@
         {
             "name": "wzh-tailredpanda",
             "sdkconfig_append": [
+                "CONFIG_ESP_MODEM_USE_PPP_MODE=n",
+                "CONFIG_LWIP_PPP_SUPPORT=n",
                 "CONFIG_ESP_CONSOLE_NONE=y",
                 "CONFIG_WAKE_WORD_DISABLED=n",
                 "CONFIG_USE_ESP_WAKE_WORD=n",
@@ -39,6 +41,8 @@
         {
             "name": "wzh-tailredpanda-barge-in",
             "sdkconfig_append": [
+                "CONFIG_ESP_MODEM_USE_PPP_MODE=n",
+                "CONFIG_LWIP_PPP_SUPPORT=n",
                 "CONFIG_WAKE_WORD_DISABLED=n",
                 "CONFIG_USE_ESP_WAKE_WORD=n",
                 "CONFIG_USE_AFE_WAKE_WORD=y",

@@ -120,10 +120,15 @@ void WifiBoard::StartNetwork() {
     wifi_manager.StartPersistentPortal();
     if (wifi_manager.IsPersistentPortalActive()) {
         wifi_manager.StartStation();
+        // The hotspot is up: start the developer console now instead of waiting
+        // for a station Connected event, which never arrives when the product
+        // is used on its own hotspot.
+        Board::GetInstance().OnLocalPortalReady();
         Application::GetInstance().SetDeviceState(kDeviceStateIdle);
         // The always-on portal no longer enters the legacy config state, so
         // explicitly announce provisioning when no network has been saved.
-        if (SsidManager::GetInstance().GetSsidList().empty()) {
+        if (SsidManager::GetInstance().GetSsidList().empty() &&
+            !Board::GetInstance().UsesCellularNetwork()) {
 #if CONFIG_WZH_SYSTEM_PROMPTS
             Application::GetInstance().Schedule([]() {
                 auto& wifi = WifiManager::GetInstance();
@@ -139,6 +144,12 @@ void WifiBoard::StartNetwork() {
             EnterWifiConfigMode();
 #endif
         }
+        wzh::MarkStartupNetworkReady();
+        return;
+    }
+    if (Board::GetInstance().UsesCellularNetwork()) {
+        ESP_LOGW(TAG, "Local Wi-Fi portal unavailable; continue cellular startup");
+        Application::GetInstance().SetDeviceState(kDeviceStateIdle);
         wzh::MarkStartupNetworkReady();
         return;
     }

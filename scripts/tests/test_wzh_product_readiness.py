@@ -452,7 +452,7 @@ void vTaskDelay(uint32_t ms){now+=ms;if(now>=10000)throw Done{};}
 #define pdMS_TO_TICKS(ms) (ms)
 constexpr uint32_t kCheckinIntervalMs=60000,kSyncIntervalMs=3600000;
 constexpr int kDeviceStateIdle=0;
-struct WifiManager{static WifiManager& GetInstance(){static WifiManager a;return a;}bool IsConnected(){return true;}};
+struct Board{static Board& GetInstance(){static Board a;return a;}bool HasSystemNetwork(){return true;}};
 struct Application{static Application& GetInstance(){static Application a;return a;}int GetDeviceState(){return now<2000?1:0;}};
 struct Settings{Settings(const char*,bool){}void EraseKey(const char*){}};
 struct AudioHub{

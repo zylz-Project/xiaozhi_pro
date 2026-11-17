@@ -1,3 +1,19 @@
+2026-11-17（续）：4G 外部 TTS 对短开头最多等待 1.8 秒以合并相邻句，预缓冲最长等待从 6 秒降至 2.5 秒；证书校验和取消机制保留。网页新增“小智原声”，选择后对话使用小智原有音频，不请求外部 TTS；设备复刻录音的提示仍使用内置外部音色。4G AT 串口吞吐和网络首包延迟仍需实机测试，未保证长段音频连续。
+
+2026-11-17（续）：按用户决定**删除 PPP 方案**，4G 只保留 AT 路径。删除了 `dinosaur_ppp.cc/h`、`dinosaur_modem_trace.h`、`wzh-dinosaur-ml307-ppp-test` 变体、`CONFIG_WZH_DINOSAUR_PPP`/`CONFIG_WZH_DINOSAUR_PPP_APN`、`DinosaurPpp` 及仅为 PPP 引入的 `Board::UsesCellularSystemNetwork()`，对应主机测试一并更新。4G 构建为 `wzh-dinosaur-ml307-at-diagnostic`（`DINOSAUR_ENABLE_4G=1`，音色/TTS 走自定义 HTTPS over ML307 AT）。已用 ESP-IDF 6.0.1 编译通过，未烧录。
+
+同轮修复开发者页：`:8080` 原先只在 Wi-Fi STA 连上（`NetworkEvent::Connected`）时才 `web_console_.Start()`，且对所有 AP 网段请求无条件 403，导致只连产品热点时根本进不去。现在 `WifiBoard::StartNetwork()` 在常驻热点起来后立即调用新的 `Board::OnLocalPortalReady()` 启动管理页，并取消 AP 网段 IP 拒绝（保留开发者密码 + 限速会话 token）；用户页控制台新增 `:8080` 入口。三款共用此逻辑。
+
+同轮优化：内置 OGG 拆包缓冲迁到 PSRAM（约 8 KB 内部 SRAM）；网页资源按产品裁剪图片（恐龙只嵌 `dinosaur_*` 三张，HTML/JS 首帧占位改为内联 1px），应用分区余量由约 50 KB（1%）提升到约 350 KB（8%）。尝试把非实时维护任务栈迁到 PSRAM 后**已撤回**：这些任务会直接写 NVS/Flash，而 IDF 断言不允许 PSRAM 栈在 cache 关闭时运行。
+
+2026-11-16：恐龙 `config.h` 的 `DINOSAUR_ENABLE_4G` 默认 **0（Wi-Fi）**；旧 AT 模式设为 1，PPP 测试变体由构建配置单独选择。按用户提供的方向，ESP32 默认 TX=GPIO12、RX=GPIO11；转接板供电和电平仍需确认。ESP-IDF 6.0.1 下旧 4G 测试变体和 Wi-Fi 普通变体均编译通过，尚未烧录或实测；旧 AT 模式不能为系统 socket 提供 4G 网络。详见[4G 接入与验收](../../../docs/wzh/hardware/dinosaur_ml307_2026-11-15.md)。
+
+同日新增 `wzh-dinosaur-ml307-ppp-test`，使用 PPP 给系统 socket 提供 4G 网络，供云端对话、音色及 Audio Hub 共用；此变体强制选择 4G，普通版本仍是 Wi-Fi。ESP-IDF 6.0.1 构建通过，应用分区余量约 21 KB；PPP 拨号、模组兼容性及全部联网功能尚待实机验证。
+
+2026-11-17：PPP 固件实机已识别 `ML307C`（固件 `2503070906`），确认 SIM 就绪、网络注册和 PDP 准备成功，但 `ATD*99#` 返回 `ERROR`，尚未建立 4G 数据连接。测试代码在明确拒绝时跳过无效 `ATO` 重试，PPP 本身尚未连通；详见上面的 4G 接入说明。
+
+后续 PPP 日志中所有波特率的 AT 和 CRLF 探测均超时。新增独立 `wzh-dinosaur-ml307-at-diagnostic` 构建，使用既有 AT 驱动进行同接线对照；该构建不能替代 PPP 的系统网络能力。
+
 2026-11-11 恐龙扬声器同步熊猫：限幅前补偿为 21 dB、音量 100 输出目标为 −0.5 dB；麦克风与关键词打断不变。尚待实机检查音质、供电和打断表现，见[音量对照](../../../docs/wzh/audio/pandas_loudness_2026-11-11.md)。
 
 2026-11-11 恐龙关键词打断测试：普通及 barge-in 构建使用 FD AEC 和 MultiNet，需近端候选及指定关键词共同满足才停止说话；暂停额外 NSNet2，固定词表之外的说话不触发。未完成实机声学和实时性验收。见[方案与验证](../../../docs/wzh/audio/dinosaur_keyword_barge_2026-11-11.md)。

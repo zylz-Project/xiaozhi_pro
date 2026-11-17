@@ -8,6 +8,7 @@
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "mbedtls/base64.h"
+#include "voice_http.h"
 
 namespace voice_tts {
 namespace {
@@ -16,9 +17,6 @@ constexpr char kUrl[] =
 constexpr size_t kMaxJson = 8192;
 constexpr size_t kMaxWav = 1024 * 1024;
 constexpr size_t kMaxStreamPcm = 4 * 1024 * 1024;
-struct ClientDeleter {
-    void operator()(esp_http_client* p) const { esp_http_client_cleanup(p); }
-};
 struct JsonDeleter {
     void operator()(cJSON* p) const { cJSON_Delete(p); }
 };
@@ -61,7 +59,8 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
         !cJSON_AddStringToObject(input, "instruction",
                                  "按照文本原有语言，以自然亲切的交谈语气表达，随语意和标点自然变化"
                                  "语速、停顿和情绪，避免播报腔。") ||
-        !cJSON_AddStringToObject(input, "format", request.pcm_sink ? "pcm" : "wav") ||
+        !cJSON_AddStringToObject(input, "format",
+                                 request.opus_sink ? "opus" : (request.pcm_sink ? "pcm" : "wav")) ||
         !cJSON_AddNumberToObject(input, "sample_rate", 24000))
         return Result::kNetworkError;
     std::unique_ptr<char, decltype(&cJSON_free)> payload(cJSON_PrintUnformatted(root.get()),
@@ -74,12 +73,12 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
     config.timeout_ms = 30000;
     config.crt_bundle_attach = esp_crt_bundle_attach;
     config.disable_auto_redirect = true;
-    std::unique_ptr<esp_http_client, ClientDeleter> client(esp_http_client_init(&config));
+    auto client = CreateVoiceHttpClient(config);
     std::string auth = "Bearer " + request.api_key;
     if (!client ||
         esp_http_client_set_header(client.get(), "Authorization", auth.c_str()) != ESP_OK ||
         esp_http_client_set_header(client.get(), "Content-Type", "application/json") != ESP_OK ||
-        (request.pcm_sink &&
+        ((request.pcm_sink || request.opus_sink) &&
          esp_http_client_set_header(client.get(), "X-DashScope-SSE", "enable") != ESP_OK) ||
         esp_http_client_open(client.get(), std::strlen(payload.get())) != ESP_OK)
         return Result::kNetworkError;
@@ -99,7 +98,7 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
     response.http_status = esp_http_client_get_status_code(client.get());
     if (response.http_status != 200)
         return Result::kHttpError;
-    if (request.pcm_sink) {
+    if (request.pcm_sink || request.opus_sink) {
         bool done = false;
         bool got_audio = false;
         size_t total_pcm = 0;
@@ -140,7 +139,8 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
                 return false;
             total_pcm += written;
             got_audio = got_audio || written != 0;
-            return request.pcm_sink(pcm.data(), written);
+            return request.opus_sink ? request.opus_sink(pcm.data(), written)
+                                     : request.pcm_sink(pcm.data(), written);
         });
         char chunk[2048];
         while (!Cancelled(request)) {
@@ -180,7 +180,7 @@ Result AliProvider::Synthesize(const Request& request, Response& response) {
     client.reset();
     config.url = https.c_str();
     config.method = HTTP_METHOD_GET;
-    std::unique_ptr<esp_http_client, ClientDeleter> download(esp_http_client_init(&config));
+    auto download = CreateVoiceHttpClient(config);
     if (!download || esp_http_client_open(download.get(), 0) != ESP_OK ||
         esp_http_client_fetch_headers(download.get()) < 0)
         return Result::kNetworkError;

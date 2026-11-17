@@ -10,9 +10,29 @@ import sys
 root = pathlib.Path(sys.argv[1])
 out = pathlib.Path(sys.argv[2])
 header = pathlib.Path(sys.argv[3])
+# Optional product id (crawlPanda / dinosaur / redpanda). The three products share
+# one page set and swap the toy image at runtime via product.js, so a given build
+# only needs its own toy photos. When omitted (tests, tooling), every image ships.
+product = sys.argv[4] if len(sys.argv) > 4 else ''
+TOY_PREFIXES = {'crawlPanda': ('crawlPanda_',), 'dinosaur': ('dinosaur_',),
+                'redpanda': ('tailRedPanda_',)}
 unused = {'wifi.html', 'wifi.js', 'wifi.css', 'dinosaur_face.webp', 'dinosaur_head.webp',
           'panda-face.webp', 'panda-head.webp', 'tailRedPanda_face.webp', 'tailRedPanda_head.webp'}
-paths = sorted(p for p in root.rglob('*') if p.is_file() and p.name not in unused)
+if product and product not in TOY_PREFIXES:
+    raise SystemExit(f'unknown product id: {product!r}')
+
+
+def keep(path: pathlib.Path) -> bool:
+    if path.name in unused:
+        return False
+    if not product or path.parent.name != 'assets' or path.suffix != '.webp':
+        return True
+    # Each firmware build serves one product only (product.js syncs the toy to
+    # /api/status and HTML placeholders are inline), so ship just its own photos.
+    return path.name.startswith(TOY_PREFIXES[product])
+
+
+paths = sorted(p for p in root.rglob('*') if p.is_file() and keep(p))
 hash_state = hashlib.sha256()
 # A packer change can alter the served bytes even when the source assets do not.
 hash_state.update(pathlib.Path(__file__).read_bytes())

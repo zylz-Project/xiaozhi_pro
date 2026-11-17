@@ -31,6 +31,7 @@ class VoiceHandoffTest(unittest.TestCase):
 #include <string>
 #include "voice_text_filter.h"
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define MALLOC_CAP_SPIRAM 1
 #define MALLOC_CAP_8BIT 2
@@ -45,7 +46,8 @@ void xTaskNotifyGive(TaskHandle_t){}
 namespace voice_tts {
 constexpr size_t kMaxPendingSentences=64,kMaxPendingBytes=16*1024;
 std::string LoadAliKey(){return "key";}
-std::string LoadAliVoice(){return "voice";}
+std::string chosen_voice="voice";
+std::string LoadAliVoice(){return chosen_voice;}
 struct VoiceSession {
  struct PendingTurn {std::string provider,api_key,voice_id;std::function<void(bool)> completion;
   uint32_t playback_generation=0,generation=0;};
@@ -65,6 +67,9 @@ struct VoiceSession {
 }
 int main(){
  using voice_tts::VoiceSession;
+ voice_tts::chosen_voice="xiaozhi-native";VoiceSession native;
+ assert(!native.Ready());assert(native.ReadyForVoice("builtin"));
+ assert(!native.Begin(1,[](bool){}));voice_tts::chosen_voice="voice";
  int old_calls=0,new_calls=0;bool new_ok=false;
  VoiceSession s;assert(s.Ready());assert(s.Begin(4,[&](bool){++old_calls;}));
  auto old=s.active_generation_.load();assert(s.Enqueue("old"));

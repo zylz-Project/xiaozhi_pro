@@ -57,6 +57,7 @@ int main(){
  AliVoiceEnrollment a;assert(!a.IsConfigured());key="key";assert(a.IsConfigured());
  assert(a.Speak("prompt",1));auto& e=Board::GetInstance().external;
  assert(e.ready_voice=="builtin"&&e.begun_voice=="builtin"&&selected.empty());
+ selected="xiaozhi-native";assert(a.Speak("prompt",1));assert(e.begun_voice=="builtin");
  selected="cloned";assert(a.Speak("prompt",1));
  assert(e.ready_voice.empty()&&e.begun_voice.empty()&&selected=="cloned");
  assert(!a.Speak("prompt",2));

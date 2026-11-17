@@ -9,6 +9,32 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MqttReconnectTest(unittest.TestCase):
+    def test_stale_connected_event_does_not_start_activation(self):
+        method = queue_function((ROOT / 'main/application.cc').read_text(),
+                                'void Application::HandleNetworkConnectedEvent(')
+        output.WzhMotionOutputTest.run_cpp(self, r'''
+#include <cassert>
+#include <cstddef>
+#define CONFIG_BOARD_TYPE_WZH_DINOSAUR 1
+#define ESP_LOGI(...) ((void)0)
+#define ESP_LOGW(...) ((void)0)
+enum {kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateIdle,kDeviceStateActivating};
+int tasks=0;int xTaskCreate(void(*)(void*),const char*,int,void*,int,void**){++tasks;return 1;}
+void vTaskDelete(void*){}
+struct Display{int updates=0;void UpdateStatusBar(bool){++updates;}};
+struct Board{bool online=false;Display display;static Board& GetInstance(){static Board b;return b;}
+ bool IsNetworkAvailable(){return online;}Display* GetDisplay(){return &display;}};
+struct Application{int state=kDeviceStateIdle;void* protocol_=nullptr;void* activation_task_handle_=nullptr;
+ int GetDeviceState(){return state;}void SetDeviceState(int s){state=s;}void ActivationTask(){}
+ void HandleNetworkConnectedEvent();};
+''' + method + r'''
+int main(){Application app;auto& board=Board::GetInstance();
+ app.HandleNetworkConnectedEvent();assert(tasks==0&&app.state==kDeviceStateIdle&&board.display.updates==0);
+ board.online=true;app.HandleNetworkConnectedEvent();
+ assert(tasks==1&&app.state==kDeviceStateActivating&&board.display.updates==1);
+}
+''')
+
     def test_transport_internal_retry_is_stopped_after_network_loss(self):
         source = (ROOT / 'main/protocols/mqtt_protocol.cc').read_text()
         callback = queue_function(source, 'mqtt_->OnDisconnected(') + ');'

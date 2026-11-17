@@ -59,6 +59,9 @@ int main(){
  assert(voice_tts::SaveAliVoice("other") && voice_tts::LoadPreviousAliVoice()=="newvoice");
  assert(!voice_tts::ForgetPreviousAliVoice("other"));
  assert(voice_tts::ForgetPreviousAliVoice("newvoice") && voice_tts::LoadPreviousAliVoice().empty());
+ assert(voice_tts::SaveAliVoice("xiaozhi-native"));
+ assert(voice_tts::LoadAliVoice()=="xiaozhi-native"&&voice_tts::LoadPreviousAliVoice()=="other");
+ assert(voice_tts::RestorePreviousAliVoice()&&voice_tts::LoadAliVoice()=="other");
  assert(voice_tts::SaveAliKey("keep-key"));
  assert(voice_tts::ClearAliVoiceSelection());
  assert(voice_tts::LoadAliVoice().empty()&&voice_tts::LoadPreviousAliVoice().empty());

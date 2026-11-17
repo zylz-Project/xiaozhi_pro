@@ -185,9 +185,7 @@ bool AliVoiceEnrollment::SelectionPending() const {
     return deadline && esp_timer_get_time() < deadline;
 }
 
-bool AliVoiceEnrollment::IsConfigured() const {
-    return !LoadAliKey().empty();
-}
+bool AliVoiceEnrollment::IsConfigured() const { return !LoadAliKey().empty(); }
 
 bool AliVoiceEnrollment::StartSelection(const std::string& text,
                                         std::function<void(bool)> complete) {
@@ -303,7 +301,9 @@ bool AliVoiceEnrollment::Speak(const char* text, uint32_t generation) {
     auto& audio = Application::GetInstance().GetAudioService();
     // First-time enrollment may have a Key but no selected voice yet. Use a
     // built-in voice only for the prompt without persisting a selection.
-    const std::string prompt_voice = LoadAliVoice().empty() ? kBuiltinVoices[0].id : "";
+    const auto selected_voice = LoadAliVoice();
+    const std::string prompt_voice =
+        (selected_voice.empty() || selected_voice == "xiaozhi-native") ? kBuiltinVoices[0].id : "";
     if (!external || !active_.load() || !external->ReadyForVoice(prompt_voice) ||
         generation != generation_.load())
         return false;
@@ -311,14 +311,14 @@ bool AliVoiceEnrollment::Speak(const char* text, uint32_t generation) {
     prompt_ok_.store(false);
     if (!external->BeginWithVoice(audio.GetPlaybackGeneration(), prompt_voice,
                                   [this, generation](bool ok) {
-            if (generation != generation_.load())
-                return;
-            prompt_ok_.store(ok);
-            prompt_done_.store(true);
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (task_)
-                xTaskNotifyGive(task_);
-        }))
+                                      if (generation != generation_.load())
+                                          return;
+                                      prompt_ok_.store(ok);
+                                      prompt_done_.store(true);
+                                      std::lock_guard<std::mutex> lock(mutex_);
+                                      if (task_)
+                                          xTaskNotifyGive(task_);
+                                  }))
         return false;
     if (!external->Enqueue(text)) {
         external->Cancel();

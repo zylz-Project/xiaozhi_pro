@@ -12,9 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKER = ROOT / 'scripts/pack_wzh_ui.py'
 
 
-def pack(source, work):
+def pack(source, work, product=None):
     binary, manifest = work / 'ui.bin', work / 'wzh_ui_manifest.inc'
-    subprocess.run(['python3', str(PACKER), str(source), str(binary), str(manifest)], check=True)
+    args = ['python3', str(PACKER), str(source), str(binary), str(manifest)]
+    if product:
+        args.append(product)
+    subprocess.run(args, check=True)
     lines = manifest.read_text()
     revision = re.search(r'WZH_UI_REVISION "([0-9a-f]+)"', lines).group(1)
     contents = {}
@@ -44,6 +47,22 @@ class AssetPackTest(unittest.TestCase):
             v2, newer, _, _ = pack(source, base)
             self.assertNotEqual(v1, v2)
             self.assertIn(('css/a.css?v=' + v2).encode(), newer['index.html'])
+
+    def test_product_build_ships_only_its_own_toy_photos(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp); source = base / 'source'; (source / 'assets').mkdir(parents=True)
+            (source / 'assets/dinosaur_front.webp').write_bytes(b'dino')
+            (source / 'assets/crawlPanda_正面.webp').write_bytes(b'panda')
+            (source / 'assets/tailRedPanda_front.webp').write_bytes(b'red')
+            (source / 'index.html').write_text('<img src="assets/dinosaur_front.webp">')
+            _, files, _, _ = pack(source, base, 'dinosaur')
+            self.assertIn('assets/dinosaur_front.webp', files)
+            self.assertNotIn('assets/crawlPanda_正面.webp', files)
+            self.assertNotIn('assets/tailRedPanda_front.webp', files)
+            # No product argument keeps every image so tooling/others stay intact.
+            _, everything, _, _ = pack(source, base)
+            self.assertIn('assets/crawlPanda_正面.webp', everything)
+            self.assertIn('assets/tailRedPanda_front.webp', everything)
 
     @unittest.skipUnless(shutil.which('g++'), 'g++ required')
     def test_device_only_caches_matching_versioned_static_assets(self):

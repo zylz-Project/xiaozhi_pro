@@ -113,7 +113,14 @@ public:
     virtual NetworkInterface* GetNetwork() = 0;
     // Unknown transports retain the existing behavior until they expose link status.
     virtual bool IsNetworkAvailable() const { return true; }
+    // Indicates that the selected cloud transport uses a cellular modem.
+    virtual bool UsesCellularNetwork() const { return false; }
+    // ESP-IDF socket clients need a real IP interface (not an AT-only modem).
+    virtual bool HasSystemNetwork() const { return IsNetworkAvailable(); }
     virtual void StartNetwork() = 0;
+    // Persistent-portal hook: called right after the always-on hotspot is up so
+    // the developer console can serve the hotspot even without a station link.
+    virtual void OnLocalPortalReady() {}
     virtual void SetNetworkEventCallback(NetworkEventCallback callback) { (void)callback; }
     virtual const char* GetNetworkStateIcon() = 0;
     virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging);

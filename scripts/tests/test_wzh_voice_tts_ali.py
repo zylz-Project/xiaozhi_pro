@@ -26,6 +26,7 @@ class AliProviderTest(unittest.TestCase):
 #include <new>
 #include <string>
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGE(...) ((void)0)
 constexpr int pdPASS=1;using TaskHandle_t=void*;
 void xTaskNotifyGive(void*){}
 static bool fail_create=false;
@@ -211,6 +212,12 @@ int main(){
  assert(provider.Synthesize(r,out)==voice_tts::Result::kOk && out.streamed && sse_header);
  assert((pcm==std::vector<uint8_t>{1,2,3,4}) && destination.empty());
  assert(post.find("\"format\":\"pcm\"")!=std::string::npos);
+ r.pcm_sink={};std::vector<uint8_t> opus;post.clear();reached_eof=false;
+ r.opus_sink=[&](const uint8_t* p,size_t n){opus.insert(opus.end(),p,p+n);return true;};
+ assert(provider.Synthesize(r,out)==voice_tts::Result::kOk && out.streamed);
+ assert((opus==std::vector<uint8_t>{1,2,3,4}));
+ assert(post.find("\"format\":\"opus\"")!=std::string::npos);
+ r.opus_sink={};r.pcm_sink=[&](const uint8_t*,size_t){return true;};
  sse_override="data: {\"output\":{\"audio\":{\"data\":\"AQI=\"}}}\n\n";
  reached_eof=false;assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
  sse_override="data: {\"code\":\"InvalidKey\",\"message\":\"redacted\"}\n\n";

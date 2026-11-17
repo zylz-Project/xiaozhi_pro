@@ -168,7 +168,7 @@
       '<div class="pg-spot" aria-hidden="true"></div>' +
       '<div class="pg-bubble" data-place="below" data-style="' + activeStyle() + '">' +
         '<div class="pg-head">' +
-          '<span class="pg-avatar"><img src="' + (product ? product.assets.face : 'assets/crawlPanda_icon.webp') + '" alt=""></span>' +
+          '<span class="pg-avatar"><img src="' + (product ? product.assets.face : 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==') + '" alt=""></span>' +
           '<div class="pg-meta"><p class="pg-kicker">' + (product ? product.code : 'PANDA') + ' GUIDE</p><div class="pg-who">' + (product ? product.name : '爬爬熊猫') + ' · 使用引导</div></div>' +
           '<span class="pg-badge"></span>' +
         '</div>' +

@@ -27,6 +27,7 @@ class PortalNetworkTest(unittest.TestCase):
 #define CONFIG_WZH_SYSTEM_PROMPTS 1
 #define ESP_MAC_WIFI_STA 0
 #define ESP_OK 0
+#define ESP_LOGW(...)
 int esp_read_mac(uint8_t*,int){return -1;}
 enum class WifiEvent{Scanning,Connecting,Connected,Disconnected,ConfigModeEnter,ConfigModeExit};
 enum class NetworkEvent{Scanning,Connecting,Connected,Disconnected,WifiConfigModeEnter,WifiConfigModeExit};
@@ -48,6 +49,8 @@ struct SsidManager{
  bool saved=false;static SsidManager& GetInstance(){static SsidManager s;return s;}
  std::vector<int> GetSsidList(){return saved?std::vector<int>{1}:std::vector<int>{};}
 };
+struct Board{bool cellular=false;int portal_ready=0;static Board& GetInstance(){static Board b;return b;}
+ bool UsesCellularNetwork(){return cellular;}void OnLocalPortalReady(){++portal_ready;}};
 constexpr int kDeviceStateIdle=1;
 struct Application{
  int state=0;static Application& GetInstance(){static Application a;return a;}
@@ -67,11 +70,21 @@ struct WifiBoard{
 '''+method+r'''
 int main(){
  WifiBoard first;first.StartNetwork();assert(wzh::prompts==1&&wzh::ready==1&&first.fallbacks==0);
+ assert(Board::GetInstance().portal_ready==1);
  assert(Application::GetInstance().state==kDeviceStateIdle);
  SsidManager::GetInstance().saved=true;
  WifiBoard configured;configured.StartNetwork();assert(wzh::prompts==1&&wzh::ready==2&&configured.fallbacks==0);
+ Board::GetInstance().cellular=true;SsidManager::GetInstance().saved=false;
+ int starts=WifiManager::GetInstance().station_starts;
+ WifiBoard at_cellular;at_cellular.StartNetwork();assert(wzh::prompts==1&&wzh::ready==3);
+ assert(WifiManager::GetInstance().station_starts==starts+1);
+ starts=WifiManager::GetInstance().station_starts;
  WifiManager::GetInstance().active=false;
- WifiBoard legacy;legacy.StartNetwork();assert(wzh::prompts==1&&wzh::ready==3&&legacy.fallbacks==1);
+ WifiBoard cellular_no_portal;cellular_no_portal.StartNetwork();
+ assert(wzh::prompts==1&&wzh::ready==4&&cellular_no_portal.fallbacks==0);
+ assert(WifiManager::GetInstance().station_starts==starts);
+ Board::GetInstance().cellular=false;
+ WifiBoard legacy;legacy.StartNetwork();assert(wzh::prompts==1&&wzh::ready==5&&legacy.fallbacks==1);
 }
 '''
         with tempfile.TemporaryDirectory() as d:

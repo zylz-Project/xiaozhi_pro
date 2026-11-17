@@ -5,7 +5,6 @@
 #include "wzh_user_web.h"
 #include "wzh_voice_services.h"
 #include "wzh_web_assets.h"
-#include "wzh_web_peer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -288,12 +287,10 @@ esp_err_t WebConsole::GuardedDispatch(httpd_req_t* req) {
          std::strncmp(req->uri, "/assets/", 8) == 0);
     if (!static_asset)
         httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
-        uint32_t ip = 0;
-        if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip)) {
-            return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
-        }
-    }
+    // The developer console is reachable from both the product hotspot
+    // (192.168.4.0/24) and the home LAN. The developer password plus the
+    // rate-limited session token is the real gate; the hotspot is not a
+    // trust boundary, so an AP client is no longer rejected outright.
     req->user_ctx = route->owner;
     if (WifiManager::GetInstance().IsPersistentPortalActive() && req->method == HTTP_POST) {
         const size_t host_len = httpd_req_get_hdr_value_len(req, "Host");
@@ -336,11 +333,6 @@ esp_err_t WebConsole::GuardedDispatch(httpd_req_t* req) {
 }
 
 esp_err_t WebConsole::GuardedError(httpd_req_t* req, httpd_err_code_t error) {
-    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
-        uint32_t ip = 0;
-        if (!WebPeerIpv4(httpd_req_to_sockfd(req), ip) || UserWebPolicy::IsApClient(ip))
-            return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
-    }
     return httpd_resp_send_err(req, error, nullptr);
 }
 
@@ -348,7 +340,7 @@ bool WebConsole::StartHttpServer() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = kConsolePort;
     config.ctrl_port = kConsoleCtrlPort;
-    config.max_uri_handlers = 25;
+    config.max_uri_handlers = kMaxRoutes;
     if (WifiManager::GetInstance().IsPersistentPortalActive())
         config.max_open_sockets = 4;
     config.recv_wait_timeout = 3;

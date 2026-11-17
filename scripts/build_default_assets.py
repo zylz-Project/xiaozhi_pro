@@ -945,6 +945,8 @@ def main():
     parser.add_argument('--esp_sr_model_path', help='Path to ESP-SR model directory')
     parser.add_argument('--noto_fonts_path', help='Path to noto-fonts component directory')
     parser.add_argument('--extra_files', help='Path to extra files directory to be included in assets')
+    parser.add_argument('--wakenet_model',
+                        help='WakeNet model the board requires; overrides CONFIG_SR_WN_* selection')
     
     args = parser.parse_args()
     
@@ -975,6 +977,13 @@ def main():
     
     # Read SR models from sdkconfig
     wakenet_model_names = read_wakenet_from_sdkconfig(args.sdkconfig)
+    if args.wakenet_model:
+        # The board decides the wake phrase. Ignore any model left behind in
+        # sdkconfig by another product instead of packaging both.
+        if wakenet_model_names != [args.wakenet_model]:
+            print(f"  board wake model {args.wakenet_model} overrides "
+                  f"sdkconfig selection {wakenet_model_names or 'none'}")
+        wakenet_model_names = [args.wakenet_model]
     multinet_model_names = read_multinet_from_sdkconfig(args.sdkconfig)
     neural_model_paths = get_neural_model_paths(args.sdkconfig, args.esp_sr_model_path)
     

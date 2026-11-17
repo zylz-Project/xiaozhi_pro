@@ -281,6 +281,8 @@ public:
         return power_.battery_level_valid();
     }
 
+    void OnLocalPortalReady() override { web_console_.Start(); }
+
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
         // 在线/离线主要由对话状态决定；断网事件仍应立即强制返回离线，
         // 防止语音通道关闭回调尚未到达时继续保留在线状态。

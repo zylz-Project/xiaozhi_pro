@@ -65,14 +65,16 @@ struct WifiManager{static WifiManager& GetInstance(){static WifiManager w;return
 #pragma once
 #include <vector>
 #include <cstdint>
-extern uint32_t clock_ms,feedback_hold_ms;
+extern uint32_t clock_ms,feedback_hold_ms;extern bool wifi_online,cellular_mode,cellular_online;
 struct Board{uint32_t feedback_until=0;std::vector<int> feedback;std::vector<uint32_t> feedback_times;static Board& GetInstance(){static Board b;return b;}
+ bool UsesCellularNetwork()const{return cellular_mode;}
+ bool IsNetworkAvailable()const{return cellular_mode?cellular_online:wifi_online;}
  bool TriggerOnboardingFeedback(uint8_t step){feedback.push_back(step);feedback_times.push_back(clock_ms);feedback_until=clock_ms+feedback_hold_ms;return true;}
  bool IsOnboardingFeedbackPending()const{return clock_ms<feedback_until;}
  bool IsAudioMaintenanceActive(){return false;}bool IsLocalPlaybackPending(){return false;}};
 ''')
             names = ('INTRO TOUCH MOTION CMD1 NET_INVITE WAKE AP PAGE CONNECTED ABILITY '
-                     'INTERRUPT CLONE FAREWELL').split()
+                     'INTERRUPT CLONE FAREWELL ADV_WIFI_WAITING').split()
             (root / 'assets/lang_config.h').write_text(
                 '#pragma once\n#include <string_view>\nnamespace Lang { namespace Sounds {\n' +
                 '\n'.join('constexpr std::string_view OGG_' + name + '="' + name + '";'
@@ -84,7 +86,7 @@ struct Board{uint32_t feedback_until=0;std::vector<int> feedback;std::vector<uin
 #include <string_view>
 #include <vector>
 #include "wzh_onboarding.h"
-extern uint32_t clock_ms,conversation_start,conversation_end,ap_ready_at,stop_ap_at;extern bool stop_on_motion,send_service,disconnect_after_service,stop_on_ap_wait,simulate_actions,wifi_online,stop_on_ability;
+extern uint32_t clock_ms,conversation_start,conversation_end,ap_ready_at,stop_ap_at,cellular_connect_at;extern bool stop_on_motion,send_service,disconnect_after_service,stop_on_ap_wait,simulate_actions,wifi_online,stop_on_ability,connect_during_grace;
 constexpr int kDeviceStateIdle=0;
 struct Audio {
  uint32_t until=0,generation=1;std::vector<std::string_view> played;std::vector<uint32_t> starts;
@@ -104,6 +106,7 @@ struct Audio {
   if(sound=="CMD1" && simulate_actions)wzh::NotifyOnboarding(wzh::OnboardingEvent::kCommand);
   // The child answers the tutorial: says the wake phrase, then opens the page.
   if(sound=="WAKE" && simulate_actions)wzh::NotifyOnboarding(wzh::OnboardingEvent::kWake);
+  if(sound=="WAKE" && connect_during_grace)cellular_connect_at=until+9000;
   if(sound=="AP"){ap_ready_at=stop_on_ap_wait ? UINT32_MAX : until+15000;stop_ap_at=until+7000;}
   if(sound=="PAGE"){wifi_online=true;wzh::NotifyPortalRequest();conversation_start=until+100;conversation_end=until+2100;}
   if(sound=="PAGE" && send_service){
@@ -123,13 +126,13 @@ struct Application{Audio audio;static Application& GetInstance(){static Applicat
 #include <vector>
 #include "nvs.h"
 #include "application.h"
-uint32_t clock_ms=0,conversation_start=0,conversation_end=0,ap_ready_at=0,stop_ap_at=0,feedback_hold_ms=0;bool stop_on_motion=false,send_service=true,disconnect_after_service=false,stop_on_ap_wait=false,simulate_actions=true;
-bool wifi_online=false,online_test_click=false,online_saw_wait=false,stop_on_ability=false;
+uint32_t clock_ms=0,conversation_start=0,conversation_end=0,ap_ready_at=0,stop_ap_at=0,feedback_hold_ms=0,cellular_connect_at=0;bool stop_on_motion=false,send_service=true,disconnect_after_service=false,stop_on_ap_wait=false,simulate_actions=true,connect_during_grace=false;
+bool wifi_online=false,cellular_mode=false,cellular_online=false,online_test_click=false,online_saw_wait=false,stop_on_ability=false;
 bool stop_late_wait=false,late_service=false,resume_after_stop=false,fail_create=false;
 bool inject_touch_window=false,touch_captured=false;
 void(*worker)(void*)=nullptr;
 int xTaskCreate(void(*fn)(void*),const char*,int,void*,int,void*){if(fail_create)return 0;worker=fn;return 1;}
-uint32_t xTaskGetTickCount(){return clock_ms;}void vTaskDelay(uint32_t n){clock_ms+=n;assert(clock_ms<400000);if(online_test_click && clock_ms>90000){wzh::PrepareOnboardingDoubleClick();if(wzh::ConsumeOnboardingConnectionProbe()){online_test_click=false;online_saw_wait=true;wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceReady);}}else if(!online_test_click && wifi_online){wzh::PrepareOnboardingDoubleClick();wzh::ConsumeOnboardingConnectionProbe();}if(inject_touch_window&&wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch)){inject_touch_window=false;touch_captured=true;}if(clock_ms>=240000&&stop_late_wait){stop_late_wait=false;wzh::StopOnboarding();}if(clock_ms>=240000&&late_service){late_service=false;wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceReady);}if(stop_on_ap_wait&&stop_ap_at&&clock_ms>=stop_ap_at){assert(!wzh::IsOnboardingActive());stop_on_ap_wait=false;wzh::StopOnboarding();if(resume_after_stop){resume_after_stop=false;wzh::ResumeOnboardingAfterAbort();}}}
+uint32_t xTaskGetTickCount(){return clock_ms;}void vTaskDelay(uint32_t n){clock_ms+=n;assert(clock_ms<400000);if(cellular_connect_at&&clock_ms>=cellular_connect_at){cellular_online=true;cellular_connect_at=0;}if(online_test_click && clock_ms>90000){wzh::PrepareOnboardingDoubleClick();if(wzh::ConsumeOnboardingConnectionProbe()){online_test_click=false;online_saw_wait=true;wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceReady);}}else if(!online_test_click && wifi_online){wzh::PrepareOnboardingDoubleClick();wzh::ConsumeOnboardingConnectionProbe();}if(inject_touch_window&&wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch)){inject_touch_window=false;touch_captured=true;}if(clock_ms>=240000&&stop_late_wait){stop_late_wait=false;wzh::StopOnboarding();}if(clock_ms>=240000&&late_service){late_service=false;wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceReady);}if(stop_on_ap_wait&&stop_ap_at&&clock_ms>=stop_ap_at){assert(!wzh::IsOnboardingActive());stop_on_ap_wait=false;wzh::StopOnboarding();if(resume_after_stop){resume_after_stop=false;wzh::ResumeOnboardingAfterAbort();}}}
 void vTaskDelete(void*){}
 std::map<std::string,std::vector<uint8_t>> store;
 std::string key(int h,const char* n){return std::to_string(h)+":"+n;}
@@ -144,6 +147,11 @@ int nvs_commit(int){return ESP_OK;}void nvs_close(int){}
 #include "wzh_onboarding_store.cc"
 #include "wzh_onboarding.cc"
 int main(){
+ assert(wzh::OnboardingBlocksConversation()); // Includes the power-on gap before the worker starts.
+ wzh::OnboardingProgress interrupted_intro;
+ for(int i=0;i<4;++i)assert(wzh::SaveInterrupted(interrupted_intro));
+ assert(interrupted_intro.step==0 && interrupted_intro.skipped==0);
+ store.clear();
  wzh::StartOnboarding();assert(worker&&wzh::IsOnboardingActive());worker(nullptr);
  auto& audio=Application::GetInstance().audio;assert(audio.played.size()==13);
  for(size_t i=1;i<audio.starts.size();++i){
@@ -247,6 +255,39 @@ int main(){
  wzh::started.store(false);wzh::stopping.store(false);wzh::service_verified.store(false);
  worker=nullptr;wzh::StartOnboarding();assert(worker);worker(nullptr);
  assert(audio.played.size()==13&&audio.played.front()=="INTRO");
+ // Cellular skips Wi-Fi setup, but still waits for a verified double click.
+ store.clear();wifi_online=false;cellular_mode=true;cellular_online=true;
+ online_test_click=true;online_saw_wait=false;wzh::online_double_click.store(false);
+ audio.played.clear();audio.starts.clear();clock_ms=0;audio.until=0;
+ wzh::started.store(false);wzh::stopping.store(false);wzh::service_verified.store(false);
+ worker=nullptr;wzh::StartOnboarding();worker(nullptr);
+ assert(online_saw_wait);
+ assert((audio.played==std::vector<std::string_view>{"INTRO","TOUCH","MOTION","CMD1","WAKE",
+   "CONNECTED","ABILITY","INTERRUPT","CLONE","FAREWELL"}));
+ wzh::OnboardingProgress cellular_done;
+ assert(wzh::LoadOnboardingProgress(cellular_done)&&cellular_done.Done());
+ assert(!wzh::OnboardingBlocksConversation());
+ // Offline 4G gives one neutral prompt, then waits without Wi-Fi setup.
+ store.clear();cellular_online=false;online_test_click=false;stop_late_wait=true;
+ audio.played.clear();audio.starts.clear();clock_ms=0;audio.until=0;
+ wzh::started.store(false);wzh::stopping.store(false);wzh::online_double_click.store(false);
+ wzh::service_verified.store(false);worker=nullptr;wzh::StartOnboarding();worker(nullptr);
+ assert((audio.played==std::vector<std::string_view>{"INTRO","TOUCH","MOTION","CMD1","WAKE","ADV_WIFI_WAITING"}));
+ wzh::OnboardingProgress waiting_cellular;
+ assert(wzh::LoadOnboardingProgress(waiting_cellular)&&waiting_cellular.step==8&&!waiting_cellular.Done());
+ // Reboot with network restored and finish only the remaining online chapter.
+ cellular_online=true;online_test_click=true;online_saw_wait=false;audio.played.clear();
+ clock_ms=0;audio.until=0;wzh::started.store(false);wzh::stopping.store(false);
+ wzh::online_double_click.store(false);worker=nullptr;wzh::StartOnboarding();worker(nullptr);
+ assert(online_saw_wait&&audio.played.front()=="CONNECTED");
+ assert(wzh::LoadOnboardingProgress(waiting_cellular)&&waiting_cellular.Done());
+ // Normal registration during the grace period must not play the offline cue.
+ store.clear();cellular_online=false;connect_during_grace=true;online_test_click=true;
+ audio.played.clear();clock_ms=0;audio.until=0;wzh::started.store(false);
+ wzh::stopping.store(false);wzh::service_verified.store(false);
+ wzh::online_double_click.store(false);worker=nullptr;wzh::StartOnboarding();worker(nullptr);
+ for(auto sound:audio.played)assert(sound!="ADV_WIFI_WAITING");
+ assert(wzh::LoadOnboardingProgress(waiting_cellular)&&waiting_cellular.Done());
 }
 ''')
             binary = root / 'test'

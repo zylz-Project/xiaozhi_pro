@@ -1,0 +1,75 @@
+{
+  "tempo": 0.92,
+  "resource": "seed-tts-2.0",
+  "products": {
+    "an": {
+      "name": "大熊猫",
+      "voice": "zh_female_yingtaowanzi_uranus_bigtts",
+      "speech_rate": 10,
+      "audio": {
+        "01_bluetooth": {
+          "text": "接下来用手机帮我连网吧。请先打开手机蓝牙，再打开泽元灵智小程序，在附近设备里找到我，点击连接。",
+          "duration_seconds": 9.955,
+          "rms_dbfs": -19.69,
+          "sha256": "532a7fd1178fd59fcee49473948ed77802e39c14992194c7faf4878967a2ef1a",
+          "ogg": "panda/crawl_01_bluetooth.ogg",
+          "mp3": "panda/crawl_01_bluetooth.mp3"
+        },
+        "02_wifi": {
+          "text": "连接成功后，进入设备页面，点击更改网络，选择家里的二点四 G 网络，输入密码并连接。",
+          "duration_seconds": 9.148,
+          "rms_dbfs": -19.62,
+          "sha256": "4f092d28ac5ce75c903ecba33b5b3cddf2a3b75800f68d1a00f2d7d16901f62c",
+          "ogg": "panda/crawl_02_wifi.ogg",
+          "mp3": "panda/crawl_02_wifi.mp3"
+        }
+      }
+    },
+    "xing": {
+      "name": "小熊猫",
+      "voice": "zh_female_yingtaowanzi_uranus_bigtts",
+      "speech_rate": 10,
+      "audio": {
+        "01_bluetooth": {
+          "text": "接下来用手机帮我连网吧。请先打开手机蓝牙，再打开泽元灵智小程序，在附近设备里找到我，点击连接。",
+          "duration_seconds": 10.382,
+          "rms_dbfs": -19.51,
+          "sha256": "acd8862ad07d2029cc60469e53764328daae12a0f55eb6e05cf29ea3af30d848",
+          "ogg": "panda/redpanda_01_bluetooth.ogg",
+          "mp3": "panda/redpanda_01_bluetooth.mp3"
+        },
+        "02_wifi": {
+          "text": "连接成功后，进入设备页面，点击更改网络，选择家里的二点四 G 网络，输入密码并连接。",
+          "duration_seconds": 8.941,
+          "rms_dbfs": -19.63,
+          "sha256": "2bf57491b0e67808645dd452f9d4cc01dab9391e09b0882b0d33f449a4c98da1",
+          "ogg": "panda/redpanda_02_wifi.ogg",
+          "mp3": "panda/redpanda_02_wifi.mp3"
+        }
+      }
+    },
+    "long": {
+      "name": "恐龙",
+      "voice": "zh_male_yangguangqingnian_uranus_bigtts",
+      "speech_rate": -15,
+      "audio": {
+        "01_bluetooth": {
+          "text": "接下来用手机帮我连网吧。请先打开手机蓝牙，再打开泽元灵智小程序，在附近设备里找到我，点击连接。",
+          "duration_seconds": 9.726,
+          "rms_dbfs": -19.51,
+          "sha256": "717dd45c7c214f3a3c56d588925446e630e0f4db097be51de3034fa8c25bbd5d",
+          "ogg": "long/01_bluetooth.ogg",
+          "mp3": "long/01_bluetooth.mp3"
+        },
+        "02_wifi": {
+          "text": "连接成功后，进入设备页面，点击更改网络，选择家里的二点四 G 网络，输入密码并连接。",
+          "duration_seconds": 8.212,
+          "rms_dbfs": -19.51,
+          "sha256": "cd65e8c0f4aa83264bb9e57b9750c88ac140e8739b6c49886a2b4afa0b47b2c2",
+          "ogg": "long/02_wifi.ogg",
+          "mp3": "long/02_wifi.mp3"
+        }
+      }
+    }
+  }
+}

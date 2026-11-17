@@ -348,6 +348,12 @@ void Application::Run() {
 }
 
 void Application::HandleNetworkConnectedEvent() {
+    // A queued connection event can arrive after the link drops or shutdown
+    // begins. Do not start an activation on a network that is already gone.
+    if (!Board::GetInstance().IsNetworkAvailable()) {
+        ESP_LOGI(TAG, "Ignoring stale network connection event");
+        return;
+    }
     ESP_LOGI(TAG, "Network connected");
     auto state = GetDeviceState();
 

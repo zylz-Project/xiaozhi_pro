@@ -26,6 +26,8 @@ struct Request {
     std::function<bool()> cancelled;
     // Optional native-rate signed PCM16LE stream; called only by the worker.
     std::function<bool(const uint8_t*, size_t)> pcm_sink;
+    // Incremental Ogg/Opus bytes; mutually exclusive with pcm_sink.
+    std::function<bool(const uint8_t*, size_t)> opus_sink;
 };
 
 struct Response {

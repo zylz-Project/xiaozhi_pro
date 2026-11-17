@@ -1,4 +1,5 @@
 #include "ali_enrollment.h"
+#include "voice_http.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -25,13 +26,10 @@ constexpr char kCreateStart[] =
 constexpr char kCreateAudio[] = "\",\"audio\":\"data:audio/wav;base64,";
 constexpr char kVoiceIdPrefix[] = "qwen-audio-3.1-tts-flash-";
 constexpr char kSuffix[] = "\",\"language_hints\":[\"zh\"],\"max_prompt_audio_length\":20}}";
-struct ClientDelete {
-    void operator()(esp_http_client* p) const { esp_http_client_cleanup(p); }
-};
 struct JsonDelete {
     void operator()(cJSON* p) const { cJSON_Delete(p); }
 };
-using Client = std::unique_ptr<esp_http_client, ClientDelete>;
+using Client = VoiceHttpClient;
 using Json = std::unique_ptr<cJSON, JsonDelete>;
 
 bool ValidPrefix(const std::string& prefix) {
@@ -61,7 +59,7 @@ Client Open(const std::string& key, size_t length, int timeout_ms = 30000) {
     config.timeout_ms = timeout_ms;
     config.crt_bundle_attach = esp_crt_bundle_attach;
     config.disable_auto_redirect = true;
-    Client client(esp_http_client_init(&config));
+    Client client = CreateVoiceHttpClient(config);
     const std::string auth = "Bearer " + key;
     if (!client ||
         esp_http_client_set_header(client.get(), "Authorization", auth.c_str()) != ESP_OK ||

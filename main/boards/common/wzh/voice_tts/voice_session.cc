@@ -8,15 +8,23 @@
 #include <condition_variable>
 #include <cstring>
 #include <new>
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+#include <freertos/idf_additions.h>
+#define VOICE_EXTERNAL_STACK 1
+#else
+#define VOICE_EXTERNAL_STACK 0
+#endif
 
 #include "ali_provider.h"
 #include "application.h"
 #include "audio_codec.h"
 #include "board.h"
+#include "ogg_demuxer.h"
 #include "voice_config.h"
 #include "voice_text_batch.h"
 #include "voice_text_filter.h"
 #include "wav_playback.h"
+#include "wzh_sound_score.h"
 
 namespace voice_tts {
 namespace {
@@ -28,14 +36,23 @@ constexpr size_t kMaxPendingBytes = 16 * 1024;
 // It also lets the producer start the next sentence while audio remains queued.
 class AliPcmBuffer {
 public:
-    AliPcmBuffer(AudioService& audio, uint32_t generation, std::function<bool()> cancelled)
-        : audio_(audio), generation_(generation), cancelled_(std::move(cancelled)) {}
+    AliPcmBuffer(AudioService& audio, uint32_t generation, std::function<bool()> cancelled,
+                 bool cellular = false)
+        : audio_(audio),
+          generation_(generation),
+          cancelled_(std::move(cancelled)),
+          cellular_(cellular) {}
     bool Start() {
         data_ =
             static_cast<uint8_t*>(heap_caps_malloc(kCapacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         if (!data_)
             return false;
+#if VOICE_EXTERNAL_STACK
+        if (xTaskCreateWithCaps(Entry, "ali_pcm", 8192, this, 3, &task_,
+                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+#else
         if (xTaskCreate(Entry, "ali_pcm", 8192, this, 3, &task_) != pdPASS) {
+#endif
             free(data_);
             data_ = nullptr;
             return false;
@@ -77,7 +94,11 @@ private:
     static constexpr size_t kPrefix = 24000;     // 500 ms
     static void Entry(void* context) {
         static_cast<AliPcmBuffer*>(context)->Play();
+#if VOICE_EXTERNAL_STACK
+        vTaskDeleteWithCaps(nullptr);
+#else
         vTaskDelete(nullptr);
+#endif
     }
     void Play() {
         bool priming = true;
@@ -95,9 +116,11 @@ private:
                     // Increase the recovery prefix only after a real starvation;
                     // cap it at 300 ms so stable streams keep their low latency.
                     const size_t prefix =
-                        have_output ? 5760 + std::min(underruns, 3u) * 2880 : kPrefix;
-                    const auto until = std::chrono::steady_clock::now() +
-                                       std::chrono::milliseconds(have_output ? 350 : 1200);
+                        cellular_ ? (have_output ? 48000 : 72000)
+                                  : (have_output ? 5760 + std::min(underruns, 3u) * 2880 : kPrefix);
+                    const auto until =
+                        std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(cellular_ ? 2500 : (have_output ? 350 : 1200));
                     while (size_ < prefix && !finished_ && !cancelled_()) {
                         if (cv_.wait_until(lock, until) == std::cv_status::timeout)
                             break;
@@ -154,6 +177,7 @@ private:
     AudioService& audio_;
     uint32_t generation_;
     std::function<bool()> cancelled_;
+    bool cellular_;
     std::mutex mutex_;
     std::condition_variable cv_;
     uint8_t* data_ = nullptr;
@@ -167,6 +191,10 @@ private:
 bool VoiceSession::Ready() { return ReadyForVoice(""); }
 
 bool VoiceSession::ReadyForVoice(const std::string& voice) {
+    if (voice.empty() && LoadAliVoice() == "xiaozhi-native") {
+        bypass_next_.store(false);
+        return false;
+    }
     if (bypass_next_.exchange(false)) {
         ESP_LOGW(kTag, "External speech unavailable: one-turn fallback after earlier failure");
         return false;
@@ -200,7 +228,8 @@ bool VoiceSession::BeginWithVoice(uint32_t playback_generation, const std::strin
     const std::string provider = "ali";
     const auto key = LoadAliKey();
     const auto voice = voice_override.empty() ? LoadAliVoice() : voice_override;
-    if ((task_ && (!stopping_ || pending_)) || !completion || key.empty() || voice.empty())
+    if ((task_ && (!stopping_ || pending_)) || !completion || key.empty() || voice.empty() ||
+        voice == "xiaozhi-native")
         return false;
     if (task_) {
         // The cancelled worker may still be unwinding an HTTP read. Keep a
@@ -233,7 +262,14 @@ bool VoiceSession::BeginWithVoice(uint32_t playback_generation, const std::strin
     active_generation_.store(generation_.fetch_add(1) + 1);
     stopping_ = false;
     ESP_LOGI(kTag, "Starting voice cloning provider=%s", provider_.c_str());
-    if (xTaskCreate(TaskEntry, "voice_tts", 8192, this, 3, &task_) != pdPASS) {
+#if VOICE_EXTERNAL_STACK
+    const auto created = xTaskCreateWithCaps(TaskEntry, "voice_tts", 8192, this, 3, &task_,
+                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    const auto created = xTaskCreate(TaskEntry, "voice_tts", 8192, this, 3, &task_);
+#endif
+    if (created != pdPASS) {
+        ESP_LOGE(kTag, "Cannot create external speech task");
         task_ = nullptr;
         completion_ = {};
         api_key_.clear();
@@ -301,7 +337,11 @@ void VoiceSession::Cancel() {
 void VoiceSession::TaskEntry(void* context) {
     auto* self = static_cast<VoiceSession*>(context);
     self->Run(self->active_generation_.load());
+#if VOICE_EXTERNAL_STACK
+    vTaskDeleteWithCaps(nullptr);
+#else
     vTaskDelete(nullptr);
+#endif
 }
 
 void VoiceSession::Run(uint32_t generation) {
@@ -309,18 +349,23 @@ void VoiceSession::Run(uint32_t generation) {
     auto& audio = Application::GetInstance().GetAudioService();
     const int output_rate = Board::GetInstance().GetAudioCodec()->output_sample_rate();
     AliProvider provider;
-    AliPcmBuffer ali_buffer(audio, playback_generation_, cancelled);
-    const bool ali_started = !cancelled() && output_rate == 24000 && ali_buffer.Start();
+    const bool cellular = Board::GetInstance().UsesCellularNetwork();
+    std::unique_ptr<OggDemuxer> opus(cellular ? new (std::nothrow) OggDemuxer() : nullptr);
+    AliPcmBuffer ali_buffer(audio, playback_generation_, cancelled, cellular);
+    const bool ali_started =
+        !cancelled() && output_rate == 24000 && (cellular ? opus != nullptr : ali_buffer.Start());
     if (!ali_started && !cancelled()) {
-        ESP_LOGW(kTag, "Ali PCM buffer unavailable");
+        ESP_LOGW(kTag, "Ali %s playback buffer unavailable", cellular ? "Opus" : "PCM");
         std::lock_guard<std::mutex> lock(mutex_);
         if (!cancelled())
             failed_ = true;
     }
     int64_t last_activity = esp_timer_get_time();
+    int64_t batch_started = 0;
     while (!cancelled() && ali_started) {
         std::string sentence;
         bool done = false;
+        bool wait_batch = false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (cancelled())
@@ -330,13 +375,26 @@ void VoiceSession::Run(uint32_t generation) {
                 queued_bytes_ = 0;
                 done = finished_;
             } else if (!queue_.empty()) {
-                sentence = PopTextBatch(queue_, queued_bytes_, true);
+                if (!batch_started)
+                    batch_started = esp_timer_get_time();
+                wait_batch = cellular &&
+                             WaitForShortCellularBatch(
+                                 queue_, finished_, (esp_timer_get_time() - batch_started) / 1000);
+                if (!wait_batch) {
+                    sentence = PopTextBatch(queue_, queued_bytes_, true);
+                    batch_started = 0;
+                }
             } else {
                 done = finished_;
+                batch_started = 0;
             }
         }
         if (done)
             break;
+        if (wait_batch) {
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+            continue;
+        }
         if (sentence.empty()) {
             if (esp_timer_get_time() - last_activity > 60000000) {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -356,7 +414,34 @@ void VoiceSession::Run(uint32_t generation) {
         request.cancelled = cancelled;
         bool has_pending_byte = false;
         bool logged_first_pcm = false;
-        {
+        bool opus_ok = true;
+        bool got_opus = false;
+        if (cellular) {
+            opus->Reset();
+            opus->OnDemuxerFinished([&](const uint8_t* data, int, size_t size) {
+                if (!opus_ok || cancelled())
+                    return;
+                if (!got_opus)
+                    ESP_LOGI(
+                        kTag, "Ali first Opus packet: elapsed_ms=%u",
+                        static_cast<unsigned>((esp_timer_get_time() - request_started) / 1000));
+                const int duration = wzh::OpusPacketDurationMs(data, size);
+                if (!duration) {
+                    opus_ok = false;
+                    return;
+                }
+                auto packet = std::make_unique<AudioStreamPacket>();
+                packet->sample_rate = 48000;
+                packet->frame_duration = duration;
+                packet->payload.assign(data, data + size);
+                got_opus = true;
+                opus_ok =
+                    audio.PushPacketToDecodeQueue(std::move(packet), true, playback_generation_);
+            });
+            request.opus_sink = [&](const uint8_t* bytes, size_t size) {
+                return opus_ok && !cancelled() && opus->Process(bytes, size) == size;
+            };
+        } else {
             request.pcm_sink = [&](const uint8_t* bytes, size_t size) {
                 if (output_rate != 24000)
                     return false;
@@ -376,8 +461,8 @@ void VoiceSession::Run(uint32_t generation) {
         last_activity = esp_timer_get_time();
         if (result == Result::kOk && !cancelled()) {
             if (response.streamed) {
-                ESP_LOGI(kTag, "Ali PCM stream complete: HTTP=%d elapsed_ms=%u",
-                         response.http_status,
+                ESP_LOGI(kTag, "Ali %s stream complete: HTTP=%d elapsed_ms=%u",
+                         cellular ? "Opus" : "PCM", response.http_status,
                          static_cast<unsigned>((last_activity - request_started) / 1000));
             } else {
                 ESP_LOGI(kTag, "Speech response: HTTP=%d audio_bytes=%u elapsed_ms=%u",
@@ -386,9 +471,10 @@ void VoiceSession::Run(uint32_t generation) {
             }
         }
         const bool played =
-            result == Result::kOk && (response.streamed ? !has_pending_byte
-                                                        : PlayWav(audio, response.wav, output_rate,
-                                                                  playback_generation_, cancelled));
+            result == Result::kOk &&
+            (response.streamed
+                 ? (cellular ? opus_ok && got_opus && opus->valid_stream() : !has_pending_byte)
+                 : PlayWav(audio, response.wav, output_rate, playback_generation_, cancelled));
         if (played && !cancelled())
             ESP_LOGI(kTag, "Speech audio queued for playback");
         if (!played && !cancelled()) {
@@ -402,7 +488,7 @@ void VoiceSession::Run(uint32_t generation) {
             }
         }
     }
-    if (ali_started && !ali_buffer.Finish() && !cancelled()) {
+    if (ali_started && !cellular && !ali_buffer.Finish() && !cancelled()) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!cancelled())
             failed_ = true;
@@ -440,7 +526,14 @@ void VoiceSession::CompleteWorker(uint32_t generation) {
             pending_.reset();
             stopping_ = false;
             ESP_LOGI(kTag, "Starting queued voice cloning provider=%s", provider_.c_str());
-            if (xTaskCreate(TaskEntry, "voice_tts", 8192, this, 3, &task_) != pdPASS) {
+#if VOICE_EXTERNAL_STACK
+            const auto created = xTaskCreateWithCaps(TaskEntry, "voice_tts", 8192, this, 3, &task_,
+                                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+            const auto created = xTaskCreate(TaskEntry, "voice_tts", 8192, this, 3, &task_);
+#endif
+            if (created != pdPASS) {
+                ESP_LOGE(kTag, "Cannot create queued external speech task");
                 completion = std::move(completion_);
                 ok = false;
                 bypass_next_.store(true);

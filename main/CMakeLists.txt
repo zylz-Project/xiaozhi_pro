@@ -93,16 +93,19 @@ set(EMOTE_RESOLUTION "320_240")
 # WZH product migration: only the three WZH toys remain in this fork.
 if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA)
     set(BOARD_DIR "wzh_crawlPanda")
+    set(WZH_DEFAULT_WAKE_MODEL "wn9_nihaoxiaoan_tts2")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
     set(BUILTIN_ICON_FONT font_material_symbols_16_4)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_32)
 elseif(CONFIG_BOARD_TYPE_WZH_DINOSAUR)
     set(BOARD_DIR "wzh_dinosaur")
+    set(WZH_DEFAULT_WAKE_MODEL "wn9_xiaolongxiaolong_tts")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
     set(BUILTIN_ICON_FONT font_material_symbols_16_4)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_32)
 elseif(CONFIG_BOARD_TYPE_WZH_TAILREDPANDA)
     set(BOARD_DIR "wzh_tailRedPanda")
+    set(WZH_DEFAULT_WAKE_MODEL "wn9l_ni3hao3xing1bao3_tts3")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
     set(BUILTIN_ICON_FONT font_material_symbols_16_4)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_32)
@@ -164,9 +167,17 @@ if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_
     file(GLOB_RECURSE WZH_UI_INPUTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/wzh_ui/*")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${WZH_UI_INPUTS}
         "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/pack_wzh_ui.py")
+    if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA)
+        set(WZH_UI_PRODUCT crawlPanda)
+    elseif(CONFIG_BOARD_TYPE_WZH_DINOSAUR)
+        set(WZH_UI_PRODUCT dinosaur)
+    else()
+        set(WZH_UI_PRODUCT redpanda)
+    endif()
     execute_process(COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/pack_wzh_ui.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/wzh_ui" "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_pack.bin"
-        "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_manifest.inc" COMMAND_ERROR_IS_FATAL ANY)
+        "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_manifest.inc" "${WZH_UI_PRODUCT}"
+        COMMAND_ERROR_IS_FATAL ANY)
     list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}")
     set(WZH_CONSOLE_FILES "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_pack.bin")
     set(WZH_CONVERSATION_SOUNDS "assets/wzh_sounds/conversation_exit.ogg")
@@ -368,7 +379,10 @@ if(CONFIG_IDF_TARGET_ESP32S3)
     list(APPEND SOURCES "boards/common/esp32_camera.cc")
 endif()
 
-set(MAIN_PRIV_REQUIRES_EXTRA "")
+set(WZH_MODEM_REQUIRES "")
+if(CONFIG_WZH_DINOSAUR_PPP)
+    list(APPEND WZH_MODEM_REQUIRES espressif__esp_modem)
+endif()
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${WZH_CONSOLE_FILES} ${WZH_CONVERSATION_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
@@ -390,6 +404,7 @@ idf_component_register(SRCS ${SOURCES}
                         esp_app_format
                         app_update
                         esp_http_client
+                        tcp_transport
                         spi_flash
                         mbedtls
                         console
@@ -397,7 +412,7 @@ idf_component_register(SRCS ${SOURCES}
                         bt
                         fatfs
                         xiaozhi-fonts
-                        ${MAIN_PRIV_REQUIRES_EXTRA}
+                        ${WZH_MODEM_REQUIRES}
                     )
 
 # Use target_compile_definitions to define the reported board identity
@@ -503,6 +518,11 @@ function(build_default_assets_bin)
 
     list(APPEND BUILD_ARGS "--esp_sr_model_path" "${ESP_SR_MODEL_PATH}")
     list(APPEND BUILD_ARGS "--noto_fonts_path" "${NOTO_FONTS_PATH}")
+    # The board owns its wake model. Kconfig cannot clear a CONFIG_SR_WN_* value
+    # that a previous product left in sdkconfig, so pin the packaged model here.
+    if(WZH_DEFAULT_WAKE_MODEL AND CONFIG_USE_AFE_WAKE_WORD)
+        list(APPEND BUILD_ARGS "--wakenet_model" "${WZH_DEFAULT_WAKE_MODEL}")
+    endif()
 
     set(NEURAL_MODEL_DIRS "")
     if(CONFIG_SR_NSN_NSNET2)

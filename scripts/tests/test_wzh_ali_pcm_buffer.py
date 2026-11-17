@@ -81,6 +81,13 @@ int main(){
   std::this_thread::sleep_for(std::chrono::milliseconds(5));
  if(gaps.delivered.load()!=14880)return 12;
  if(!gap_ring.Finish())return 13;
+ // A short cellular response waits for the end of the response instead of
+ // starting immediately and starving between UART chunks.
+ AudioService mobile; AliPcmBuffer mobile_ring(mobile,4,[&]{return cancel.load();},true);
+ if(!mobile_ring.Start() || !mobile_ring.Write(burst.data(),burst.size()))return 14;
+ std::this_thread::sleep_for(std::chrono::milliseconds(100));
+ if(mobile.delivered.load()!=0)return 15;
+ if(!mobile_ring.Finish() || mobile.delivered.load()!=12000)return 16;
  AudioService other; AliPcmBuffer stopped(other,2,[&]{return cancel.load();});
  if(!stopped.Start())return 5;
  cancel=true;

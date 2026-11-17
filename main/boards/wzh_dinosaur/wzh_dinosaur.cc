@@ -1,6 +1,8 @@
 #include <driver/i2c_master.h>
+#include <cJSON.h>
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <material_symbols.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -12,6 +14,7 @@
 #include "codecs/es8311_audio_codec.h"
 #include "config.h"
 #include "dinosaur_audio.h"
+#include "dinosaur_cellular.h"
 #include "dinosaur_controller.h"
 #include "dinosaur_power.h"
 #include "display/display.h"
@@ -302,7 +305,69 @@ public:
         return power_.battery_level_valid();
     }
 
+#if DINOSAUR_ENABLE_4G
+    void StartNetwork() override {
+        // Retain the local Wi-Fi portal; only cellular events control the
+        // cloud connection in this explicitly selected test variant.
+        WifiBoard::StartNetwork();
+        cellular_.Start([this](NetworkEvent event, const std::string& data) {
+            if (power_.IsShuttingDown())
+                return;
+            if (event == NetworkEvent::Disconnected) {
+                wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
+                controller_.SetConversationActive(false);
+            }
+            if (cloud_network_callback_)
+                cloud_network_callback_(event, data);
+        });
+    }
+
+    NetworkInterface* GetNetwork() override { return cellular_.GetNetwork(); }
+    bool IsNetworkAvailable() const override {
+        return !power_.IsShuttingDown() && cellular_.IsReady();
+    }
+    bool UsesCellularNetwork() const override { return true; }
+    bool HasSystemNetwork() const override { return WifiManager::GetInstance().IsConnected(); }
+    const char* GetNetworkStateIcon() override {
+        return cellular_.IsReady() ? MATERIAL_SYMBOLS_SIGNAL_CELLULAR_ALT
+                                   : MATERIAL_SYMBOLS_ANDROID_CELL_4_BAR_OFF;
+    }
+
+    std::string GetBoardJson() override {
+        return std::string("{\"type\":\"") + BOARD_TYPE + "\",\"name\":\"" + BOARD_NAME +
+               "\",\"manufacturer\":\"" + BOARD_MANUFACTURER + "\",\"network\":\"cellular\"}";
+    }
+
+    std::string GetDeviceStatusJson() override {
+        auto* root = cJSON_Parse(WifiBoard::GetDeviceStatusJson().c_str());
+        if (!root)
+            return "{}";
+        cJSON_DeleteItemFromObject(root, "network");
+        auto* network = cJSON_AddObjectToObject(root, "network");
+        if (network) {
+            cJSON_AddStringToObject(network, "type", "cellular");
+            cJSON_AddBoolToObject(network, "connected", cellular_.IsReady());
+        }
+        char* text = cJSON_PrintUnformatted(root);
+        std::string result = text ? text : "{}";
+        cJSON_free(text);
+        cJSON_Delete(root);
+        return result;
+    }
+#endif
+
+    void OnLocalPortalReady() override { web_console_.Start(); }
+
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
+#if DINOSAUR_ENABLE_4G
+        cloud_network_callback_ = std::move(callback);
+        WifiBoard::SetNetworkEventCallback([this](NetworkEvent event, const std::string&) {
+            if (event == NetworkEvent::Connected) {
+                web_console_.Start();
+            } else if (event == NetworkEvent::WifiConfigModeEnter)
+                web_console_.Stop();
+        });
+#else
         // 在线/离线主要由对话状态决定；断网事件仍应立即强制返回离线，
         // 防止语音通道关闭回调尚未到达时继续保留在线状态。
         WifiBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
@@ -320,9 +385,14 @@ public:
                 callback(event, data);
             }
         });
+#endif
     }
 
 private:
+#if DINOSAUR_ENABLE_4G
+    DinosaurCellular cellular_;
+    NetworkEventCallback cloud_network_callback_;
+#endif
     bool product_initialized_ = false;
     i2c_master_bus_handle_t codec_i2c_bus_ = nullptr;
     Button boot_button_;

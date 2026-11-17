@@ -2427,6 +2427,18 @@
   .reset-copy b { display: block; font-size: 10.5px; line-height: 1; font-weight: 650; }
   .reset-copy small { display: block; margin-top: 3px; color: rgba(159,73,58,.72); font-size: 9.5px; line-height: 1; }
   .reset-bar .chev { flex: 0 0 12px; width: 12px; height: 12px; opacity: .55; }
+  .dev-entry {
+    display: block;
+    margin: 6px 2px 0;
+    padding: 7px 2px;
+    text-align: center;
+    color: var(--ink-3);
+    font-family: var(--mono);
+    font-size: 9px;
+    text-decoration: none;
+    opacity: .7;
+  }
+  .dev-entry:hover { opacity: 1; text-decoration: underline; }
 
   /* D: keep the same components, slightly more air in the hero card. */
   .bento > .manual-ribbon { margin-top: 0; }

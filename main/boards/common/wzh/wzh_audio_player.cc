@@ -5,7 +5,9 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <new>
 
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_random.h>
 #include <esp_timer.h>
@@ -29,12 +31,32 @@ constexpr size_t kReadChunk = 4096;
 }  // namespace
 
 bool AudioPlayer::Start(AudioStore* store) {
+    if (play_queue_)
+        return false;
     store_ = store;
-    // SPI 读取和 OGG 解复用可能持续数百毫秒，必须放到独立任务；20 KiB
-    // 栈主要供 OggDemuxer 的包缓存和 4 KiB Flash 读取缓冲区使用。
+    // Keep the demuxer's 8 KiB packet buffer out of the internal task stack.
+    // Allocate once, rather than allocating a large object for every sound.
     play_queue_ = xQueueCreate(3, sizeof(PlayRequest));
-    if (play_queue_ == nullptr ||
-        xTaskCreate(TaskEntry, "wzh_audio", 20480, this, 2, nullptr) != pdPASS) {
+    if (!play_queue_)
+        return false;
+    void* storage = heap_caps_malloc(sizeof(OggDemuxer), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!storage) {
+        ESP_LOGW(TAG, "PSRAM unavailable for offline audio demuxer; using internal memory");
+        storage = heap_caps_malloc(sizeof(OggDemuxer), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (!storage) {
+        vQueueDelete(play_queue_);
+        play_queue_ = nullptr;
+        ESP_LOGE(TAG, "Failed to allocate offline audio demuxer");
+        return false;
+    }
+    demuxer_ = new (storage) OggDemuxer();
+    if (xTaskCreate(TaskEntry, "wzh_audio", 12288, this, 2, nullptr) != pdPASS) {
+        demuxer_->~OggDemuxer();
+        heap_caps_free(demuxer_);
+        demuxer_ = nullptr;
+        vQueueDelete(play_queue_);
+        play_queue_ = nullptr;
         ESP_LOGE(TAG, "Failed to start offline audio task");
         return false;
     }
@@ -346,7 +368,8 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
     // OggDemuxer 只拆出 Opus 包；真正的解码和 I2S 输出仍由 AudioService 完成。
     bool ok = true;
     uint32_t submitted_ms = 0;
-    OggDemuxer demuxer;
+    auto& demuxer = *demuxer_;
+    demuxer.Reset();
 #if CONFIG_AUDIO_PRODUCT_QUALITY
     uint64_t submitted_48k = 0;
     const int16_t content_gain =

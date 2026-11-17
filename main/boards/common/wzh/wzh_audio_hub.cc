@@ -20,8 +20,8 @@
 
 #include <cJSON.h>
 
-#include <wifi_manager.h>
 #include "application.h"
+#include "board.h"
 #include "settings.h"
 
 #define TAG "WzhAudioHub"
@@ -726,7 +726,7 @@ void AudioHub::DoCheck() {
     }
 
     do {
-        if (!WifiManager::GetInstance().IsConnected()) {
+        if (!Board::GetInstance().HasSystemNetwork()) {
             SetJobMessage("设备未联网，无法检查 Audio Hub");
             status_.store(Status::kError);
             break;
@@ -894,7 +894,7 @@ void AudioHub::Task() {
     uint32_t last_sync_ms = 0;
 
     while (true) {
-        if (!WifiManager::GetInstance().IsConnected()) {
+        if (!Board::GetInstance().HasSystemNetwork()) {
             status_.store(Status::kWaitingNetwork);
             vTaskDelay(pdMS_TO_TICKS(5000));
             continue;

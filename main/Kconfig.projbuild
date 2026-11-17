@@ -133,6 +133,8 @@ choice BOARD_TYPE
     help
         Select the physical board hardware implementation.
         The OTA board type and firmware variant name are configured separately.
+        The board also picks the packaged wake model, so no separate wake-word
+        selection is needed when switching products.
 
     config BOARD_TYPE_WZH_CRAWLPANDA
         bool "WZH Crawl Panda"
@@ -539,6 +541,17 @@ endmenu
 
 menu "WZH Product Configuration"
     depends on BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_TAILREDPANDA
+
+    config WZH_DINOSAUR_AT_DIAGNOSTIC
+        bool "Dinosaur ML307 AT transport diagnostic"
+        depends on BOARD_TYPE_WZH_DINOSAUR
+        default n
+
+    config WZH_DINOSAUR_ML307_DTR_GPIO
+        int "ESP32 ML307 DTR GPIO (-1 when not connected)"
+        depends on BOARD_TYPE_WZH_DINOSAUR
+        range -1 48
+        default -1
 
     choice WZH_FLASH_TYPE
         prompt "External audio flash type"

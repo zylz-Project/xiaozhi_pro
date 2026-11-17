@@ -1,6 +1,6 @@
 #include "wzh_user_web.h"
-#include "wzh_web_assets.h"
 #include "wzh_system_prompts.h"
+#include "wzh_web_assets.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -27,6 +27,7 @@
 #include "board.h"
 #include "ssid_manager.h"
 #include "voice_tts/voice_config.h"
+#include "voice_tts/voice_http.h"
 #include "voice_tts/voice_identity.h"
 #include "voice_tts/voice_manager.h"
 #include "voice_tts/voice_names.h"
@@ -383,18 +384,17 @@ void UserWebPortal::ResetTask(void* arg) {
 
 void UserWebPortal::RunReset() {
     using Phase = FactoryResetPolicy::Phase;
-    auto& wifi = WifiManager::GetInstance();
     FactoryResetPolicy::Operations operations;
-    operations.validate = [this, &wifi]() {
+    operations.validate = [this]() {
         const auto deadline = Now() + 5000;
         while (options_.factory_reset_prepared && !options_.factory_reset_prepared() &&
-               wifi.IsConnected() && Now() < deadline)
+               Board::GetInstance().HasSystemNetwork() && Now() < deadline)
             vTaskDelay(pdMS_TO_TICKS(20));
-        return wifi.IsConnected() && options_.factory_reset_prepared &&
+        return Board::GetInstance().HasSystemNetwork() && options_.factory_reset_prepared &&
                options_.factory_reset_prepared();
     };
-    operations.reset_voices = [this, &wifi]() {
-        if (!wifi.IsConnected())
+    operations.reset_voices = [this]() {
+        if (!Board::GetInstance().HasSystemNetwork())
             return false;
         if (voice_tts::LoadAliKey().empty()) {
 #if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA
@@ -410,7 +410,7 @@ void UserWebPortal::RunReset() {
             const auto current = voice_tts::LoadAliVoice();
             const auto previous = voice_tts::LoadPreviousAliVoice();
             const auto built_in_or_empty = [](const std::string& id) {
-                if (id.empty())
+                if (id.empty() || id == "xiaozhi-native")
                     return true;
                 for (const auto& voice : voice_tts::kBuiltinVoices)
                     if (id == voice.id)
@@ -431,12 +431,15 @@ void UserWebPortal::RunReset() {
             std::lock_guard<std::mutex> lock(mutex_);
             reset_phase_ = "clearing_local";
         };
-        return voice_tts::ResetManagedVoices([&wifi]() { return !wifi.IsConnected(); }, progress,
-                                             local) == voice_tts::VoiceOperation::kOk;
+        return voice_tts::ResetManagedVoices(
+                   []() { return !Board::GetInstance().HasSystemNetwork(); }, progress, local) ==
+               voice_tts::VoiceOperation::kOk;
     };
-    operations.clear_onboarding = [&wifi]() { return wifi.IsConnected() && ClearOnboarding(); };
-    operations.clear_wifi = [&wifi]() {
-        return wifi.IsConnected() && SsidManager::GetInstance().ClearChecked();
+    operations.clear_onboarding = []() {
+        return Board::GetInstance().HasSystemNetwork() && ClearOnboarding();
+    };
+    operations.clear_wifi = []() {
+        return Board::GetInstance().HasSystemNetwork() && SsidManager::GetInstance().ClearChecked();
     };
     operations.report = [this](const FactoryResetPolicy::Progress& progress) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -551,7 +554,7 @@ esp_err_t UserWebPortal::FactoryResetStatus(httpd_req_t* req) {
 }
 
 esp_err_t UserWebPortal::StartFactoryReset(httpd_req_t* req) {
-    if (!WifiManager::GetInstance().IsConnected())
+    if (!Board::GetInstance().HasSystemNetwork())
         return Error(req, "409 Conflict", "NET_OFFLINE", "设备暂未联网");
     auto body = ReadBody(req);
     const char* confirm = body ? String(body.get(), "confirm") : nullptr;
@@ -620,10 +623,16 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     const bool session = HasSession(req, ip, now);
     auto& wifi = WifiManager::GetInstance();
     const bool connected = wifi.IsConnected();
-    if (connected)
+    const bool cellular = Board::GetInstance().UsesCellularNetwork();
+    const bool cellular_connected = cellular && Board::GetInstance().IsNetworkAvailable();
+    const bool selected_connected = cellular ? cellular_connected : connected;
+    if (selected_connected)
         last_online_ms_.store(now);
     const auto last_online = last_online_ms_.load();
-    const bool online = connected || (last_online && now - last_online < 3000);
+    const bool online = selected_connected || (last_online && now - last_online < 3000);
+    // The cellular variant has a local portal even when its SIM is offline.
+    // Do not send its users to a Wi-Fi setup flow for a cellular fault.
+    const bool local_accessible = online || cellular;
     const bool have_saved = !SsidManager::GetInstance().GetSsidList().empty();
     if (req->method == HTTP_POST &&
         !UserWebPolicy::ValidOrigin(Header(req, "Host", 128), Header(req, "Origin", 128)))
@@ -658,6 +667,11 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             cJSON_AddBoolToObject(out.get(), "saved_network", have_saved);
             cJSON_AddBoolToObject(out.get(), "setup_guide_done", SetupGuideDone());
             cJSON_AddStringToObject(out.get(), "startup_notice", StartupProtectionMessage());
+            if (cellular) {
+                auto* cell = cJSON_AddObjectToObject(out.get(), "cellular");
+                if (cell)
+                    cJSON_AddBoolToObject(cell, "connected", cellular_connected);
+            }
             auto* wireless = cJSON_AddObjectToObject(out.get(), "wifi");
             if (wireless) {
                 cJSON_AddStringToObject(wireless, "ap_ssid", wifi.GetApSsid().c_str());
@@ -701,7 +715,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             return JsonResponse(req, out.get());
         }
         if (path == "/api/user/onboarding/status") {
-            if (online && !session)
+            if (local_accessible && !session)
                 return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
             // Read-only diagnostic: which chapter is done, which step is next.
             // Mutating this state stays with the device itself — the portal's
@@ -758,6 +772,12 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
                 return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
             if (!online)
                 return Error(req, "409 Conflict", "NET_OFFLINE", "设备暂未联网");
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC && CONFIG_ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT
+            if (!voice_tts::VoiceHttpNetworkAvailable())
+#else
+            if (!Board::GetInstance().HasSystemNetwork())
+#endif
+                return Error(req, "409 Conflict", "NET_OFFLINE", "声音管理需要可用的数据网络");
             if (reset_running_.load())
                 return Error(req, "503 Service Unavailable", "RESET_BUSY", "恢复出厂进行中");
             if (!options_.voice_status_extra)
@@ -768,6 +788,17 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             options_.voice_status_extra(out.get());
             const bool has_key = options_.has_ali_key && options_.has_ali_key();
             if (!has_key && path == "/api/user/voices") {
+                auto* voices = cJSON_AddArrayToObject(out.get(), "voices");
+                auto* native = voices ? cJSON_CreateObject() : nullptr;
+                if (!native)
+                    return httpd_resp_send_500(req);
+                cJSON_AddStringToObject(native, "id", "xiaozhi-native");
+                cJSON_AddStringToObject(native, "name", "小智原声");
+                cJSON_AddBoolToObject(native, "builtin", true);
+                const auto selected = options_.ali_voice ? options_.ali_voice() : "";
+                cJSON_AddBoolToObject(native, "current",
+                                      selected.empty() || selected == "xiaozhi-native");
+                cJSON_AddItemToArray(voices, native);
                 cJSON_AddBoolToObject(out.get(), "ok", true);
                 cJSON_AddBoolToObject(out.get(), "has_key", false);
                 return JsonResponse(req, out.get());
@@ -802,7 +833,10 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
                 cJSON* item = nullptr;
                 cJSON_ArrayForEach (item, catalog) {
                     const char* id = String(item, "id");
-                    cJSON_AddBoolToObject(item, "current", id && current == id);
+                    cJSON_AddBoolToObject(
+                        item, "current",
+                        id && (current == id ||
+                               (current.empty() && std::strcmp(id, "xiaozhi-native") == 0)));
                     cJSON_AddBoolToObject(item, "previous", id && previous == id);
                 }
                 cJSON_AddItemToObject(out.get(), "voices", catalog);
@@ -835,7 +869,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             return SetupStatus(req, ip, session);
         }
         if (path == "/scan") {
-            if (online && !session)
+            if (local_accessible && !session)
                 return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
             Json out(cJSON_CreateObject(), cJSON_Delete);
             if (!out)
@@ -899,7 +933,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             path == "/done") {
             using Network = UserWebPolicy::Network;
             using Route = UserWebPolicy::Route;
-            const auto network = online                  ? Network::kOnline
+            const auto network = local_accessible        ? Network::kOnline
                                  : !have_saved           ? Network::kUnprovisioned
                                  : setup_running_.load() ? Network::kConnecting
                                                          : Network::kOffline;
@@ -958,7 +992,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         return SetupStatus(req, ip, session);
     }
     if (path == "/api/login") {
-        if (!online)
+        if (!local_accessible)
             return Error(req, "409 Conflict", "NET_OFFLINE", "设备暂未联网");
         auto body = ReadBody(req);
         const char* value = body ? String(body.get(), "password") : nullptr;
@@ -1020,7 +1054,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         return Ok(req);
     }
     if (path == "/api/user/guide/setup-complete") {
-        if (online && !session)
+        if (local_accessible && !session)
             return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
         // The tutorial owns its own completion bit: only actual playback of both
         // chapters may set it. A portal hint must not fake progress, so this
@@ -1034,7 +1068,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         return JsonResponse(req, out.get());
     }
     if (path == "/submit") {
-        if (online && !session)
+        if (local_accessible && !session)
             return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
         auto body = ReadBody(req);
         const char* ssid = body ? String(body.get(), "ssid") : nullptr;
@@ -1081,9 +1115,25 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     if (path.rfind("/api/user/voices/", 0) == 0) {
 #if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
     CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC && CONFIG_ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT
+        if (!voice_tts::VoiceHttpNetworkAvailable())
+#else
+        if (!Board::GetInstance().HasSystemNetwork())
+#endif
+            return Error(req, "409 Conflict", "NET_OFFLINE", "声音管理需要可用的数据网络");
+        const auto action = path.substr(std::strlen("/api/user/voices/"));
+        if (action == "native") {
+            auto body = ReadBody(req);
+            const char* id = body ? String(body.get(), "id") : nullptr;
+            if (!id || std::strcmp(id, "xiaozhi-native") != 0)
+                return Error(req, "400 Bad Request", "VOICE_INVALID", "音色无效");
+            if (reset_running_.load() || !options_.save_ali_voice ||
+                !options_.save_ali_voice("xiaozhi-native"))
+                return Error(req, "409 Conflict", "VOICE_BUSY", "设备正忙，请稍后重试");
+            return Ok(req);
+        }
         if (!options_.has_ali_key || !options_.has_ali_key())
             return Error(req, "409 Conflict", "VOICE_NO_KEY", "语音服务未配置");
-        const auto action = path.substr(std::strlen("/api/user/voices/"));
         if (action == "device-record") {
             auto body = ReadBody(req);
             const char* name = body ? String(body.get(), "name") : nullptr;

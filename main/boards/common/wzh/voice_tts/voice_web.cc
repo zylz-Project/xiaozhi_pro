@@ -188,6 +188,8 @@ void VoiceWeb::AddStatus(cJSON* out) {
         }
         return true;
     };
+    if (!add("xiaozhi-native", "小智原声", true))
+        return;
     if (have_list_) {
         for (const auto& voice : voices_)
             if (!add(voice.id, voice.name, voice.builtin))

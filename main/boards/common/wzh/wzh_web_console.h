@@ -21,12 +21,13 @@
 namespace wzh {
 class UserWebPortal;
 
-// 设备用户门户（:80，常驻开放热点）与开发者管理页（:8080，局域网）。
+// 设备用户门户（:80，常驻开放热点）与开发者管理页（:8080，热点与局域网均可）。
 //
 // WZH 常驻门户模式下，:80 与 SoftAP 由 WifiConfigurationAp 持有，用户
-// 页面通过 SetPortalRegistrar 注册到同一 server；本服务只负责 :8080，
-// 并拒绝 AP 网段客户端。非持久路径保留旧行为：自建 APSTA 热点，进入
-// 配网前由 WifiManager 的 before-config 回调调用 Stop()。
+// 页面通过 SetPortalRegistrar 注册到同一 server；本服务负责 :8080，热点
+// 客户端与家庭局域网客户端都可访问，由开发者密码 + 限速会话 token 把关。
+// 非持久路径保留旧行为：自建 APSTA 热点，进入配网前由 WifiManager 的
+// before-config 回调调用 Stop()。
 class WebConsole {
 public:
     struct Options {
@@ -80,6 +81,7 @@ private:
     bool EnsureAp();
     void DestroyAp();
 
+    static constexpr size_t kMaxRoutes = 28;
     struct RouteSlot {
         WebConsole* owner = nullptr;
         esp_err_t (*handler)(httpd_req_t*) = nullptr;
@@ -123,7 +125,7 @@ private:
 
     Options options_;
     std::unique_ptr<UserWebPortal> user_portal_;
-    std::array<RouteSlot, 25> routes_{};
+    std::array<RouteSlot, kMaxRoutes> routes_{};
     size_t route_count_ = 0;
     std::mutex lifecycle_mutex_;
     std::atomic<bool> started_{false};
