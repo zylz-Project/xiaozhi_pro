@@ -44,6 +44,14 @@ supported network libraries; the dinosaur and tail-red-panda configurations
 do not explicitly enable it. Do not assume this difference can be removed
 without separately testing each board's radio, NVS and OTA behavior.
 
+For the dinosaur 0AD0 diagnostic build on 2026-11-17, a controlled linker-map
+comparison with external BSS enabled moved 15,216 bytes of BSS to PSRAM and
+reduced total DIRAM usage by 15,152 bytes. Both builds also enabled the offline
+worker experiment and used the same assets and partition table. This is a
+static build comparison, not a runtime low-water measurement or proof that
+the setting is stable on physical hardware. It has not been enabled in the
+dinosaur or red-panda production configurations.
+
 ## Hardware acceptance
 
 Capture free internal, minimum-ever internal, largest internal and DMA blocks,
