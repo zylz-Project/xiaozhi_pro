@@ -1256,6 +1256,11 @@ void PandaController::Task() {
             ParkForShutdown();
         }
         now_ms = esp_log_timestamp();
+        if (tutorial_feedback_pending_.load() &&
+            now_ms - tutorial_feedback_requested_ms_.load() >= 250 &&
+            uxQueueMessagesWaiting(action_queue_) == 0 && !request_active_.load() &&
+            !clip_active_ && (audio_ == nullptr || !audio_->Playing()))
+            tutorial_feedback_pending_.store(false);
         if (stop_audio_requested_.exchange(false) && audio_ != nullptr) {
             audio_->StopPlayback();
             CancelSoundMotion();
@@ -1333,6 +1338,7 @@ void PandaController::Task() {
             CancelSoundMotion();
             autoplay_.Busy(now_ms, esp_random());
             bool sound_started = false;
+            tutorial_motion_active_ = request.tutorial_shake_head;
             running_generation_ = request.generation;
             running_priority_.store(request.priority);
             running_speech_bound_ = request.speech_bound;
@@ -1346,11 +1352,12 @@ void PandaController::Task() {
                     sound_started = true;
                 }
             }
-            if (sound_started) {
+            if (sound_started && !request.tutorial_shake_head) {
                 clip_active_ = false;
             } else if (request.is_body) {
                 const int clip_id =
-                    request.interaction != wzh::PetInteraction::kNone
+                    request.interaction != wzh::PetInteraction::kNone &&
+                            !request.tutorial_shake_head
                         ? static_cast<int>(C_COUNT) + BODY_COUNT +
                               interaction_motion_.Select(request.interaction, esp_random())
                         : static_cast<int>(C_COUNT) +
@@ -1371,7 +1378,7 @@ void PandaController::Task() {
             }
         }
 
-        const bool local_motion = UpdateSoundMotion(now_ms);
+        const bool local_motion = tutorial_motion_active_ ? false : UpdateSoundMotion(now_ms);
         if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
             autonomous_playback_ = false;
         // Motion starts as soon as the safety gate permits; setup audio never delays it.
@@ -1458,6 +1465,8 @@ void PandaController::Task() {
         }
         UpdatePlayer(now_ms);
         if (!clip_active_) {
+            if (audio_ == nullptr || !audio_->Playing())
+                tutorial_motion_active_ = false;
             request_active_.store(false);
             running_speech_bound_ = false;
         }
@@ -2008,7 +2017,19 @@ bool PandaController::MotionInterrupted() const {
             (audio_ == nullptr || !audio_->GetTtsMotionData().playing));
 }
 
-bool PandaController::QueueInteraction(wzh::PetInteraction interaction) {
+bool PandaController::TriggerOnboardingFeedback(uint8_t step) {
+    const auto interaction = step == 2   ? wzh::PetInteraction::kShaken
+                             : step == 5 ? wzh::PetInteraction::kPickedUp
+                                         : wzh::PetInteraction::kTouch1;
+    tutorial_feedback_requested_ms_.store(static_cast<uint32_t>(esp_timer_get_time() / 1000));
+    tutorial_feedback_pending_.store(true);
+    if (QueueInteraction(interaction, step == 3))
+        return true;
+    tutorial_feedback_pending_.store(false);
+    return false;
+}
+
+bool PandaController::QueueInteraction(wzh::PetInteraction interaction, bool tutorial_shake_head) {
     PandaBodyAction body = PandaBodyAction::kShakeHead;
     switch (interaction) {
         case wzh::PetInteraction::kTouch1:
@@ -2041,6 +2062,7 @@ bool PandaController::QueueInteraction(wzh::PetInteraction interaction) {
     }
     ActionRequest request{static_cast<PandaAction>(body), false, true};
     request.interaction = interaction;
+    request.tutorial_shake_head = tutorial_shake_head;
     const bool accepted = QueueRequest(request, wzh::PetPriority::kExplicit);
     if (accepted) {
         ESP_LOGD(TAG, "Interaction=%s accepted", wzh::InteractionName(interaction));

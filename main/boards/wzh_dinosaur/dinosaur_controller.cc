@@ -2395,6 +2395,11 @@ void DinosaurController::Task() {
     const unsigned startup_variant = esp_random() % std::size(kStartupSounds);
     while (true) {
         const uint32_t now_ms = esp_timer_get_time() / 1000;
+        if (tutorial_feedback_pending_.load() &&
+            now_ms - tutorial_feedback_requested_ms_.load() >= 250 &&
+            uxQueueMessagesWaiting(action_queue_) == 0 && !request_active_.load() &&
+            (audio_ == nullptr || !audio_->Playing()))
+            tutorial_feedback_pending_.store(false);
         if (stop_audio_requested_.exchange(false) && audio_ != nullptr) {
             audio_->StopPlayback();
             CancelSoundMotion();
@@ -2484,10 +2489,13 @@ void DinosaurController::Task() {
                     sound_started = true;
                 }
             }
-            if (sound_started) {
+            tutorial_audio_active_ = sound_started && request.tutorial_shake_head;
+            if (sound_started && !request.tutorial_shake_head) {
                 // The exact accepted Flash file owns its score below.
             } else if (request.test_gpio >= 0) {
                 RunServoTest(request.test_gpio);
+            } else if (request.tutorial_shake_head) {
+                RunBodyAction(DinoBodyAction::kShakeHead);
             } else if (request.interaction != wzh::PetInteraction::kNone) {
                 RunInteraction(request.interaction);
             } else if (request.is_body) {
@@ -2514,7 +2522,9 @@ void DinosaurController::Task() {
             request_active_.store(false);
             running_speech_bound_ = false;
         } else {
-            const bool local_motion = UpdateSoundMotion(now_ms);
+            if (tutorial_audio_active_ && (audio_ == nullptr || !audio_->Playing()))
+                tutorial_audio_active_ = false;
+            const bool local_motion = tutorial_audio_active_ ? false : UpdateSoundMotion(now_ms);
             if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
                 autonomous_playback_ = false;
             const bool offline = !conversation_active_.load();
@@ -3199,7 +3209,20 @@ bool DinosaurController::MotionInterrupted() const {
             (audio_ == nullptr || !audio_->GetTtsMotionData().playing));
 }
 
-bool DinosaurController::QueueInteraction(wzh::PetInteraction interaction) {
+bool DinosaurController::TriggerOnboardingFeedback(uint8_t step) {
+    const auto interaction = step == 2   ? wzh::PetInteraction::kShaken
+                             : step == 5 ? wzh::PetInteraction::kPickedUp
+                                         : wzh::PetInteraction::kTouch1;
+    tutorial_feedback_requested_ms_.store(static_cast<uint32_t>(esp_timer_get_time() / 1000));
+    tutorial_feedback_pending_.store(true);
+    if (QueueInteraction(interaction, step == 3))
+        return true;
+    tutorial_feedback_pending_.store(false);
+    return false;
+}
+
+bool DinosaurController::QueueInteraction(wzh::PetInteraction interaction,
+                                          bool tutorial_shake_head) {
     DinoBodyAction body = DinoBodyAction::kShakeHead;
     switch (interaction) {
         case wzh::PetInteraction::kTouch1:
@@ -3232,6 +3255,7 @@ bool DinosaurController::QueueInteraction(wzh::PetInteraction interaction) {
     }
     ActionRequest request{static_cast<DinoAction>(body), false, true};
     request.interaction = interaction;
+    request.tutorial_shake_head = tutorial_shake_head;
     const bool accepted = QueueRequest(request, wzh::PetPriority::kExplicit);
     if (accepted) {
         ESP_LOGD(TAG, "Interaction=%s accepted", wzh::InteractionName(interaction));

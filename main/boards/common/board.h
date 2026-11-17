@@ -79,6 +79,12 @@ public:
     virtual Display* GetDisplay();
     virtual Camera* GetCamera();
     virtual bool SupportsLocalInteraction() const { return false; }
+    virtual bool TriggerOnboardingFeedback(uint8_t step) {
+        (void)step;
+        return false;
+    }
+    virtual bool IsOnboardingFeedbackPending() const { return false; }
+    virtual bool IsLocalPlaybackPending() { return false; }
     // Optional bundled exit cue; empty keeps the application's default sound.
     virtual std::string_view GetConversationExitSound() const { return {}; }
     // Optional, bounded lookup for trusted bundled source loudness calibration.

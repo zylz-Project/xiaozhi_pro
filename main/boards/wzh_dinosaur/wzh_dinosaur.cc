@@ -157,6 +157,15 @@ public:
     }
 
     bool SupportsLocalInteraction() const override { return true; }
+    bool TriggerOnboardingFeedback(uint8_t step) override {
+        return controller_.TriggerOnboardingFeedback(step);
+    }
+    bool IsOnboardingFeedbackPending() const override {
+        return controller_.IsOnboardingFeedbackPending();
+    }
+    bool IsLocalPlaybackPending() override {
+        return local_audio_.Playing() || !local_audio_.WorkerIdle();
+    }
 
 #if CONFIG_USE_VOICE_BARGE_IN && CONFIG_WZH_DINOSAUR_MOTION_BARGE_GUARD
     size_t GetBargeInMinimumSpeechSamples() const override {

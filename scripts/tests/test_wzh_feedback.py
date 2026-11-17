@@ -140,6 +140,7 @@ struct Request {
     wzh::PetPriority priority=wzh::PetPriority::kExplicit;
     bool speech_bound=false;
     wzh::PetInteraction interaction=wzh::PetInteraction::kNone;
+    bool tutorial_shake_head=false;
 };
 int64_t clock_us=30000000;
 int64_t esp_timer_get_time(){return clock_us;}
@@ -156,6 +157,8 @@ struct Controller {
     std::atomic<bool> shutdown_requested_{false},request_active_{false},speaking_{false};
     std::atomic<int> pending_expression_{-1};
     std::atomic<uint32_t> expression_since_{0},intent_generation_{0};
+    std::atomic<bool> tutorial_feedback_pending_{false};
+    std::atomic<uint32_t> tutorial_feedback_requested_ms_{0};
     std::atomic<int64_t> last_request_us_{0};
     std::atomic<wzh::PetPriority> running_priority_{wzh::PetPriority::kSensor};
     Action last_action_=Action::kListen;
@@ -163,7 +166,8 @@ struct Controller {
     wzh::PetMode pet_mode(){return pet_.Get(clock_us/1000).mode;}
     bool TriggerAction(Action,bool,wzh::PetPriority,bool=false){return true;}
     bool QueueRequest(ActionRequest,wzh::PetPriority);
-    bool QueueInteraction(wzh::PetInteraction);
+    bool QueueInteraction(wzh::PetInteraction, bool tutorial_shake_head=false);
+    bool TriggerOnboardingFeedback(uint8_t);
     bool HandleSensorEvent(int);
     void HandleTouch(uint8_t);
     void PollInteraction(uint32_t);
@@ -208,6 +212,12 @@ int main(){
     Controller blocked;blocked.servo_output_.locked=true;
     assert(!blocked.HandleSensorEvent(int(wzh::Sensors::Event::kShaken)));
     assert(!blocked.pet_.Get(clock_us/1000).gentle); // A rejected event cannot shrink the next motion.
+    Controller tutorial;
+    assert(tutorial.TriggerOnboardingFeedback(3));
+    assert(tutorial.tutorial_feedback_pending_ && requests.back().tutorial_shake_head);
+    Controller protected_tutorial;protected_tutorial.servo_output_.locked=true;
+    assert(!protected_tutorial.TriggerOnboardingFeedback(3));
+    assert(!protected_tutorial.tutorial_feedback_pending_);
 }
 '''
         for board, stem, cls in [('wzh_crawlPanda','panda','PandaController'),
@@ -215,7 +225,7 @@ int main(){
                                   ('wzh_dinosaur','dinosaur','DinosaurController')]:
             source=(ROOT/'main/boards'/board/(stem+'_controller.cc')).read_text()
             methods=''
-            for name, ret in [('QueueRequest','bool'),('QueueInteraction','bool'),
+            for name, ret in [('QueueRequest','bool'),('QueueInteraction','bool'),('TriggerOnboardingFeedback','bool'),
                               ('HandleSensorEvent','bool'),('HandleTouch','void'),('PollInteraction','void')]:
                 methods+=queue_function(source,ret+' '+cls+'::'+name+'(').replace(cls+'::','Controller::')+'\n'
             with self.subTest(board=board): self.run_cpp(harness+methods+exercise)
