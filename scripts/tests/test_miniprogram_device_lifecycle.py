@@ -30,6 +30,17 @@ page.applyStatus({volume: 42});
 assert.strictEqual(page.data.status.startupNotice, '设备温度过高');
 page.applyStatus({startup_notice: ''});
 assert.strictEqual(page.data.status.startupNotice, '');
+page.applyStatus({onboarding: {done: false, active: false, blocked: true, next_step: 7, step_count: 13}});
+assert.strictEqual(page.data.status.onboarding.displayStep, 8);
+assert.strictEqual(page.data.ctaDisabled, true);
+assert.strictEqual(page.data.ctaLabel, '请先完成使用教程');
+page.applyStatus({onboarding: {done: true, active: false, blocked: false, next_step: 13, step_count: 13}});
+assert.strictEqual(page.data.status.onboarding.displayStep, 13);
+assert.strictEqual(page.data.ctaDisabled, false);
+page.applyStatus({onboarding: {done: 'false', next_step: 'invalid', step_count: -3}});
+assert.strictEqual(page.data.status.onboarding.done, false);
+assert.strictEqual(page.data.status.onboarding.displayStep, 1);
+assert.strictEqual(page.data.status.onboarding.step_count, 13);
 '''
         subprocess.run(['node', '-e', program], cwd=ROOT, check=True, timeout=15)
 

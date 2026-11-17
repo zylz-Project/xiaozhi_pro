@@ -45,6 +45,11 @@
       </view>
 
       <view wx:if="{{status.startupNotice}}" class="startup-notice" aria-role="alert">{{status.startupNotice}}</view>
+      <view wx:if="{{status.onboarding}}" class="onboarding-progress">
+        <text class="onboarding-progress-title">首次使用教程</text>
+        <text wx:if="{{status.onboarding.done}}">已完成</text>
+        <text wx:else>{{status.onboarding.active ? '正在进行' : '等待继续'}} · {{status.onboarding.displayStep}} / {{status.onboarding.step_count}}</text>
+      </view>
 
       <view class="metrics">
         <view class="metric">
@@ -334,7 +339,7 @@
             <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text class="mn-b">开机。</text><text>长按电源键约 1 秒，听到启动音、头部回中即开机。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text class="mn-b">连接。</text><text>打开「泽元灵智」小程序，保持手机蓝牙开启，在附近设备里选择以 </text><text class="mn-b">{{product.ap}}-</text><text> 开头的设备。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text class="mn-b">配网。</text><text>进入详情页后点「更改网络」，选择家里的 2.4GHz 网络并输入密码。</text></view></view>
-            <view class="mn-step"><text class="mn-step-n">05</text><view class="mn-step-copy"><text class="mn-b">开始对话。</text><text>双击电源键；听到提示音后说话，再双击退出。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">05</text><view class="mn-step-copy"><text class="mn-b">完成设备语音引导后开始对话。</text><text>按语音提示操作；引导结束后可说“{{product.wake}}”或双击电源键开始对话，再双击退出。</text></view></view>
           </view>
           <view class="mn-callout"><text class="mn-b">没有屏幕也没关系。</text><text>设备通过声音和 {{manual.inlineBody}} 动作回应；所有设置都在小程序里完成。</text></view>
         </view>

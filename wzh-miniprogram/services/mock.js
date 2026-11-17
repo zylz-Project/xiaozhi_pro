@@ -103,6 +103,7 @@ class MockClient {
       online: true,
       state: 'idle',
       startup_notice: '',
+      onboarding: { done: true, active: false, blocked: false, next_step: 13, step_count: 13 },
       battery: 86,
       charging: true,
       temp: 41,

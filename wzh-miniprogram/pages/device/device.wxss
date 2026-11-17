@@ -4716,4 +4716,17 @@ page { background: transparent; }
   line-height: 1.5;
 }
 .phone.dark .startup-notice { color: #f6cf91; background: rgba(185, 119, 34, .20); }
+.onboarding-progress {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin: 18rpx 0 8rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(47, 125, 82, .10);
+  color: var(--ink-soft);
+  font-size: 23rpx;
+}
+.onboarding-progress-title { color: var(--ink); font-weight: 600; }
+.phone.dark .onboarding-progress { background: rgba(77, 160, 111, .16); }
 

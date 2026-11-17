@@ -154,6 +154,7 @@ const DEFAULT_STATUS = {
   online: true,
   state: 'idle',
   startupNotice: '',
+  onboarding: null,
   battery: 86,
   charging: true,
   temp: 41,
@@ -481,12 +482,26 @@ Page({
     const s = Object.assign({}, base, raw || {})
     const runtimeMinutes = Number(s.runtimeMinutes || 0)
     const volume = Number(s.volume)
+    const guide = s.onboarding && typeof s.onboarding === 'object' ? s.onboarding : null
+    const rawGuideCount = guide ? Number(guide.step_count) : 13
+    const guideStepCount = Number.isFinite(rawGuideCount) && rawGuideCount >= 1
+      ? fmt.clamp(Math.floor(rawGuideCount), 1, 13) : 13
+    const rawGuideNext = guide ? Number(guide.next_step) : 0
+    const guideNext = Number.isFinite(rawGuideNext) ? fmt.clamp(Math.floor(rawGuideNext), 0, guideStepCount) : 0
     return {
       online: s.online !== false,
       state: s.state || 'idle',
       startupNotice: typeof s.startup_notice === 'string'
         ? s.startup_notice
         : (typeof s.startupNotice === 'string' ? s.startupNotice : ''),
+      onboarding: guide ? {
+        done: guide.done === true || guide.done === 1,
+        active: guide.active === true || guide.active === 1,
+        blocked: guide.blocked === true || guide.blocked === 1,
+        next_step: guideNext,
+        step_count: guideStepCount,
+        displayStep: Math.min(guideStepCount, guideNext + 1)
+      } : null,
       battery: fmt.clamp(Number(s.battery != null ? s.battery : 0), 0, 100),
       charging: !!s.charging,
       // 真机上报的是浮点（51.79999…），界面只显示取整值；分级文案也在这里统一算。
@@ -519,8 +534,8 @@ Page({
       status: s,
       deviceState: s.online ? s.state : 'offline',
       sheetState: copy.sheet,
-      ctaLabel: copy.cta,
-      ctaDisabled: copy.disabled,
+      ctaLabel: s.onboarding && s.onboarding.blocked ? '请先完成使用教程' : copy.cta,
+      ctaDisabled: copy.disabled || !!(s.onboarding && s.onboarding.blocked),
       voiceInitial: fmt.initial(s.currentVoice),
       vmCurrent: s.currentVoice,
       vmCurrentInitial: fmt.initial(s.currentVoice),
@@ -686,6 +701,8 @@ Page({
         this.setData({ resetStage: '正在删除云端复刻音色…' })
       } else if (phase === 'clearing_local') {
         this.setData({ resetStage: '正在清除本机复刻音色…' })
+      } else if (phase === 'clearing_onboarding') {
+        this.setData({ resetStage: '正在清除设备引导进度…' })
       } else if (phase === 'clearing_wifi') {
         this.setData({ resetStage: '正在清除网络配置…' })
       } else if (phase === 'rebooting' || phase === 'done') {
