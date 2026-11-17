@@ -287,9 +287,40 @@ endif()
 # 注意：不能用 CONFIGURE_DEPENDS —— IDF 的 component 脚本模式会 include 本文件，
 # 脚本模式下该选项报错。新增音效文件后重新构建（重新 configure）即可生效。
 file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
+set(WZH_EXCLUDED_COMMON_ARGS "")
 
 if(CONFIG_WZH_SYSTEM_PROMPTS AND (CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_BOARD_TYPE_WZH_TAILREDPANDA))
     include("${PROJECT_DIR}/scripts/cmake/wzh_system_prompts.cmake")
+    if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA)
+        set(WZH_ONBOARDING_PROFILE an)
+    elseif(CONFIG_BOARD_TYPE_WZH_TAILREDPANDA)
+        set(WZH_ONBOARDING_PROFILE xing)
+    else()
+        set(WZH_ONBOARDING_PROFILE long)
+    endif()
+    set(WZH_ONBOARDING_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/wzh_onboarding_voices/${WZH_ONBOARDING_PROFILE}")
+    file(GLOB WZH_ONBOARDING_SOUNDS "${WZH_ONBOARDING_DIR}/*.ogg")
+    if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+        execute_process(COMMAND python3 "${PROJECT_DIR}/scripts/audio/validate_wzh_onboarding.py"
+                        "${WZH_ONBOARDING_PROFILE}" RESULT_VARIABLE WZH_ONBOARDING_RESULT)
+        if(NOT WZH_ONBOARDING_RESULT EQUAL 0)
+            message(FATAL_ERROR "Invalid WZH onboarding audio pack")
+        endif()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/wzh_onboarding_voices/manifest.json"
+            "${PROJECT_DIR}/scripts/audio/validate_wzh_onboarding.py" ${WZH_ONBOARDING_SOUNDS})
+    endif()
+    foreach(ONBOARDING_SOUND IN LISTS WZH_ONBOARDING_SOUNDS)
+        get_filename_component(ONBOARDING_NAME "${ONBOARDING_SOUND}" NAME)
+        list(REMOVE_ITEM COMMON_SOUNDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/common/${ONBOARDING_NAME}")
+        list(APPEND COMMON_SOUNDS "${ONBOARDING_SOUND}")
+    endforeach()
+else()
+    foreach(ONBOARDING_NAME intro touch motion cmd1 net_invite wake ap page connected
+                            ability interrupt clone farewell idle_miss adv_idle_seen adv_wifi_waiting)
+        list(REMOVE_ITEM COMMON_SOUNDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/common/${ONBOARDING_NAME}.ogg")
+        list(APPEND WZH_EXCLUDED_COMMON_ARGS --exclude-common "${ONBOARDING_NAME}")
+    endforeach()
 endif()
 
 # If target chip is ESP32, exclude specific files to avoid build errors
@@ -386,8 +417,10 @@ add_custom_command(
     COMMAND python ${PROJECT_DIR}/scripts/gen_lang.py
             --language "${LANG_DIR}"
             --output "${LANG_HEADER}"
+            ${WZH_EXCLUDED_COMMON_ARGS}
     DEPENDS
         ${LANG_JSON}
+        ${SDKCONFIG}
         ${PROJECT_DIR}/scripts/gen_lang.py
         ${COMMON_SOUNDS}
     COMMENT "Generating ${LANG_DIR} language config"

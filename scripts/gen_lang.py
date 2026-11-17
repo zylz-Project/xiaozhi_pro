@@ -50,7 +50,7 @@ def get_sound_files(directory):
         return []
     return [f for f in os.listdir(directory) if f.endswith('.ogg')]
 
-def generate_header(lang_code, output_path):
+def generate_header(lang_code, output_path, excluded_common=()):
     # 从输出路径推导项目结构
     # output_path 通常是 main/assets/lang_config.h
     main_dir = os.path.dirname(output_path)  # main/assets
@@ -113,7 +113,8 @@ def generate_header(lang_code, output_path):
     # 获取所有可能的音效文件
     base_sounds = get_sound_files(base_lang_dir)
     current_sounds = get_sound_files(current_lang_dir)
-    common_sounds = get_sound_files(common_dir)
+    common_sounds = [name for name in get_sound_files(common_dir)
+                     if os.path.splitext(name)[0] not in excluded_common]
     
     # 合并音效文件列表：用户语言覆盖基准语言
     all_sound_files = set(base_sounds)
@@ -177,10 +178,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate language configuration header file with en-US fallback")
     parser.add_argument("--language", required=True, help="Language code (e.g: zh-CN, en-US, ja-JP)")
     parser.add_argument("--output", required=True, help="Output header file path")
+    parser.add_argument("--exclude-common", action="append", default=[],
+                        help="Exclude one common sound basename for this build")
     args = parser.parse_args()
 
     try:
-        generate_header(args.language, args.output)
+        generate_header(args.language, args.output, args.exclude_common)
         print(f"Successfully generated language config file: {args.output}")
     except Exception as e:
         print(f"Error: {e}")
