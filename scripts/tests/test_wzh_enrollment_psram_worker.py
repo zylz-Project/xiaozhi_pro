@@ -47,7 +47,7 @@ constexpr char kTag[]="test";
 bool FlashDispatcherReady(){return ready;}
 std::string LoadAliKey(){return "key";}bool IsValidVoiceName(const std::string&){return true;}
 struct AliVoiceEnrollment {
- enum class Error { kNone,kBusy,kConfig,kMemory };enum class Phase {kPrompt,kFailed};
+ enum class Error { kNone,kBusy,kConfig,kMemory };enum class Phase {kIdle,kPrompt,kFailed};
  std::mutex mutex_;TaskHandle_t task_=nullptr,worker_task_=nullptr;
  std::atomic<Error> error_{Error::kNone};std::atomic<Phase> phase_{Phase::kPrompt};
  std::atomic<bool> active_{false};std::atomic<uint32_t> generation_{0};
@@ -69,6 +69,10 @@ int main(){using voice_tts::AliVoiceEnrollment;
  AliVoiceEnrollment failed;ready=true;fail=true;
  assert(!failed.StartNamed("name",[](bool){},[](bool){}));
  assert(!failed.task_&&!failed.worker_task_&&!failed.active_);
+ AliVoiceEnrollment failed_selection;
+ assert(!failed_selection.StartSelection("切换音色",[](bool){}));
+ assert(failed_selection.error_==AliVoiceEnrollment::Error::kMemory);
+ assert(failed_selection.phase_==AliVoiceEnrollment::Phase::kFailed);
 }
 '''
         with tempfile.TemporaryDirectory() as directory:

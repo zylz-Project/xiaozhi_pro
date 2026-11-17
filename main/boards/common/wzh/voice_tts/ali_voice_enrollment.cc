@@ -246,13 +246,18 @@ bool AliVoiceEnrollment::StartSelection(const std::string& text,
         return false;
     std::lock_guard<std::mutex> lock(mutex_);
     if (task_) {
+        error_.store(Error::kBusy);
         ESP_LOGW(kTag, "Voice selection unavailable: enrollment worker busy");
         return false;
     }
     if (LoadAliKey().empty()) {
+        error_.store(Error::kConfig);
+        phase_.store(Phase::kFailed);
         ESP_LOGW(kTag, "Voice selection unavailable: Ali key missing");
         return false;
     }
+    error_.store(Error::kNone);
+    phase_.store(Phase::kIdle);
     selection_text_ = text;
     selection_task_ = true;
     complete_ = std::move(complete);
@@ -270,6 +275,8 @@ bool AliVoiceEnrollment::StartSelection(const std::string& text,
             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
             static_cast<unsigned>(
                 heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+        error_.store(Error::kMemory);
+        phase_.store(Phase::kFailed);
         active_.store(false);
         task_ = nullptr;
         complete_ = {};
