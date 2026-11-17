@@ -11,6 +11,9 @@
 #include <esp_log.h>
 #include <esp_random.h>
 #include <esp_timer.h>
+#if CONFIG_WZH_OFFLINE_AUDIO_PSRAM_EXPERIMENT
+#include <freertos/idf_additions.h>
+#endif
 
 #include "wzh_pet_behavior.h"
 #include "wzh_onboarding.h"
@@ -44,8 +47,26 @@ bool AudioPlayer::Start(AudioStore* store) {
     }
     demuxer_ = new (parser_mem) OggDemuxer();
     play_queue_ = xQueueCreate(3, sizeof(PlayRequest));
-    if (play_queue_ == nullptr ||
-        xTaskCreate(TaskEntry, "wzh_audio", 14336, this, 2, nullptr) != pdPASS) {
+    bool task_created = false;
+#if CONFIG_WZH_OFFLINE_AUDIO_PSRAM_EXPERIMENT
+    if (play_queue_ != nullptr) {
+        read_buffer_ = static_cast<uint8_t*>(
+            heap_caps_malloc(kReadChunk, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
+        if (read_buffer_ != nullptr) {
+            task_created = xTaskCreateWithCaps(TaskEntry, "wzh_audio", 14336, this, 2, nullptr,
+                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+            if (!task_created) {
+                heap_caps_free(read_buffer_);
+                read_buffer_ = nullptr;
+            }
+        }
+        ESP_LOGI(TAG, "Offline audio worker: %s stack",
+                 task_created ? "PSRAM" : "internal fallback");
+    }
+#endif
+    if (play_queue_ != nullptr && !task_created)
+        task_created = xTaskCreate(TaskEntry, "wzh_audio", 14336, this, 2, nullptr) == pdPASS;
+    if (!task_created) {
         ESP_LOGE(TAG, "Failed to start offline audio task");
         if (play_queue_ != nullptr) {
             vQueueDelete(play_queue_);
@@ -298,6 +319,12 @@ MotionData AudioPlayer::GetTtsMotionData() const {
 void AudioPlayer::TaskEntry(void* arg) { static_cast<AudioPlayer*>(arg)->Task(); }
 
 void AudioPlayer::Task() {
+#if CONFIG_WZH_OFFLINE_AUDIO_PSRAM_EXPERIMENT
+    if (read_buffer_ == nullptr) {
+        InternalStackTask();
+        return;
+    }
+#endif
     PlayRequest request = {};
     while (true) {
         if (xQueueReceive(play_queue_, &request, portMAX_DELAY) == pdTRUE) {
@@ -317,6 +344,14 @@ void AudioPlayer::Task() {
         }
     }
 }
+
+#if CONFIG_WZH_OFFLINE_AUDIO_PSRAM_EXPERIMENT
+void AudioPlayer::InternalStackTask() {
+    uint8_t buffer[kReadChunk];
+    read_buffer_ = buffer;
+    Task();
+}
+#endif
 
 bool AudioPlayer::PlayFile(const PlayRequest& request) {
     const auto generation = request.generation;
@@ -433,7 +468,11 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
 #endif
 
     // 分块顺序读取，避免为完整音频文件申请大块 RAM。
+#if CONFIG_WZH_OFFLINE_AUDIO_PSRAM_EXPERIMENT
+    uint8_t* buffer = read_buffer_;
+#else
     uint8_t buffer[kReadChunk];
+#endif
     ESP_LOGI(TAG, "Offline sound: %s (%lu ms), source=%s index=%d", file.name,
              static_cast<unsigned long>(duration_ms), pair ? "user-pair" : "external-flash",
              request.index);
@@ -448,7 +487,7 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
     for (uint32_t offset = 0; ok && playback_generation_.load() == generation &&
                               !store_->IsWriting() && offset < file.size &&
                               (!file.duration_ms || submitted_ms < file.duration_ms);) {
-        const size_t chunk = std::min<size_t>(sizeof(buffer), file.size - offset);
+        const size_t chunk = std::min<size_t>(kReadChunk, file.size - offset);
         if (pair) {
             if (offset + chunk > pair->audio_size) {
                 ok = false;

@@ -77,6 +77,11 @@ protected:
     // One parser owned by the single playback task for the device lifetime.
     OggDemuxer* demuxer_ = nullptr;
     QueueHandle_t play_queue_ = nullptr;
+#if CONFIG_WZH_OFFLINE_AUDIO_PSRAM_EXPERIMENT
+    // Owned for the device lifetime by the single offline playback worker.
+    uint8_t* read_buffer_ = nullptr;
+    void InternalStackTask();
+#endif
     // 每次停止播放都会增加代次；旧播放看到代次变化后退出。
     std::atomic<uint32_t> playback_generation_{0};
     // Reserve from enqueue until Flash reading finishes. Decoder idle alone does

@@ -1,5 +1,15 @@
 menu "Xiaozhi Assistant"
 
+config WZH_OFFLINE_AUDIO_PSRAM_EXPERIMENT
+    bool "Experimental PSRAM stack for WZH offline audio"
+    depends on IDF_TARGET_ESP32S3 && SPIRAM && FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    depends on BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA
+    default n
+    help
+        Move the long-lived offline audio worker stack to PSRAM while keeping
+        its SPI read buffer in internal DMA memory. This is experimental until
+        local playback, NVS, OTA and all products pass hardware validation.
+
 config WZH_VOICE_FLASH_DISPATCH_EXPERIMENT
     bool "Experimental flash dispatcher for PSRAM voice tasks"
     default n
