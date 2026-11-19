@@ -624,15 +624,25 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     auto& wifi = WifiManager::GetInstance();
     const bool connected = wifi.IsConnected();
     const bool cellular = Board::GetInstance().UsesCellularNetwork();
-    const bool cellular_connected = cellular && Board::GetInstance().IsNetworkAvailable();
-    const bool selected_connected = cellular ? cellular_connected : connected;
+    // The station may connect before the dinosaur has selected its transport.
+    // Only the board knows whether that connection is usable for the product.
+    const bool selected_connected = Board::GetInstance().IsNetworkAvailable();
+    const bool cellular_connected = cellular && selected_connected;
     if (selected_connected)
         last_online_ms_.store(now);
     const auto last_online = last_online_ms_.load();
     const bool online = selected_connected || (last_online && now - last_online < 3000);
     // The cellular variant has a local portal even when its SIM is offline.
     // Do not send its users to a Wi-Fi setup flow for a cellular fault.
-    const bool local_accessible = online || cellular;
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    constexpr bool retain_offline = true;
+#else
+    constexpr bool retain_offline = false;
+#endif
+    const bool local_accessible =
+        UserWebPolicy::LocalAccessible(online, cellular, session, retain_offline);
+    const bool offline_login =
+        UserWebPolicy::AllowOfflineLogin(retain_offline, online, cellular, session);
     const bool have_saved = !SsidManager::GetInstance().GetSsidList().empty();
     if (req->method == HTTP_POST &&
         !UserWebPolicy::ValidOrigin(Header(req, "Host", 128), Header(req, "Origin", 128)))
@@ -669,9 +679,28 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             cJSON_AddStringToObject(out.get(), "startup_notice", StartupProtectionMessage());
             if (cellular) {
                 auto* cell = cJSON_AddObjectToObject(out.get(), "cellular");
-                if (cell)
+                if (cell) {
                     cJSON_AddBoolToObject(cell, "connected", cellular_connected);
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                    cJSON_AddBoolToObject(
+                        cell, "server_connected",
+                        cellular_connected &&
+                            Application::GetInstance().IsCellularServerConnected());
+#endif
+                }
             }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            // Multi-transport board: report the choice and switchability so
+            // the page can render "4G" or the Wi-Fi SSID by what is actually
+            // selected, and offer a runtime switch when hardware allows it.
+            cJSON_AddStringToObject(out.get(), "transport",
+                                    Board::GetInstance().IsNetworkProbing() ? "probing"
+                                    : cellular                              ? "cellular"
+                                                                            : "wifi");
+            cJSON_AddBoolToObject(out.get(), "transport_switchable",
+                                  Board::GetInstance().HasModemTransport());
+            cJSON_AddBoolToObject(out.get(), "authenticated", session);
+#endif
             auto* wireless = cJSON_AddObjectToObject(out.get(), "wifi");
             if (wireless) {
                 cJSON_AddStringToObject(wireless, "ap_ssid", wifi.GetApSsid().c_str());
@@ -714,6 +743,24 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             }
             return JsonResponse(req, out.get());
         }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+        if (path == "/api/network/transport") {
+            if (!session)
+                return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
+            auto& board = Board::GetInstance();
+            Json out(cJSON_CreateObject(), cJSON_Delete);
+            if (!out)
+                return httpd_resp_send_500(req);
+            cJSON_AddBoolToObject(out.get(), "ok", true);
+            cJSON_AddStringToObject(out.get(), "transport",
+                                    board.IsNetworkProbing()      ? "probing"
+                                    : board.UsesCellularNetwork() ? "cellular"
+                                                                  : "wifi");
+            cJSON_AddBoolToObject(out.get(), "switchable",
+                                  !board.IsNetworkProbing() && board.HasModemTransport());
+            return JsonResponse(req, out.get());
+        }
+#endif
         if (path == "/api/user/onboarding/status") {
             if (local_accessible && !session)
                 return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
@@ -876,7 +923,11 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
                 return httpd_resp_send_500(req);
             cJSON_AddBoolToObject(out.get(), "ok", true);
             auto* array = cJSON_AddArrayToObject(out.get(), "aps");
-            if (array && portal_) {
+            if (array && portal_
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                && !cellular && !Board::GetInstance().IsNetworkProbing()
+#endif
+            ) {
                 auto records = portal_->GetAccessPoints();
                 const auto saved = SsidManager::GetInstance().GetSsidList();
                 const auto current = connected ? wifi.GetSsid() : "";
@@ -923,14 +974,25 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             }
             const auto last_scan = last_scan_ms_.load();
             if (!setup_running_.load() && !reset_running_.load() &&
-                (!last_scan || now - last_scan >= 5000)) {
-                last_scan_ms_.store(now);
-                esp_wifi_scan_start(nullptr, false);
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                !cellular && !Board::GetInstance().IsNetworkProbing() &&
+#endif
+                (!last_scan || now - last_scan >= 2000)) {
+                // Ask the manager rather than poking the driver directly. On a
+                // first boot the station may not be running yet; the manager
+                // starts it so its scan callback can fill the portal cache.
+                if (wifi.RequestScan())
+                    last_scan_ms_.store(now);
             }
             return JsonResponse(req, out.get());
         }
         if (path == "/" || path == "/setup" || path == "/login" || path == "/manual" ||
             path == "/done") {
+            // A phone may obtain a new AP address after a channel change.
+            // Allow it to authenticate locally even when the selected Wi-Fi
+            // network is offline, so it can switch back to cellular.
+            if (path == "/login" && offline_login)
+                return Html(req);
             using Network = UserWebPolicy::Network;
             using Route = UserWebPolicy::Route;
             const auto network = local_accessible        ? Network::kOnline
@@ -938,7 +1000,8 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
                                  : setup_running_.load() ? Network::kConnecting
                                                          : Network::kOffline;
             const auto route = UserWebPolicy::RouteFor(
-                path, network, session, path == "/done" && HasCompletion(req, ip, now));
+                path, network, session, path == "/done" && HasCompletion(req, ip, now),
+                offline_login);
             switch (route) {
                 case Route::kDone:
                     return Html(req);
@@ -975,6 +1038,28 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         return Error(req, "405 Method Not Allowed", "METHOD_NOT_ALLOWED", "请求方式不支持");
     if (path == "/exit")
         return Error(req, "410 Gone", "REMOVED", "设备热点将继续运行");
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    // Runtime 4G/Wi-Fi switch. Runs before the NET_OFFLINE gate below: the
+    // selected transport may currently be offline, and switching is exactly
+    // how the user recovers, so a switch must not require being online first.
+    if (path == "/api/network/transport") {
+        if (!session)
+            return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
+        auto body = ReadBody(req);
+        const char* transport = body ? String(body.get(), "transport") : nullptr;
+        const bool cellular = transport && std::strcmp(transport, "cellular") == 0;
+        const bool wifi = transport && std::strcmp(transport, "wifi") == 0;
+        if (!cellular && !wifi)
+            return Error(req, "400 Bad Request", "BAD_TRANSPORT",
+                         "transport 必须是 wifi 或 cellular");
+        auto& board = Board::GetInstance();
+        if (!board.SelectNetworkTransport(cellular))
+            return Error(req, "409 Conflict", "TRANSPORT_UNAVAILABLE",
+                         cellular ? "4G 模块未检测到或设备正忙，请稍候重试"
+                                  : "网络正在切换或设备正忙，请稍候重试");
+        return Ok(req, "202 Accepted");
+    }
+#endif
     if (path == "/api/setup/status") {
         bool completion = HasCompletion(req, ip, now);
         if (!completion) {
@@ -992,7 +1077,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         return SetupStatus(req, ip, session);
     }
     if (path == "/api/login") {
-        if (!local_accessible)
+        if (!local_accessible && !retain_offline)
             return Error(req, "409 Conflict", "NET_OFFLINE", "设备暂未联网");
         auto body = ReadBody(req);
         const char* value = body ? String(body.get(), "password") : nullptr;
@@ -1070,6 +1155,10 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     if (path == "/submit") {
         if (local_accessible && !session)
             return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+        if (Board::GetInstance().IsNetworkProbing() || Board::GetInstance().UsesCellularNetwork())
+            return Error(req, "409 Conflict", "WIFI_NOT_SELECTED", "请先切换到 Wi-Fi 模式后再连接");
+#endif
         auto body = ReadBody(req);
         const char* ssid = body ? String(body.get(), "ssid") : nullptr;
         const char* password = body ? String(body.get(), "password") : nullptr;

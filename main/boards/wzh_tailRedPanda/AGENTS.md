@@ -111,7 +111,7 @@ The controller uses continuous keyframe targets, exponential tracking, behaviour
 Use ESP-IDF 6.0.2 when available, then run:
 
 ```sh
-python3 -m unittest discover -s scripts/tests -v
+python3 scripts/run_host_tests.py
 python3 scripts/build.py wzh_tailRedPanda --name wzh-tailredpanda
 clang-format -i path/to/touched.cc path/to/touched.h
 clang-format --dry-run -Werror path/to/touched.cc path/to/touched.h

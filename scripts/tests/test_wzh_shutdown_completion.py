@@ -58,11 +58,13 @@ struct Application {
 };
 struct Board {
  static Board& GetInstance(){static Board b;return b;}
+ bool UsesCellularNetwork(){return false;}
  bool IsAudioMaintenanceActive(){return true;}
+ bool IsNetworkAvailable(){return false;}
 };
 namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_ON="on",OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi",OGG_EXCLAMATION="warning";}}
 #include "wzh_onboarding_store.h"
-namespace wzh {bool PeekOnboardingProgress(OnboardingProgress&){return true;} bool IsOnboardingActive(){return false;}void StartOnboarding(){}void StopOnboarding(){}
+namespace wzh {bool PeekOnboardingProgress(OnboardingProgress&){return true;} bool IsOnboardingActive(){return false;}bool OnboardingBlocksConversation(){return false;}void StartOnboarding(){}void StopOnboarding(){}
 void StopIdlePower(){}void StartIdlePower(std::function<void()>){}}
 #include "PRODUCTION_SOURCE"
 void run_application(){

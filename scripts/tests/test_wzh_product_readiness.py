@@ -97,14 +97,17 @@ int main(){
 #include "wzh_pet_behavior.h"
 #include "wzh_speech_intent.h"
 #include "wzh_protection.h"
+#include "wzh_sound_choreography.h"
 #define ESP_LOGI(...) ((void)0)
 int64_t esp_timer_get_time(){return 10000000;}
+unsigned esp_random(){return 0;}
 struct Application{int stops=0;static Application& GetInstance(){static Application a;return a;}void StopInteraction(){++stops;}};
 enum class Action{kDiscover};using PandaAction=Action;using DinoAction=Action;
 struct Output{uint32_t faults=wzh::kLowBattery;void SetFault(wzh::MotionFault f,bool on){if(on)faults|=f;else faults&=~f;}};
 struct Controller{
     wzh::PetBehavior pet_;std::atomic<uint32_t>intent_generation_{0};std::atomic<int>pending_expression_{-1};
     std::atomic<bool>stop_audio_requested_{false},conversation_active_{false};Output servo_output_;int shows=0;
+    wzh::AutoplayCadence autoplay_;
     bool TriggerAction(Action,bool,wzh::PetPriority){++shows;return true;}
     bool HandlePetControl(wzh::PetControl,bool respond=true);
 };

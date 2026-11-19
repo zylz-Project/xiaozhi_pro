@@ -183,11 +183,11 @@ private:
         wzh::PetPriority priority = wzh::PetPriority::kExplicit;
         bool speech_bound = false;
         wzh::PetInteraction interaction = wzh::PetInteraction::kNone;
-        bool tutorial_shake_head = false;
+        uint8_t tutorial_step = 0;
     };
 
     bool QueueRequest(ActionRequest request, wzh::PetPriority priority);
-    bool QueueInteraction(wzh::PetInteraction interaction, bool tutorial_shake_head = false);
+    bool QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step = 0);
     bool React(wzh::PetReaction reaction, wzh::PetPriority priority, bool speech_bound = false);
 
     PandaAudio* audio_ = nullptr;

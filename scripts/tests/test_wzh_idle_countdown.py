@@ -147,7 +147,7 @@ class IdleCountdownTest(unittest.TestCase):
                 .replace('@AUTO_OFF@', auto_off).replace('@MISS@', miss)
                 .replace('@PROMPTS@', prompts))
 
-    def test_miss_at_ten_minutes_silences_sound_but_never_before(self):
+    def test_miss_at_five_minutes_then_sparse_sound_resumes(self):
         self.compile_run(self.harness() + r'''
 int main(){
     auto& app = Application::GetInstance();
@@ -158,12 +158,28 @@ int main(){
     assert(app.audio.played.empty() && !wzh::IdleSoundSuppressed());
     Advance(2000);  // 4:59 -> 5:01
     assert(app.audio.played.size() == 1 && app.audio.played.front() == "miss");
-    // Silence starts only once that sentence has been heard to the end.
-    assert(!wzh::IdleSoundSuppressed());
+    // Reserve the audio lane until the sentence has finished.
+    assert(wzh::IdleSoundSuppressed() && wzh::IdleMissVoiceMotionActive());
     Advance(3200);
-    assert(wzh::IdleSoundSuppressed());
-    Advance(240000);
+    assert(!wzh::IdleSoundSuppressed() && !wzh::IdleMissVoiceMotionActive());
+    Advance(100000);
     assert(app.audio.played.size() == 1);  // Exactly one sentence, not a loop.
+}
+''')
+
+    def test_reminder_waits_for_current_audio_without_starting_another(self):
+        self.compile_run(self.harness() + r'''
+int main(){
+    auto& app = Application::GetInstance();
+    wzh::StartIdlePower([]{ assert(false); });
+    Run();
+    app.audio.until = 310000;
+    Advance(300500);
+    assert(app.audio.played.empty() && wzh::IdleSoundSuppressed() && !wzh::IdleMissVoiceMotionActive());
+    Advance(10000);
+    assert(app.audio.played.size() == 1 && wzh::IdleSoundSuppressed());
+    Advance(3000);
+    assert(!wzh::IdleSoundSuppressed());
 }
 ''')
 
@@ -174,13 +190,15 @@ int main(){
     wzh::StartIdlePower([]{ assert(false); });
     Run();
     Advance(304000);
-    assert(app.audio.played.size() == 1 && wzh::IdleSoundSuppressed());
+    assert(app.audio.played.size() == 1 && !wzh::IdleSoundSuppressed());
+    const auto old_generation = wzh::IdleInteractionGeneration();
     wzh::NotifyIdleInteraction();
+    assert(wzh::IdleInteractionGeneration() == old_generation + 1);
     Advance(100);
     assert(!wzh::IdleSoundSuppressed() && app.audio.played.size() == 1);
     Advance(304000);  // The next miss needs a full five minutes of its own.
     assert(app.audio.played.size() == 2);
-    assert(wzh::IdleSoundSuppressed());
+    assert(!wzh::IdleSoundSuppressed());
 }
 ''')
 
@@ -191,9 +209,9 @@ int main(){
     int shutdowns = 0;
     wzh::StartIdlePower([&]{ ++shutdowns; });
     Run();
-    Advance(599000);
+    Advance(449000);
     assert(shutdowns == 0);
-    Advance(2000);  // 9:59 -> 10:01
+    Advance(2000);  // 7:29 -> 7:31
     assert(shutdowns == 1);
     // Shutdown() plays OGG_POWER_OFF itself; the countdown must not say it too.
     assert(app.audio.played.size() == 1 && app.audio.played.front() == "miss");
@@ -209,7 +227,7 @@ int main(){
     int shutdowns = 0;
     wzh::StartIdlePower([&]{ ++shutdowns; });
     Run();
-    Advance(601000);
+    Advance(451000);
     assert(shutdowns == 1);
     // Shutdown() takes seconds to park the servos. A touch during that window
     // is a real interaction and must not leave the countdown dead for this boot.
@@ -218,7 +236,7 @@ int main(){
     assert(!wzh::IdleSoundSuppressed());
     Advance(303000);  // A whole new five minutes has to elapse first.
     assert(app.audio.played.size() == 2);
-    assert(shutdowns == 1);  // The re-armed timeline waits its full 10 minutes.
+    assert(shutdowns == 1);  // A fresh interaction restarts the full countdown.
     Advance(300000);
     assert(shutdowns == 2);
 }
@@ -232,11 +250,11 @@ int main(){
     wzh::StartIdlePower([&]{ ++shutdowns; });
     Run();
     Advance(1800000);
-    assert(shutdowns == 0);
+    assert(shutdowns == 0 && !wzh::IdleSoundSuppressed());
 }
 ''')
 
-    def test_miss_prompt_disabled_still_enters_quiet_mode_without_speech(self):
+    def test_miss_prompt_disabled_keeps_sparse_sound_without_speech(self):
         self.compile_run(self.harness(miss='0') + r'''
 int main(){
     auto& app = Application::GetInstance();
@@ -244,7 +262,7 @@ int main(){
     Run();
     Advance(301000);
     assert(app.audio.played.empty());
-    assert(wzh::IdleSoundSuppressed());
+    assert(!wzh::IdleSoundSuppressed());
 }
 ''')
 
@@ -259,7 +277,7 @@ int main(){
     assert(app.audio.played.empty() && !wzh::IdleSoundSuppressed());
     tutorial = false;
     Advance(304000);
-    assert(app.audio.played.size() == 1 && wzh::IdleSoundSuppressed());
+    assert(app.audio.played.size() == 1 && !wzh::IdleSoundSuppressed());
 }
 ''')
 
@@ -283,7 +301,7 @@ int main(){
     Board::GetInstance().maintenance = false;
     // Once the device is handed back, the full countdown starts from zero.
     Advance(304000);
-    assert(app.audio.played.size() == 1 && wzh::IdleSoundSuppressed());
+    assert(app.audio.played.size() == 1 && !wzh::IdleSoundSuppressed());
     Advance(300000);
     assert(shutdowns == 1);
 }

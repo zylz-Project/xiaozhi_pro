@@ -285,6 +285,10 @@ void Application::Run() {
                 if (interaction_stopped_.load() || voice_enrollment_active_.load()) {
                     continue;
                 }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR && CONFIG_USE_VOICE_BARGE_IN
+                const size_t uplink_bytes = packet->payload.size();
+                const int64_t uplink_started_us = esp_timer_get_time();
+#endif
                 const bool sent = protocol_ && protocol_->SendAudio(std::move(packet));
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
                 if (official_probe_active_.load() && !official_probe_sent_stop_) {
@@ -301,6 +305,44 @@ void Application::Run() {
                     // MAIN_EVENT_SEND_AUDIO event would ever be triggered again.
                     while (audio_service_.PopPacketFromSendQueue())
                         ;
+#if CONFIG_USE_VOICE_BARGE_IN && CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                    // A failed MIPSEND can leave the AT stream out of sync.
+                    // Do not feed more audio into that state.
+                    if (Board::GetInstance().UsesCellularNetwork() &&
+                        GetDeviceState() == kDeviceStateListening) {
+                        ESP_LOGW(TAG, "Cellular audio send failed: %u bytes, %lld ms",
+                                 static_cast<unsigned>(uplink_bytes),
+                                 static_cast<long long>((esp_timer_get_time() - uplink_started_us) /
+                                                        1000));
+                        const auto generation = interaction_generation_.load();
+                        if (cellular_recovery_generation_ != generation) {
+                            cellular_recovery_generation_ = generation;
+                            cellular_recovery_attempted_ = false;
+                        }
+                        const bool retry = !cellular_recovery_attempted_;
+                        cellular_recovery_attempted_ = true;
+                        ESP_LOGW(TAG, "Cellular audio send failed; %s channel",
+                                 retry ? "reopening" : "closing");
+                        if (!retry) {
+                            ESP_LOGW(TAG, "Requesting cellular registration and PDP recheck");
+                            Board::GetInstance().RequestNetworkRecheck();
+                        }
+                        barge_in_reconnecting_.store(true);
+                        if (!ReconnectAfterVoiceInterruption(generation, true, retry)) {
+                            barge_in_reconnecting_.store(false);
+                            audio_service_.EnableVoiceProcessing(false);
+                            SetDeviceState(kDeviceStateIdle);
+                            ESP_LOGE(TAG, "Unable to start cellular audio recovery task");
+                        }
+                    }
+#endif
+                    break;
+                }
+                if (Board::GetInstance().UsesCellularNetwork()) {
+                    // Each modem send waits for AT completion. Do not drain
+                    // a continuously refilled queue before processing TTS,
+                    // stop and connection events on the main task.
+                    xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
                     break;
                 }
             }
@@ -331,6 +373,14 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            if (cellular_server_connected_.load() && !cellular_prewarming_.load() &&
+                (!Board::GetInstance().UsesCellularNetwork() ||
+                 !Board::GetInstance().IsNetworkAvailable() || !protocol_ ||
+                 !protocol_->IsAudioChannelOpened()))
+                cellular_server_connected_.store(false);
+            MaybePrewarmCellularAudio();
+#endif
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
             ServiceOfficialAsrProbe();
 #endif
@@ -386,6 +436,9 @@ void Application::HandleNetworkConnectedEvent() {
 }
 
 void Application::HandleNetworkDisconnectedEvent() {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    cellular_server_connected_.store(false);
+#endif
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
     if (official_probe_active_.exchange(false))
         audio_service_.EnableVoiceProcessing(false);
@@ -625,6 +678,9 @@ void Application::CheckNewVersion() {
 
 void Application::InitializeProtocol() {
     const auto protocol_generation = protocol_generation_.fetch_add(1) + 1;
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    cellular_server_connected_.store(false);
+#endif
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
     auto codec = board.GetAudioCodec();
@@ -647,7 +703,24 @@ void Application::InitializeProtocol() {
         });
     });
 
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    protocol_->OnDisconnected([this, protocol_generation]() {
+        if (protocol_generation == protocol_generation_.load()) {
+            cellular_server_connected_.store(false);
+            conversation_transport_disconnected_.store(true);
+        }
+    });
+#endif
+
     protocol_->OnNetworkError([this, protocol_generation](const std::string& message) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+        if (protocol_generation == protocol_generation_.load())
+            cellular_server_connected_.store(false);
+        if (cellular_prewarming_.load()) {
+            ESP_LOGW(TAG, "Cellular audio preconnect failed: %s", message.c_str());
+            return;
+        }
+#endif
         if (protocol_generation != protocol_generation_.load())
             return;
         Schedule([this, protocol_generation, message]() {
@@ -680,8 +753,16 @@ void Application::InitializeProtocol() {
             voice_enrollment_active_.load() || voice_selection_reply_guard_.load())
             return;
         if (GetDeviceState() == kDeviceStateSpeaking) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            if (dinosaur_server_audio_packets_.fetch_add(1) == 0)
+                ESP_LOGI(TAG, "First original speech packet received for playback");
+#endif
             audio_service_.PushPacketToDecodeQueue(std::move(packet), false, generation);
         } else if (tts_start_pending_.load() && early_audio_.size() < kMaxEarlyAudioPackets) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            if (dinosaur_server_audio_packets_.fetch_add(1) == 0)
+                ESP_LOGI(TAG, "First original speech packet received for playback");
+#endif
             // The TTS start transition is queued on the main task; keep the
             // first packets so the first syllable is not lost.
             early_audio_.push_back(std::move(packet));
@@ -693,6 +774,22 @@ void Application::InitializeProtocol() {
         [this, protocol_generation, callback_protocol, codec, &board]() {
             if (protocol_generation != protocol_generation_.load())
                 return;
+            // Configure even a prewarmed channel: its open callback may be
+            // the only one before the user starts talking.
+            if (board.UsesCellularNetwork()) {
+                audio_service_.SetDownlinkJitter(AudioService::kCellularPlayoutTargetMs,
+                                                 AudioService::kCellularPlayoutMaxWaitMs);
+            } else {
+                audio_service_.SetDownlinkJitter(AudioService::kLocalPlayoutTargetMs,
+                                                 AudioService::kLocalPlayoutMaxWaitMs);
+            }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            cellular_server_connected_.store(board.UsesCellularNetwork() &&
+                                             board.IsNetworkAvailable());
+            conversation_transport_disconnected_.store(false);
+            if (cellular_prewarming_.load())
+                return;
+#endif
             board.OnConversationChannelOpened();
             board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
             if (callback_protocol->server_sample_rate() != codec->output_sample_rate()) {
@@ -706,8 +803,20 @@ void Application::InitializeProtocol() {
     protocol_->OnAudioChannelClosed([this, &board, protocol_generation]() {
         if (protocol_generation != protocol_generation_.load())
             return;
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+        cellular_server_connected_.store(false);
+        cellular_prewarmed_.store(false);
+        const bool transport_disconnected = conversation_transport_disconnected_.exchange(false);
+        if (cellular_prewarming_.load())
+            return;
+#endif
         const auto generation = interaction_generation_.load();
-        Schedule([this, &board, generation, protocol_generation]() {
+        Schedule([this, &board, generation, protocol_generation
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                  ,
+                  transport_disconnected
+#endif
+        ]() {
             if (protocol_generation != protocol_generation_.load())
                 return;
             if (voice_enrollment_active_.load() || barge_in_reconnecting_.load())
@@ -716,6 +825,10 @@ void Application::InitializeProtocol() {
             if (generation != interaction_generation_.load() ||
                 (protocol_ && protocol_->IsAudioChannelOpened()))
                 return;
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            if (board.UsesCellularNetwork())
+                cellular_prewarm_retired_ = true;
+#endif
             if (!interaction_stopped_.load() && GetDeviceState() == kDeviceStateListening &&
                 esp_timer_get_time() < voice_enrollment_resume_guard_until_us_) {
                 voice_enrollment_resume_guard_until_us_ = 0;
@@ -737,6 +850,26 @@ void Application::InitializeProtocol() {
                     return;
                 }
             }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR && CONFIG_USE_VOICE_BARGE_IN
+            if (transport_disconnected && !interaction_stopped_.load() &&
+                board.IsNetworkAvailable() &&
+                (GetDeviceState() == kDeviceStateSpeaking ||
+                 GetDeviceState() == kDeviceStateListening)) {
+                if (disconnect_recovery_generation_ != generation) {
+                    disconnect_recovery_generation_ = generation;
+                    disconnect_recovery_attempted_ = false;
+                }
+                if (!disconnect_recovery_attempted_) {
+                    disconnect_recovery_attempted_ = true;
+                    ESP_LOGW(TAG, "Conversation transport disconnected; attempting to reconnect");
+                    barge_in_reconnecting_.store(true);
+                    SetDeviceState(kDeviceStateListening);
+                    if (ReconnectAfterVoiceInterruption(generation, false, true, true))
+                        return;
+                    barge_in_reconnecting_.store(false);
+                }
+            }
+#endif
             board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
@@ -803,6 +936,9 @@ void Application::InitializeProtocol() {
                 return;
             }
             if (strcmp(state->valuestring, "start") == 0) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                dinosaur_server_audio_packets_.store(0);
+#endif
                 auto* external = Board::GetInstance().GetExternalTts();
                 const bool replacing_external = external_tts_selected_.exchange(false);
                 if (replacing_external && external)
@@ -874,6 +1010,22 @@ void Application::InitializeProtocol() {
                     if (GetDeviceState() == kDeviceStateSpeaking && !interaction_stopped_.load() &&
                         generation == interaction_generation_.load() &&
                         external_turn == external_tts_turn_.load()) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                        if (!external_tts_selected_.load()) {
+                            ESP_LOGI(
+                                TAG, "Original speech packets received for playback: %lu",
+                                static_cast<unsigned long>(dinosaur_server_audio_packets_.load()));
+                            const auto status = audio_service_.GetPlaybackBufferStatus();
+                            ESP_LOGI(TAG,
+                                     "Downlink playback: buffered=%lums decode=%lu pcm=%lu "
+                                     "rebuffer_total=%lu queue_full_total=%lu",
+                                     static_cast<unsigned long>(status.buffered_ms),
+                                     static_cast<unsigned long>(status.decode_packets),
+                                     static_cast<unsigned long>(status.pcm_frames),
+                                     static_cast<unsigned long>(status.rebuffer_count),
+                                     static_cast<unsigned long>(status.queue_full_count));
+                        }
+#endif
                         if (external_tts_selected_.load()) {
                             if (auto* external = Board::GetInstance().GetExternalTts()) {
                                 external->Finish();
@@ -1122,6 +1274,39 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "mcp") == 0) {
             auto payload = cJSON_GetObjectItem(root, "payload");
             if (cJSON_IsObject(payload)) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                if (Board::GetInstance().UsesCellularNetwork()) {
+                    constexpr unsigned kMaxPendingCellularMcp = 16;
+                    constexpr size_t kMaxCellularMcpBytes = 32768;
+                    const unsigned pending = cellular_pending_mcp_.fetch_add(1);
+                    if (pending >= kMaxPendingCellularMcp) {
+                        cellular_pending_mcp_.fetch_sub(1);
+                        ESP_LOGW(TAG, "Cellular MCP queue full");
+                        return;
+                    }
+                    char* json = cJSON_PrintUnformatted(payload);
+                    if (!json) {
+                        cellular_pending_mcp_.fetch_sub(1);
+                        ESP_LOGE(TAG, "Cannot copy cellular MCP message");
+                        return;
+                    }
+                    const size_t size = strlen(json);
+                    if (size > kMaxCellularMcpBytes) {
+                        cJSON_free(json);
+                        cellular_pending_mcp_.fetch_sub(1);
+                        ESP_LOGW(TAG, "Cellular MCP message exceeds size limit");
+                        return;
+                    }
+                    std::string message(json, size);
+                    cJSON_free(json);
+                    Schedule([this, protocol_generation, message = std::move(message)]() {
+                        cellular_pending_mcp_.fetch_sub(1);
+                        if (protocol_generation == protocol_generation_.load())
+                            McpServer::GetInstance().ParseMessage(message);
+                    });
+                    return;
+                }
+#endif
                 McpServer::GetInstance().ParseMessage(payload);
             }
         } else if (strcmp(type->valuestring, "system") == 0) {
@@ -1244,6 +1429,19 @@ void Application::ToggleConversation() {
 }
 
 void Application::HandleToggleConversationEvent() {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (cellular_prewarming_.load() && GetDeviceState() == kDeviceStateIdle) {
+        QueueCellularInteraction(MAIN_EVENT_TOGGLE_CONVERSATION);
+        Board::GetInstance().GetDisplay()->ShowNotification("正在连接，请稍候");
+        return;
+    }
+    if (barge_in_reconnecting_.load() && GetDeviceState() == kDeviceStateIdle &&
+        Board::GetInstance().UsesCellularNetwork()) {
+        QueueCellularInteraction(MAIN_EVENT_TOGGLE_CONVERSATION);
+        Board::GetInstance().GetDisplay()->ShowNotification("正在恢复连接，请稍候");
+        return;
+    }
+#endif
     if ((voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load()) &&
         GetDeviceState() == kDeviceStateIdle) {
         ESP_LOGW(TAG, "Waiting for the previous conversation reconnect to stop");
@@ -1257,7 +1455,17 @@ void Application::HandleToggleConversationEvent() {
         StopInteraction(true);
         return;
     }
-    if (state != kDeviceStateIdle || !protocol_)
+    if (state != kDeviceStateIdle)
+        return;
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (Board::GetInstance().UsesCellularNetwork() &&
+        (!protocol_ || !Board::GetInstance().IsNetworkAvailable())) {
+        ESP_LOGW(TAG, "Cannot start conversation: 4G network is not ready");
+        Board::GetInstance().GetDisplay()->ShowNotification("4G网络尚未就绪");
+        return;
+    }
+#endif
+    if (!protocol_)
         return;
     interaction_generation_.fetch_add(1);
     interaction_stopped_.store(false);
@@ -1272,6 +1480,12 @@ void Application::HandleToggleConversationEvent() {
 }
 
 void Application::HandleToggleChatEvent() {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (cellular_prewarming_.load() && GetDeviceState() == kDeviceStateIdle) {
+        QueueCellularInteraction(MAIN_EVENT_TOGGLE_CHAT);
+        return;
+    }
+#endif
     if ((voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load()) &&
         GetDeviceState() == kDeviceStateIdle)
         return;
@@ -1308,6 +1522,9 @@ void Application::HandleToggleChatEvent() {
             Schedule([this, mode]() { ContinueOpenAudioChannel(mode); });
             return;
         }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+        ConsumePrewarmedCellularAudio();
+#endif
         SetListeningMode(mode);
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonNone);
@@ -1330,6 +1547,10 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
         if (!protocol_->OpenAudioChannel()) {
             // Return to idle so the device is not stuck in the connecting
             // state (not every failure path reports a network error)
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            if (board.UsesCellularNetwork())
+                cellular_prewarm_next_us_ = esp_timer_get_time() + 30000000;
+#endif
             entry_prompt_before_listening_ = false;
             SetDeviceState(kDeviceStateIdle);
             return;
@@ -1345,10 +1566,19 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
         return;
     }
 
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    ConsumePrewarmedCellularAudio();
+#endif
     SetListeningMode(mode);
 }
 
 void Application::HandleStartListeningEvent() {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (cellular_prewarming_.load() && GetDeviceState() == kDeviceStateIdle) {
+        QueueCellularInteraction(MAIN_EVENT_START_LISTENING);
+        return;
+    }
+#endif
     if (voice_enrollment_active_.load())
         return;
     if ((voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load()) &&
@@ -1382,6 +1612,9 @@ void Application::HandleStartListeningEvent() {
             Schedule([this]() { ContinueOpenAudioChannel(kListeningModeManualStop); });
             return;
         }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+        ConsumePrewarmedCellularAudio();
+#endif
         SetListeningMode(kListeningModeManualStop);
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonNone);
@@ -1516,6 +1749,13 @@ void Application::HandleWakeWordDetectedEvent() {
 }
 
 void Application::BeginWakeWordInvoke(const std::string& wake_word) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (cellular_prewarming_.load()) {
+        cellular_prewarm_wake_word_ = wake_word;
+        ESP_LOGI(TAG, "Wake word waiting for cellular audio preconnect");
+        return;
+    }
+#endif
     if (voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load()) {
         audio_service_.EnableWakeWordDetection(true);
         return;
@@ -1575,6 +1815,9 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     }
 
     ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    ConsumePrewarmedCellularAudio();
+#endif
 #if CONFIG_SEND_WAKE_WORD_DATA
     // Encode and send the wake word data to the server
     while (auto packet = audio_service_.PopWakeWordPacket()) {
@@ -1957,6 +2200,10 @@ const char* Application::ExternalVoicePreviewStatus() const {
 }
 
 bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (cellular_prewarming_.load())
+        return false;
+#endif
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
     if (official_probe_active_.load())
         return false;
@@ -2063,6 +2310,10 @@ const char* Application::DeviceVoiceEnrollmentStatus() const {
 }
 
 bool Application::RequestExternalVoicePreview(const std::string& voice) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (cellular_prewarming_.load())
+        return false;
+#endif
     if (GetDeviceState() != kDeviceStateIdle || voice_enrollment_active_.load() ||
         voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load() ||
         Board::GetInstance().IsAudioMaintenanceActive() ||
@@ -2258,6 +2509,10 @@ void Application::SendMcpMessage(const std::string& payload) {
     });
 }
 
+size_t Application::GetMcpWireOverhead() const {
+    return protocol_ ? protocol_->GetMcpWireOverhead() : 0;
+}
+
 void Application::SetAecMode(AecMode mode) {
     aec_mode_ = mode;
     Schedule([this]() {
@@ -2291,6 +2546,9 @@ void Application::PlaySound(const std::string_view& sound) { audio_service_.Play
 void Application::ResetProtocol() {
     Schedule([this]() {
         protocol_generation_.fetch_add(1);
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+        cellular_server_connected_.store(false);
+#endif
         interaction_generation_.fetch_add(1);
         if (barge_in_reconnecting_.load()) {
             audio_service_.EnableVoiceProcessing(false);
@@ -2313,14 +2571,121 @@ void Application::ResetProtocol() {
     });
 }
 
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+void Application::QueueCellularInteraction(EventBits_t event) {
+    const auto interaction = interaction_generation_.load();
+    const auto protocol = protocol_generation_.load();
+    if (cellular_pending_interaction_generation_ != interaction ||
+        cellular_pending_protocol_generation_ != protocol)
+        cellular_prewarm_pending_events_ = 0;
+    cellular_pending_interaction_generation_ = interaction;
+    cellular_pending_protocol_generation_ = protocol;
+    cellular_prewarm_pending_events_ |= event;
+}
+
+void Application::ReplayCellularInteraction() {
+    const auto events = cellular_prewarm_pending_events_;
+    cellular_prewarm_pending_events_ = 0;
+    if (events && GetDeviceState() == kDeviceStateIdle &&
+        cellular_pending_interaction_generation_ == interaction_generation_.load() &&
+        cellular_pending_protocol_generation_ == protocol_generation_.load())
+        xEventGroupSetBits(event_group_, events);
+}
+
+void Application::ConsumePrewarmedCellularAudio() {
+    if (cellular_prewarmed_.exchange(false))
+        Board::GetInstance().OnConversationChannelOpened();
+}
+
+void Application::MaybePrewarmCellularAudio() {
+    auto& board = Board::GetInstance();
+    const int64_t now = esp_timer_get_time();
+    if (cellular_prewarm_retired_ || now < cellular_prewarm_next_us_ ||
+        cellular_prewarming_.load() || !board.UsesCellularNetwork() ||
+        !board.IsNetworkAvailable() || board.IsAudioMaintenanceActive() ||
+        GetDeviceState() != kDeviceStateIdle || !protocol_ || voice_enrollment_active_.load() ||
+        voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load() ||
+        external_voice_preview_active_.load())
+        return;
+    // Bound background work, including after repeated server or radio failures.
+    cellular_prewarm_next_us_ = now + 30000000;
+    if (protocol_->IsAudioChannelOpened())
+        return;
+    struct Prewarm {
+        Application* app;
+        std::shared_ptr<Protocol> protocol;
+        uint32_t protocol_generation;
+        uint32_t interaction_generation;
+    };
+    auto* request = new (std::nothrow)
+        Prewarm{this, protocol_, protocol_generation_.load(), interaction_generation_.load()};
+    if (!request)
+        return;
+    cellular_prewarming_.store(true);
+    const auto created = xTaskCreate(
+        [](void* arg) {
+            std::unique_ptr<Prewarm> request(static_cast<Prewarm*>(arg));
+            auto* app = request->app;
+            auto protocol = request->protocol;
+            const auto protocol_generation = request->protocol_generation;
+            const auto interaction_generation = request->interaction_generation;
+            // A timed-out channel may still own the modem socket.
+            protocol->CloseAudioChannel(false);
+            bool opened = false;
+            if (protocol_generation == app->protocol_generation_.load() &&
+                interaction_generation == app->interaction_generation_.load() &&
+                Board::GetInstance().IsNetworkAvailable())
+                opened = protocol->OpenAudioChannel();
+            if (opened && (protocol_generation != app->protocol_generation_.load() ||
+                           interaction_generation != app->interaction_generation_.load() ||
+                           !Board::GetInstance().IsNetworkAvailable())) {
+                protocol->CloseAudioChannel(false);
+                opened = false;
+            }
+            app->Schedule([app, protocol, protocol_generation, interaction_generation, opened]() {
+                const bool valid = protocol_generation == app->protocol_generation_.load() &&
+                                   interaction_generation == app->interaction_generation_.load() &&
+                                   app->protocol_ == protocol &&
+                                   app->GetDeviceState() == kDeviceStateIdle &&
+                                   Board::GetInstance().IsNetworkAvailable();
+                app->cellular_prewarmed_.store(valid && opened);
+                app->cellular_prewarming_.store(false);
+                ESP_LOGI(TAG, "Cellular audio preconnect %s", valid && opened ? "ready" : "unavailable");
+                auto wake_word = std::move(app->cellular_prewarm_wake_word_);
+                app->cellular_prewarm_wake_word_.clear();
+                if (valid && !wake_word.empty())
+                    app->BeginWakeWordInvoke(wake_word);
+                else if (!wake_word.empty())
+                    app->audio_service_.EnableWakeWordDetection(true);
+                if (wake_word.empty())
+                    app->ReplayCellularInteraction();
+                else
+                    app->cellular_prewarm_pending_events_ = 0;
+            });
+            vTaskDelete(nullptr);
+        },
+        "cell_prewarm", 8192, request, 3, nullptr);
+    if (created != pdPASS) {
+        delete request;
+        cellular_prewarming_.store(false);
+        ESP_LOGW(TAG, "Cannot start cellular audio preconnect task");
+    }
+}
+#endif
+
 #if CONFIG_USE_VOICE_BARGE_IN
-bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
+bool Application::ReconnectAfterVoiceInterruption(uint32_t generation, bool close_first,
+                                                  bool reopen, bool resume_listening) {
     struct Reconnect {
         Application* app;
         std::shared_ptr<Protocol> protocol;
         uint32_t generation;
+        bool close_first;
+        bool reopen;
+        bool resume_listening;
     };
-    auto* request = new (std::nothrow) Reconnect{this, protocol_, generation};
+    auto* request = new (std::nothrow)
+        Reconnect{this, protocol_, generation, close_first, reopen, resume_listening};
     if (!request || !request->protocol) {
         delete request;
         return false;
@@ -2331,8 +2696,24 @@ bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
             auto* app = request->app;
             auto protocol = request->protocol;
             const auto token = request->generation;
-            const bool opened = protocol->IsAudioChannelOpened() || protocol->OpenAudioChannel();
-            app->Schedule([app, protocol, token, opened]() {
+            if (request->close_first && protocol->IsAudioChannelOpened()) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                // A failed cellular send may leave the AT channel out of
+                // sync. Avoid a goodbye publish before trying a fresh hello.
+                if (Board::GetInstance().UsesCellularNetwork())
+                    protocol->CloseAudioChannel(false);
+                else
+#endif
+                    protocol->CloseAudioChannel();
+            }
+            const bool still_requested =
+                !app->interaction_stopped_.load() && token == app->interaction_generation_.load();
+            const bool opened = request->reopen && still_requested &&
+                                (protocol->IsAudioChannelOpened() || protocol->OpenAudioChannel());
+            const bool recheck_on_failure = request->close_first && request->reopen;
+            const bool resume_listening = request->resume_listening;
+            app->Schedule([app, protocol, token, opened, recheck_on_failure, resume_listening]() {
+                (void)recheck_on_failure;
                 const bool valid = !app->interaction_stopped_.load() &&
                                    token == app->interaction_generation_.load() &&
                                    app->protocol_ == protocol &&
@@ -2342,9 +2723,18 @@ bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
                         protocol->CloseAudioChannel();
                     app->barge_in_reconnecting_.store(false);
                     app->audio_service_.ReleaseVoiceInterruptionBuffer();
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                    app->ReplayCellularInteraction();
+#endif
                     return;
                 }
                 if (!opened || !protocol->IsAudioChannelOpened()) {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                    if (recheck_on_failure && Board::GetInstance().UsesCellularNetwork()) {
+                        ESP_LOGW(TAG, "Cellular audio reconnect failed; rechecking network");
+                        Board::GetInstance().RequestNetworkRecheck();
+                    }
+#endif
                     app->barge_in_reconnecting_.store(false);
                     app->audio_service_.ReleaseVoiceInterruptionBuffer();
                     app->audio_service_.EnableVoiceProcessing(false);
@@ -2352,10 +2742,28 @@ bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
                     }
                     app->SetDeviceState(kDeviceStateIdle);
                     ESP_LOGW(TAG, "Unable to reconnect after voice interruption");
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+                    app->ReplayCellularInteraction();
+#endif
                     return;
                 }
-                protocol->SendStartListening(app->listening_mode_);
                 app->barge_in_reconnecting_.store(false);
+                if (resume_listening) {
+                    if (!app->audio_service_.IsPlaybackIdle()) {
+                        app->pending_listening_start_ = true;
+                        // Playback may drain between the first check and
+                        // arming the deferred start.
+                        if (app->audio_service_.IsPlaybackIdle()) {
+                            app->pending_listening_start_ = false;
+                            app->StartListeningAudio();
+                        }
+                    } else {
+                        app->pending_listening_start_ = false;
+                        app->StartListeningAudio();
+                    }
+                } else {
+                    protocol->SendStartListening(app->listening_mode_);
+                }
                 xEventGroupSetBits(app->event_group_, MAIN_EVENT_SEND_AUDIO);
             });
             vTaskDelete(nullptr);

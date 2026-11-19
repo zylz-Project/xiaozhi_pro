@@ -174,8 +174,8 @@ int main(){
         program=captured[0].split('int main(){')[0]
         program=program.replace('std::vector<std::array<float,5>> samples;',
             'std::vector<std::array<float,5>> samples;std::vector<uint32_t>times;')
-        program=program.replace('samples.push_back({angles[0]',
-            'times.push_back(clock_ms);samples.push_back({angles[0]')
+        program=program.replace('samples.push_back(logical)',
+            'times.push_back(clock_ms);samples.push_back(logical)')
         program+=r'''
 int main(){
  const Keyframe frames[]={

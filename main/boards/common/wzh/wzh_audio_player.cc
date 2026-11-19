@@ -188,64 +188,109 @@ bool AudioPlayer::PlayInteractionSound(PetInteraction interaction) {
 }
 
 bool AudioPlayer::PlayAutonomousSound(bool include_ambient, uint32_t ambient_percent,
-                                      bool respect_idle_silence) {
+                                      bool respect_idle_silence, bool full_pool) {
     if (IsOnboardingActive())
         return false;
-    // Past the 10-minute silence mark only autonomous sound effects stop; the
-    // caller's motion cadence keeps its full amplitude.
+    // Yield the audio lane while the idle reminder or shutdown is pending.
     if (respect_idle_silence && IdleSoundSuppressed())
         return false;
     if (!store_ || store_->IsWriting())
         return false;
     std::lock_guard<std::mutex> lock(reaction_mutex_);
-    // Three accepted showcases use the exact user pair, then Flash coverage
-    // gets a turn. Busy/rejected enqueues consume no preference.
-    if (user_pair_count && (autonomous_turn_ % 4 != 3 || store_->file_count() == 0)) {
-        const auto pairs = PairedFiles();
-        const int selected = paired_coverage_.Select(pairs, esp_random(), false);
+    // Every accepted showcase draws from ONE merged pool of user-pair clips and
+    // Flash entries, weighted by pool size. The old fixed 3-of-4 preference for
+    // user pairs made the 20-something-pair pack replay within two minutes even
+    // when the Flash library was much larger. Busy/rejected enqueues consume
+    // no turn and no coverage slot.
+    const auto files = store_->Snapshot();
+    const auto pairs = user_pair_count ? PairedFiles() : std::vector<AudioFileInfo>{};
+    const uint32_t random = esp_random();
+    if (full_pool) {
+        // Draw uniformly over all usable entries, regardless of sound type.
+        // Keep independent coverage for Flash and paired sources and only
+        // commit a turn after the playback queue accepts it.
+        size_t flash_count = 0, pair_count = 0;
+        for (const auto& file : files)
+            if (file.name[0] && file.size &&
+                (include_ambient ||
+                 ClassifySoundKind(file.name, file.category) != SoundKind::kAmbient))
+                ++flash_count;
+        for (const auto& pair : pairs)
+            if (pair.name[0] && pair.size)
+                ++pair_count;
+        if (!flash_count && !pair_count)
+            return false;
+        const bool flash = random % (flash_count + pair_count) < flash_count;
+        const uint32_t choice = esp_random();
+        if (!flash) {
+            const int index = paired_coverage_.Select(pairs, choice, false);
+            if (index < 0 || !QueueFile(kUserPairIndexBase + index, pairs[index]))
+                return false;
+            paired_coverage_.Remember(pairs, pairs[index].name, false);
+        } else {
+            const int index = sound_coverage_.Select(files, choice, include_ambient);
+            if (index < 0)
+                return false;
+            auto selected = files[index];
+            if (!selected.duration_ms) {
+                if (const auto* score = FindSoundScore(selected.name))
+                    selected.duration_ms = score->duration_ms;
+            }
+            if (ClassifySoundKind(selected.name, selected.category) == SoundKind::kAmbient)
+                selected.duration_ms =
+                    selected.duration_ms ? std::min<uint32_t>(selected.duration_ms, 12000) : 12000;
+            if (!QueueFile(index, selected))
+                return false;
+            sound_coverage_.Remember(files, selected.name, include_ambient);
+        }
+        ++autonomous_turn_;
+        return true;
+    }
+    const bool prefer_flash = files.empty() ? false
+                              : pairs.empty()
+                                  ? true
+                                  : (random % (files.size() + pairs.size())) >= pairs.size();
+    if (prefer_flash) {
+        // Animal sounds dominate; ambient still gets a fair turn when weighted.
+        const bool ambient_only =
+            include_ambient && ambient_percent > 0 && (random % 100U) < ambient_percent;
+        const bool animal_only = !include_ambient || (include_ambient && !ambient_only);
+        const int index = ambient_only  ? sound_coverage_.Select(files, random, true, true)
+                          : animal_only ? sound_coverage_.Select(files, random, false, false)
+                                        : sound_coverage_.Select(files, random, true, false);
+        if (index >= 0) {
+            auto selected = files[index];
+            if (!selected.duration_ms) {
+                if (const auto* score = FindSoundScore(selected.name))
+                    selected.duration_ms = score->duration_ms;
+            }
+            // Exhibition cadence: every dinosaur ambience gets a turn, as a
+            // 12 s scene. Manual/MCP playback plays the complete recording.
+            if (ClassifySoundKind(selected.name, selected.category) == SoundKind::kAmbient)
+                selected.duration_ms = selected.duration_ms
+                                           ? std::min<uint32_t>(selected.duration_ms, 12000)
+                                           : 12000;
+            if (QueueFile(index, selected)) {
+                sound_coverage_.Remember(files, selected.name, include_ambient, ambient_only);
+                ++autonomous_turn_;
+                return true;
+            }
+            return false;
+        }
+        // Flash pool empty for this filter (e.g. ambient-only with no ambient
+        // entries): fall through to the paired pack if one exists.
+        if (pairs.empty())
+            return false;
+    }
+    {
+        const int selected = paired_coverage_.Select(pairs, random, false);
         if (selected >= 0 && QueueFile(kUserPairIndexBase + selected, pairs[selected])) {
             paired_coverage_.Remember(pairs, pairs[selected].name, false);
             ++autonomous_turn_;
             return true;
         }
-        return false;
     }
-    const auto files = store_->Snapshot();
-    const uint32_t random = esp_random();
-    // Animal sounds should dominate the dinosaur's exhibition. Ambient still
-    // gets a fair turn, but only when the weighted draw selects it.
-    const bool ambient_only =
-        include_ambient && ambient_percent > 0 && (random % 100U) < ambient_percent;
-    const bool animal_only = !include_ambient || (include_ambient && !ambient_only);
-    const int index = ambient_only  ? sound_coverage_.Select(files, random, true, true)
-                      : animal_only ? sound_coverage_.Select(files, random, false, false)
-                                    : sound_coverage_.Select(files, random, true, false);
-    if (index < 0) {
-        if (!user_pair_count)
-            return false;
-        const auto pairs = PairedFiles();
-        const int fallback = paired_coverage_.Select(pairs, random, false);
-        if (fallback < 0 || !QueueFile(kUserPairIndexBase + fallback, pairs[fallback]))
-            return false;
-        paired_coverage_.Remember(pairs, pairs[fallback].name, false);
-        ++autonomous_turn_;
-        return true;
-    }
-    auto selected = files[index];
-    if (!selected.duration_ms) {
-        if (const auto* score = FindSoundScore(selected.name))
-            selected.duration_ms = score->duration_ms;
-    }
-    // Exhibition cadence: every dinosaur ambience gets a turn, as a 12 s scene.
-    // Manual/MCP playback continues to play the complete recording.
-    if (ClassifySoundKind(selected.name, selected.category) == SoundKind::kAmbient)
-        selected.duration_ms =
-            selected.duration_ms ? std::min<uint32_t>(selected.duration_ms, 12000) : 12000;
-    if (!QueueFile(index, selected))
-        return false;
-    sound_coverage_.Remember(files, files[index].name, include_ambient, ambient_only);
-    ++autonomous_turn_;
-    return true;
+    return false;
 }
 
 MotionData AudioPlayer::GetMotionData() const {

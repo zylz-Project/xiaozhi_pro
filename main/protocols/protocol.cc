@@ -97,6 +97,12 @@ void Protocol::SendMcpMessage(const std::string& payload) {
     SendText(message);
 }
 
+size_t Protocol::GetMcpWireOverhead() const {
+    static constexpr char kPrefix[] = "{\"session_id\":\"";
+    static constexpr char kMiddle[] = "\",\"type\":\"mcp\",\"payload\":";
+    return sizeof(kPrefix) - 1 + session_id_.size() + sizeof(kMiddle) - 1 + 1;
+}
+
 bool Protocol::IsTimeout() const {
     const int kTimeoutSeconds = 120;
     auto now = std::chrono::steady_clock::now();

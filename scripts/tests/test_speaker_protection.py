@@ -35,15 +35,15 @@ int main(){
 }
 ''')
 
-    def test_wzh_21db_louder_than_previous_profile_and_bounded(self):
+    def test_wzh_gain_steps_raise_quiet_audio_and_keep_peak_limit(self):
         self.run_program(r'''
 #include <cassert>
 int main(){
- for(int rate:{8000,16000,24000,48000})for(bool clarity:{false,true}){
+ for(int rate:{8000,16000,24000,48000})for(bool clarity:{false,true})for(float gain:{21.0f,24.0f}){
   std::vector<int16_t> input(rate);
   for(int i=0;i<rate;++i)input[i]=std::lrint(300*std::sin(6.283185307179586*1000*i/rate));
   auto previous=input, louder=input;SpeakerProtection a,b;
-  a.Configure(rate,clarity,clarity,18.0f);b.Configure(rate,clarity,clarity,21.0f);
+  a.Configure(rate,clarity,clarity,gain-3.0f);b.Configure(rate,clarity,clarity,gain);
   a.Process(previous);b.Process(louder);double x=0,y=0;
   for(int i=rate/2;i<rate;++i){x+=double(previous[i])*previous[i];y+=double(louder[i])*louder[i];}
   assert(10*std::log10(y/x)>2.95&&10*std::log10(y/x)<3.05);

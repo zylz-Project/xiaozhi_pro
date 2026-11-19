@@ -416,8 +416,12 @@ idf_component_register(SRCS ${SOURCES}
                     )
 
 # Use target_compile_definitions to define the reported board identity
-# If BOARD_NAME is empty, use BOARD_TYPE
-if(NOT BOARD_NAME)
+# The dinosaur has one motor calibration and reports its sole configured name.
+if(CONFIG_BOARD_TYPE_WZH_DINOSAUR AND NOT CMAKE_BUILD_EARLY_EXPANSION)
+    string(REGEX MATCH "\"name\"[ \t\r\n]*:[ \t\r\n]*\"([^\"]+)\"" BOARD_NAME_MATCH
+           "${BOARD_CONFIG_JSON}")
+    set(BOARD_NAME "${CMAKE_MATCH_1}")
+elseif(NOT BOARD_NAME)
     set(BOARD_NAME ${BOARD_TYPE})
 endif()
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND NOT BOARD_NAME MATCHES "^[a-z0-9.-]+$")

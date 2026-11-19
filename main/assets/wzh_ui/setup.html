@@ -35,7 +35,6 @@
       <div class="phone b setup-phone" id="setupPhone" data-mode="first" data-theme="milk">
         <div class="wallpaper"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
         <div class="statusbar">
-          <span class="status-time">9:41</span>
           <span class="status-pill"><i class="status-dot amber" id="setupDot"></i><span id="setupStatus">配网中</span></span>
         </div>
 
@@ -93,8 +92,8 @@
                 <span class="cn-ico"><svg class="ico" viewBox="0 0 24 24"><use href="#i-wifi"></use></svg></span>
                 <div class="cn-copy">
                   <small>当前网络</small>
-                  <b class="cn-title" id="currentSsid">Home</b>
-                  <span class="cn-sub" id="currentSub">2.4GHz · 已保存</span>
+                  <b class="cn-title" id="currentSsid">--</b>
+                  <span class="cn-sub" id="currentSub">正在读取网络状态</span>
                 </div>
                 <span class="chip live" id="currentChip">在线</span>
               </div>
@@ -102,35 +101,11 @@
               <div class="net-card">
                 <div class="net-head">
                   <h2 id="netHeading">附近的网络</h2>
-                  <span class="scan-meta" id="scanMeta">4 个 · 刚刚</span>
+                  <span class="scan-meta" id="scanMeta">正在扫描…</span>
                   <button class="scan-btn" id="scanBtn" type="button" aria-label="重新扫描网络"><svg class="ico" viewBox="0 0 24 24"><use href="#i-refresh"></use></svg></button>
                 </div>
-                <div class="net-list" id="netList" role="list">
-                  <button class="net-row" type="button" role="listitem" data-ssid="Home" data-band="2.4G" data-secure="1" data-signal="4">
-                    <span class="net-sig" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
-                    <span class="net-copy"><b>Home <span class="net-tag">推荐</span><svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></b><small>2.4GHz · 信号很强</small></span>
-                    <span class="net-band">2.4G</span>
-                    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
-                  </button>
-                  <button class="net-row" type="button" role="listitem" data-ssid="PandaLab" data-band="2.4G" data-secure="1" data-signal="3">
-                    <span class="net-sig" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
-                    <span class="net-copy"><b>PandaLab <svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></b><small>2.4GHz · 信号良好</small></span>
-                    <span class="net-band">2.4G</span>
-                    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
-                  </button>
-                  <button class="net-row" type="button" role="listitem" data-ssid="Xiaomi_2.4G" data-band="2.4G" data-secure="1" data-signal="2">
-                    <span class="net-sig" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i></span>
-                    <span class="net-copy"><b>Xiaomi_2.4G <svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></b><small>2.4GHz · 信号一般</small></span>
-                    <span class="net-band">2.4G</span>
-                    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
-                  </button>
-                  <button class="net-row is-5g" type="button" role="listitem" data-ssid="TP-LINK_5G" data-band="5G" data-secure="1" data-signal="4">
-                    <span class="net-sig" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
-                    <span class="net-copy"><b>TP-LINK_5G <svg class="ico" viewBox="0 0 24 24"><use href="#i-lock"></use></svg></b><small>5GHz · 这台设备不支持</small></span>
-                    <span class="net-band">5G</span>
-                    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
-                  </button>
-                </div>
+                <div class="net-list" id="netList" role="list"></div>
+                <p class="net-empty" id="netEmpty" hidden>还没有发现附近的网络，请点击右上角刷新</p>
               </div>
 
               <button class="manual-ssid" id="manualSsidBtn" type="button">
@@ -147,10 +122,10 @@
           <div class="sheet">
             <div class="grab"></div>
             <div class="sheet-head">
-              <div><h2 id="pwTitle">连接到 Home</h2><p id="pwSub">输入这个 Wi-Fi 的密码</p></div>
+              <div><h2 id="pwTitle">连接到网络</h2><p id="pwSub">输入这个 Wi-Fi 的密码</p></div>
               <button class="sheet-close" type="button" data-close="pwLayer" aria-label="关闭"><svg class="ico" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
-            <span class="pw-ssid"><svg class="ico" viewBox="0 0 24 24" style="width:12px;height:12px"><use href="#i-wifi"></use></svg><span id="pwSsid">Home</span> · 2.4GHz</span>
+            <span class="pw-ssid"><svg class="ico" viewBox="0 0 24 24" style="width:12px;height:12px"><use href="#i-wifi"></use></svg><span id="pwSsid">--</span> · 2.4GHz</span>
             <label class="field" for="pwInput">
               <span>Wi-Fi 密码</span>
               <div class="input-wrap">
@@ -192,7 +167,6 @@
 
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </div>
-      <p class="notes"><b>原型说明：</b>三条路径共用同一页：<code>?mode=first</code>（默认）、<code>?mode=change</code>、<code>?mode=offline</code>。5GHz 网络会提示不支持；密码含 <code>wrong</code> 会模拟失败。</p>
     </section>
   </main>
 </div>

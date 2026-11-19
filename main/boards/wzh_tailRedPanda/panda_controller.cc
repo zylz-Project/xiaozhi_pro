@@ -2,6 +2,7 @@
 #include "wzh_body_commands.h"
 #include "wzh_pet_feedback.h"
 #include "wzh_onboarding.h"
+#include "wzh_idle_power.h"
 #include "wzh_startup_greeting.h"
 #include "wzh_system_prompts.h"
 
@@ -1245,6 +1246,7 @@ void PandaController::Task() {
     TickType_t motion_tick = xTaskGetTickCount();
     wzh::StartupGreetingGate startup(now_ms);
     const uint32_t startup_origin_ms = now_ms;
+    uint32_t last_idle_interaction = wzh::IdleInteractionGeneration();
     bool startup_sound_pending = false;
     bool startup_sound_started = false;
     static constexpr const char* kStartupSounds[] = {"熊猫撒娇声音", "可爱的熊猫幼崽发声", "挠痒痒笑声"};
@@ -1276,7 +1278,14 @@ void PandaController::Task() {
             running_speech_bound_ = false;
         }
         PollInteraction(now_ms);
+        const uint32_t idle_interaction = wzh::IdleInteractionGeneration();
+        if (idle_interaction != last_idle_interaction) {
+            last_idle_interaction = idle_interaction;
+            autoplay_.Engage(now_ms, esp_random());
+        }
         const auto pet_state = pet_.Get(now_ms);
+        autoplay_.SetPaused(now_ms, conversation_active_.load() || shutdown_requested_.load() ||
+                                        servo_output_.blocked() || !pet_state.motion);
         if (startup_sound_pending &&
             (conversation_active_.load() || shutdown_requested_.load() ||
              last_request_us_.load() > 0 || pet_state.mode != wzh::PetMode::kNormal ||
@@ -1346,7 +1355,7 @@ void PandaController::Task() {
             CancelSoundMotion();
             autoplay_.Busy(now_ms, esp_random());
             bool sound_started = false;
-            tutorial_motion_active_ = request.tutorial_shake_head;
+            tutorial_motion_active_ = request.tutorial_step;
             running_generation_ = request.generation;
             running_priority_.store(request.priority);
             running_speech_bound_ = request.speech_bound;
@@ -1360,11 +1369,11 @@ void PandaController::Task() {
                     sound_started = true;
                 }
             }
-            if (sound_started && !request.tutorial_shake_head) {
+            if (sound_started && !request.tutorial_step) {
                 clip_active_ = false;
             } else if (request.is_body) {
                 const int clip_id =
-                    request.interaction != wzh::PetInteraction::kNone && !request.tutorial_shake_head
+                    request.interaction != wzh::PetInteraction::kNone && !request.tutorial_step
                         ? static_cast<int>(C_COUNT) + BODY_COUNT +
                               interaction_motion_.Select(request.interaction, esp_random())
                         : static_cast<int>(C_COUNT) +
@@ -1385,8 +1394,11 @@ void PandaController::Task() {
             }
         }
 
-        // Keep the explicit shake-head clip while its selected audio plays.
+        // Keep the tutorial demonstration while its selected audio plays.
         const bool local_motion = tutorial_motion_active_ ? false : UpdateSoundMotion(now_ms);
+        autoplay_.ObservePlayback(now_ms,
+                                  local_motion || (audio_ != nullptr && audio_->Playing()),
+                                  esp_random());
         if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
             autonomous_playback_ = false;
         // Wait for the power-on prompt to drain before the startup gesture.
@@ -1422,7 +1434,8 @@ void PandaController::Task() {
             wzh::MarkStartupGreetingComplete();
         }
         if (autoplay_.Due(now_ms,
-                          offline && pet_state.local_sound && wzh::StartupGreetingAudioReady() &&
+                          offline && pet_state.local_sound && !wzh::IsOnboardingActive() &&
+                              wzh::StartupGreetingAudioReady() &&
                               !startup.Pending() && !startup_sound_pending &&
                               (!servo_output_.powered() || idle_breathing_) &&
                               !clip_active_ && !request_active_.load() && !local_motion &&
@@ -1451,7 +1464,7 @@ void PandaController::Task() {
 
         // 在线说话使用真实 TTS 包络，动作助手负责平滑和有限语句编排，
         // 避免把每个音节的 attack 尖峰直接变成头尾抖动。
-        const bool tutorial_voice = wzh::IsOnboardingVoiceMotionActive();
+        const bool tutorial_voice = (wzh::IsOnboardingVoiceMotionActive() || wzh::IdleMissVoiceMotionActive());
         if ((!offline && (speaking_.load() || speech_tail_.load())) || tutorial_voice) {
             PandaMotionData tts =
                 audio_ != nullptr ? audio_->GetTtsMotionData() : PandaMotionData{};
@@ -1465,15 +1478,17 @@ void PandaController::Task() {
         if (offline && !tutorial_voice) {
             motion = {};  // Offline gestures own their finite choreography.
         }
-        // Idle life: when nothing else owns the output, start a small idle clip
-        // every few seconds so the tail never stays parked at neutral.
+        // Idle filler clips only run in the legacy fallback phase; during the
+        // opening burst the exhibitions own the output and the wait is
+        // breathing-only.
         const bool idle_eligible = !conversation_active_.load() && pet_state.motion &&
                                    !request_active_.load() && !clip_active_ && !motion.playing &&
                                    !local_motion && (!servo_output_.powered() || idle_breathing_) &&
                                    (audio_ == nullptr || !audio_->Playing()) &&
                                    !startup.Pending() && !startup_sound_pending &&
                                    !wzh::IsOnboardingActive();
-        if (idle_life_.Due(now_ms, idle_eligible, esp_random())) {
+        if (idle_life_.Due(now_ms, idle_eligible && autoplay_.Legacy() && !pet_state.local_sound,
+                           esp_random())) {
             static constexpr Behaviour kIdleFamilies[] = {Behaviour::kIdle, Behaviour::kCurious,
                                                           Behaviour::kAmbient};
             StartClip(ChooseClip(kIdleFamilies[irnd(std::size(kIdleFamilies))]), now_ms);
@@ -1495,10 +1510,14 @@ void PandaController::Task() {
         if (clip_active_ && !motion.playing) {
             AddMicroMotion(expressive, now_ms, 1.0f);
         } else if (idle_breathing_) {
-            // A small, slow version of the existing breathing motion around rest.
+            // A gentle gaze and phase-offset tail motion add attention without
+            // starting a separate clip during the breathing-only wait.
             const float phase = static_cast<float>(now_ms % 12000U) / 12000.f;
             const float breath = 0.5f - 0.5f * std::cos(phase * 6.2831853f);
-            expressive = {90.f, 90.f + breath * 1.0f, 150.f - breath * 1.5f};
+            const float gaze = std::sin(static_cast<float>(now_ms % 28000U) * (6.2831853f / 28000.f));
+            const float tail = std::sin(static_cast<float>(now_ms % 22000U) * (6.2831853f / 22000.f));
+            expressive = {90.f + 3.0f * gaze, 90.f + 2.0f * tail,
+                          150.f - breath * 2.5f};
         }
         const wzh_panda::Pose out = ApplyAudioMotion(expressive, motion, now_ms);
         if (clip_active_ || motion.playing || idle_breathing_) {
@@ -1578,6 +1597,7 @@ bool PandaController::HandleBodyCommand(const std::string& name) {
         return false;
     const bool accepted = TriggerBodyAction(action);
     if (accepted) {
+        autoplay_.Engage(esp_timer_get_time() / 1000, esp_random());
         ESP_LOGI(TAG, "Local joint command=%s accepted", BodyActionName(action));
     } else {
         ESP_LOGW(TAG, "Local joint command=%s rejected", BodyActionName(action));
@@ -2014,6 +2034,7 @@ bool PandaController::HandlePetControl(wzh::PetControl control, bool respond) {
     const bool paused = control == wzh::PetControl::kStop || control == wzh::PetControl::kRest;
     servo_output_.SetFault(wzh::kPetPaused, paused);
     if (control == wzh::PetControl::kWake) {
+        autoplay_.Engage(esp_timer_get_time() / 1000, esp_random());
         servo_output_.SetFault(wzh::kMotionTimeout, false);
         if (respond) {
             TriggerAction(PandaAction::kDiscover, !conversation_active_.load(),
@@ -2049,13 +2070,13 @@ bool PandaController::TriggerOnboardingFeedback(uint8_t step) {
                                          : wzh::PetInteraction::kTouch1;
     tutorial_feedback_requested_ms_.store(static_cast<uint32_t>(esp_timer_get_time() / 1000));
     tutorial_feedback_pending_.store(true);
-    if (QueueInteraction(interaction, step == 3))
+    if (QueueInteraction(interaction, (step == 2 || step == 3) ? step : 0))
         return true;
     tutorial_feedback_pending_.store(false);
     return false;
 }
 
-bool PandaController::QueueInteraction(wzh::PetInteraction interaction, bool tutorial_shake_head) {
+bool PandaController::QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step) {
     PandaBodyAction body = PandaBodyAction::kShakeHead;
     switch (interaction) {
         case wzh::PetInteraction::kTouch1:
@@ -2086,9 +2107,11 @@ bool PandaController::QueueInteraction(wzh::PetInteraction interaction, bool tut
         default:
             return false;
     }
+    if (tutorial_step == 2)
+        body = PandaBodyAction::kWagTail;
     ActionRequest request{static_cast<PandaAction>(body), false, true};
     request.interaction = interaction;
-    request.tutorial_shake_head = tutorial_shake_head;
+    request.tutorial_step = tutorial_step;
     const bool accepted = QueueRequest(request, wzh::PetPriority::kExplicit);
     if (accepted) {
         ESP_LOGD(TAG, "Interaction=%s accepted", wzh::InteractionName(interaction));
@@ -2103,6 +2126,10 @@ bool PandaController::QueueInteraction(wzh::PetInteraction interaction, bool tut
 void PandaController::HandleTouch(uint8_t code) {
     const uint32_t now = esp_timer_get_time() / 1000;
     pet_.Touch(code, now);
+    // A confirmed press is play: restart the two-minute exhibition burst.
+    // Release events (code 0) only feed the held/tap state machine.
+    if (code != 0)
+        autoplay_.Engage(now, esp_random());
     PollInteraction(now);
 }
 
@@ -2114,8 +2141,10 @@ bool PandaController::HandleSensorEvent(int event) {
             return false;
         const bool accepted =
             TriggerAction(PandaAction::kDiscover, false, wzh::PetPriority::kSensor);
-        if (accepted)
+        if (accepted) {
             pet_.SensorAccepted(now);
+            autoplay_.Engage(now, esp_random());
+        }
         return accepted;
     }
     if (!pet_.Get(now).motion)
@@ -2133,6 +2162,7 @@ bool PandaController::HandleSensorEvent(int event) {
     const bool accepted = QueueInteraction(interaction);
     if (accepted) {
         pet_.Gentle(now, kind == wzh::Sensors::Event::kPutDown ? 1800 : 3500);
+        autoplay_.Engage(now, esp_random());
     }
     return accepted;
 }

@@ -170,11 +170,11 @@ public:
 
     void OnConversationChannelOpened() override {
         wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceReady);
-        if (wzh::ConsumeOnboardingConnectionProbe()) {
-            Application::GetInstance().Schedule([]() {
-                Application::GetInstance().StopInteraction(false);
-            });
-        }
+        // The tutorial's connection probe succeeded inside the live
+        // conversation: finish the remaining narration in the background and
+        // keep the chat open instead of hanging up on the user.
+        wzh::ConsumeOnboardingConnectionProbe();
+        wzh::CompleteOnboardingInConversation();
     }
 
     ExternalTts* GetExternalTts() override { return wzh::ProductExternalTts(); }

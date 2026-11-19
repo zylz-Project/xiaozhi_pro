@@ -115,6 +115,19 @@ public:
     virtual bool IsNetworkAvailable() const { return true; }
     // Indicates that the selected cloud transport uses a cellular modem.
     virtual bool UsesCellularNetwork() const { return false; }
+    // Largest single control message the selected transport can carry.
+    // Zero means the transport has no board-specific limit.
+    virtual size_t GetProtocolPayloadLimit() const { return 0; }
+    // Boards with multiple transports: switch the cloud transport at runtime.
+    // Returns false when the request is unsupported or would have no effect.
+    virtual bool SelectNetworkTransport(bool cellular) { (void)cellular; return false; }
+    // True while the transport choice is still being probed at boot.
+    virtual bool IsNetworkProbing() const { return false; }
+    // True when this board can switch between cellular and Wi-Fi at runtime
+    // (both transports exist in firmware and hardware detection has settled).
+    virtual bool HasModemTransport() const { return false; }
+    // Request an asynchronous link check after persistent transport failures.
+    virtual void RequestNetworkRecheck() {}
     // ESP-IDF socket clients need a real IP interface (not an AT-only modem).
     virtual bool HasSystemNetwork() const { return IsNetworkAvailable(); }
     virtual void StartNetwork() = 0;

@@ -56,6 +56,8 @@ void WifiStation::AddAuth(const std::string&& ssid, const std::string&& password
 
 void WifiStation::Stop() {
     ESP_LOGI(TAG, "Stopping WiFi station");
+    scan_running_.store(false);
+    scan_started_us_.store(0);
 
     // Unregister event handlers FIRST to prevent scan done from triggering connect
     if (instance_any_id_ != nullptr) {
@@ -167,7 +169,8 @@ void WifiStation::Start() {
     // (components/esp_timer/src/esp_timer.c) excludes timers with this flag
     // from light-sleep wakeup sources.
     esp_timer_create_args_t timer_args = {
-        .callback = [](void* arg) { esp_wifi_scan_start(nullptr, false); },
+        .callback =
+            [](void* arg) { static_cast<WifiStation*>(arg)->RequestScan(); },
         .arg = this,
         .dispatch_method = ESP_TIMER_TASK,
         .name = "WiFiScanTimer",
@@ -175,8 +178,43 @@ void WifiStation::Start() {
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &timer_handle_));
     if (persistent_ap_) {
         // STA_START may have fired before this handler was registered.
-        esp_wifi_scan_start(nullptr, false);
+        RequestScan();
     }
+}
+
+bool WifiStation::RequestScan() {
+    if (scan_running_.load()) {
+        const auto started = scan_started_us_.load();
+        // A driver error can leave the SCAN_DONE event unpaired. Do not let the
+        // portal's refresh button stay permanently stuck on that stale state.
+        if (started && esp_timer_get_time() - started < 15 * 1000 * 1000)
+            return true;
+        ESP_LOGW(TAG, "Wi-Fi scan watchdog expired; starting another scan");
+        scan_running_.store(false);
+    }
+    bool expected = false;
+    if (!scan_running_.compare_exchange_strong(expected, true)) {
+        ESP_LOGD(TAG, "Wi-Fi scan already in progress");
+        return true;
+    }
+    scan_started_us_.store(esp_timer_get_time());
+    const esp_err_t err = esp_wifi_scan_start(nullptr, false);
+    if (err == ESP_OK) {
+        // Do not invoke on_scan_begin_ here. Start() is called from
+        // WifiManager::StartStation() while its mutex is held, and the
+        // callback re-enters the manager through NotifyEvent().
+        return true;
+    }
+
+    // The driver can still be completing its STA start transition right after
+    // the persistent AP starts. Clear the guard and retry through the scan
+    // timer instead of leaving the portal without a scan owner.
+    scan_running_.store(false);
+    scan_started_us_.store(0);
+    ESP_LOGW(TAG, "Unable to start Wi-Fi scan: %s", esp_err_to_name(err));
+    if (timer_handle_)
+        esp_timer_start_once(timer_handle_, 500 * 1000ULL);
+    return false;
 }
 
 bool WifiStation::WaitForConnected(int timeout_ms) {
@@ -188,6 +226,8 @@ bool WifiStation::WaitForConnected(int timeout_ms) {
 }
 
 void WifiStation::HandleScanResult() {
+    scan_running_.store(false);
+    scan_started_us_.store(0);
     uint16_t ap_num = 0;
     esp_wifi_scan_get_ap_num(&ap_num);
     if (persistent_ap_)
@@ -209,6 +249,8 @@ void WifiStation::HandleScanResult() {
         std::vector<wifi_ap_record_t> snapshot;
         if (ap_records && ap_num)
             snapshot.assign(ap_records, ap_records + std::min<uint16_t>(ap_num, 32));
+        ESP_LOGI(TAG, "Wi-Fi scan complete: %u access points",
+                 static_cast<unsigned>(snapshot.size()));
         on_scan_results_(snapshot);
     }
     if (persistent_ap_ && was_connected_) {
@@ -224,6 +266,13 @@ void WifiStation::HandleScanResult() {
 
     auto& ssid_manager = SsidManager::GetInstance();
     auto ssid_list = ssid_manager.GetSsidList();
+    if (persistent_ap_ && ssid_list.empty()) {
+        // First-time setup has nothing to reconnect to. Automatic scans would
+        // repeatedly move the AP channel and drop the phone that is filling in
+        // the setup form; the portal now starts scans on demand through /scan.
+        ESP_LOGI(TAG, "No saved Wi-Fi credentials; waiting for portal scan requests");
+        return;
+    }
     for (int i = 0; i < ap_num; i++) {
         auto ap_record = ap_records[i];
         auto it =
@@ -380,10 +429,9 @@ void WifiStation::WifiEventHandler(void* arg, esp_event_base_t event_base, int32
     if (event_id == WIFI_EVENT_STA_START) {
         if (this_->persistent_ap_)
             return;  // Start() scans after creating the retry timer.
-        esp_wifi_scan_start(nullptr, false);
-        if (this_->on_scan_begin_) {
+        this_->RequestScan();
+        if (this_->on_scan_begin_)
             this_->on_scan_begin_();
-        }
     } else if (event_id == WIFI_EVENT_SCAN_DONE) {
         xEventGroupSetBits(this_->event_group_, WIFI_EVENT_SCAN_DONE_BIT);
         this_->HandleScanResult();

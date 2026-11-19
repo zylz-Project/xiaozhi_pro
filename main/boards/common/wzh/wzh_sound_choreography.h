@@ -3,37 +3,163 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
+#include <mutex>
 #include "wzh_sound_variants.h"
 #include "wzh_user_pair_motion.h"
 
 namespace wzh {
 
-// Completion-based cadence for full exhibitions: one Flash sound plus its
-// choreography every 2-3 minutes, while the idle micro-motion cadence below
-// keeps the pet visibly alive in between. Busy/disabled intervals restart the
-// quiet interval, including conversation, touch, maintenance, protection and
-// decoder contention.
+// Exhibition cycle: an opening burst of back-to-back Flash sounds with their
+// choreography (~1.8-2.4 s between clips) for kShowMs, then a breathing-only
+// wait of kWaitMinMs..kWaitMaxMs. Any real interaction (touch, pickup, presence,
+// wake, offline command) restarts the burst via Engage(); conversation,
+// maintenance and protection merely pause it without consuming the burst.
+// After the wait expires with no interaction the pet falls back to the legacy
+// sparse exhibition cadence (one show every 2-3 minutes) until someone plays
+// with it again.
 class AutoplayCadence {
 public:
-    static constexpr uint32_t kMinGapMs = 120000;
-    static constexpr uint32_t kGapSpreadMs = 60000;
+    static constexpr uint32_t kShowMs = 120000;      // opening burst: 2 minutes
+    static constexpr uint32_t kWaitMinMs = 120000;   // breathing wait: 2-5 minutes
+    static constexpr uint32_t kWaitSpreadMs = 180000;
+    static constexpr uint32_t kLegacyMinGapMs = 120000;  // legacy sparse show
+    static constexpr uint32_t kLegacyGapSpreadMs = 60000;
 
-    void Busy(uint32_t now, uint32_t random = 0) {
+    // A real interaction (re)starts the burst. Products may include the
+    // interaction response itself in the two-minute window.
+    void Engage(uint32_t now, uint32_t random = 0, bool include_interaction = false) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (paused_ && static_cast<int32_t>(now - pause_started_) < 0)
+            now = pause_started_;
+        EngageLocked(now, random);
+        if (include_interaction)
+            phase_pending_ = false;
+    }
+    void SetPaused(uint32_t now, bool paused) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (paused == paused_)
+            return;
+        if (paused) {
+            paused_ = true;
+            pause_started_ = now;
+        } else {
+            const uint32_t elapsed = now - pause_started_;
+            if (armed_) {
+                phase_start_ += elapsed;
+                since_ += elapsed;
+            }
+            paused_ = false;
+        }
+    }
+private:
+    void EngageLocked(uint32_t now, uint32_t random) {
+        mode_ = Mode::kShow;
+        // The burst clock starts once the interaction's own clip has finished,
+        // not at the touch: otherwise its playback time silently eats into the
+        // two minutes of exhibitions. Until that clip ends, phase_start_ stays
+        // unset and Due() holds off on advancing the phase.
+        phase_pending_ = true;
+        phase_start_ = now;
         since_ = now;
-        delay_ = kMinGapMs + random % kGapSpreadMs;
+        delay_ = 1800 + random % 600;
+        armed_ = true;
+        if (paused_) pause_started_ = now;
+    }
+public:
+    // A showcase owns the lane through both its audio and its finishing
+    // choreography. The short gap starts when that complete performance ends.
+    void ObservePlayback(uint32_t now, bool playing, uint32_t random = 0) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!playing && phase_pending_ && mode_ == Mode::kShow && armed_ && !paused_ &&
+            static_cast<int32_t>(now - since_) >= 0)
+            phase_start_ = now;  // the interaction clip drained; start the clock
+        phase_pending_ = playing && phase_pending_;
+        if (playback_active_ && !playing && armed_ && !paused_ &&
+            static_cast<int32_t>(now - since_) >= 0) {
+            since_ = now;
+            delay_ = mode_ == Mode::kShow ? 1800 + random % 600
+                                          : kLegacyMinGapMs + random % kLegacyGapSpreadMs;
+        }
+        playback_active_ = playing;
+    }
+    // Completion/busy hook: the previous clip finished or the pet is busy.
+    // During the burst this yields the short ~2 s gap; in wait/legacy modes it
+    // only re-arms the sparse legacy interval and never extends the burst.
+    void Busy(uint32_t now, uint32_t random = 0) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!armed_ || paused_ || static_cast<int32_t>(now - since_) < 0)
+            return;
+        if (mode_ == Mode::kShow) {
+            delay_ = 1800 + random % 600;
+        } else {
+            delay_ = kLegacyMinGapMs + random % kLegacyGapSpreadMs;
+        }
+        since_ = now;
         armed_ = true;
     }
     bool Due(uint32_t now, bool eligible, uint32_t random) {
-        if (!eligible || !armed_) {
-            Busy(now, random);
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (paused_)
+            return false;
+        if (!armed_) {
+            if (!eligible)
+                return false;
+            EngageLocked(now, random);
+        }
+        if (static_cast<int32_t>(now - phase_start_) < 0 || static_cast<int32_t>(now - since_) < 0)
+            return false;
+        // The interaction's clip has not drained yet: its playback time must not
+        // count against the burst, so phase progression waits for it.
+        if (phase_pending_ && mode_ == Mode::kShow)
+            return false;
+        if (mode_ == Mode::kShow && now - phase_start_ >= kShowMs) {
+            mode_ = Mode::kWait;
+            phase_start_ = now;
+            wait_delay_ = kWaitMinMs + random % kWaitSpreadMs;
+        }
+        if (mode_ == Mode::kWait && now - phase_start_ >= wait_delay_) {
+            mode_ = Mode::kLegacy;
+            // The first sparse performance may start as the wait ends; each
+            // subsequent performance is spaced from its completion.
+            since_ = now - kLegacyMinGapMs;
+            delay_ = kLegacyMinGapMs;
+        }
+        if (!eligible) {
+            // Temporary ineligibility alone does not pause the phase clock.
+            // Conversation and protection explicitly use SetPaused().
+            if (mode_ != Mode::kShow) {
+                since_ = now;
+                delay_ = kLegacyMinGapMs + random % kLegacyGapSpreadMs;
+            }
             return false;
         }
+        if (mode_ == Mode::kWait)
+            return false;
         return now - since_ >= delay_;
+    }
+    bool InShow() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return mode_ == Mode::kShow;
+    }
+    // Legacy sparse mode: the only phase where idle filler clips may run, so
+    // the burst stays dense and the wait stays breathing-only.
+    bool Legacy() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return mode_ == Mode::kLegacy;
     }
 
 private:
+    enum class Mode : uint8_t { kShow, kWait, kLegacy };
+    Mode mode_ = Mode::kShow;
     bool armed_ = false;
-    uint32_t since_ = 0, delay_ = kMinGapMs;
+    bool paused_ = false;
+    bool playback_active_ = false;
+    bool phase_pending_ = false;
+    uint32_t pause_started_ = 0;
+    mutable std::mutex mutex_;
+    uint32_t phase_start_ = 0, wait_delay_ = kWaitMinMs;
+    uint32_t since_ = 0, delay_ = 2100;
 };
 
 // Idle motion clip cadence. The continuous breathing/gaze micro-motion keeps

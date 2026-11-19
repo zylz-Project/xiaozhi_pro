@@ -32,6 +32,7 @@ LowBatteryPromptGate battery_gate;
 std::atomic<bool> worker_started{false};
 std::atomic<bool> startup_audio_started{false};
 std::atomic<bool> power_on_prompt_queued{false};
+std::atomic<uint32_t> power_on_queued_ms{0};
 std::atomic<bool> startup_onboarding_pending{false};
 std::atomic<bool> onboarding_decided{false};
 std::atomic<bool> startup_network_ready{false};
@@ -83,6 +84,16 @@ void Worker(void*) {
     uint32_t low_drained_before = 0;
 #endif
     while (true) {
+        if (!shutting_down.load() && !startup_greeting_complete.load() &&
+            power_on_prompt_queued.load() && power_on_queued_ms.load() != 0 &&
+            esp_log_timestamp() - power_on_queued_ms.load() >= 30000) {
+            // The controller normally releases the greeting after its motion
+            // or local sound drains. Keep a hard bound so a missing sound file
+            // or a stalled motion task cannot suppress the Wi-Fi setup prompt
+            // forever on a device that has already completed the tutorial.
+            ESP_LOGW(kTag, "Startup greeting timed out; continuing with prompts");
+            MarkStartupGreetingComplete();
+        }
 #if CONFIG_WZH_SYSTEM_PROMPTS
         if (low_generation) {
             if (*low_generation != audio.GetPlaybackGeneration()) {
@@ -138,6 +149,13 @@ void Worker(void*) {
             }
         }
         else if (!shutting_down.load() && wifi_setup_requested.load()) {
+            // Cancel before tutorial/state waits as well: a request queued
+            // during modem detection is stale once the selected link is up.
+            if (Board::GetInstance().IsNetworkAvailable()) {
+                wifi_setup_requested.store(false);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
             if (!onboarding_decided.load()) {
                 const auto elapsed = esp_log_timestamp() - wifi_setup_requested_ms.load();
                 if (elapsed >= 45000)
@@ -145,8 +163,12 @@ void Worker(void*) {
                 vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
             }
-            if (IsOnboardingActive()) {
-                wifi_setup_requested.store(false);
+            if (IsOnboardingActive() && OnboardingBlocksConversation()) {
+                // The tutorial owns the speaker while it narrates the offline
+                // chapter. Keep the provisioning request pending instead of
+                // dropping it. Once the tutorial reaches its network-waiting
+                // step, the request is allowed through below.
+                wifi_setup_requested_ms.store(esp_log_timestamp());
                 vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
             }
@@ -158,7 +180,18 @@ void Worker(void*) {
                 vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
             }
-            if (elapsed >= 45000 || app.GetDeviceState() != kDeviceStateIdle) {
+            if (elapsed >= 45000) {
+                wifi_setup_requested.store(false);
+            } else if (app.GetDeviceState() != kDeviceStateIdle) {
+                // Startup activation, cloud login or a user interaction may
+                // still own the device when the provisioning request arrives.
+                // Keep the request pending instead of dropping the only
+                // first-boot reminder; the 45 s deadline above still bounds
+                // how long a stale request can wait for an idle window.
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            } else if (Board::GetInstance().IsNetworkAvailable()) {
+                // Recheck after the waits before producing setup audio.
                 wifi_setup_requested.store(false);
             } else if (elapsed >= 500 && audio.IsPlaybackIdle() &&
                        !audio.IsAudioProcessorRunning() &&
@@ -242,6 +275,7 @@ bool StartupGreetingAudioReady() {
 bool StartupGreetingFinished() { return startup_greeting_complete.load(); }
 
 void MarkPowerOnPromptQueued() {
+    power_on_queued_ms.store(esp_log_timestamp());
     power_on_prompt_queued.store(true);
     if (startup_greeting_complete.load() && worker_started.load() &&
         !onboarding_decided.exchange(true))

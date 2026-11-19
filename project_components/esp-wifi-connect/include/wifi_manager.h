@@ -86,6 +86,9 @@ public:
 
     void StartStation();  // Non-blocking, auto-stops config AP if active
     void StopStation();   // Non-blocking
+    // Ensure the station exists (when the persistent portal is active) and
+    // request one asynchronous scan. Used by the setup page's /scan endpoint.
+    bool RequestScan();
 
     bool IsConnected() const;
     std::string GetSsid() const;

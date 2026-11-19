@@ -15,6 +15,9 @@ struct AudioStreamPacket {
     uint32_t timestamp = 0;
     std::vector<uint8_t> payload;
     OpusStreamMetadata stream;  // Local-only; default network packets are unchanged.
+    // Number of downlink packets missing immediately before this one. Only the
+    // RTP-style UDP transport can know this; other transports leave it 0.
+    uint8_t missing_before = 0;
 };
 
 struct BinaryProtocol2 {
@@ -67,6 +70,9 @@ public:
     virtual void SendStopListening();
     virtual void SendAbortSpeaking(AbortReason reason);
     virtual void SendMcpMessage(const std::string& message);
+    // Bytes added by SendMcpMessage() around the JSON-RPC payload. MCP pages
+    // use this to keep the final modem write inside its payload limit.
+    size_t GetMcpWireOverhead() const;
 
 protected:
     std::function<void(const cJSON* root)> on_incoming_json_;

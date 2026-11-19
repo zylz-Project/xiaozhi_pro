@@ -6,7 +6,8 @@
 #include <driver/spi_master.h>
 #include <esp_adc/adc_oneshot.h>
 
-// 1：4G（AT）；0：Wi-Fi。修改后需要重新编译并烧录。
+// Dinosaur builds enable the ML307 AT transport by default. Wi-Fi remains
+// available for fallback and runtime selection.
 #ifndef DINOSAUR_ENABLE_4G
 #define DINOSAUR_ENABLE_4G 0
 #endif
@@ -43,7 +44,8 @@
 // NS4150: R35/R37=30k, Av=300k/30k=10 (+20 dB). Reserve top-end headroom.
 #define AUDIO_CODEC_PA_GAIN_DB 20.0f
 #define AUDIO_CODEC_MAX_VOLUME_DB -0.5f
-#define AUDIO_CODEC_SPEAKER_MAKEUP_DB 21.0f
+#define AUDIO_CODEC_SPEAKER_MAKEUP_DB 24.0f
+#define AUDIO_CODEC_REFERENCE_MIC_GAIN_DB 12.0f
 #define AUDIO_CODEC_ES8311_ADDR ES8311_CODEC_DEFAULT_ADDR
 
 #define BOOT_BUTTON_GPIO GPIO_NUM_0
@@ -90,7 +92,7 @@
 #define TOUCH_STABLE_SAMPLES 5
 
 // 五路恐龙舵机方向：用户于 2026-09-13 确认实机映射，与旧工程输出链一致。
-// 动作直接使用下列物理角度，不交换引脚、不反转颈俯仰：
+// 动作库沿用下列逻辑角度和方向。颈尾轴在输出 PWM 前换算到 270° 舵机。
 //   IO15 head_turn: 0°=最右，90°=中位，180°=最左
 //   IO16 neck_lean: 0°=最右，90°=中位，180°=最左
 //   IO17 neck_tilt: 0°=最高/仰，70°=默认，180°=最低/俯
@@ -113,6 +115,9 @@
 #define SERVO_TAIL_LR_DEFAULT 90
 #define SERVO_TAIL_UD_MIN 55
 #define SERVO_TAIL_UD_MAX 180
+// Physical calibration of the 270-degree neck and tail servos.
+#define DINOSAUR_NECK_TAIL_SERVO_TRAVEL_DEG 270.0f
+#define DINOSAUR_NECK_TAIL_SERVO_SWING_DEG 110.0f
 #define SERVO_TIMER LEDC_TIMER_0
 #define SERVO_FREQ_HZ 50
 #define SERVO_DUTY_RES LEDC_TIMER_14_BIT

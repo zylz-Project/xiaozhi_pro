@@ -7,7 +7,7 @@
 #include <string_view>
 
 namespace wzh {
-// Caller serializes access. Tokens live in RAM only and are tied to an AP client.
+// Caller serializes access. Tokens live in RAM only and are tied to AP clients.
 class UserWebPolicy {
 public:
     enum class LoginResult { kOk, kBadPassword, kRateLimited };
@@ -23,13 +23,26 @@ public:
         kDone,
         kRoot
     };
-    static Route RouteFor(std::string_view path, Network network, bool session, bool completion) {
+    static bool LocalAccessible(bool online, bool cellular, bool session, bool retain_offline) {
+        return online || cellular || (retain_offline && session);
+    }
+    static bool AllowOfflineLogin(bool retain_offline, bool online, bool cellular, bool session) {
+        return retain_offline && !online && !cellular && !session;
+    }
+    static Route RouteFor(std::string_view path, Network network, bool session, bool completion,
+                          bool offline_login = false) {
         if (path == "/done" || path == "/done.html")
             return completion ? Route::kDone : Route::kRoot;
         if (network != Network::kOnline) {
             if (network == Network::kUnprovisioned)
                 return Route::kSetupFirst;
-            return network == Network::kConnecting ? Route::kSetupConnecting : Route::kSetupOffline;
+            if (network == Network::kConnecting)
+                return Route::kSetupConnecting;
+            // A multi-transport board still has a local portal when its
+            // selected link is offline. Without a session, route to login so
+            // the user can recover the detail page instead of being trapped in
+            // the Wi-Fi setup flow.
+            return offline_login ? Route::kLogin : Route::kSetupOffline;
         }
         if (!session)
             return Route::kLogin;
@@ -75,6 +88,9 @@ public:
     static bool IsApClient(uint32_t ipv4_host_order) {
         return (ipv4_host_order & 0xffffff00U) == 0xc0a80400U;
     }
+    static bool SameApClient(uint32_t a, uint32_t b) {
+        return a == b || (IsApClient(a) && IsApClient(b));
+    }
     static bool ValidOrigin(std::string_view host, std::string_view origin) {
         return (host == "192.168.4.1" || host == "192.168.4.1:80") &&
                (origin == "http://192.168.4.1" || origin == "http://192.168.4.1:80");
@@ -108,13 +124,14 @@ public:
     }
     bool CheckSession(uint32_t ip, std::string_view token, uint64_t now) const {
         for (const auto& entry : sessions_)
-            if (entry.active && entry.ip == ip && now < entry.expires && Equal(token, entry.token))
+            if (entry.active && SameApClient(entry.ip, ip) && now < entry.expires &&
+                Equal(token, entry.token))
                 return true;
         return false;
     }
     void Logout(uint32_t ip, std::string_view token) {
         for (auto& entry : sessions_)
-            if (entry.active && entry.ip == ip && Equal(token, entry.token))
+            if (entry.active && SameApClient(entry.ip, ip) && Equal(token, entry.token))
                 entry.active = false;
     }
     std::string CreateCompletion(uint32_t ip, const std::array<uint8_t, 16>& random, uint64_t now) {
@@ -122,7 +139,8 @@ public:
         return completion_.token;
     }
     bool CheckCompletion(uint32_t ip, std::string_view token, uint64_t now) const {
-        return completion_.active && completion_.ip == ip && now < completion_.expires &&
+        return completion_.active && SameApClient(completion_.ip, ip) &&
+               now < completion_.expires &&
                Equal(token, completion_.token);
     }
     bool Enter(uint32_t ip, std::string_view completion, const std::array<uint8_t, 16>& random,

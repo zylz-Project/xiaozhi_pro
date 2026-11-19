@@ -142,6 +142,7 @@ choice BOARD_TYPE
     config BOARD_TYPE_WZH_DINOSAUR
         bool "WZH Dinosaur"
         depends on IDF_TARGET_ESP32S3
+        select ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT
     config BOARD_TYPE_WZH_TAILREDPANDA
         bool "WZH Tail Red Panda"
         depends on IDF_TARGET_ESP32S3
@@ -539,19 +540,39 @@ menu "TAIJIPAI_S3_CONFIG"
         启动双声道
 endmenu
 
-menu "WZH Product Configuration"
-    depends on BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_TAILREDPANDA
-
+if BOARD_TYPE_WZH_DINOSAUR
     config WZH_DINOSAUR_AT_DIAGNOSTIC
-        bool "Dinosaur ML307 AT transport diagnostic"
-        depends on BOARD_TYPE_WZH_DINOSAUR
-        default n
+        bool
+        default y
 
     config WZH_DINOSAUR_ML307_DTR_GPIO
-        int "ESP32 ML307 DTR GPIO (-1 when not connected)"
-        depends on BOARD_TYPE_WZH_DINOSAUR
-        range -1 48
+        int
         default -1
+
+    config WZH_SYSTEM_PROMPTS
+        bool
+        depends on LANGUAGE_ZH_CN
+        default y
+    config WZH_SYSTEM_PROMPT_ROOT
+        string
+        depends on WZH_SYSTEM_PROMPTS
+        default "main/assets/wzh_system_voices"
+    config WZH_AUDIO_SYNC_SERVER
+        string
+        default "http://192.168.1.7:5000"
+    config WZH_IDLE_POWER_ENABLE
+        bool
+        default y
+    config WZH_IDLE_AUTO_OFF
+        bool
+        default y
+    config WZH_IDLE_MISS_PROMPT
+        bool
+        default y
+endif
+
+menu "WZH Product Configuration"
+    depends on BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA
 
     choice WZH_FLASH_TYPE
         prompt "External audio flash type"
@@ -614,19 +635,17 @@ menu "WZH Product Configuration"
     menu "WZH idle countdown"
         config WZH_IDLE_POWER_ENABLE
             bool "Enable the no-interaction countdown"
-            default n
+            default y
             help
-                灰度总开关。开启后：5 分钟无人互动播一句「想你」并让 idle
-                音效静默（动作幅度不变），10 分钟播现成 OGG_POWER_OFF 后关机。
-                平时每 2-3 分钟一次动作+音频展示，对话期间计时永不推进。
-                默认关闭，真机实测后再打开。
+                5 分钟无人互动播一句「想你」，7 分 30 秒无人互动时执行关机。
+                提示后保留稀疏表演；对话和维护期间不推进无人互动计时。
 
         config WZH_IDLE_AUTO_OFF
-            bool "Shut down after 10 minutes without interaction"
+            bool "Shut down after 7 minutes 30 seconds without interaction"
             depends on WZH_IDLE_POWER_ENABLE
             default y
             help
-                10 分钟无人互动自动关机，复用长按关机的完整流程（含关机音）。
+                7 分 30 秒无人互动自动关机，复用长按关机的完整流程（含关机音）。
                 关机后必须长按电源键 1 秒才能再开机。
 
         config WZH_IDLE_MISS_PROMPT
@@ -634,8 +653,7 @@ menu "WZH Product Configuration"
             depends on WZH_IDLE_POWER_ENABLE
             default y
             help
-                5 分钟无人互动播 OGG_IDLE_MISS（「想你」），播完或跳过之后
-                idle 音效静默，动作照做、幅度不变，直到 10 分钟关机。
+                5 分钟无人互动播 OGG_IDLE_MISS（「想你」），播放后恢复稀疏表演。
 
         config WZH_IDLE_DROP_AP
             bool "Stop the provisioning hotspot while idle"

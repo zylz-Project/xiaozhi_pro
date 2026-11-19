@@ -189,6 +189,29 @@ void WifiManager::StopStation() {
     NotifyEvent(WifiEvent::Disconnected);
 }
 
+bool WifiManager::RequestScan() {
+    // In the persistent-portal flow the station is the only scan owner. It
+    // may have been intentionally stopped for cellular or not started yet on
+    // a first boot, so bring it up before asking for results.
+    bool persistent = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        persistent = persistent_portal_active_;
+    }
+    if (persistent)
+        StartStation();
+
+    std::unique_lock<std::mutex> lifecycle(station_lifecycle_mutex_, std::defer_lock);
+    if (config_.persistent_portal)
+        lifecycle.lock();
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!initialized_ || !station_active_ || !station_)
+        return false;
+    auto* station = station_.get();
+    lock.unlock();
+    return station->RequestScan();
+}
+
 bool WifiManager::IsConnected() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return station_active_ && station_ && station_->IsConnected();

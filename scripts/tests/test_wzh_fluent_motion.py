@@ -39,15 +39,16 @@ int main(){
 }
 ''')
 
-    def run_cpp(self, program):
+    def run_cpp(self, program, *, optimize=False):
         compiler = shutil.which('g++')
         if not compiler:
             self.skipTest('g++ required')
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory)/'profile.cc'
             source.write_text(program)
+            optimization = ['-O2'] if optimize else []
             result = subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                                     '-I', str(ROOT/'main/boards/common/wzh'), str(source),
+                                     *optimization, '-I', str(ROOT/'main/boards/common/wzh'), str(source),
                                      '-o', str(source.with_suffix(''))], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             result = subprocess.run([str(source.with_suffix(''))], capture_output=True, text=True, timeout=30)

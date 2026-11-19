@@ -69,7 +69,9 @@ int main(){
  using voice_tts::VoiceSession;
  voice_tts::chosen_voice="xiaozhi-native";VoiceSession native;
  assert(!native.Ready());assert(native.ReadyForVoice("builtin"));
- assert(!native.Begin(1,[](bool){}));voice_tts::chosen_voice="voice";
+ assert(!native.Begin(1,[](bool){}));
+ voice_tts::chosen_voice="";assert(!native.Ready());assert(native.ReadyForVoice("builtin"));
+ voice_tts::chosen_voice="voice";
  int old_calls=0,new_calls=0;bool new_ok=false;
  VoiceSession s;assert(s.Ready());assert(s.Begin(4,[&](bool){++old_calls;}));
  auto old=s.active_generation_.load();assert(s.Enqueue("old"));

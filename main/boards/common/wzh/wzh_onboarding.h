@@ -20,6 +20,10 @@ void NotifyOnboarding(OnboardingEvent event);
 // A double-click can verify the service and resume the first online chapter.
 void PrepareOnboardingDoubleClick();
 bool ConsumeOnboardingConnectionProbe();
+// Tutorial connection probe satisfied: finish the remaining introduction
+// steps in the background and let the live conversation continue. Returns
+// true when the tutorial was in the online chapter and got finalized.
+bool CompleteOnboardingInConversation();
 // Consume the matching physical interaction while a tutorial window owns it.
 bool CaptureOnboardingInteraction(OnboardingEvent event);
 // Called from the portal HTTP handler when a client fetches a page or asset.

@@ -193,7 +193,9 @@ int main(){
         }
         for(unsigned a=0;a<axes;++a)assert(high[a]-low[a]>30);
         auto gap=voice.Update(mechanism,true,.4f,.8f,65000);
-        for(float value:gap)assert(std::abs(value)<3);
+        // A late tick retains the previous physical pose and moves within
+        // a normal 20 ms slew bound rather than snapping every joint to zero.
+        for(unsigned a=0;a<axes;++a)assert(std::abs(gap[a]-previous[a])<=5.61f);
         auto stop=voice.Update(mechanism,false,1,1,65020);
         for(float value:stop)assert(value==0);
         VoiceMotion silent;

@@ -1,0 +1,62 @@
+#pragma once
+
+// Minimal std::expected stand-in for host tests built with GCC 11, which does
+// not ship the C++23 header. Production firmware uses the toolchain's real
+// <expected>; this file is only found through the host-test include path.
+
+#include <optional>
+#include <utility>
+
+namespace std {
+
+template <typename E>
+struct unexpected_value_t {
+    explicit unexpected_value_t(E error) : value(std::move(error)) {}
+    E value;
+};
+
+template <typename E>
+unexpected_value_t<E> unexpected(E error) {
+    return unexpected_value_t<E>(std::move(error));
+}
+
+template <typename T, typename E>
+class expected {
+public:
+    expected() : value_(T{}) {}
+    expected(T value) : value_(std::move(value)) {}
+    expected(unexpected_value_t<E> error) : error_(std::move(error.value)) {}
+
+    bool has_value() const { return value_.has_value(); }
+    explicit operator bool() const { return has_value(); }
+
+    T& operator*() & { return *value_; }
+    const T& operator*() const& { return *value_; }
+    T* operator->() { return &*value_; }
+    const T* operator->() const { return &*value_; }
+
+    E& error() & { return *error_; }
+    const E& error() const& { return *error_; }
+
+private:
+    std::optional<T> value_;
+    std::optional<E> error_;
+};
+
+template <typename E>
+class expected<void, E> {
+public:
+    expected() = default;
+    expected(unexpected_value_t<E> error) : error_(std::move(error.value)) {}
+
+    bool has_value() const { return !error_.has_value(); }
+    explicit operator bool() const { return has_value(); }
+
+    E& error() & { return *error_; }
+    const E& error() const& { return *error_; }
+
+private:
+    std::optional<E> error_;
+};
+
+}  // namespace std

@@ -262,13 +262,16 @@ struct Application {
  void Schedule(std::function<void()> callback){callback();}
 };
 struct Board {
- bool maintenance=false;
+ bool maintenance=false,network=false,cellular=false;
  static Board& GetInstance(){static Board board;return board;}
  bool IsAudioMaintenanceActive(){return maintenance;}
+ bool IsNetworkAvailable(){return network;}
+ bool UsesCellularNetwork(){return cellular;}
 };
 namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_ON="on",OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi",OGG_EXCLAMATION="warning";}}
 #include "wzh_onboarding_store.h"
 namespace wzh {bool PeekOnboardingProgress(OnboardingProgress&){return true;} int onboarding_starts=0;bool IsOnboardingActive(){return false;}
+bool OnboardingBlocksConversation(){return false;}
  void StartOnboarding(){++onboarding_starts;}void StopOnboarding(){}
  void StartIdlePower(std::function<void()>){}void StopIdlePower(){}}
 #include "''' + str(ROOT/'main/boards/common/wzh/wzh_system_prompts.cc') + r'''"
@@ -305,8 +308,27 @@ int main(){
  wzh::MarkStartupGreetingComplete();wzh::MarkStartupGreetingComplete();
  assert(wzh::onboarding_starts==1);run_worker();assert(audio.wifi==1);
  clock_ms=1700;run_worker();assert(audio.wifi==1);
- wzh::RequestWifiSetupPrompt();app.state=1;run_worker();app.state=0;
- clock_ms=2500;run_worker();assert(audio.wifi==1);
+ // A provisioning request that arrives while activation or a conversation
+ // owns the device must survive until the worker can obtain an idle window.
+ wzh::RequestWifiSetupPrompt();app.state=1;run_worker(3);assert(audio.wifi==1);
+ app.state=0;clock_ms=2500;run_worker();assert(audio.wifi==2);
+ clock_ms=3100;run_worker();assert(audio.wifi==2);
+ // The same request is still bounded: a stale startup prompt must not fire
+ // minutes later after the user has already started using the device.
+ audio.until=0;wzh::RequestWifiSetupPrompt();app.state=1;clock_ms+=46000;run_worker();
+ app.state=0;clock_ms+=600;run_worker();assert(audio.wifi==2);
+ // Selected 4G becoming ready cancels a queued prompt even while busy.
+ auto& board=Board::GetInstance();board.cellular=true;
+ wzh::RequestWifiSetupPrompt();app.state=1;board.network=true;run_worker();
+ board.network=false;app.state=0;clock_ms+=600;run_worker();assert(audio.wifi==2);
+ // A request received while already online also stays silent on both transports.
+ for(bool cellular:{false,true}){
+  board.cellular=cellular;board.network=true;wzh::RequestWifiSetupPrompt();
+  clock_ms+=600;run_worker();assert(audio.wifi==2);
+ }
+ // Offline Wi-Fi still gets the setup instruction.
+ board.cellular=false;board.network=false;wzh::RequestWifiSetupPrompt();
+ clock_ms+=600;run_worker();assert(audio.wifi==3);
  clock_ms=0;audio.until=0;
  wzh::ObserveSystemPromptBattery(true,true);
  app.state=1;run_worker();assert(audio.low==0);

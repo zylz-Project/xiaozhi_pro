@@ -177,8 +177,14 @@ int main(){
         case=Capture();case.test_external_sound_queue_preserves_file_and_rejects_busy_and_chat()
         program=case.program[:case.program.index('int main(){')]
         program='#include <cstdio>\n#include <cstring>\n#include "wzh_user_pairs.h"\n#include "wzh_sound_coverage.h"\n'+program
+        # A degenerate esp_random() (always 0) would pin the weighted draw to
+        # one pool; advance it so both pools are exercised.
+        program=program.replace('inline unsigned esp_random(){return 0;}',
+            'static unsigned esp_seed=1;inline unsigned esp_random(){esp_seed=esp_seed*1664525u+1013904223u;return esp_seed;}')
+        program=program.replace('unsigned esp_random(){return 0;}',
+            'static unsigned esp_seed2=1;inline unsigned esp_random(){esp_seed2=esp_seed2*1664525u+1013904223u;return esp_seed2;}')
         program=program.replace('    auto Snapshot(){return files;}','    auto Snapshot(){return files;}\n    size_t file_count(){return files.size();}')
-        program=program.replace('    bool playback_pending_=false;','    SoundCoverage paired_coverage_,sound_coverage_;uint32_t autonomous_turn_=0;\n    bool PlayAutonomousSound(bool,uint32_t=100,bool=true);\n    bool playback_pending_=false;')
+        program=program.replace('    bool playback_pending_=false;','    SoundCoverage paired_coverage_,sound_coverage_;uint32_t autonomous_turn_=0;\n    bool PlayAutonomousSound(bool,uint32_t=100,bool=true,bool=false);\n    bool playback_pending_=false;')
         method=queue_function((COMMON/'wzh_audio_player.cc').read_text(),'bool AudioPlayer::PlayAutonomousSound(')
         self.run_cpp(program+'\nbool IsOnboardingActive(){return false;}\nbool idle_suppressed=false;bool IdleSoundSuppressed(){return idle_suppressed;}\n'+method+r'''
 int main(){
@@ -187,14 +193,42 @@ int main(){
         {"tuned-one","撒娇",audio,1,100,&frame,1,100,3},
         {"tuned-two","宝宝开心",audio,1,100,&frame,1,100,3}};
     RegisterUserPairs(pairs,2);AudioPlayer p;
+    const auto saved_files=p.store.files;
+    p.store.files.clear();  // only the paired pack exists: every draw is a pair
     for(unsigned i=0;i<40;++i){
         queue_full=true;assert(!p.PlayAutonomousSound(false));
         assert(p.autonomous_turn_==i);queue_full=false;
         assert(p.PlayAutonomousSound(false));
-        assert((queue.back().index>=32)==(i%4!=3));
+        // Merged pool weighted by size: 2 pairs vs 0 flash files means every
+        // draw is a pair; with flash present both pools participate.
+        assert(queue.back().index>=32);
         assert(p.autonomous_turn_==i+1);p.playback_pending_=false;
     }
+    p.store.files=saved_files;  // restore for the direct-index check
     assert(p.PlayIndex(0)&&queue.back().index==0);p.playback_pending_=false;
+    // With 2 pairs and 40 flash files, the flash pool must dominate (~95%),
+    // not be limited to one turn in four as the old fixed bias did.
+    {
+        AudioPlayer mixed;
+        mixed.store.files.clear();
+        for(unsigned i=0;i<8;++i){AudioFileInfo f{};
+            std::snprintf(f.name,sizeof(f.name),"call-%u",i);
+            f.offset=0;f.size=1000;f.sample_rate=48000;f.duration_ms=1000;
+            std::snprintf(f.category,sizeof(f.category),"animal");
+            mixed.store.files.push_back(f);}
+        unsigned flash=0,pair=0;
+        for(unsigned i=0;i<400;++i){
+            assert(mixed.PlayAutonomousSound(false));
+            // Flash indexes stay below the paired base (32); use an 8-file
+            // pool so the two ranges never overlap in this counting check.
+            if(queue.back().index>=32)++pair;else ++flash;
+            mixed.playback_pending_=false;
+        }
+        if(!(flash>50&&pair>10&&flash>pair*2)){
+            fprintf(stderr,"FLASH=%u PAIR=%u\n",flash,pair);
+            assert(false);
+        }
+    }
     p.store.files.clear();
     for(unsigned i=0;i<12;++i){assert(p.PlayAutonomousSound(false));assert(queue.back().index>=32);p.playback_pending_=false;}
     p.store.files={{"nature",100,1000,0,48000,"ambient"}};
@@ -204,6 +238,25 @@ int main(){
     idle_suppressed=true;
     assert(!p.PlayAutonomousSound(false));
     idle_suppressed=false;assert(p.PlayAutonomousSound(false));p.playback_pending_=false;
+    // Full-show mode includes both Flash categories and the paired pack.
+    AudioPlayer full;
+    full.store.files.clear();
+    for(const char* category : {"animal", "ambient"}) {
+        AudioFileInfo f{};std::snprintf(f.name,sizeof(f.name),"%s",category);
+        std::snprintf(f.category,sizeof(f.category),"%s",category);
+        f.size=1000;f.duration_ms=20000;full.store.files.push_back(f);
+    }
+    unsigned seen=0;
+    queue_full=true;assert(!full.PlayAutonomousSound(true,15,true,true));
+    assert(full.autonomous_turn_==0);queue_full=false;
+    for(unsigned i=0;i<200;++i) {
+        assert(full.PlayAutonomousSound(true,15,true,true));
+        const int index=queue.back().index;
+        seen|=index==0?1:index==1?2:4;
+        if(index==1) assert(queue.back().file.duration_ms==12000);
+        full.playback_pending_=false;
+    }
+    assert(seen==7);
 }
 ''')
 

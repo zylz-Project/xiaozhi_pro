@@ -1,6 +1,7 @@
 #ifndef _WIFI_STATION_H_
 #define _WIFI_STATION_H_
 
+#include <atomic>
 #include <functional>
 #include <string>
 #include <vector>
@@ -43,6 +44,9 @@ public:
     void AddAuth(const std::string&& ssid, const std::string&& password);
     void Start();
     void Stop();
+    // Start a scan without blocking. Returns true when a scan is already in
+    // progress or was accepted by the driver.
+    bool RequestScan();
     bool IsConnected();
     bool WaitForConnected(int timeout_ms = 10000);
     int8_t GetRssi();
@@ -94,6 +98,8 @@ private:
     std::function<void()> on_scan_begin_;
     std::function<void(const std::vector<wifi_ap_record_t>&)> on_scan_results_;
     std::vector<WifiApRecord> connect_queue_;
+    std::atomic<bool> scan_running_{false};
+    std::atomic<int64_t> scan_started_us_{0};
     bool persistent_ap_ = false;
     bool was_connected_ = false;  // Track if we were connected before disconnection
 

@@ -43,9 +43,12 @@ private:
     std::string publish_topic_;
 
     mutable std::mutex channel_mutex_;
+    std::mutex channel_open_mutex_;
     std::mutex crypto_mutex_;
     std::mutex mqtt_mutex_;
     std::atomic<bool> suspend_queued_{false};
+    std::atomic<bool> mqtt_connected_{false};
+    bool mqtt_transport_cellular_ = false;  // Protected by mqtt_mutex_.
     std::unique_ptr<Mqtt> mqtt_;
     // A sender keeps the transport alive while sending without the channel lock.
     std::shared_ptr<Udp> udp_;
@@ -58,6 +61,9 @@ private:
     esp_timer_handle_t reconnect_timer_;
 
     bool StartMqttClient(bool report_error = false);
+    bool IsMqttConnectedLocked();
+    void DiscardStaleAudioChannel();
+    void ScheduleCellularRecheck();
     void SuspendUnavailableMqtt();
     void ParseServerHello(const cJSON* root);
     bool DecodeHexString(const std::string& hex_string, std::string& decoded);

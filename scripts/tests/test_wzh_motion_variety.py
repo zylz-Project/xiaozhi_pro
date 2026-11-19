@@ -165,7 +165,7 @@ int main(){
    std::array<float,5> previous={70,90,90,90,90};std::vector<int> shape;
    for(const auto& pose:c.servo_output_.samples){
     for(unsigned a=0;a<5;++a){
-     assert(std::isfinite(pose[a])&&pose[a]>=(a==3?55:0)&&pose[a]<=180);
+     assert(std::isfinite(pose[a])&&pose[a]>=(a==3?55.f:0.f)-.001f&&pose[a]<=180.001f);
      assert(std::abs(pose[a]-previous[a])<=wzh::kPetServoSpeed*.02f+.001f);
      shape.push_back(int(std::lround(pose[a]*10)));
     }

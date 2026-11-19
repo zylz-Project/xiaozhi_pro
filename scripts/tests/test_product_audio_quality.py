@@ -382,6 +382,7 @@ int main(){
 #include <memory>
 #include <mutex>
 #include "opus_stream_metadata.h"
+#include "audio_packet_conceal.h"
 constexpr int ESP_AUDIO_ERR_OK=0,ESP_AE_ERR_OK=0,ESP_AUDIO_DEC_RECOVERY_NONE=0;
 using esp_ae_sample_t=int16_t*;
 struct esp_audio_dec_in_raw_t{uint8_t*buffer;uint32_t len,consumed;int frame_recover;};
@@ -402,7 +403,7 @@ int esp_ae_rate_cvt_process(void*,int16_t*in,size_t count,int16_t*out,uint32_t*n
  if(fail_convert)return -1;
  assert(*n>=count/2);for(size_t i=0;i<count/2;++i)out[i]=in[i*2];*n=count/2;return 0;
 }
-struct AudioStreamPacket{int sample_rate=48000,frame_duration=20;uint32_t timestamp=0;std::vector<uint8_t>payload{0xd8,0};OpusStreamMetadata stream;};
+struct AudioStreamPacket{int sample_rate=48000,frame_duration=20;uint32_t timestamp=0;std::vector<uint8_t>payload{0xd8,0};OpusStreamMetadata stream;uint8_t missing_before=0;};
 constexpr int kAudioTaskTypeDecodeToPlaybackQueue=1;
 struct AudioTask{int type=0;uint32_t timestamp=0,playback_generation=0;std::vector<int16_t>pcm;OpusStreamMetadata stream;};
 struct Codec{int output_sample_rate(){return 24000;}};
@@ -411,7 +412,8 @@ struct AudioService{
  std::deque<std::unique_ptr<AudioStreamPacket>>audio_decode_queue_;std::deque<AudioTask>audio_playback_queue_;
  size_t max_playback_tasks_=6;bool decode_in_flight_=false;uint32_t playback_generation_=7;
  int decoder_sample_rate_=48000,decoder_frame_size_=960;void*opus_decoder_=this,*output_resampler_=this;
- std::atomic<bool>service_stopped_{false};struct{int decode_count=0;}debug_statistics_;
+ std::atomic<bool>service_stopped_{false};struct{int decode_count=0,conceal_count=0;}debug_statistics_;
+ AudioPacketConcealment concealment_;
  struct{std::function<void()>on_playback_drained;}callbacks_;
  bool SetDecodeSampleRate(int rate,int frame){assert(rate==48000&&frame==20);return true;}
  bool MarkPlaybackDrainedLocked(){return false;}

@@ -106,7 +106,7 @@ int main(){
     }
     assert(roars==16&&chews==1);
 }
-''')
+''', optimize=True)
 
     def test_every_paired_sound_has_its_own_score_and_32_distinct_bounded_performances(self):
         for board in BOARDS:
@@ -166,7 +166,8 @@ int main(){
     }
 }
 '''.replace('__BOARD__',board).replace('__MATCH_REFERENCE__',
-    'MatchReference(player,s,turn*7919U+file*104729U);' if board=='wzh_dinosaur' else ''))
+    'MatchReference(player,s,turn*7919U+file*104729U);' if board=='wzh_dinosaur' else ''),
+                    optimize=True)
 
     def test_all_29_actual_reference_stories_resolve_keep_and_blend_smoothly(self):
         folder=ROOT/'main/boards/wzh_dinosaur'

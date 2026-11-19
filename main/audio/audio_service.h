@@ -122,6 +122,7 @@ struct DebugStatistics {
     uint32_t encode_count = 0;
     uint32_t playback_count = 0;
     uint32_t encode_drop_count = 0;
+    uint32_t conceal_count = 0;
 };
 
 struct PlaybackBufferStatus {
@@ -131,6 +132,13 @@ struct PlaybackBufferStatus {
 
 class AudioService {
 public:
+    // Downlink jitter admission. A local link needs only a short prefix; a
+    // cellular link delivers in bursts and needs a deeper one.
+    static constexpr uint32_t kLocalPlayoutTargetMs = 120;
+    static constexpr uint32_t kLocalPlayoutMaxWaitMs = 80;
+    static constexpr uint32_t kCellularPlayoutTargetMs = 360;
+    static constexpr uint32_t kCellularPlayoutMaxWaitMs = 480;
+
     AudioService();
     ~AudioService();
 
@@ -205,6 +213,10 @@ public:
     }
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
+    // Deepen the downlink prefix for a lossy transport (cellular). Must be
+    // called before/during a stream; it only takes effect when the board opted
+    // into buffered playback.
+    void SetDownlinkJitter(uint32_t target_ms, uint32_t max_wait_ms);
     void FinishPlayback(std::optional<uint32_t> expected_generation = std::nullopt);
     void SetModelsList(srmodel_list_t* models_list);
 

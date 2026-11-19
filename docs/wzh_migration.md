@@ -162,16 +162,14 @@
 - 步骤事件：`kTouch` / `kMotion` / `kWake`（离线唤醒词）/ `kCommand`（"摇摇头"）/ 门户页面导航（`NotifyPortalRequest`，只统计页面请求，不统计 `/api/*` 轮询）/ `kServiceReady`
 - 门户 `/api/status` 等轮询读进度走只读的 `PeekOnboardingProgress()`，不在 HTTP 任务里写 NVS；`/api/user/guide/setup-complete` 只回报 `guide_done`，不再代写完成位
 
-静默倒计时（`wzh_idle_power.{h,cc}`，总开关 `CONFIG_WZH_IDLE_POWER_ENABLE`，默认 n）：
+无人互动与展示（`wzh_idle_power.{h,cc}`、`wzh_sound_choreography.h`）：
 
-> **2026-11-12 产品决定（替换方案文档 §4 的 10/15 分钟）**：10 分钟太久，压缩到 **5 分钟说「想你」/ 10 分钟关机**；无人互动期间每 **2–3 分钟**一次「动作库 + 音频库」成套展示；**对话本身算持续互动，计时永不推进**。
-
-- 展示节奏（`wzh_sound_choreography.h`）：呼吸/漂移微动（`AddMicroMotion`）持续不断；`IdleCadence`（动作库小片段）与 `AutoplayCadence`（音频库+编舞）都从「每 3–7 秒 / 每 2 秒」拉长到 **120–180 秒**一次
-- 5 分钟：播 `OGG_IDLE_MISS`；**播完之后** idle 音效静默（`IdleSoundSuppressed()` 拦在 `AudioPlayer::PlayAutonomousSound`），动作照做、幅度不变
-- 10 分钟：`RequestAutoShutdown()` → 电源任务里走**原样** `Shutdown()`（含 `OGG_POWER_OFF` 与断电锁存），关机音只播一次
-- 任意交互（触摸 / 晃动 / 人体感应 / 电源键 / 唤醒词 / **任意离线语音口令**）调 `NotifyIdleInteraction()` 归零；**对话（Connecting/Listening/Speaking）与维护期间时间线被钉住**，不会在通话中途说话或关机
-- Kconfig：`WZH_IDLE_POWER_ENABLE=n` / `WZH_IDLE_AUTO_OFF=y` / `WZH_IDLE_MISS_PROMPT=y` / `WZH_IDLE_DROP_AP=n` / `WZH_IDLE_DROP_WAKENET=n`
-- 实机待验：4:59 内不出声、说完「想你」后摸一下能复位并重新计时、10 分钟后长按 1 秒能开机、展示节奏 2–3 分钟一次且静默期舵机不撞 60 s 预算
+- 三款产品默认启用倒计时。实际互动或结束对话后重新计时；对话、引导和维护期间暂停无人互动计时。
+- 活跃期两分钟：Flash 音频及对应动作完整结束后，间隔约 1.8～2.4 秒再开始下一段。
+- 活跃期后等待 2～5 分钟，只有呼吸和轻微观察；等待结束后回到每 2～3 分钟一次的稀疏表演。互动会重新进入活跃期。
+- 无人互动满 5 分钟播放一次 `OGG_IDLE_MISS`，等待当前声音完成并临时预留音频通道；提示播放后恢复稀疏表演。播放期间使用真实 PCM 驱动动作。
+- 无人互动满 7 分 30 秒请求关机，沿用电源任务的提示、舵机回中和断电流程；`WZH_IDLE_AUTO_OFF` 可关闭自动关机。
+- 上述时序、三款机械动作限位、提示音和关机效果仍需实机验证。
 
 长按反馈（`panda_power.cc` / `dinosaur_power.cc`）：
 

@@ -12,14 +12,10 @@ ROOT = Path(__file__).resolve().parents[2]
 class OfficialAsrProbeTest(unittest.TestCase):
     run_cpp = runtime_tests.FirmwareRuntimeOptimizationsTest.run_cpp
 
-    def test_probe_is_opt_in_dinosaur_and_preserves_vadnet_test(self):
+    def test_probe_is_disabled_for_the_dinosaur_release(self):
         builds = json.loads((ROOT / 'main/boards/wzh_dinosaur/config.json').read_text())['builds']
-        trial = next(item for item in builds if item['name'] == 'wzh-dinosaur-official-asr-probe')
-        self.assertIn('CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE=y', trial['sdkconfig_append'])
-        self.assertIn('CONFIG_USE_AUDIO_DEBUGGER=n', trial['sdkconfig_append'])
         for item in builds:
-            if item is not trial:
-                self.assertNotIn('CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE=y', item['sdkconfig_append'])
+            self.assertNotIn('CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE=y', item['sdkconfig_append'])
 
     def test_web_recording_is_rejected_while_probe_owns_the_microphone(self):
         source = (ROOT / 'main/application.cc').read_text()

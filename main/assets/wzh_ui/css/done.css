@@ -256,3 +256,17 @@
   .phone.dark .done-actions .btn.ghost { color: var(--ink); background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
   .phone.dark .done-note { color: rgba(247,238,228,.38); }
   .phone.dark .done-copy .kicker { color: rgba(247,238,228,.42); }
+
+/* ===== UI OPTIMIZATION LAYER · done 页 (2026-11-16) ===== */
+.phone { --fs-0: 10px; --fs-1: 11.5px; --fs-2: 12.5px; --fs-3: 13.5px; --fs-4: 15px; }
+.phone .done-copy h1 { font-size: 26px !important; }
+.phone .done-status { font-size: var(--fs-0) !important; }
+.phone .done-net b { font-size: var(--fs-2) !important; }
+.phone .done-net small { font-size: var(--fs-0) !important; }
+.phone .done-fail-card { font-size: var(--fs-1) !important; }
+.phone .done-note { font-size: var(--fs-0) !important; line-height: 1.5 !important; }
+.phone .btn { min-height: 44px !important; font-size: var(--fs-3) !important; }
+.phone .done-note, .phone .done-status, .phone .done-net small { color: rgba(47,40,34,.66) !important; }
+.phone.dark .done-note, .phone.dark .done-status, .phone.dark .done-net small { color: rgba(246,236,226,.74) !important; }
+.phone .done-orb { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+

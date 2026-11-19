@@ -140,3 +140,45 @@
   .phone.dark .faq summary:after { color: var(--accent-deep); }
   .phone.dark .manual-end .seal { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.06); }
   .phone.dark .manual-end p { color: rgba(247,238,228,.36); }
+
+/* ===== UI OPTIMIZATION LAYER · manual 说明书 (2026-11-16) ===== */
+.manual-page, .phone { --fs-0: 10px; --fs-1: 11.5px; --fs-2: 12.5px; --fs-3: 13.5px; --fs-4: 14px; --fs-5: 20px; }
+.manual-hero h1 { font-size: 26px !important; }
+.manual-nav a { font-size: var(--fs-1) !important; }
+.sec-no { font-size: var(--fs-1) !important; }
+.sec-head h2 { font-size: var(--fs-5) !important; }
+.manual-section p, .manual-list li { font-size: var(--fs-4) !important; line-height: 1.64 !important; }
+.part .n { font-size: var(--fs-0) !important; }
+.part span { font-size: var(--fs-2) !important; }
+.part span b { font-size: var(--fs-2) !important; }
+.callout { font-size: var(--fs-3) !important; line-height: 1.6 !important; }
+.key-table { font-size: var(--fs-2) !important; }
+.key-table th { font-size: var(--fs-1) !important; }
+.step-list li { font-size: var(--fs-3) !important; line-height: 1.6 !important; }
+.step-list li:before { font-size: var(--fs-0) !important; }
+.spec-row { font-size: var(--fs-2) !important; }
+.faq summary { font-size: var(--fs-3) !important; }
+.faq summary:after { font-size: 18px !important; }
+.faq details p { font-size: var(--fs-3) !important; line-height: 1.6 !important; }
+.manual-end p { font-size: var(--fs-0) !important; }
+.manual-nav a, .sec-no, .part .n, .manual-end p,
+.manual-section p em, .callout small { color: rgba(47,40,34,.66) !important; }
+.phone.dark .manual-nav a, .phone.dark .sec-no, .phone.dark .part .n,
+.phone.dark .manual-end p { color: rgba(246,236,226,.74) !important; }
+.manual-nav { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; background: rgba(255,252,246,.94) !important; }
+.phone.dark .manual-nav { background: rgba(34,25,19,.94) !important; }
+/* 章节导航横向滚动时右缘柔化 */
+.manual-nav { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 20px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 20px), transparent); }
+/* ===== 反馈修复 2026-11-16：说明书章节导航 =====
+   之前为了性能把吸顶导航的暖色渐变换成了近白底 (255,252,246,.94)，
+   在暖纸背景上变成一条白带。这里按小程序的做法改为不吸顶、无底色，
+   让章节胶囊直接落在页面的暖纸背景上。 */
+.manual-nav {
+  position: static !important;
+  background: none !important;
+  background-image: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+.phone.dark .manual-nav { background: none !important; background-image: none !important; }

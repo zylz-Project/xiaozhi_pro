@@ -347,7 +347,9 @@ int main(){
             tables = tables.replace(f'#include "{name}"', f'#include "{base / name}"')
         collections=re.findall(r'constexpr MotionClip (\w+)\[\]',tables)
         self.assertGreaterEqual(len(collections),10)
-        program=r'''
+        calibration = '\n'.join(line for line in (base / 'config.h').read_text().splitlines()
+                                if line.startswith('#define DINOSAUR_NECK_TAIL_SERVO_'))
+        program = calibration + r'''
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -362,7 +364,7 @@ int main(){
 #include "wzh_body_commands.h"
 #include "wzh_voice_motion.h"
 #include "wzh_quiet_center.h"
-namespace wzh { bool tutorial_voice=false; bool IsOnboardingVoiceMotionActive(){return tutorial_voice;} }
+namespace wzh { bool tutorial_voice=false; bool IsOnboardingVoiceMotionActive(){return tutorial_voice;} bool IdleMissVoiceMotionActive(){return false;} }
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
@@ -384,11 +386,16 @@ struct Audio{DinoMotionData GetMotionData(){return {};}
     DinoMotionData GetTtsMotionData(){return {true,.4f,.3f};}};
 struct Output{
     bool locked=false;int releases=0;std::vector<std::array<float,5>> samples;
+    std::array<float,5> last_pwm{};
     void Release(){++releases;}
     unsigned faults(){return locked?1:0;}
     bool WriteDegrees(const float* angles,size_t count){
         assert(count==5);if(locked)return false;
-        samples.push_back({angles[0],angles[1],angles[2],angles[3],angles[4]});return true;
+        last_pwm={angles[0],angles[1],angles[2],angles[3],angles[4]};
+        auto logical=last_pwm;
+        // Compare the capture in the choreography's original coordinates.
+        for(size_t axis:{0,1,3,4})logical[axis]=90.0f+(logical[axis]-90.0f)*(270.0f/220.0f);
+        samples.push_back(logical);return true;
     }
 };
 '''+types+'\n'+re.search(r'constexpr uint32_t kMinAuthoredStoryFrameMs = \d+;',source).group(0)+'\n'+tables+'\n'
@@ -493,7 +500,7 @@ struct DinosaurController{
             auto previous=actual_min;
             for(auto values:c.servo_output_.samples){
                 for(int axis=0;axis<5;++axis){
-                    assert(values[axis]>=(axis==3?55:0)&&values[axis]<=180);
+                    assert(values[axis]>=(axis==3?55.f:0.f)-.001f&&values[axis]<=180.001f);
                     assert(std::abs(values[axis]-previous[axis])<=wzh::kPetServoSpeed*.02f+.001f); // Command speed bound, float output angles.
                     actual_min[axis]=std::min(actual_min[axis],values[axis]);
                     actual_max[axis]=std::max(actual_max[axis],values[axis]);
@@ -613,6 +620,30 @@ struct DinosaurController{
         }
     }
     assert(tutorial_motion>3&&blocked_motion<.1f);
+
+    using Pose = DinosaurController::Pose;
+    DinosaurController controller;
+    for (const auto requested : {Pose{90,90,90,90,90}, Pose{180,180,180,180,180},
+                                 Pose{-5,-5,-5,0,-5}, Pose{70,90,90,90,90}}) {
+        for (int tick = 0; tick < 40; ++tick) {
+            clock_ms += 20;
+            controller.SetPose(requested);
+        }
+        const auto& pwm = controller.servo_output_.last_pwm;
+        const auto logical = Values(controller.last_output_pose_);
+        const auto expected = Values({std::max(0.0f, requested.neck_tilt),
+                                      std::max(0.0f, requested.neck_lean),
+                                      std::max(0.0f, requested.head_turn),
+                                      std::max(55.0f, requested.tail_ud),
+                                      std::max(0.0f, requested.tail_lr)});
+        assert(logical == expected);
+        for (size_t axis = 0; axis < pwm.size(); ++axis) {
+            const float physical = pwm[axis] * (axis == 2 ? 1.0f : 270.0f / 180.0f);
+            const float target = axis == 2 ? expected[axis] : 25.0f + expected[axis] * (220.0f / 180.0f);
+            assert(std::abs(physical - target) < .001f);
+            if (expected[axis] == 90.0f) assert(pwm[axis] == 90.0f); // Same 1500 us midpoint.
+        }
+    }
 }
 '''
         self.run_cpp(program)

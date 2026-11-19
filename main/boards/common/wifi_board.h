@@ -28,6 +28,11 @@ protected:
      * Start WiFi connection attempt
      */
     void TryWifiConnect();
+    // Boards selecting a transport asynchronously can keep the portal up while
+    // postponing Wi-Fi setup prompts and the exclusive provisioning fallback.
+    virtual bool DeferWifiSetup() const { return false; }
+    void CompleteDeferredWifiSetup();
+    void AnnounceMissingWifiCredentials();
 
     /**
      * Enter WiFi configuration mode

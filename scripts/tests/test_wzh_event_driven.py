@@ -36,15 +36,18 @@ uint32_t clock_ms = 30000;
 unsigned esp_random(){return 0;}
 int irnd(int){return 0;}
 // Run production loops with a deterministic clock and real choreography/cadence.
-// The exhibition cadence is one Flash sound per 2-3 minutes, so an idle run
-// has to be long enough to observe at least three rounds of it.
-constexpr uint32_t kIdleTestDurationMs = 600000U;
+// The exhibition cycle opens with a 2-minute burst (~2 s between clips), then
+// waits breathing-only for 2-5 minutes before the legacy 2-3 minute cadence.
+// An idle run must cover the burst, the wait and at least one legacy round.
+constexpr uint32_t kIdleTestDurationMs = 900000U;
+constexpr uint32_t kLongRecordingTestDurationMs = 45000U;
 int scenario = 0, auto_sounds = 0, stops = 0;
-int animations = 0, sounds = 0, writes = 0, releases = 0, invites = 0;
+int animations = 0, sounds = 0, writes = 0, releases = 0, invites = 0, post_interaction_sounds = 0;
+uint32_t previous_autoplay_end = 0;
 int tutorial_audio=0,tutorial_clips=0,tutorial_sound_moves=0,last_tutorial_clip=-1,voice_outputs=0;
 int startup_sounds = 0, startup_gestures = 0;uint32_t startup_at=0, gesture_at=0;
 float idle_min=1000.f,idle_max=-1000.f;int idle_outputs=0;
-namespace wzh { void MarkStartupGreetingComplete(){} bool StartupOnboardingPending(){return scenario==16;} bool IsOnboardingActive(){return scenario==16||scenario==19||scenario==20;} bool IsOnboardingVoiceMotionActive(){return (scenario==19||scenario==20)&&clock_ms>=40000&&clock_ms<45000;} bool StartupGreetingAudioReady(){return (scenario!=10 || clock_ms>=61000) && (scenario!=15 || clock_ms>=50000);} }
+namespace wzh { void MarkStartupGreetingComplete(){} bool StartupOnboardingPending(){return scenario==16;} bool IsOnboardingActive(){return scenario==16||scenario==19||scenario==20||scenario==21;} bool IsOnboardingVoiceMotionActive(){return (scenario==19||scenario==20)&&clock_ms>=40000&&clock_ms<45000;} bool IdleMissVoiceMotionActive(){return scenario==21&&clock_ms>=40000&&clock_ms<45000;} uint32_t IdleInteractionGeneration(){return scenario==22&&clock_ms>=200000?1:0;} bool StartupGreetingAudioReady(){return (scenario!=10 || clock_ms>=61000) && (scenario!=15 || clock_ms>=50000);} }
 constexpr int kDeviceStateIdle=0;
 struct AudioService { bool IsAudioProcessorRunning(){return false;} bool IsPlaybackIdle(){return true;} };
 struct Application { static Application& GetInstance(){static Application app;return app;}
@@ -56,7 +59,9 @@ uint32_t esp_log_timestamp() { return clock_ms; }
 int64_t esp_timer_get_time() { return int64_t(clock_ms) * 1000; }
 void vTaskDelay(uint32_t ticks) {
     clock_ms += ticks;
-    if (clock_ms >= 30000U + kIdleTestDurationMs) throw Finished{};
+    // The long-recording scenario spans one 26.5 s clip and the following gap.
+    const auto duration = scenario == 5 ? kLongRecordingTestDurationMs : kIdleTestDurationMs;
+    if (clock_ms >= 30000U + duration) throw Finished{};
 }
 using TickType_t=uint32_t;
 TickType_t xTaskGetTickCount(){return clock_ms;}
@@ -120,7 +125,7 @@ struct ActionRequest {
     int test_gpio = -1;
     uint32_t created_ms = 0, generation = 0;
     wzh::PetPriority priority = wzh::PetPriority::kExplicit;
-    wzh::PetInteraction interaction = wzh::PetInteraction::kNone; bool tutorial_shake_head = false;
+    wzh::PetInteraction interaction = wzh::PetInteraction::kNone; uint8_t tutorial_step = 0;
 };
 ActionRequest pending;
 bool queued = false;
@@ -137,10 +142,13 @@ struct Audio {
         start=clock_ms;duration=scenario==5?26514:2000;end=start+duration;++sequence;++sounds;
         return true;
     }
-    bool PlayAutonomousSound(bool include_ambient=true,uint32_t ambient_percent=100) {
+    bool PlayAutonomousSound(bool include_ambient=true,uint32_t ambient_percent=100,
+                             bool=true,bool=false) {
         (void)include_ambient;(void)ambient_percent;
         if(!Start()) return false;
-        ++auto_sounds;return true;
+        if(scenario==0&&previous_autoplay_end)assert(clock_ms-previous_autoplay_end>=1800);
+        previous_autoplay_end=end;
+        ++auto_sounds;if(scenario==22&&clock_ms>=202000&&clock_ms<240000)++post_interaction_sounds;return true;
     }
     int SoundCountByCategory(const char*) { return 12; }
     int FindSoundIndex(const char*) { return 32; }
@@ -153,7 +161,7 @@ struct Audio {
         data.sequence=sequence;data.duration_ms=duration;data.elapsed_ms=clock_ms-start;
         data.score=wzh::FindSoundScore("Cute_baby_panda_voca");return data;
     }
-    wzh::MotionData GetTtsMotionData() { wzh::MotionData data; data.playing=(scenario==19||scenario==20)&&clock_ms>=40000&&clock_ms<45000; data.audible=data.playing; data.level=.4f; return data; }
+    wzh::MotionData GetTtsMotionData() { wzh::MotionData data; data.playing=(scenario==19||scenario==20||scenario==21)&&clock_ms>=40000&&clock_ms<45000; data.audible=data.playing; data.level=.4f; return data; }
     bool PlayForAction(Action, DinoSoundSelection* = nullptr) { return Start(); }
     bool PlayInteractionSound(wzh::PetInteraction) {
         if((scenario==17||scenario==18)&&injected){++tutorial_audio;} return Start(); }
@@ -161,7 +169,7 @@ struct Audio {
 struct Output {
     bool powered() const { return rail; }
     bool rail=false;
-    bool blocked() { return (scenario==7&&clock_ms<60000)||(scenario>=8&&scenario!=14&&scenario!=19&&clock_ms<47000)||(scenario==14&&clock_ms<36000); }
+    bool blocked() { return (scenario==7&&clock_ms<60000)||(scenario>=8&&scenario!=14&&scenario!=19&&scenario!=21&&clock_ms<47000)||(scenario==14&&clock_ms<36000); }
     void Release() { ++releases; rail=false; }
     void SetFault(int, bool) {}
 };
@@ -207,7 +215,7 @@ public:
     void PollInteraction(uint32_t now) {
         if ((scenario==17||scenario==18) && now>=52000 && !injected) {
             injected=queued=true;pending.created_ms=now;pending.interaction=wzh::PetInteraction::kTouch1;
-            pending.is_body=true;pending.tutorial_shake_head=scenario==18;pending.generation=intent_generation_.load();
+            pending.is_body=true;pending.tutorial_step=scenario==18?3:0;pending.generation=intent_generation_.load();
             tutorial_feedback_pending_.store(true);tutorial_feedback_requested_ms_.store(now);
         }
         if (scenario==12 && now>=40000 && !injected) {
@@ -233,7 +241,7 @@ public:
     }
     bool MotionInterrupted() { return false; }
     void SetServoAngles(int, int, int) { ++writes; }
-    void SetPose(const std::array<float,5>&) { ++writes; if(wzh::IsOnboardingVoiceMotionActive())++voice_outputs; servo_output_.rail=true; }
+    void SetPose(const std::array<float,5>&) { ++writes; if(wzh::IsOnboardingVoiceMotionActive()||wzh::IdleMissVoiceMotionActive())++voice_outputs; servo_output_.rail=true; }
     void OutputPose(const Pose& p) { ++writes; servo_output_.rail=true;
         if(scenario==17&&injected&&audio_&&audio_->Playing())++tutorial_sound_moves;
         if(idle_breathing_){++idle_outputs;idle_min=std::min(idle_min,p.left_arm);idle_max=std::max(idle_max,p.left_arm);} }
@@ -252,14 +260,16 @@ public:
     Behaviour ClassifySound(int) { return Behaviour::kIdle; }
     int ChooseOfflineSoundClip(int,wzh::SoundKind,uint32_t);
     int C_COUNT = 28;
-    Pose ApplyAudioMotion(const Pose& p, const wzh::MotionData& m, uint32_t) { if(m.playing && wzh::IsOnboardingVoiceMotionActive())++voice_outputs; return p; }
+    Pose ApplyAudioMotion(const Pose& p, const wzh::MotionData& m, uint32_t) { if(m.playing && (wzh::IsOnboardingVoiceMotionActive()||wzh::IdleMissVoiceMotionActive()))++voice_outputs; return p; }
     void AddMicroMotion(Pose&, uint32_t, float) {}
     void RunServoTest(int) { ++animations; }
     void RunBodyAction(Action) { ++animations;if(scenario==18&&injected){++tutorial_clips;last_tutorial_clip=C_COUNT;} }
     void RunInteraction(wzh::PetInteraction) { ++animations;if(scenario==17&&injected)++tutorial_clips; }
+    void RunTutorialTouch() { ++animations; }
     void RunSoundAction(Action, const DinoSoundSelection&) { ++animations; }
     void RunAction(Action, int = 0, bool = false, const int* = nullptr) { ++animations; }
     const int* PickSoundClip(Action) { return nullptr; }
+    const MotionClip* PickClip(Action action) { return kActionClips[static_cast<unsigned>(action)].clips; }
     const MotionClip* PickPulse() { return &reference_clips[0]; }
     void RunPulse(const MotionClip&) { ++animations; }
     const RoarClip* PickSkyRoarClip(uint32_t,const wzh::SoundPlayback* = nullptr){static RoarClip clip;return &clip;}
@@ -275,7 +285,10 @@ int main(int argc, char** argv) {
     if(scenario==2)controller.SetConversationActive(true);
     if(scenario==6)controller.pet_.SetMaintenance(true);
     try { controller.Task(); } catch (const Finished&) {}
-    if(scenario==0){assert(auto_sounds>=3&&auto_sounds<=6&&writes>100);
+    if(scenario==0){
+        // Opening burst: ~2 s gaps over 2 minutes -> dozens of clips; then the
+        // breathing wait adds none, and the legacy tail adds at most a few.
+        assert(auto_sounds>=20&&auto_sounds<=60&&writes>100);
         if(__AXES__==3)assert(idle_outputs>100&&idle_max-idle_min>0.5f);}
     if(scenario==1||scenario==2||scenario==6){assert(auto_sounds==0&&sounds==0);}
     if(scenario==3){assert(auto_sounds>=1&&sounds>auto_sounds);}
@@ -292,8 +305,9 @@ int main(int argc, char** argv) {
     if(scenario==17){assert(tutorial_audio>=1&&!controller.tutorial_feedback_pending_.load());
         if(__AXES__==3)assert(tutorial_sound_moves>0);}
     if(scenario==18){assert(tutorial_audio>=1&&tutorial_clips>=1&&last_tutorial_clip==28&&!controller.tutorial_feedback_pending_.load());}
-    if(scenario==19)assert(voice_outputs>0);
+    if(scenario==19||scenario==21)assert(voice_outputs>0);
     if(scenario==20)assert(voice_outputs==0);
+    if(scenario==22)assert(post_interaction_sounds>=2);
     if(scenario==16){assert(startup_gestures==1&&startup_sounds==0);
         if(__AXES__==3)assert(idle_outputs==0);}
 }
@@ -304,6 +318,7 @@ class WzhEventDrivenTest(unittest.TestCase):
         compiler = shutil.which('g++')
         if not compiler:
             self.skipTest('g++ required')
+        reference_header = ROOT / 'main/boards/wzh_dinosaur/dinosaur_reference_motion.h'
         for board, stem, cls in [('wzh_crawlPanda','panda','PandaController'),
                                  ('wzh_tailRedPanda','panda','PandaController'),
                                  ('wzh_dinosaur','dinosaur','DinosaurController')]:
@@ -316,18 +331,24 @@ class WzhEventDrivenTest(unittest.TestCase):
             task=task.replace('wzh::StartupGreetingGate startup(now_ms);', 'wzh::StartupGreetingGate startup(now_ms); if (scenario < 8) startup.Accepted();').replace('wzh::StartupGreetingGate startup(startup_origin_ms);', 'wzh::StartupGreetingGate startup(startup_origin_ms); if (scenario < 8) startup.Accepted();')
             task=task.replace('ESP_LOGI(TAG, "Startup gesture started");', '++startup_gestures; gesture_at=now_ms;')
             conversation=function_body(source,'void '+cls+'::SetConversationActive(').replace(cls+'::','Controller::')
-            for scenario in range(21):
-                with self.subTest(board=board,scenario=scenario), tempfile.TemporaryDirectory() as directory:
-                    harness=HARNESS.replace('__REFERENCE_HEADER__',str(ROOT/'main/boards/wzh_dinosaur/dinosaur_reference_motion.h')).replace('__AXES__', '5' if stem=='dinosaur' else '3').replace('__TASK__',task).replace('__CONVERSATION__',conversation).replace('__SOUND_METHODS__',methods)
-                    if scenario==5:
-                        # Long recording scenario only needs the first exhibition
-                        # round: one sound, and no second one while it plays.
-                        harness=harness.replace('kIdleTestDurationMs = 600000U',
-                                                'kIdleTestDurationMs = 200000U')
-                    cpp=Path(directory)/'task.cc';cpp.write_text(harness)
-                    exe=cpp.with_suffix('')
-                    result=subprocess.run([compiler,'-std=c++17','-pthread','-Wall','-Wextra','-Werror',
-                        '-I',str(ROOT/'main/boards/common/wzh'),str(cpp),'-o',str(exe)],capture_output=True,text=True)
-                    self.assertEqual(result.returncode,0,result.stderr)
-                    result=subprocess.run([str(exe),str(scenario)],capture_output=True,text=True,timeout=15)
-                    self.assertEqual(result.returncode,0,result.stderr)
+            harness = (HARNESS.replace('__REFERENCE_HEADER__', str(reference_header))
+                       .replace('__AXES__', '5' if stem == 'dinosaur' else '3')
+                       .replace('__TASK__', task)
+                       .replace('__CONVERSATION__', conversation)
+                       .replace('__SOUND_METHODS__', methods))
+            with self.subTest(board=board), tempfile.TemporaryDirectory() as directory:
+                cpp = Path(directory) / 'task.cc'
+                cpp.write_text(harness)
+                exe = cpp.with_suffix('')
+                result = subprocess.run(
+                    [compiler, '-std=c++17', '-pthread', '-Wall', '-Wextra', '-Werror',
+                     '-I', str(ROOT / 'main/boards/common/wzh'), str(cpp), '-o', str(exe)],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                # A fresh process per scenario resets the harness's fake hardware and clock.
+                for scenario in range(23):
+                    with self.subTest(scenario=scenario):
+                        result = subprocess.run([str(exe), str(scenario)],
+                                                capture_output=True, text=True, timeout=15)
+                        self.assertEqual(result.returncode, 0, result.stderr)

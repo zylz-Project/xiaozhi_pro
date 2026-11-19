@@ -5,6 +5,9 @@
         {
             "name": "wzh-tailredpanda",
             "sdkconfig_append": [
+                "CONFIG_WZH_IDLE_POWER_ENABLE=y",
+                "CONFIG_WZH_IDLE_AUTO_OFF=y",
+                "CONFIG_WZH_IDLE_MISS_PROMPT=y",
                 "CONFIG_ESP_MODEM_USE_PPP_MODE=n",
                 "CONFIG_LWIP_PPP_SUPPORT=n",
                 "CONFIG_ESP_CONSOLE_NONE=y",
@@ -41,6 +44,9 @@
         {
             "name": "wzh-tailredpanda-barge-in",
             "sdkconfig_append": [
+                "CONFIG_WZH_IDLE_POWER_ENABLE=y",
+                "CONFIG_WZH_IDLE_AUTO_OFF=y",
+                "CONFIG_WZH_IDLE_MISS_PROMPT=y",
                 "CONFIG_ESP_MODEM_USE_PPP_MODE=n",
                 "CONFIG_LWIP_PPP_SUPPORT=n",
                 "CONFIG_WAKE_WORD_DISABLED=n",

@@ -127,6 +127,7 @@ int main() {
 #include <mutex>
 #include <vector>
 #include "wzh_pet_behavior.h"
+#include "wzh_sound_choreography.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 namespace wzh { struct Sensors { enum class Event { kHuman,kPickedUp,kShaken,kFlipped,kPutDown }; }; }
@@ -140,7 +141,7 @@ struct Request {
     wzh::PetPriority priority=wzh::PetPriority::kExplicit;
     bool speech_bound=false;
     wzh::PetInteraction interaction=wzh::PetInteraction::kNone;
-    bool tutorial_shake_head=false;
+    uint8_t tutorial_step=0;
 };
 int64_t clock_us=30000000;
 int64_t esp_timer_get_time(){return clock_us;}
@@ -149,10 +150,12 @@ std::vector<Request> requests;
 int xQueueOverwrite(void*,const Request* request){requests.push_back(*request);return pdTRUE;}
 struct Output { bool locked=false;bool blocked(){return locked;}bool powered(){return false;}unsigned faults(){return locked?1:0;} };
 struct Audio { struct Data{bool playing=false;};Data GetTtsMotionData(){return {};} };
+inline unsigned esp_random(){return 0;}
 struct Controller {
     using ActionRequest=Request;
     std::mutex request_mutex_;void* action_queue_=this;
     wzh::PetBehavior pet_;Output servo_output_;
+    wzh::AutoplayCadence autoplay_;
     Audio* audio_=nullptr;
     std::atomic<bool> shutdown_requested_{false},request_active_{false},speaking_{false};
     std::atomic<int> pending_expression_{-1};
@@ -164,7 +167,7 @@ struct Controller {
     wzh::PetMode pet_mode(){return pet_.Get(clock_us/1000).mode;}
     bool TriggerAction(Action,bool,wzh::PetPriority,bool=false){return true;}
     bool QueueRequest(ActionRequest,wzh::PetPriority);
-    bool QueueInteraction(wzh::PetInteraction, bool = false);
+    bool QueueInteraction(wzh::PetInteraction, uint8_t = 0);
     bool HandleSensorEvent(int);
     void HandleTouch(uint8_t);
     void PollInteraction(uint32_t);

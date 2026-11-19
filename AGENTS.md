@@ -62,8 +62,11 @@ python3 scripts/build.py --list-boards
 # Canonical variant build
 python3 scripts/build.py <board-directory> --name <variant-name>
 
-# Host-side build tests
-python3 -m unittest discover -s scripts/tests -v
+# Host-side tests
+python3 scripts/run_host_tests.py
+
+# Run a specific host test module during development
+python3 scripts/run_host_tests.py -p 'test_wzh_mqtt_reconnect.py'
 
 # Format/check touched files
 clang-format -i <files>

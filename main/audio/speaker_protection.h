@@ -14,6 +14,8 @@
 // near-full-scale material below clipping before it reaches the codec.
 class SpeakerProtection {
 public:
+    static constexpr float kMaxMakeupGainDb = 24.0f;
+
     void Configure(int sample_rate, bool voice_clarity = false, bool smooth_limiter = false,
                    float makeup_gain_db = 0.0f);
     void Process(std::vector<int16_t>& pcm, float source_gain = 1.0f);
@@ -118,8 +120,9 @@ inline void SpeakerProtection::Configure(int sample_rate, bool voice_clarity, bo
     // protection. Do not place a 2.5 kHz filter beyond the Nyquist limit.
     voice_clarity_ = voice_clarity && sample_rate >= 8000;
     loudness_makeup_ = makeup_gain_db > 0.0f && sample_rate >= 8000 && sample_rate <= 48000;
-    makeup_gain_ =
-        loudness_makeup_ ? std::pow(10.0f, std::clamp(makeup_gain_db, 0.0f, 21.0f) / 20.0f) : 1.0f;
+    makeup_gain_ = loudness_makeup_
+                       ? std::pow(10.0f, std::clamp(makeup_gain_db, 0.0f, kMaxMakeupGainDb) / 20.0f)
+                       : 1.0f;
     startup_samples_ =
         (voice_clarity_ || loudness_makeup_) ? static_cast<size_t>(sample_rate / 200) : 0;
     if (voice_clarity_) {

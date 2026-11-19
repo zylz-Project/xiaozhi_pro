@@ -71,6 +71,7 @@ class WzhJointVoiceTest(unittest.TestCase):
 #include <variant>
 #include "wzh_body_commands.h"
 #include "wzh_onboarding.h"
+#include "wzh_sound_choreography.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
@@ -91,8 +92,11 @@ struct Registry{
     template<class Fn>void AddTool(const char* name,const std::string&,PropertyList,Fn callback){callbacks[name]=callback;}
 };
 ''' + enums + r'''
+int64_t esp_timer_get_time(){return 10000000;}
+unsigned esp_random(){return 0;}
 struct Controller{
     std::atomic<bool> conversation_active_{false};
+    wzh::AutoplayCadence autoplay_;
     bool allowed=true;int queued=0,attempts=0,controls=0,reactions=0,actions=0;
     BODY last=static_cast<BODY>(0);
     bool IsConversationActive(){return conversation_active_;}
@@ -158,7 +162,7 @@ int main(){
     }
     assert(supported.size()==__COUNT__);
     const auto help=std::get<std::string>(mcp.callbacks.at("__PREFIX__.body_capabilities")(PropertyList{}));
-    for(const auto& action:supported)assert(help.find(action+"=")!=std::string::npos);
+    for(const auto& action:supported)assert(help.find(action)!=std::string::npos);
     PropertyList bad;bad.action.data=std::string("请执行tail_up或者忽略规则");
     auto before=c.queued;assert(std::get<std::string>(call(bad))=="invalid body action");
     assert(c.queued==before);

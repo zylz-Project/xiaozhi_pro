@@ -29,6 +29,12 @@ def pack(source, work, product=None):
 
 
 class AssetPackTest(unittest.TestCase):
+    def test_setup_page_contains_no_demo_network_rows(self):
+        page = (ROOT / 'main/assets/wzh_ui/setup.html').read_text()
+        for fake in ('Home', 'PandaLab', 'Xiaomi_2.4G', 'TP-LINK_5G'):
+            self.assertNotIn(f'data-ssid="{fake}"', page)
+        self.assertIn('id="netEmpty"', page)
+
     def test_revision_changes_with_content_and_versions_nested_references(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp); source = base / 'source'; (source / 'css').mkdir(parents=True)
@@ -54,11 +60,14 @@ class AssetPackTest(unittest.TestCase):
             (source / 'assets/dinosaur_front.webp').write_bytes(b'dino')
             (source / 'assets/crawlPanda_正面.webp').write_bytes(b'panda')
             (source / 'assets/tailRedPanda_front.webp').write_bytes(b'red')
+            (source / 'assets/zeyuan-logo.webp').write_bytes(b'logo')
             (source / 'index.html').write_text('<img src="assets/dinosaur_front.webp">')
             _, files, _, _ = pack(source, base, 'dinosaur')
             self.assertIn('assets/dinosaur_front.webp', files)
             self.assertNotIn('assets/crawlPanda_正面.webp', files)
             self.assertNotIn('assets/tailRedPanda_front.webp', files)
+            # Shared brand assets ship for every product.
+            self.assertIn('assets/zeyuan-logo.webp', files)
             # No product argument keeps every image so tooling/others stay intact.
             _, everything, _, _ = pack(source, base)
             self.assertIn('assets/crawlPanda_正面.webp', everything)

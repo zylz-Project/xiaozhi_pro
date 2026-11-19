@@ -191,8 +191,11 @@ private:
 bool VoiceSession::Ready() { return ReadyForVoice(""); }
 
 bool VoiceSession::ReadyForVoice(const std::string& voice) {
-    if (voice.empty() && LoadAliVoice() == "xiaozhi-native") {
+    const auto selected_voice = voice.empty() ? LoadAliVoice() : voice;
+    if (voice.empty() && (selected_voice.empty() || selected_voice == "xiaozhi-native")) {
         bypass_next_.store(false);
+        if (selected_voice.empty())
+            ESP_LOGI(kTag, "No external voice selected; using server audio");
         return false;
     }
     if (bypass_next_.exchange(false)) {
@@ -204,8 +207,8 @@ bool VoiceSession::ReadyForVoice(const std::string& voice) {
         ESP_LOGW(kTag, "External speech unavailable: previous task is still stopping");
         return false;
     }
-    if (LoadAliKey().empty() || (voice.empty() && LoadAliVoice().empty())) {
-        ESP_LOGW(kTag, "External speech unavailable: provider configuration incomplete");
+    if (LoadAliKey().empty()) {
+        ESP_LOGW(kTag, "External speech unavailable: API key missing; using server audio");
         return false;
     }
     const size_t free_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

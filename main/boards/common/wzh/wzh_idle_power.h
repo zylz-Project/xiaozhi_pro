@@ -11,11 +11,9 @@ namespace wzh {
 // re-entering quiet mode after a new interaction.
 class IdlePower {
 public:
-    // 2026-11-12 product decision: 5 min says one goodbye-ish sentence, 10 min
-    // powers off. 10/15 was too long; the exhibition cadence keeps the pet alive
-    // in between, and conversation always counts as interaction.
+    // Time since the most recent real interaction or completed conversation.
     static constexpr uint32_t kMissMs = 5U * 60U * 1000U;
-    static constexpr uint32_t kOffMs = 10U * 60U * 1000U;
+    static constexpr uint32_t kOffMs = 7U * 60U * 1000U + 30U * 1000U;
 
     void Interaction(uint32_t now) {
         last_interaction_ = now;
@@ -57,9 +55,13 @@ private:
 // that runs past the deadline must never be cut off by the countdown. Callers
 // only bump an atomic; the timeline worker performs the audio and power work.
 void NotifyIdleInteraction();
-// True from the miss mark (5 min) until the next interaction: idle sound effects
-// go silent while motion keeps its full amplitude.
+// Monotonic interaction token for motion tasks; callbacks never run animation.
+uint32_t IdleInteractionGeneration();
+// True while reserving the miss prompt or requesting shutdown; autonomous
+// sound must leave room for the prompt, then resume sparse playback.
 bool IdleSoundSuppressed();
+// True only while the five-minute reminder owns speaker playback.
+bool IdleMissVoiceMotionActive();
 // `shutdown_request` runs on the idle worker after the shutdown prompt has been
 // played; it must only signal the power task, never block.
 void StartIdlePower(std::function<void()> shutdown_request);

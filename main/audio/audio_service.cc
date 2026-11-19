@@ -69,6 +69,7 @@ void AudioService::Initialize(AudioCodec* codec) {
     max_decode_packets_ = buffered_playback_ ? 96 : MAX_DECODE_PACKETS_IN_QUEUE;
     playout_buffer_.Enable(buffered_playback_);
     if (buffered_playback_) {
+        playout_buffer_.Configure(kLocalPlayoutTargetMs, kLocalPlayoutMaxWaitMs);
         // Robot products drive a small full-range speaker straight from the
         // codec DAC; trim unplayable sub-bass and cap peaks before the codec.
         codec->EnableSpeakerProtection(true);
@@ -76,8 +77,10 @@ void AudioService::Initialize(AudioCodec* codec) {
     if (buffered_playback_)
         ESP_LOGI(
             TAG,
-            "Local-interaction playback: decode=%u packets, PCM=%u frames, prefix=120ms/80ms max",
-            static_cast<unsigned>(max_decode_packets_), static_cast<unsigned>(max_playback_tasks_));
+            "Local-interaction playback: decode=%u packets, PCM=%u frames, prefix=%ums/%ums max",
+            static_cast<unsigned>(max_decode_packets_), static_cast<unsigned>(max_playback_tasks_),
+            static_cast<unsigned>(kLocalPlayoutTargetMs),
+            static_cast<unsigned>(kLocalPlayoutMaxWaitMs));
     codec_->Start();
 
     esp_opus_dec_cfg_t opus_dec_cfg =
@@ -765,6 +768,9 @@ void AudioService::OpusCodecTask() {
                 decoded_stats.Failed(generation);
             }
 #endif
+            // Follow upstream: decode each received Opus packet once. Replaying
+            // the preceding PCM frame makes frequent cellular loss sound like
+            // a stutter and can consume the slot reserved for real audio.
             lock.lock();
             if (decoded && generation == playback_generation_ && !service_stopped_.load()) {
                 audio_playback_queue_.push_back(std::move(task));
@@ -1236,6 +1242,15 @@ PlaybackBufferStatus AudioService::GetPlaybackBufferStatus() {
     return {static_cast<uint32_t>(audio_decode_queue_.size()),
             static_cast<uint32_t>(audio_playback_queue_.size()), BufferedPlaybackMsLocked(),
             playout_buffer_.rebuffer_count(), decode_queue_full_count_};
+}
+
+void AudioService::SetDownlinkJitter(uint32_t target_ms, uint32_t max_wait_ms) {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    if (!buffered_playback_)
+        return;
+    playout_buffer_.Configure(target_ms, max_wait_ms);
+    ESP_LOGI(TAG, "Downlink jitter target=%ums max_wait=%ums", static_cast<unsigned>(target_ms),
+             static_cast<unsigned>(max_wait_ms));
 }
 
 void AudioService::ResetDecoder() {

@@ -244,8 +244,9 @@ std::string Esp32Camera::Explain(const std::string &question) {
     }
     http->SetHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
     http->SetHeader("Transfer-Encoding", "chunked");
-    if (!http->Open("POST", explain_url_)) {
-        ESP_LOGE(TAG, "Failed to connect to explain URL");
+    if (auto opened = http->Open("POST", explain_url_); !opened) {
+        ESP_LOGE(TAG, "Failed to connect to explain URL: %s",
+                 opened.error().ToString().c_str());
         encoder_thread_.join();
         JpegChunk chunk;
         while (xQueueReceive(jpeg_queue, &chunk, portMAX_DELAY) == pdPASS) {
@@ -259,13 +260,27 @@ std::string Esp32Camera::Explain(const std::string &question) {
         throw std::runtime_error("Failed to connect to explain URL");
     }
 
+    auto write_all = [&http](const char* data, size_t size) {
+        const char* ptr = data;
+        while (size > 0) {
+            auto written = http->Write(ptr, size);
+            if (!written || *written <= 0 || static_cast<size_t>(*written) > size) {
+                return false;
+            }
+            ptr += *written;
+            size -= static_cast<size_t>(*written);
+        }
+        return true;
+    };
+    bool upload_ok = true;
+
     {
         std::string question_field;
         question_field += "--" + boundary + "\r\n";
         question_field += "Content-Disposition: form-data; name=\"question\"\r\n";
         question_field += "\r\n";
         question_field += question + "\r\n";
-        http->Write(question_field.c_str(), question_field.size());
+        upload_ok = write_all(question_field.c_str(), question_field.size());
     }
     {
         std::string file_header;
@@ -273,7 +288,9 @@ std::string Esp32Camera::Explain(const std::string &question) {
         file_header += "Content-Disposition: form-data; name=\"file\"; filename=\"camera.jpg\"\r\n";
         file_header += "Content-Type: image/jpeg\r\n";
         file_header += "\r\n";
-        http->Write(file_header.c_str(), file_header.size());
+        if (upload_ok) {
+            upload_ok = write_all(file_header.c_str(), file_header.size());
+        }
     }
 
     size_t total_sent = 0;
@@ -288,7 +305,9 @@ std::string Esp32Camera::Explain(const std::string &question) {
             saw_terminator = true;
             break;
         }
-        http->Write((const char *)chunk.data, chunk.len);
+        if (upload_ok && !write_all((const char *)chunk.data, chunk.len)) {
+            upload_ok = false;
+        }
         total_sent += chunk.len;
         heap_caps_free(chunk.data);
     }
@@ -299,16 +318,33 @@ std::string Esp32Camera::Explain(const std::string &question) {
         ESP_LOGE(TAG, "JPEG encoder failed or produced empty output");
         throw std::runtime_error("Failed to encode image to JPEG");
     }
+    if (!upload_ok) {
+        http->Close();
+        throw std::runtime_error("Failed to upload photo body");
+    }
 
     {
         std::string multipart_footer;
         multipart_footer += "\r\n--" + boundary + "--\r\n";
-        http->Write(multipart_footer.c_str(), multipart_footer.size());
+        if (!write_all(multipart_footer.c_str(), multipart_footer.size())) {
+            http->Close();
+            throw std::runtime_error("Failed to upload multipart footer");
+        }
     }
-    http->Write("", 0);
+    if (auto finished = http->Write("", 0); !finished) {
+        http->Close();
+        throw std::runtime_error("Failed to finish photo upload: " + finished.error().ToString());
+    }
 
-    if (http->GetStatusCode() != 200) {
-        ESP_LOGE(TAG, "Failed to upload photo, status code: %d", http->GetStatusCode());
+    auto status_code = http->GetStatusCode();
+    if (!status_code) {
+        ESP_LOGE(TAG, "Failed to read upload status: %s", status_code.error().ToString().c_str());
+        http->Close();
+        throw std::runtime_error("Failed to upload photo");
+    }
+    if (*status_code != 200) {
+        ESP_LOGE(TAG, "Failed to upload photo, status code: %d", *status_code);
+        http->Close();
         throw std::runtime_error("Failed to upload photo");
     }
 

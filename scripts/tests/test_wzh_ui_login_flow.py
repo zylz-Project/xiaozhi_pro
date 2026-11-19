@@ -22,6 +22,13 @@ class Portal(SimpleHTTPRequestHandler):
     product = 'wzh-crawlpanda'
     cellular = False
     cellular_connected = True
+    server_connected = False
+    wifi_connected = True
+    setup_fail = False
+    authenticated = True
+    auth_required = False
+    scan_empty_requests = 0
+    scan_requests = 0
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -39,7 +46,18 @@ class Portal(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/scan':
+            Portal.scan_requests += 1
+            if Portal.auth_required:
+                return self.reply({'ok': False, 'error': {'message': '请先登录'}}, 401)
+            if Portal.scan_empty_requests > 0:
+                Portal.scan_empty_requests -= 1
+                return self.reply({'ok': True, 'aps': []})
+            return self.reply({'ok': True, 'aps': [{'ssid': 'Test WiFi', 'rssi': -48, 'auth': 3}]})
         if path.startswith('/api/'):
+            if path == '/api/setup/status':
+                return self.reply({'ok': True, 'phase': 'failed', 'error': {'message': '连接失败，请重试'}} if Portal.setup_fail
+                                  else {'ok': True, 'phase': 'online', 'ctx': 'done'})
             if path == '/api/user/voices':
                 return self.reply({'ok': True, 'has_key': True, 'voices': []})
             if path == '/api/hub/status':
@@ -47,21 +65,33 @@ class Portal(SimpleHTTPRequestHandler):
             if path == '/api/hub/diff':
                 return self.reply({'ready': False})
             data = {'ok': True, 'build': Portal.product, 'state': Portal.state,
-                    'version': 'test', 'wifi': {'connected': not Portal.cellular, 'ssid': 'Home',
+                    'version': 'test', 'wifi': {'connected': Portal.wifi_connected and not Portal.cellular, 'ssid': 'Home',
                                                 'ap_ssid': 'CrawlPanda-ABCD'},
                     'battery': {'available': False}, 'audio': {'volume': 40}}
+            if Portal.product == 'wzh-dinosaur':
+                data.update({'transport': 'cellular' if Portal.cellular else 'wifi',
+                             'transport_switchable': True, 'authenticated': Portal.authenticated, 'saved_network': True})
             if Portal.cellular:
-                data['cellular'] = {'connected': Portal.cellular_connected}
+                data['cellular'] = {'connected': Portal.cellular_connected,
+                                    'server_connected': Portal.server_connected}
             return self.reply(data)
         self.path = {'/': '/index.html', '/login': '/login.html', '/manual': '/manual.html',
+                     '/setup': '/setup.html', '/done': '/done.html',
                      '/developer': '/developer.html'}.get(path, self.path)
         return super().do_GET()
 
     def do_POST(self):
-        self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        raw = self.rfile.read(int(self.headers.get('Content-Length', 0)))
         Portal.requests.append(self.path)
+        if Portal.auth_required and self.path in ('/api/network/transport', '/submit'):
+            return self.reply({'ok': False, 'error': {'message': '请先登录'}}, 401)
         if Portal.reject:
             return self.reply({'ok': False, 'error': {'message': '密码不正确'}}, 401)
+        if self.path == '/api/network/transport':
+            Portal.cellular = json.loads(raw)['transport'] == 'cellular'
+            return self.reply({'ok': True})
+        if self.path == '/submit':
+            return self.reply({'ok': True, 'job': 'test-job'})
         return self.reply({'ok': True, 'token': 'test-token'})
 
 
@@ -92,6 +122,13 @@ class LoginFlowTest(unittest.TestCase):
         Portal.product = 'wzh-crawlpanda'
         Portal.cellular = False
         Portal.cellular_connected = True
+        Portal.server_connected = False
+        Portal.wifi_connected = True
+        Portal.setup_fail = False
+        Portal.authenticated = True
+        Portal.auth_required = False
+        Portal.scan_empty_requests = 0
+        Portal.scan_requests = 0
         self.page = self.browser.new_page(viewport={'width': 390, 'height': 720}, is_mobile=True, has_touch=True)
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
@@ -137,7 +174,168 @@ class LoginFlowTest(unittest.TestCase):
         self.page.wait_for_function("document.querySelector('.net-name').textContent === '4G'")
         self.page.wait_for_timeout(3500)
         self.assertEqual(urlsplit(self.page.url).path, '/')
-        self.assertEqual(self.page.locator('.net-sub').first.inner_text(), '离线')
+        self.assertEqual(self.page.locator('.net-sub').first.inner_text(), '网络离线')
+        self.assertEqual(self.errors, [])
+
+    def test_cellular_requires_server_handshake_for_connected_label(self):
+        Portal.cellular = True
+        Portal.product = 'wzh-dinosaur'
+        self.page.goto(self.url + '/?guide=off')
+        self.page.wait_for_function("document.querySelector('.net-sub').textContent.includes('服务端未连接')")
+        Portal.server_connected = True
+        self.page.wait_for_function("document.querySelector('.net-sub').textContent === '服务端已连接'")
+        Portal.server_connected = False
+        self.page.wait_for_function("document.querySelector('.net-sub').textContent.includes('服务端未连接')")
+        self.assertEqual(self.errors, [])
+
+    def test_dinosaur_offline_wifi_keeps_details_and_switches_both_ways(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.wifi_connected = False
+        self.page.goto(self.url + '/?guide=off')
+        self.page.locator('.handle').click()
+        self.page.locator('#transportSwitch').wait_for(state='visible')
+        self.page.wait_for_timeout(3500)
+        self.assertEqual(urlsplit(self.page.url).path, '/')
+        self.page.locator('[data-transport="cellular"]').click()
+        self.page.wait_for_function("document.querySelector('[data-transport=cellular]').disabled")
+        self.assertTrue(Portal.cellular)
+        self.page.locator('[data-transport="wifi"]').click()
+        self.page.wait_for_function("document.querySelector('[data-transport=wifi]').disabled")
+        self.assertFalse(Portal.cellular)
+        self.assertEqual(self.errors, [])
+
+    def test_setup_switches_from_cellular_and_connection_can_retry(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.cellular = True
+        Portal.wifi_connected = False
+        Portal.setup_fail = True
+        self.page.goto(self.url + '/setup?guide=off')
+        self.page.get_by_text('Test WiFi', exact=True).click()
+        self.assertFalse(Portal.cellular)
+        self.assertTrue(self.page.locator('#setupBack').is_visible())
+        self.page.locator('#pwInput').fill('password123')
+        self.page.locator('#pwConnect').click()
+        self.page.get_by_text('连接失败，请重试', exact=True).wait_for()
+        self.assertTrue(self.page.locator('#pwConnect').is_enabled())
+        Portal.setup_fail = False
+        self.page.locator('#pwConnect').click()
+        self.page.wait_for_url('**/done')
+        self.assertEqual(Portal.requests.count('/submit'), 2)
+        self.assertEqual(self.errors, [])
+
+    def test_setup_scan_waits_for_async_firmware_results(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.wifi_connected = False
+        Portal.scan_empty_requests = 3
+        self.page.goto(self.url + '/setup?guide=off')
+        self.page.get_by_text('Test WiFi', exact=True).wait_for(timeout=12000)
+        self.assertGreaterEqual(Portal.scan_requests, 4)
+        self.assertTrue(self.page.locator('#scanBtn').is_enabled())
+        self.assertTrue(self.page.locator('#netEmpty').is_hidden())
+        self.assertEqual(self.errors, [])
+
+    def test_setup_scan_survives_channel_switch_disconnects(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.wifi_connected = False
+        self.page.add_init_script('''
+          (() => {
+            const originalFetch = window.fetch;
+            let failures = 2;
+            window.fetch = (url, options) => {
+              if (url === '/scan' && failures > 0) {
+                failures -= 1;
+                return Promise.reject(new TypeError('Failed to fetch'));
+              }
+              return originalFetch(url, options);
+            };
+          })();
+        ''')
+        self.page.goto(self.url + '/setup?guide=off')
+        self.page.get_by_text('Test WiFi', exact=True).wait_for(timeout=12000)
+        self.assertTrue(self.page.locator('#scanBtn').is_enabled())
+        self.assertEqual(self.errors, [])
+
+    def test_wifi_submit_timeout_releases_connect_button(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.wifi_connected = False
+        self.page.goto(self.url + '/setup?guide=off')
+        self.page.get_by_text('Test WiFi', exact=True).click()
+        self.page.locator('#pwInput').fill('password123')
+        self.page.evaluate('''() => {
+          window.savedFetch=window.fetch;
+          const timer=window.setTimeout;
+          window.setTimeout=(fn,ms,...args)=>timer(fn,ms===10000?100:ms,...args);
+          window.fetch=(url,options)=>url==='/submit'?new Promise((resolve,reject)=>{
+            options.signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')));
+          }):window.savedFetch(url,options);
+        }''')
+        self.page.locator('#pwConnect').click()
+        self.page.get_by_text('连接设备超时，请确认手机仍连接设备热点后重试').wait_for()
+        self.assertTrue(self.page.locator('#pwConnect').is_enabled())
+        self.page.evaluate('window.fetch=window.savedFetch')
+        self.page.locator('#pwConnect').click()
+        self.page.wait_for_url('**/done')
+        self.assertEqual(self.errors, [])
+
+    def test_setup_transport_401_opens_login(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.cellular = True
+        Portal.wifi_connected = False
+        Portal.authenticated = False
+        Portal.auth_required = True
+        self.page.goto(self.url + '/setup?guide=off')
+        self.page.wait_for_url('**/login?next=/setup')
+        self.assertEqual(self.errors, [])
+
+    def test_detail_transport_401_opens_login(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.wifi_connected = False
+        Portal.authenticated = False
+        Portal.auth_required = True
+        self.page.goto(self.url + '/?guide=off')
+        self.page.locator('.handle').click()
+        self.page.locator('[data-transport="cellular"]').click()
+        self.page.wait_for_url('**/login?next=/')
+        self.assertEqual(self.errors, [])
+
+    def test_transport_timeout_reenables_switch_and_retry_works(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.wifi_connected = True
+        self.page.goto(self.url + '/?guide=off')
+        self.page.locator('.handle').click()
+
+        def drop_switch_response():
+            self.page.evaluate('''() => {
+              window.savedFetch=window.fetch;
+              const timer=window.setTimeout;
+              window.setTimeout=(fn,ms,...args)=>timer(fn,ms===10000?100:ms,...args);
+              let first=true;
+              window.fetch=(url,options)=>{
+                if(url==='/api/network/transport'&&first){
+                  first=false;
+                  return new Promise((resolve,reject)=>{
+                    options.signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')));
+                  });
+                }
+                return window.savedFetch(url,options);
+              };
+            }''')
+        drop_switch_response()
+        self.page.locator('[data-transport="cellular"]').click()
+        self.page.get_by_text('网络切换中，请稍候…').wait_for()
+        self.page.wait_for_function("!document.querySelector('[data-transport=cellular]').disabled")
+        self.page.locator('[data-transport="cellular"]').click()
+        self.page.wait_for_function("document.querySelector('[data-transport=cellular]').classList.contains('on')")
+        self.assertTrue(Portal.cellular)
+        self.assertEqual(self.errors, [])
+
+    def test_offline_dinosaur_setup_can_open_login_for_details(self):
+        Portal.product = 'wzh-dinosaur'
+        Portal.wifi_connected = False
+        Portal.authenticated = False
+        self.page.goto(self.url + '/setup?guide=off')
+        self.page.locator('#setupBack').click()
+        self.page.wait_for_url('**/login?next=/')
         self.assertEqual(self.errors, [])
 
     def test_product_guide_state_changes_with_device_identity(self):

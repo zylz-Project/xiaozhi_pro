@@ -35,15 +35,13 @@ inline void FeedBargeReference(VoiceBargeIn&detector,int64_t now,float rms=1000,
 class VoiceBargeInTest(unittest.TestCase):
     run_cpp = runtime_tests.FirmwareRuntimeOptimizationsTest.run_cpp
 
-    def test_dinosaur_vadnet_trial_uses_one_neural_model_and_no_audio_debugger(self):
+    def test_dinosaur_release_uses_webrtc_without_experimental_vadnet(self):
         builds = json.loads((ROOT/'main/boards/wzh_dinosaur/config.json').read_text())['builds']
-        trial = next(b for b in builds if b['name'] == 'wzh-dinosaur-vadnet-test')
-        options = set(trial['sdkconfig_append'])
-        for setting in ('CONFIG_USE_VOICE_BARGE_IN=y', 'CONFIG_SR_VADN_VADNET1_MEDIUM=y',
-                        'CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT=y', 'CONFIG_SR_NSN_NSNET2=n',
-                        'CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND=n', 'CONFIG_USE_AUDIO_DEBUGGER=n',
-                        'CONFIG_VOICE_BARGE_IN_SHADOW=n'):
+        options = set(builds[0]['sdkconfig_append'])
+        for setting in ('CONFIG_USE_VOICE_BARGE_IN=y', 'CONFIG_SR_VADN_WEBRTC=y',
+                        'CONFIG_SR_VADN_VADNET1_MEDIUM=n', 'CONFIG_USE_AUDIO_DEBUGGER=n'):
             self.assertIn(setting, options)
+        self.assertNotIn('CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT=y', options)
 
     def test_motion_guard_requires_five_frames_without_changing_default(self):
         self.run_cpp(HEADER + r'''
@@ -510,7 +508,7 @@ int main(){
 }
 ''')
 
-    def test_default_and_barge_in_variants_enable_interruption_on_the_same_board(self):
+    def test_current_product_builds_enable_keyword_interruption(self):
         for board, identity, wake_word in [
             ('wzh_crawlPanda', 'wzh-crawlpanda', 'wn9_nihaoxiaoan_tts2'),
             ('wzh_dinosaur', 'wzh-dinosaur', 'wn9_xiaolongxiaolong_tts'),
@@ -518,11 +516,9 @@ int main(){
         ]:
             with self.subTest(board=board):
                 config=json.loads((ROOT/'main/boards'/board/'config.json').read_text())
-                builds={b['name']:b for b in config['builds']}
-                ordinary=builds[identity];trial=builds[identity+'-barge-in']
                 self.assertEqual(config['type'],identity)
                 self.assertEqual(config['target'],'esp32s3')
-                for build in [ordinary,trial]:
+                for build in config['builds']:
                     self.assertEqual(build['default_wake_word'],wake_word)
                     settings=build['sdkconfig_append']
                     self.assertEqual(len(settings),len({s.split('=',1)[0] for s in settings}))
@@ -531,7 +527,6 @@ int main(){
                                     'CONFIG_USE_AUDIO_DEBUGGER=n',
                                     'CONFIG_VOICE_BARGE_IN_SHADOW=n']:
                         self.assertIn(setting,settings)
-                for build in [ordinary, trial]:
                     for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
                                     'CONFIG_SR_VADN_WEBRTC=y',
                                     'CONFIG_SR_VADN_VADNET1_MEDIUM=n',
@@ -543,14 +538,9 @@ int main(){
                                 'CONFIG_SR_NSN_NSNET2=n', 'CONFIG_SR_NSN_WEBRTC=y']
                     for setting in expected:
                         self.assertIn(setting, build['sdkconfig_append'])
-                for setting in ['CONFIG_USE_VOICE_BARGE_IN=y',
-                                'CONFIG_SR_VADN_WEBRTC=y',
-                                'CONFIG_SR_VADN_VADNET1_MEDIUM=n',
-                                'CONFIG_USE_SERVER_AEC=n',
-                                'CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y',
-                                'CONFIG_ESP_CONSOLE_NONE=n',
-                                'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y']:
-                    self.assertIn(setting,trial['sdkconfig_append'])
+                    if build['name'].endswith('-barge-in'):
+                        self.assertIn('CONFIG_ESP_CONSOLE_NONE=n', settings)
+                        self.assertIn('CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y', settings)
 
     def test_all_product_codecs_enable_reference_only_for_barge_in(self):
         for board in ['wzh_crawlPanda','wzh_dinosaur','wzh_tailRedPanda']:
@@ -848,7 +838,7 @@ assert(interrupted==1&&woken==1);}
             'Protocol*protocol_=&protocol;',
             'std::shared_ptr<Protocol> protocol_{&protocol, [](Protocol*){}};')
         program=program.replace('bool ReconnectAfterVoiceInterruption(uint32_t){return false;}',
-                                'bool ReconnectAfterVoiceInterruption(uint32_t);')
+                                'bool ReconnectAfterVoiceInterruption(uint32_t, bool = false, bool = true, bool = false);')
         program=program.replace('class Application;', r'''
 constexpr unsigned MAIN_EVENT_SEND_AUDIO=2;
 constexpr int pdPASS=1;
@@ -885,6 +875,14 @@ int main(){
  failed.HandleVoiceInterruptionEvent();worker();worker=nullptr;failed.Drain();
  assert(!failed.barge_in_reconnecting_&&failed.state==kDeviceStateIdle);
  assert(!failed.audio_service_.voice&&failed.audio_service_.send_packets==0);
+ Application recovered;recovered.Install();recovered.state=kDeviceStateListening;
+ recovered.barge_in_reconnecting_=true;recovered.audio_service_.playback_idle=false;
+ assert(recovered.ReconnectAfterVoiceInterruption(recovered.interaction_generation_,false,true,true));
+ worker();worker=nullptr;recovered.Drain();
+ assert(recovered.protocol.opened&&!recovered.barge_in_reconnecting_);
+ assert(recovered.pending_listening_start_&&recovered.protocol.listens==0);
+ recovered.audio_service_.playback_idle=true;recovered.StartListeningAudio();
+ assert(recovered.protocol.listens==1);
 }
 ''',use_json=True)
 

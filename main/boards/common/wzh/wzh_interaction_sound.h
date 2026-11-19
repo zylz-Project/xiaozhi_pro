@@ -59,16 +59,10 @@ public:
                 }
             }
             if (pair[0] >= 0 || pair[1] >= 0) {
-                unsigned choice = random & 1U;
-                if (pair[choice] < 0)
-                    choice ^= 1U;
-                const unsigned other = choice ^ 1U;
-                if (pair[other] >= 0 &&
-                    std::strcmp(files[pair[choice]].name, last_name_.data()) == 0)
-                    choice = other;
-                if (pair[other] >= 0 ||
-                    std::strcmp(files[pair[choice]].name, last_name_.data()) != 0)
-                    return pair[choice];
+                // Curated pair leads, but only two fixed clips replay quickly
+                // under repeated touches. Mix them with the semantic pool below
+                // so the interaction keeps its character while gaining variety.
+                return PairOrSemantic(files, interaction, pair, random);
             }
         }
         bool has_alternative = false;
@@ -119,6 +113,60 @@ public:
         std::strncpy(last_name_.data(), name, last_name_.size() - 1);
         last_name_.back() = '\0';
     }
+
+private:
+    // Curated pair + best semantic candidates form a small pool that rotates
+    // without replacement, so consecutive touches hear different clips while
+    // every clip still matches the interaction's character.
+    template <typename Files>
+    int PairOrSemantic(const Files& files, PetInteraction interaction, const int (&pair)[2],
+                       uint32_t random) const {
+        std::array<int, kCandidatePool> pool{};
+        std::array<int, kCandidatePool> score{};
+        unsigned size = 0;
+        auto push = [&](int index, int value) {
+            if (index < 0 || size >= pool.size())
+                return;
+            for (unsigned i = 0; i < size; ++i)
+                if (pool[i] == index)
+                    return;
+            pool[size] = index;
+            score[size] = value;
+            ++size;
+        };
+        // The curated pair ranks above any semantic match.
+        push(pair[0], kCuratedScore);
+        push(pair[1], kCuratedScore);
+        for (size_t i = 0; i < files.size() && size < pool.size(); ++i) {
+            if (!Eligible(files[i]))
+                continue;
+            const int value = Score(files[i].name, interaction) +
+                              (files[i].duration_ms > 0 && files[i].duration_ms <= 2500 ? 4 : 0);
+            if (value <= 0)
+                continue;
+            // Keep only candidates at least as relevant as the weakest kept one.
+            int weakest = std::numeric_limits<int>::max();
+            for (unsigned k = 0; k < size; ++k)
+                weakest = std::min(weakest, score[k]);
+            if (size == pool.size() && value <= weakest)
+                continue;
+            push(static_cast<int>(i), value);
+        }
+        if (!size)
+            return -1;
+        // Drop the clip heard last unless it is the only option.
+        unsigned start = random % size;
+        for (unsigned k = 0; k < size; ++k) {
+            const unsigned index = (start + k) % size;
+            if (size == 1 || std::strcmp(files[pool[index]].name, last_name_.data()) != 0)
+                return pool[index];
+        }
+        return pool[start];
+    }
+
+public:
+    static constexpr unsigned kCandidatePool = 5;
+    static constexpr int kCuratedScore = 20;
 
 private:
     static bool NameIs(std::string_view name, std::string_view expected) {

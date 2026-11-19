@@ -1,10 +1,11 @@
 #include <driver/i2c_master.h>
-#include <cJSON.h>
 #include <esp_log.h>
 #include <esp_timer.h>
-#include <material_symbols.h>
+#include <esp_wifi.h>
+#include <cJSON.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <material_symbols.h>
 
 #include <cstring>
 #include <utility>
@@ -18,17 +19,18 @@
 #include "dinosaur_controller.h"
 #include "dinosaur_power.h"
 #include "display/display.h"
+#include "settings.h"
 #include "wifi_board.h"
 #include "wifi_manager.h"
 #include "wzh_audio_hub.h"
 #include "wzh_conversation_sounds.h"
 #include "wzh_idle_power.h"
-#include "wzh_system_prompts.h"
 #include "wzh_mcp_tools.h"
 #include "wzh_onboarding.h"
 #include "wzh_power_telemetry.h"
 #include "wzh_product.h"
 #include "wzh_sensors.h"
+#include "wzh_system_prompts.h"
 #include "wzh_user_pairs_catalog.inc"
 #include "wzh_voice_services.h"
 #include "wzh_web_console.h"
@@ -158,7 +160,8 @@ public:
             AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT,
             AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR, false, false,
             AUDIO_CODEC_PA_VOLTAGE, kDacReference, AUDIO_CODEC_PA_GAIN_DB,
-            AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB, 100);
+            AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB, 100,
+            AUDIO_CODEC_REFERENCE_MIC_GAIN_DB);
         return &codec;
     }
 
@@ -176,11 +179,11 @@ public:
 
     void OnConversationChannelOpened() override {
         wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceReady);
-        if (wzh::ConsumeOnboardingConnectionProbe()) {
-            Application::GetInstance().Schedule([]() {
-                Application::GetInstance().StopInteraction(false);
-            });
-        }
+        // The tutorial's connection probe succeeded inside the live
+        // conversation: finish the remaining narration in the background and
+        // keep the chat open instead of hanging up on the user.
+        wzh::ConsumeOnboardingConnectionProbe();
+        wzh::CompleteOnboardingInConversation();
     }
 
 #if CONFIG_USE_VOICE_BARGE_IN && CONFIG_WZH_DINOSAUR_MOTION_BARGE_GUARD
@@ -307,38 +310,189 @@ public:
 
 #if DINOSAUR_ENABLE_4G
     void StartNetwork() override {
-        // Retain the local Wi-Fi portal; only cellular events control the
-        // cloud connection in this explicitly selected test variant.
+        // The modem must be registered and have PDP before it wins the boot
+        // selection. A separate deadline keeps a stuck AT command bounded.
+        if (!cellular_.Start(
+                [this](NetworkEvent event, const std::string& data) {
+                    if (power_.IsShuttingDown())
+                        return;
+                    if (network_choice_.load() == NetworkChoice::kProbing &&
+                        event == NetworkEvent::Connected) {
+                        SelectNetwork(true);
+                        return;
+                    }
+                    // Failed setup falls back to Wi-Fi without showing a modem error.
+                    if (network_choice_.load() == NetworkChoice::kProbing &&
+                        event == NetworkEvent::ModemErrorInitFailed)
+                        return;
+                    if (network_choice_.load() != NetworkChoice::kCellular)
+                        return;
+                    if (event == NetworkEvent::Disconnected) {
+                        cellular_connected_reported_.store(false);
+                        wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
+                        controller_.SetConversationActive(false);
+                    } else if (event == NetworkEvent::Connected && cloud_network_callback_ &&
+                               cellular_connected_reported_.exchange(true)) {
+                        return;
+                    }
+                    if (cloud_network_callback_)
+                        cloud_network_callback_(event, data);
+                },
+                [this](bool detected) {
+                    if (!detected) {
+                        SelectNetwork(false);
+                        return;
+                    }
+                    // Release STA memory while registration is in progress;
+                    // the portal AP remains available. Recheck the choice in
+                    // the main task so a late probe cannot stop fallback Wi-Fi.
+                    Application::GetInstance().Schedule([this]() {
+                        if (!power_.IsShuttingDown() &&
+                            network_choice_.load() == NetworkChoice::kProbing)
+                            WifiManager::GetInstance().StopStation();
+                    });
+                })) {
+            SelectNetwork(false);
+        }
+        // The portal starts immediately; STA is deferred until Wi-Fi wins.
         WifiBoard::StartNetwork();
-        cellular_.Start([this](NetworkEvent event, const std::string& data) {
-            if (power_.IsShuttingDown())
-                return;
-            if (event == NetworkEvent::Disconnected) {
-                wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
-                controller_.SetConversationActive(false);
-            }
-            if (cloud_network_callback_)
-                cloud_network_callback_(event, data);
-        });
+        if (LoadTransportPreference() == "wifi") {
+            SelectNetwork(false);
+        } else if (network_choice_.load() == NetworkChoice::kProbing) {
+            StartBootNetworkDeadline();
+        }
     }
 
-    NetworkInterface* GetNetwork() override { return cellular_.GetNetwork(); }
-    bool IsNetworkAvailable() const override {
-        return !power_.IsShuttingDown() && cellular_.IsReady();
+    NetworkInterface* GetNetwork() override {
+        if (network_choice_.load() == NetworkChoice::kProbing)
+            return nullptr;
+        return UsesCellularNetwork() ? cellular_.GetNetwork() : WifiBoard::GetNetwork();
     }
-    bool UsesCellularNetwork() const override { return true; }
+    bool IsNetworkAvailable() const override {
+        if (power_.IsShuttingDown() || network_choice_.load() == NetworkChoice::kProbing)
+            return false;
+        return UsesCellularNetwork() ? cellular_.IsReady() : WifiBoard::IsNetworkAvailable();
+    }
+    bool UsesCellularNetwork() const override {
+        return network_choice_.load() == NetworkChoice::kCellular;
+    }
+    // ML307 MQTTPUB accepts at most 1024 payload bytes.
+    size_t GetProtocolPayloadLimit() const override { return UsesCellularNetwork() ? 1024 : 0; }
+    bool IsNetworkProbing() const override {
+        return network_choice_.load() == NetworkChoice::kProbing;
+    }
+    bool HasModemTransport() const override {
+        // Keep the control available even after a failed probe, so an attached
+        // modem can be detected again from the portal.
+        return network_choice_.load() != NetworkChoice::kProbing;
+    }
+    bool SelectNetworkTransport(bool cellular) override {
+        if (!cellular)
+            cellular_probe_requested_.store(false);
+        auto current = network_choice_.load();
+        if (current == NetworkChoice::kProbing)
+            return false;  // Wait for the boot probe to pick a transport.
+        const auto target = cellular ? NetworkChoice::kCellular : NetworkChoice::kWifi;
+        if (current == target)
+            return true;
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateActivating ||
+            app.GetDeviceState() == kDeviceStateUpgrading)
+            return false;
+        if (cellular && cellular_.Absent()) {
+            // The modem was never detected, or the probe task already ended.
+            // Only a successful re-probe can commit the requested switch.
+            cellular_probe_requested_.store(true);
+            if (!cellular_.Start(
+                    [this](NetworkEvent event, const std::string& data) {
+                        if (power_.IsShuttingDown() || !UsesCellularNetwork())
+                            return;
+                        if (event == NetworkEvent::Disconnected) {
+                            cellular_connected_reported_.store(false);
+                            wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
+                            controller_.SetConversationActive(false);
+                        } else if (event == NetworkEvent::Connected && cloud_network_callback_ &&
+                                   cellular_connected_reported_.exchange(true)) {
+                            return;
+                        }
+                        if (cloud_network_callback_)
+                            cloud_network_callback_(event, data);
+                    },
+                    [this](bool detected) {
+                        Application::GetInstance().Schedule([this, detected]() {
+                            if (cellular_probe_requested_.exchange(false) && detected &&
+                                !power_.IsShuttingDown())
+                                SelectNetworkTransport(true);
+                        });
+                    })) {
+                cellular_probe_requested_.store(false);
+                return false;
+            }
+            ESP_LOGW("Dinosaur", "Cellular selected; restarting modem probe");
+            return false;  // The endpoint reports 409; the page re-polls status.
+        }
+        if (!network_choice_.compare_exchange_strong(current, NetworkChoice::kProbing))
+            return false;
+        SaveTransportPreference(cellular ? "cellular" : "wifi");
+        ESP_LOGI("Dinosaur", "Transport switched to %s", cellular ? "4G" : "Wi-Fi");
+        // Close the old conversation and protocol before changing radios.
+        // Probing blocks new clients while these main-task jobs are pending.
+        app.StopInteraction();
+        app.ResetProtocol();
+        app.Schedule([this, cellular, target]() {
+            if (power_.IsShuttingDown())
+                return;
+            network_choice_.store(target);
+            cellular_.SetPaused(!cellular);
+            if (cellular) {
+                // Reclaim the station before the modem owns the cloud link. A
+                // pending station event may have reconnected the stale STA
+                // configuration while the station was stopped, so disconnect
+                // again; the portal AP keeps running (APSTA) for local pages.
+                auto& wifi = WifiManager::GetInstance();
+                wifi.StopStation();
+                esp_wifi_disconnect();
+                wifi_connected_reported_.store(false);
+                // Registration may have completed while the transport was
+                // still probing. Publish that transition once after the
+                // switch so Application can leave the offline state.
+                if (cellular_.IsReady() && cloud_network_callback_ &&
+                    !cellular_connected_reported_.exchange(true))
+                    cloud_network_callback_(NetworkEvent::Connected, "4G");
+            } else {
+                cellular_connected_reported_.store(false);
+                // Re-arm the station for saved credentials; probing suppressed it.
+                auto& wifi = WifiManager::GetInstance();
+                wifi.StartStation();
+                if (wifi.IsConnected() && !wifi_connected_reported_.exchange(true) &&
+                    cloud_network_callback_)
+                    cloud_network_callback_(NetworkEvent::Connected, wifi.GetSsid());
+            }
+        });
+        return true;
+    }
+    void RequestNetworkRecheck() override {
+        if (UsesCellularNetwork())
+            cellular_.RequestRecheck();
+    }
     bool HasSystemNetwork() const override { return WifiManager::GetInstance().IsConnected(); }
     const char* GetNetworkStateIcon() override {
+        if (!UsesCellularNetwork())
+            return WifiBoard::GetNetworkStateIcon();
         return cellular_.IsReady() ? MATERIAL_SYMBOLS_SIGNAL_CELLULAR_ALT
                                    : MATERIAL_SYMBOLS_ANDROID_CELL_4_BAR_OFF;
     }
 
     std::string GetBoardJson() override {
+        if (!UsesCellularNetwork())
+            return WifiBoard::GetBoardJson();
         return std::string("{\"type\":\"") + BOARD_TYPE + "\",\"name\":\"" + BOARD_NAME +
                "\",\"manufacturer\":\"" + BOARD_MANUFACTURER + "\",\"network\":\"cellular\"}";
     }
 
     std::string GetDeviceStatusJson() override {
+        if (!UsesCellularNetwork())
+            return WifiBoard::GetDeviceStatusJson();
         auto* root = cJSON_Parse(WifiBoard::GetDeviceStatusJson().c_str());
         if (!root)
             return "{}";
@@ -361,11 +515,22 @@ public:
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
 #if DINOSAUR_ENABLE_4G
         cloud_network_callback_ = std::move(callback);
-        WifiBoard::SetNetworkEventCallback([this](NetworkEvent event, const std::string&) {
-            if (event == NetworkEvent::Connected) {
+        WifiBoard::SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
+            if (event == NetworkEvent::Connected)
                 web_console_.Start();
-            } else if (event == NetworkEvent::WifiConfigModeEnter)
+            else if (event == NetworkEvent::WifiConfigModeEnter)
                 web_console_.Stop();
+            if (network_choice_.load() != NetworkChoice::kWifi || power_.IsShuttingDown())
+                return;
+            if (event == NetworkEvent::Connected && wifi_connected_reported_.exchange(true))
+                return;
+            if (event == NetworkEvent::Disconnected || event == NetworkEvent::WifiConfigModeEnter) {
+                wifi_connected_reported_.store(false);
+                wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
+                controller_.SetConversationActive(false);
+            }
+            if (cloud_network_callback_)
+                cloud_network_callback_(event, data);
         });
 #else
         // 在线/离线主要由对话状态决定；断网事件仍应立即强制返回离线，
@@ -390,6 +555,107 @@ public:
 
 private:
 #if DINOSAUR_ENABLE_4G
+    enum class NetworkChoice : uint8_t { kProbing, kWifi, kCellular };
+    void StartBootNetworkDeadline() {
+        esp_timer_create_args_t args{};
+        args.callback = [](void* arg) {
+            auto* self = static_cast<WzhDinosaur*>(arg);
+            Application::GetInstance().Schedule([self]() {
+                if (self->boot_selection_pending_.load() && !self->power_.IsShuttingDown() &&
+                    self->network_choice_.load() == NetworkChoice::kProbing) {
+                    ESP_LOGW(TAG, "4G boot deadline expired; falling back to Wi-Fi");
+                    self->SelectNetwork(false);
+                }
+            });
+        };
+        args.arg = this;
+        args.name = "dino_net_boot";
+        const auto created = esp_timer_create(&args, &boot_network_timer_);
+        if (created != ESP_OK || esp_timer_start_once(boot_network_timer_, 5000000) != ESP_OK) {
+            if (created == ESP_OK) {
+                esp_timer_delete(boot_network_timer_);
+                boot_network_timer_ = nullptr;
+            }
+            ESP_LOGW(TAG, "Cannot start 4G boot deadline; selecting Wi-Fi");
+            SelectNetwork(false);
+        }
+    }
+    bool DeferWifiSetup() const override { return wifi_setup_deferred_.load(); }
+    // Explicit user preference ("wifi" / "cellular"), stored in NVS. Absent
+    // means the boot probe decides: registered PDP → 4G, else Wi-Fi.
+    static constexpr const char* kTransportNvs = "network";
+    static constexpr const char* kTransportNamespace = "dino_net";
+    void SaveTransportPreference(const char* value) {
+        Settings settings(kTransportNamespace, true);
+        settings.SetString(kTransportNvs, value);
+    }
+    std::string LoadTransportPreference() {
+        Settings settings(kTransportNamespace, false);
+        return settings.GetString(kTransportNvs, "");
+    }
+    void SelectNetwork(bool detected) {
+        if (!boot_selection_pending_.load())
+            return;
+        NetworkChoice expected = NetworkChoice::kProbing;
+        // A saved preference outranks hardware detection — except when the
+        // 4G did not become ready: fall back to Wi-Fi for this boot while
+        // keeping the preference for the next boot.
+        const auto saved = LoadTransportPreference();
+        const auto choice = saved == "wifi" ? NetworkChoice::kWifi
+                            : saved == "cellular"
+                                ? (detected ? NetworkChoice::kCellular : NetworkChoice::kWifi)
+                                : (detected ? NetworkChoice::kCellular : NetworkChoice::kWifi);
+        if (!network_choice_.compare_exchange_strong(expected, choice))
+            return;
+        boot_selection_pending_.store(false);
+        ESP_LOGI("Dinosaur", "Selected network: %s (saved=%s 4g_ready=%s)",
+                 choice == NetworkChoice::kCellular ? "4G" : "Wi-Fi", saved.c_str(),
+                 detected ? "yes" : "no");
+        if (saved == "cellular" && !detected)
+            ESP_LOGW("Dinosaur", "4G preferred but not ready; falling back to Wi-Fi this boot");
+        if (choice == NetworkChoice::kWifi) {
+            // Also pause an in-flight probe: a late detection must not start
+            // cellular registration after the deadline selected Wi-Fi.
+            cellular_.SetPaused(true);
+        }
+        Application::GetInstance().Schedule([this, choice]() {
+            if (power_.IsShuttingDown())
+                return;
+            wifi_setup_deferred_.store(false);
+            // The portal must stay up for configuration, but the station must
+            // not run alongside cellular: the STA driver, its scan task and the
+            // lwIP buffers it keeps push internal SRAM below what the ML307 AT
+            // ring (12 x 512 B) needs, and every AT command then times out.
+            if (choice == NetworkChoice::kCellular) {
+                WifiManager::GetInstance().StopStation();
+                wifi_connected_reported_.store(false);
+                CompleteDeferredWifiSetup();
+                // The modem can finish registration before the boot probe
+                // commits the transport. Its Connected event is intentionally
+                // suppressed while network_choice_ is still kProbing, so
+                // replay it once here.
+                if (cellular_.IsReady() && cloud_network_callback_ &&
+                    !cellular_connected_reported_.exchange(true))
+                    cloud_network_callback_(NetworkEvent::Connected, "4G");
+                return;
+            }
+            cellular_connected_reported_.store(false);
+            CompleteDeferredWifiSetup();
+            // Wi-Fi may have connected while its events were suppressed during
+            // probing. Publish that connection once after choosing Wi-Fi.
+            auto& wifi = WifiManager::GetInstance();
+            if (wifi.IsConnected() && !wifi_connected_reported_.exchange(true) &&
+                cloud_network_callback_)
+                cloud_network_callback_(NetworkEvent::Connected, wifi.GetSsid());
+        });
+    }
+    std::atomic<NetworkChoice> network_choice_{NetworkChoice::kProbing};
+    std::atomic<bool> boot_selection_pending_{true};
+    esp_timer_handle_t boot_network_timer_ = nullptr;
+    std::atomic<bool> cellular_probe_requested_{false};
+    std::atomic<bool> wifi_setup_deferred_{true};
+    std::atomic<bool> wifi_connected_reported_{false};
+    std::atomic<bool> cellular_connected_reported_{false};
     DinosaurCellular cellular_;
     NetworkEventCallback cloud_network_callback_;
 #endif
@@ -405,21 +671,22 @@ private:
     DinosaurDisplay display_;
 
     void InitializeSensors() {
-        sensors_.Initialize(HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
-                            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
-                                if (event == wzh::Sensors::Event::kPickedUp ||
-                                    event == wzh::Sensors::Event::kShaken) {
-                                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion)) {
-                                        wzh::NotifyIdleInteraction();
-                                        return true;
-                                    }
-                                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
-                                    wzh::NotifyIdleInteraction();
-                                }
-                                if (event == wzh::Sensors::Event::kHuman)
-                                    wzh::NotifyIdleInteraction();
-                                return controller_.HandleSensorEvent(static_cast<int>(event));
-                            });
+        sensors_.Initialize(
+            HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
+            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
+                if (event == wzh::Sensors::Event::kPickedUp ||
+                    event == wzh::Sensors::Event::kShaken) {
+                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion)) {
+                        wzh::NotifyIdleInteraction();
+                        return true;
+                    }
+                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
+                    wzh::NotifyIdleInteraction();
+                }
+                if (event == wzh::Sensors::Event::kHuman)
+                    wzh::NotifyIdleInteraction();
+                return controller_.HandleSensorEvent(static_cast<int>(event));
+            });
         sensors_.RegisterMcpTools("dinosaur");
     }
 

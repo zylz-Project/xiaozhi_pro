@@ -2,50 +2,149 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
-  let online = false, selected = null, busy = false;
+  let online = false, authenticated = false, selected = null, busy = false, scanning = false;
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-  async function api(path, body) {
+  async function api(path, body, timeoutMs=10000) {
     const opts = {cache:'no-store', credentials:'same-origin'};
     if (body !== undefined) { opts.method='POST'; opts.headers={'Content-Type':'application/json'}; opts.body=JSON.stringify(body); }
-    const r = await fetch(path, opts), d = await r.json();
+    const controller = new AbortController(), timer = setTimeout(()=>controller.abort(),timeoutMs);
+    let r, d;
+    try { r = await fetch(path, {...opts, signal:controller.signal}); d = await r.json(); }
+    catch(e) { if(e.name==='AbortError') throw new Error('连接设备超时，请确认手机仍连接设备热点后重试'); throw e; }
+    finally { clearTimeout(timer); }
     if (!r.ok || d.ok === false) { const e = new Error(d.error?.message || '操作失败'); e.status = r.status; throw e; }
     return d;
   }
   function show(id, visible) { const el=$(id); el.classList.toggle('show',visible); el.setAttribute('aria-hidden', visible ? 'false' : 'true'); }
   function toast(msg) { $('toast').textContent=msg; $('toast').classList.add('show'); setTimeout(()=>$('toast').classList.remove('show'),2500); }
+  function loginFor(e) {
+    if (!e || e.status !== 401) return false;
+    location.href='/login?next=/setup';
+    return true;
+  }
+  async function ensureWifiTransport(net) {
+    net=net||await api('/api/status');
+    const deadline=Date.now()+30000;
+    let lastSwitchAt=0;
+    while(Date.now()<deadline) {
+      if(net.transport==='probing') {
+        await wait(500);
+      } else if(net.transport==='cellular') {
+        // The firmware applies the switch on the main task. A status poll taken
+        // 500 ms later can legitimately still say "cellular"; keep polling and
+        // retry the request after a few seconds instead of failing the page.
+        if(!lastSwitchAt || Date.now()-lastSwitchAt>6000) {
+          $('scanMeta').textContent='正在切换到 Wi-Fi…';
+          try { await api('/api/network/transport',{transport:'wifi'},12000); }
+          catch(e) {
+            if(loginFor(e)) throw e;
+            // The AP may change channel before the response reaches the phone.
+            // A 409 means the main task is still busy; status will decide.
+            if(e.status && e.status!==409) throw e;
+          }
+          lastSwitchAt=Date.now();
+        }
+        await wait(600);
+      } else {
+        return net;
+      }
+      try { net=await api('/api/status'); }
+      catch(e) { if(e.status) throw e; }
+    }
+    throw new Error('网络切换超时，请稍后重试');
+  }
   async function scan() {
-    $('scanBtn').disabled=true; $('scanMeta').textContent='正在扫描…';
+    if (scanning) return;
+    scanning=true;
+    $('scanBtn').disabled=true; $('scanBtn').classList.add('spin');
+    $('scanMeta').textContent='正在扫描附近网络…';
+    $('netEmpty').textContent='还没有发现附近的网络，请点击右上角刷新';
+    $('netEmpty').hidden=true;
+    const list=$('netList'); list.textContent=''; list.setAttribute('aria-busy','true');
     try {
-      let d=await api('/scan');
-      if (!d.aps?.length) { await wait(1200); d=await api('/scan'); }
-      const list=$('netList'); list.textContent='';
-      for (const ap of d.aps || []) {
+      await ensureWifiTransport();
+      // The firmware fills its scan cache asynchronously, so a single request
+      // often returns the previous (empty) result. A scan can also briefly
+      // switch the AP channel, so tolerate short fetch failures while the
+      // phone rejoins and keep polling instead of abandoning the list.
+      let aps=[], answered=false, lastError=null;
+      for (let attempt=0; attempt<18; ++attempt) {
+        try {
+          const d=await api('/scan',undefined,3000);
+          answered=true; lastError=null;
+          aps=(d.aps||[]).filter(ap=>!(online&&ap.current));
+          if (aps.length) break;
+        } catch(e) {
+          if(e.status) throw e;
+          lastError=e;
+        }
+        if (attempt < 17) await wait(700);
+      }
+      // The current network already has its own card at the top of the page.
+      const strength=ap=>ap.unavailable?'暂不可用':ap.rssi==null?'信号未知':ap.rssi>=-55?'信号很强':ap.rssi>=-67?'信号强':ap.rssi>=-75?'信号一般':'信号较弱';
+      const bars=ap=>ap.rssi==null?0:ap.rssi>=-55?4:ap.rssi>=-67?3:ap.rssi>=-75?2:1;
+      for (const ap of aps) {
         const row=document.createElement('button'); row.type='button'; row.className='net-row';
+        if (ap.band===5) row.classList.add('is-5g');
+        const sig=document.createElement('span'); sig.className='net-sig'; sig.setAttribute('aria-hidden','true');
+        const on=bars(ap);
+        for (let i=0;i<4;i++){ const bar=document.createElement('i'); if(i<on) bar.className='on'; sig.append(bar); }
         const text=document.createElement('span'); text.className='net-copy';
         const title=document.createElement('b'); title.textContent=ap.ssid;
-        const sub=document.createElement('small'); sub.textContent=ap.unavailable?'暂不可用':((ap.current?'当前连接 · ':ap.saved?'已保存 · ':'')+(ap.rssi == null?'信号未知':ap.rssi+' dBm'));
-        text.append(title,sub); row.append(text); row.addEventListener('click',()=>{ selected=ap; $('pwTitle').textContent='连接到 '+ap.ssid; $('pwSsid').textContent=ap.ssid; $('pwInput').value=''; $('pwError').textContent=''; show('pwLayer',true); }); list.append(row);
+        if (ap.saved) { const tag=document.createElement('span'); tag.className='net-tag'; tag.textContent='已保存'; title.append(tag); }
+        if (ap.auth != null && ap.auth !== 0) {
+          const lock=document.createElementNS('http://www.w3.org/2000/svg','svg'); lock.setAttribute('class','ico'); lock.setAttribute('viewBox','0 0 24 24');
+          const use=document.createElementNS('http://www.w3.org/2000/svg','use'); use.setAttribute('href','#i-lock'); lock.append(use); title.append(lock);
+        }
+        const sub=document.createElement('small'); sub.textContent=strength(ap);
+        text.append(title,sub);
+        const band=document.createElement('span'); band.className='net-band'; band.textContent=ap.band===5?'5G':ap.unavailable?'频段未知':'2.4G';
+        const chev=document.createElementNS('http://www.w3.org/2000/svg','svg'); chev.setAttribute('class','chev'); chev.setAttribute('viewBox','0 0 24 24'); chev.setAttribute('fill','none'); chev.setAttribute('stroke','currentColor'); chev.setAttribute('stroke-width','1.9');
+        const cu=document.createElementNS('http://www.w3.org/2000/svg','use'); cu.setAttribute('href','#i-chev'); chev.append(cu);
+        row.append(sig,text,band,chev);
+        row.addEventListener('click',()=>{ selected=ap; $('pwTitle').textContent='连接到 '+ap.ssid; $('pwSsid').textContent=ap.ssid; $('pwInput').value=''; $('pwError').textContent=''; show('pwLayer',true); });
+        list.append(row);
       }
-      $('scanMeta').textContent=(d.aps||[]).length+' 个网络';
-    } catch(e) { $('scanMeta').textContent=e.message; }
-    finally { await wait(4000); $('scanBtn').disabled=false; }
+      $('scanMeta').textContent=aps.length+' 个网络';
+      $('netEmpty').hidden=aps.length>0;
+      if (!aps.length && !answered && lastError)
+        $('netEmpty').textContent='扫描暂时中断，请确认手机仍连接设备热点后重试';
+    } catch(e) {
+      if(!loginFor(e)) {
+        $('scanMeta').textContent=e.message;
+        $('netEmpty').textContent='扫描失败，请确认手机仍连接设备热点后重试';
+        $('netEmpty').hidden=false;
+      }
+    }
+    finally {
+      scanning=false;
+      list.setAttribute('aria-busy','false');
+      $('scanBtn').disabled=false; $('scanBtn').classList.remove('spin');
+    }
   }
   async function connect(ssid,password,error,button) {
-    if (busy) return; if (!ssid || new TextEncoder().encode(ssid).length>32 || new TextEncoder().encode(password).length>64) { error.textContent='请检查网络名称和密码'; return; }
+    if (busy) { error.textContent='上一项连接还在进行，请稍候'; return; } if (!ssid || new TextEncoder().encode(ssid).length>32 || new TextEncoder().encode(password).length>64) { error.textContent='请检查网络名称和密码'; return; }
     busy=true; button.disabled=true; error.textContent='正在连接，请保持手机连接设备热点…';
     try {
+      await ensureWifiTransport();
       const r=await api('/submit',{ssid,password}); sessionStorage.setItem('wzh_setup_ssid',ssid);
-      for (;;) { await wait(1000); const s=await api('/api/setup/status?job='+encodeURIComponent(r.job)); if (s.phase==='failed') throw new Error(s.error?.message||'连接失败'); if(s.ctx){sessionStorage.setItem('wzh_done',s.ctx);location.href='/done';return;} }
-    } catch(e) { error.textContent=e.message; if(e.status===401 && online) location.href='/login?next=/setup'; }
+      const deadline=Date.now()+120000;
+      while(Date.now()<deadline) { await wait(1000); let s; try{s=await api('/api/setup/status?job='+encodeURIComponent(r.job));}catch(e){if(e.status===401)throw e;error.textContent='连接暂时中断，正在重新查询…';continue;} if (s.phase==='failed') throw new Error(s.error?.message||'连接失败'); if(s.ctx){sessionStorage.setItem('wzh_done',s.ctx);location.href='/done';return;} }
+      throw new Error('连接状态查询超时，请确认手机连接设备热点后重试');
+    } catch(e) { if(!loginFor(e)) error.textContent=e.message; }
     finally { busy=false; button.disabled=false; }
   }
   $('pwConnect').onclick=()=>connect(selected?.ssid || '', $('pwInput').value, $('pwError'), $('pwConnect'));
   $('manualConnect').onclick=()=>connect($('manualSsid').value,$('manualPw').value,$('manualError'),$('manualConnect'));
-  $('scanBtn').onclick=scan; $('manualSsidBtn').onclick=()=>show('manualLayer',true); $('setupBack').onclick=()=>location.href='/';
-  document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>show(b.dataset.close,false));
+  $('scanBtn').onclick=scan; $('manualSsidBtn').onclick=()=>show('manualLayer',true); $('setupBack').onclick=()=>location.href=authenticated?'/':'/login?next=/';
+  document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>{if(busy){toast('正在连接，请稍候');return;}show(b.dataset.close,false);});
   ['pw','manual'].forEach(prefix=>$(prefix+'Peek').onclick=()=>{ const input=$(prefix==='pw'?'pwInput':'manualPw'); input.type=input.type==='password'?'text':'password'; });
   function showStartupNotice(s) { const el=$('startupNotice'); const text=s.startup_notice||''; el.textContent=text; el.hidden=!text; }
   async function refreshStartupNotice(){if(document.hidden)return;try{showStartupNotice(await api('/api/status'));}catch(e){ /* Connection status is handled by the existing setup flow. */ }}
   setInterval(refreshStartupNotice,5000);
-  (async()=>{ try { const s=await api('/api/status'); showStartupNotice(s); online=!!s.wifi?.connected; const mode=online?'change':s.saved_network?'offline':'first'; $('setupPhone').dataset.mode=mode; $('setupBack').hidden=!online; $('currentNet').hidden=!online; $('currentSsid').textContent=s.wifi?.ssid||'--'; $('currentSub').textContent=online?'当前连接':'离线'; $('setupSub').textContent=online?'旧网络会保留；新网络连接失败后会恢复。':'选择家里的 2.4 GHz 网络。'; if(window.PandaProduct){const id=s.build==='wzh-dinosaur'?'dinosaur':s.build==='wzh-tailredpanda'?'redpanda':'crawlPanda';PandaProduct.set(id,false);} await scan(); if(window.PandaGuide) PandaGuide.auto(mode==='change'?'setupChange':mode==='offline'?'setupOffline':'setupFirst'); } catch(e){toast(e.message);} })();
+  (async()=>{ try { let s=await api('/api/status'); showStartupNotice(s); authenticated=s.build==='wzh-dinosaur'?!!s.authenticated:!!s.wifi?.connected; $('setupBack').hidden=!(s.wifi?.connected||s.build==='wzh-dinosaur'); s=await ensureWifiTransport(s); authenticated=s.build==='wzh-dinosaur'?!!s.authenticated:!!s.wifi?.connected; online=!!s.wifi?.connected; const mode=online?'change':s.saved_network?'offline':'first'; $('setupPhone').dataset.mode=mode; $('setupBack').hidden=!(online||s.build==='wzh-dinosaur'); $('currentNet').hidden=!online; $('currentSsid').textContent=s.wifi?.ssid||'--'; $('currentSub').textContent=online?'当前连接':'离线';
+        const copy={change:{kicker:'CHANGE NETWORK · 更换网络',title:'换一个 Wi-Fi',sub:'选一个新的 2.4GHz 网络。连不上会自动回到现在的网络。',steps:['选网络','输密码','等待连接']},offline:{kicker:'RECONNECT · 重新联网',title:'重新连上 Wi-Fi',sub:'设备现在不在线。选一个网络重新连上，原来的凭据会保留。',steps:['选网络','输密码','等待连接']},first:{kicker:'FIRST CONNECTION · 第一次配网',title:'连上家里的 Wi-Fi',sub:'只支持 2.4GHz。选一个网络，输入密码就好。',steps:['连热点','选网络','输密码']}}[mode];
+        $('setupKicker').textContent=copy.kicker; $('setupHeading').textContent=copy.title; $('setupSub').textContent=copy.sub;
+        document.querySelectorAll('.setup-flow span').forEach((el,i)=>{ el.innerHTML='<b>'+(i+1)+'</b>'+(copy.steps[i]||''); el.classList.toggle('on', mode==='first' ? i<2 : i<1); });
+        const stepCount=document.querySelector('.step-count'); if(stepCount) stepCount.textContent=(mode==='first'?'01':'02')+' / 03'; if(window.PandaProduct){const id=s.build==='wzh-dinosaur'?'dinosaur':s.build==='wzh-tailredpanda'?'redpanda':'crawlPanda';PandaProduct.set(id,false);} await scan(); if(window.PandaGuide) PandaGuide.auto(mode==='change'?'setupChange':mode==='offline'?'setupOffline':'setupFirst'); } catch(e){if(!loginFor(e))toast(e.message);} })();
 })();

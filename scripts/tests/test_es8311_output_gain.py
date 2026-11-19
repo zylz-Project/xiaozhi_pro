@@ -53,6 +53,7 @@ int main(){audio_codec_es8311_t codec;
 #include <cstdint>
 #include <mutex>
 #include <vector>
+#include "speaker_protection.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
@@ -139,31 +140,37 @@ struct Es8311AudioCodec:AudioCodec{
             'void Es8311AudioCodec::SetOutputVolume('])
 
     def test_wzh_boards_use_their_protected_loudness_profiles(self):
-        for board in ('wzh_crawlPanda', 'wzh_tailRedPanda', 'wzh_dinosaur'):
+        for board, makeup, microphone in (
+            ('wzh_crawlPanda', '21.0f', '18.0f'),
+            ('wzh_tailRedPanda', '21.0f', '18.0f'),
+            ('wzh_dinosaur', '24.0f', '12.0f'),
+        ):
             config = (ROOT / 'main/boards' / board / 'config.h').read_text()
             self.assertIn('#define AUDIO_CODEC_PA_GAIN_DB 20.0f', config)
-            maximum, makeup = ('-0.5f', '21.0f')
-            self.assertIn(f'#define AUDIO_CODEC_MAX_VOLUME_DB {maximum}', config)
+            self.assertIn('#define AUDIO_CODEC_MAX_VOLUME_DB -0.5f', config)
             self.assertIn(f'#define AUDIO_CODEC_SPEAKER_MAKEUP_DB {makeup}', config)
+            self.assertIn(f'#define AUDIO_CODEC_REFERENCE_MIC_GAIN_DB {microphone}', config)
             source = (ROOT / 'main/boards' / board / (board + '.cc')).read_text()
             self.assertIn('AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB, 100', source)
-            if board != 'wzh_dinosaur':
-                self.assertIn('#define AUDIO_CODEC_REFERENCE_MIC_GAIN_DB 18.0f', config)
-                self.assertIn('AUDIO_CODEC_REFERENCE_MIC_GAIN_DB', source)
+            self.assertIn('AUDIO_CODEC_REFERENCE_MIC_GAIN_DB', source)
 
     def test_wzh_pa_gain_top_end_curve_mute_and_restore_after_reopen(self):
         self.run_cpp(self.program() + r'''
 int main(){
- for(bool reference:{false,true}){
+ struct Profile{bool reference;float mic_gain;float makeup;};
+ for(const auto profile:{Profile{false,18.0f,21.0f},Profile{true,18.0f,21.0f},
+                         Profile{true,12.0f,24.0f}}){
+  const float expected_input_gain=profile.reference?profile.mic_gain:36.0f;
   Es8311AudioCodec codec(nullptr,0,24000,24000,-1,48,13,46,14,-1,0x30,
-                          false,false,3.3f,reference,20.0f,-0.5f,21.0f,100,18.0f);
+                         false,false,3.3f,profile.reference,20.0f,-0.5f,profile.makeup,
+                         100,profile.mic_gain);
   assert(codec.output_volume_==100);
   assert(configured_chip.hw_gain.pa_gain==20&&configured_chip.hw_gain.pa_voltage==3.3f);
-  assert(chip_instance.hw_gain==20&&codec.input_gain_==(reference?18:36));
-  assert(codec.speaker_makeup_gain_db_==21.0f);
+  assert(chip_instance.hw_gain==20&&codec.input_gain_==expected_input_gain);
+  assert(codec.speaker_makeup_gain_db_==profile.makeup);
   codec.SetOutputVolume(100);assert(codec.persisted==100&&!codec.dev_);
   int start=curve_calls;codec.output_enabled_=true;codec.UpdateDeviceState();
-  assert(curve_calls==start+1&&last_reg==150&&last_input_gain==(reference?18:36)); // -20.5 dB.
+  assert(curve_calls==start+1&&last_reg==150&&last_input_gain==expected_input_gain); // -20.5 dB.
   int previous=-1;
   esp_codec_dev_vol_map_t old_points[]={{0,-50.0f},{80,-10.0f},{100,-3.0f}};
   esp_codec_dev_vol_curve_t old_curve{old_points,3};
@@ -180,7 +187,7 @@ int main(){
   }
   codec.output_enabled_=false;codec.UpdateDeviceState();assert(!codec.dev_);
   codec.output_enabled_=true;codec.UpdateDeviceState();
-  assert(curve_calls==start+2&&last_reg==150&&codec.output_volume_==100&&last_input_gain==(reference?18:36));
+  assert(curve_calls==start+2&&last_reg==150&&codec.output_volume_==100&&last_input_gain==expected_input_gain);
   codec.SetOutputVolume(-1);assert(last_reg==0&&codec.persisted==0);
   codec.SetOutputVolume(101);assert(last_reg==150&&codec.persisted==100);
   codec.output_enabled_=false;codec.UpdateDeviceState();

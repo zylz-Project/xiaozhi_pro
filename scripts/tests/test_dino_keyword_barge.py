@@ -1,12 +1,14 @@
 """Exercise the dinosaur-only keyword confirmation and candidate lifetime."""
 from pathlib import Path
+import sys
 import unittest
 
 import test_voice_barge_in as barge
 from test_wzh_application_interaction import function
-import scripts.build_default_assets as assets
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+import scripts.build_default_assets as assets
 
 
 class DinoKeywordBargeTest(unittest.TestCase):

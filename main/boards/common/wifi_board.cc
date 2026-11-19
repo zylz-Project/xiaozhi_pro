@@ -119,31 +119,25 @@ void WifiBoard::StartNetwork() {
     CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
     wifi_manager.StartPersistentPortal();
     if (wifi_manager.IsPersistentPortalActive()) {
-        wifi_manager.StartStation();
+        // A board that probes a transport first (DeferWifiSetup) starts the
+        // station only after Wi-Fi wins: a station left running beside the
+        // cellular modem keeps a scan task and lwIP buffers alive and starves
+        // the AT UART ring, which then drops MQTT traffic and times out.
+        if (!DeferWifiSetup())
+            wifi_manager.StartStation();
         // The hotspot is up: start the developer console now instead of waiting
         // for a station Connected event, which never arrives when the product
         // is used on its own hotspot.
         Board::GetInstance().OnLocalPortalReady();
         Application::GetInstance().SetDeviceState(kDeviceStateIdle);
-        // The always-on portal no longer enters the legacy config state, so
-        // explicitly announce provisioning when no network has been saved.
-        if (SsidManager::GetInstance().GetSsidList().empty() &&
-            !Board::GetInstance().UsesCellularNetwork()) {
-#if CONFIG_WZH_SYSTEM_PROMPTS
-            Application::GetInstance().Schedule([]() {
-                auto& wifi = WifiManager::GetInstance();
-                std::string hint = Lang::Strings::CONNECT_TO_HOTSPOT;
-                hint += wifi.GetApSsid();
-                hint += Lang::Strings::ACCESS_VIA_BROWSER;
-                hint += wifi.GetApWebUrl();
-                Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(),
-                                                 "gear", {});
-            });
-            wzh::RequestWifiSetupPrompt();
-#else
-            EnterWifiConfigMode();
-#endif
-        }
+        if (!DeferWifiSetup() && !Board::GetInstance().UsesCellularNetwork())
+            AnnounceMissingWifiCredentials();
+        wzh::MarkStartupNetworkReady();
+        return;
+    }
+    if (DeferWifiSetup()) {
+        ESP_LOGW(TAG, "Local Wi-Fi portal unavailable; waiting for network selection");
+        Application::GetInstance().SetDeviceState(kDeviceStateIdle);
         wzh::MarkStartupNetworkReady();
         return;
     }
@@ -160,6 +154,60 @@ void WifiBoard::StartNetwork() {
     CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
     wzh::MarkStartupNetworkReady();
 #endif
+}
+
+void WifiBoard::AnnounceMissingWifiCredentials() {
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    if (!SsidManager::GetInstance().GetSsidList().empty())
+        return;
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    Application::GetInstance().Schedule([]() {
+        auto& wifi = WifiManager::GetInstance();
+        std::string hint = Lang::Strings::CONNECT_TO_HOTSPOT;
+        hint += wifi.GetApSsid();
+        hint += Lang::Strings::ACCESS_VIA_BROWSER;
+        hint += wifi.GetApWebUrl();
+        Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(),
+                                         "gear", {});
+    });
+    wzh::RequestWifiSetupPrompt();
+#else
+    EnterWifiConfigMode();
+#endif
+#endif
+}
+
+void WifiBoard::CompleteDeferredWifiSetup() {
+    if (Board::GetInstance().UsesCellularNetwork()) {
+        // 4G can carry the cloud link while Wi-Fi credentials are still
+        // missing. Do not start the station beside the modem, but keep the
+        // first-time provisioning reminder for the next boot after the
+        // tutorial. The prompt worker gates it until startup audio is clear.
+        if (SsidManager::GetInstance().GetSsidList().empty() &&
+            !wzh::StartupOnboardingPending()) {
+            AnnounceMissingWifiCredentials();
+        }
+        return;
+    }
+    if (WifiManager::GetInstance().IsPersistentPortalActive()) {
+        // Probing deferred the station: Wi-Fi won, so start it now. The
+        // persistent portal relies on the station as its single scan owner;
+        // without this, a first-time setup page sees an empty network list.
+        auto& wifi = WifiManager::GetInstance();
+        wifi.StartStation();
+        if (SsidManager::GetInstance().GetSsidList().empty()) {
+            AnnounceMissingWifiCredentials();
+        } else {
+            // StartStation() does not run the legacy connection timer. Without
+            // this, a saved-but-unreachable network never reaches the timeout
+            // path that announces Wi-Fi provisioning on a later boot.
+            esp_timer_stop(connect_timer_);
+            esp_timer_start_once(connect_timer_, CONNECT_TIMEOUT_SEC * 1000000ULL);
+        }
+    } else {
+        TryWifiConnect();
+    }
 }
 
 void WifiBoard::TryWifiConnect() {

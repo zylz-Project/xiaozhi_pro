@@ -29,13 +29,14 @@ MqttProtocol::MqttProtocol() {
                         if (!*alive)
                             return;
                         {
-                            std::unique_lock<std::mutex> lock(protocol->mqtt_mutex_, std::try_to_lock);
+                            std::unique_lock<std::mutex> lock(protocol->mqtt_mutex_,
+                                                              std::try_to_lock);
                             if (!lock.owns_lock()) {
                                 esp_timer_start_once(protocol->reconnect_timer_,
                                                      MQTT_DEFERRED_RETRY_MS * 1000);
                                 return;
                             }
-                            if (protocol->mqtt_ != nullptr && protocol->mqtt_->IsConnected())
+                            if (protocol->IsMqttConnectedLocked())
                                 return;
                         }
                         auto& board = Board::GetInstance();
@@ -60,8 +61,7 @@ MqttProtocol::MqttProtocol() {
                             }
                         });
                     }
-                    esp_timer_start_once(protocol->reconnect_timer_,
-                                         MQTT_DEFERRED_RETRY_MS * 1000);
+                    esp_timer_start_once(protocol->reconnect_timer_, MQTT_DEFERRED_RETRY_MS * 1000);
                 }
             },
         .arg = this,
@@ -108,8 +108,8 @@ bool MqttProtocol::Start() {
     const bool connected = StartMqttClient(false);
     if (!connected) {
         const auto& board = Board::GetInstance();
-        const int delay_ms = !board.IsNetworkAvailable() ? MQTT_DEFERRED_RETRY_MS
-                                                          : MQTT_RECONNECT_INTERVAL_MS;
+        const int delay_ms =
+            !board.IsNetworkAvailable() ? MQTT_DEFERRED_RETRY_MS : MQTT_RECONNECT_INTERVAL_MS;
         esp_timer_start_once(reconnect_timer_, delay_ms * 1000);
     }
     return connected;
@@ -128,6 +128,7 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     }
     if (mqtt_ != nullptr) {
         ESP_LOGW(TAG, "Mqtt client already started");
+        mqtt_connected_.store(false);
         mqtt_.reset();
     }
 
@@ -148,7 +149,8 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     }
 
     auto network = board.GetNetwork();
-    mqtt_ = network->CreateMqtt(0);
+    mqtt_transport_cellular_ = board.UsesCellularNetwork();
+    mqtt_ = network ? network->CreateMqtt(0) : nullptr;
     if (!mqtt_) {
         ESP_LOGE(TAG, "Failed to create MQTT client");
         if (report_error)
@@ -158,6 +160,7 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     mqtt_->SetKeepAlive(keepalive_interval);
 
     mqtt_->OnDisconnected([this]() {
+        mqtt_connected_.store(false);
         if (on_disconnected_ != nullptr) {
             on_disconnected_();
         }
@@ -194,6 +197,7 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     });
 
     mqtt_->OnConnected([this]() {
+        mqtt_connected_.store(true);
         if (on_connected_ != nullptr) {
             on_connected_();
         }
@@ -220,12 +224,30 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
             auto session_id = cJSON_GetObjectItem(root, "session_id");
             ESP_LOGI(TAG, "Received goodbye message");
             if (cJSON_IsString(session_id) && session_id_ == session_id->valuestring) {
+                std::weak_ptr<Udp> channel;
+                {
+                    std::lock_guard<std::mutex> lock(channel_mutex_);
+                    channel = udp_;
+                }
                 auto alive = alive_;  // Capture alive flag
-                Application::GetInstance().Schedule([this, alive]() {
-                    if (*alive) {
-                        // Server initiated goodbye, don't send goodbye back to avoid ping-pong
-                        CloseAudioChannel(false);
+                Application::GetInstance().Schedule([this, alive, channel]() {
+                    if (!*alive)
+                        return;
+                    auto expected = channel.lock();
+                    if (!expected)
+                        return;
+                    std::shared_ptr<Udp> closed;
+                    {
+                        std::lock_guard<std::mutex> lock(channel_mutex_);
+                        if (udp_ == expected)
+                            closed = std::move(udp_);
                     }
+                    if (!closed)
+                        return;
+                    expected.reset();
+                    closed.reset();
+                    if (on_audio_channel_closed_)
+                        on_audio_channel_closed_();
                 });
             }
         } else if (on_incoming_json_ != nullptr) {
@@ -253,10 +275,18 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     } else {
         broker_address = endpoint;
     }
-    if (!mqtt_->Connect(broker_address, broker_port, client_id, username, password)) {
-        ESP_LOGE(TAG, "Failed to connect to endpoint, code=%d", mqtt_->GetLastError());
+    if (auto connected = mqtt_->Connect(broker_address, broker_port, client_id, username, password);
+        !connected) {
+        mqtt_connected_.store(false);
+        ESP_LOGE(TAG, "Failed to connect to endpoint: %s", connected.error().ToString().c_str());
         // EspMqtt otherwise keeps retrying internally after Connect fails.
         mqtt_->Disconnect();
+        // A failed cellular connect can also mean that the shared AT channel
+        // stopped answering after an earlier HTTP request. Ask the cellular
+        // task to check PDP asynchronously rather than leaving the board
+        // marked ready and repeatedly attempting MQTT against a dead modem.
+        if (mqtt_transport_cellular_)
+            ScheduleCellularRecheck();
         if (report_error)
             SetError(Lang::Strings::SERVER_NOT_CONNECTED);
         return false;
@@ -271,21 +301,64 @@ void MqttProtocol::SuspendUnavailableMqtt() {
     if (board.IsNetworkAvailable() && !board.IsAudioMaintenanceActive())
         return;
     std::unique_lock<std::mutex> lock(mqtt_mutex_, std::try_to_lock);
-    if (lock.owns_lock() && mqtt_)
+    if (lock.owns_lock() && mqtt_) {
+        mqtt_connected_.store(false);
         mqtt_->Disconnect();
+    }
+}
+
+bool MqttProtocol::IsMqttConnectedLocked() {
+    if (!mqtt_)
+        return false;
+    // ML307 IsConnected issues AT+MQTTSTATE and can wait for 13 seconds.
+    // Connection events already update this cache; actual Publish failures
+    // invalidate it so a later open can reconnect instead of trusting it.
+    auto& board = Board::GetInstance();
+    if (board.UsesCellularNetwork() != mqtt_transport_cellular_)
+        return false;
+    return board.UsesCellularNetwork() ? board.IsNetworkAvailable() && mqtt_connected_.load()
+                                       : mqtt_->IsConnected();
+}
+
+void MqttProtocol::ScheduleCellularRecheck() {
+    auto alive = alive_;
+    Application::GetInstance().Schedule([alive]() {
+        if (!*alive)
+            return;
+        auto& board = Board::GetInstance();
+        if (board.UsesCellularNetwork())
+            board.RequestNetworkRecheck();
+    });
 }
 
 bool MqttProtocol::SendText(const std::string& text) {
     std::unique_lock<std::mutex> lock(mqtt_mutex_, std::try_to_lock);
     if (!lock.owns_lock())
         return false;
-    if (publish_topic_.empty() || mqtt_ == nullptr || !mqtt_->IsConnected()) {
+    if (publish_topic_.empty() || !IsMqttConnectedLocked()) {
         return false;
     }
+    const bool cellular = Board::GetInstance().UsesCellularNetwork();
+    const size_t payload_limit = Board::GetInstance().GetProtocolPayloadLimit();
+    if (payload_limit != 0 && text.size() > payload_limit) {
+        // A local size rejection is not evidence that the modem link failed.
+        // Do not invalidate MQTT or schedule a PDP recheck here.
+        ESP_LOGE(TAG, "Control message exceeds transport limit (%u > %u bytes)",
+                 static_cast<unsigned>(text.size()), static_cast<unsigned>(payload_limit));
+        return false;
+    }
+    [[maybe_unused]] const int64_t publish_started_us = cellular ? esp_timer_get_time() : 0;
     if (!mqtt_->Publish(publish_topic_, text)) {
-        ESP_LOGE(TAG, "Failed to publish message (%u bytes)",
-                 static_cast<unsigned>(text.size()));
+        if (cellular) {
+            mqtt_connected_.store(false);
+            ESP_LOGW(TAG, "Cellular MQTT publish failed: %u bytes, %lld ms; rechecking network",
+                     static_cast<unsigned>(text.size()),
+                     static_cast<long long>((esp_timer_get_time() - publish_started_us) / 1000));
+        }
+        ESP_LOGE(TAG, "Failed to publish message (%u bytes)", static_cast<unsigned>(text.size()));
         SetError(Lang::Strings::SERVER_ERROR);
+        if (cellular)
+            ScheduleCellularRecheck();
         return false;
     }
     return true;
@@ -321,7 +394,7 @@ bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
     memcpy(nonce.data() + 12, &sequence, sizeof(sequence));
 
     std::string encrypted;
-    encrypted.resize(aes_nonce_.size() + packet->payload.size());
+    encrypted.resize(nonce.size() + packet->payload.size());
     memcpy(encrypted.data(), nonce.data(), nonce.size());
 
     if (!CryptAesCtr(reinterpret_cast<const uint8_t*>(packet->payload.data()),
@@ -360,6 +433,18 @@ void MqttProtocol::CloseAudioChannel(bool send_goodbye) {
     }
 }
 
+void MqttProtocol::DiscardStaleAudioChannel() {
+    std::shared_ptr<Udp> stale;
+    {
+        std::lock_guard<std::mutex> lock(channel_mutex_);
+        stale = std::move(udp_);
+    }
+    if (stale) {
+        ESP_LOGI(TAG, "Closing stale UDP audio channel before reconnect");
+        stale.reset();  // May issue AT commands; never hold channel_mutex_ here.
+    }
+}
+
 bool MqttProtocol::OpenAudioChannel() {
     auto& board = Board::GetInstance();
     if (!board.IsNetworkAvailable() || board.IsAudioMaintenanceActive()) {
@@ -368,12 +453,22 @@ bool MqttProtocol::OpenAudioChannel() {
             SetError(Lang::Strings::SERVER_NOT_CONNECTED);
         return false;
     }
+    std::unique_lock<std::mutex> opening(channel_open_mutex_, std::try_to_lock);
+    if (!opening.owns_lock()) {
+        ESP_LOGW(TAG, "Audio channel connection already in progress");
+        return false;
+    }
+    if (IsAudioChannelOpened())
+        return true;
+    // The old channel may be logically timed out while still owning the
+    // modem socket. Release it before a new hello or a new UDP client.
+    DiscardStaleAudioChannel();
     bool connected = false;
     {
         std::unique_lock<std::mutex> lock(mqtt_mutex_, std::try_to_lock);
         if (!lock.owns_lock())
             return false;
-        connected = mqtt_ != nullptr && mqtt_->IsConnected();
+        connected = IsMqttConnectedLocked();
     }
     if (!connected) {
         ESP_LOGI(TAG, "MQTT is not connected, try to connect now");
@@ -401,7 +496,11 @@ bool MqttProtocol::OpenAudioChannel() {
     }
 
     auto network = board.GetNetwork();
-    auto udp = network->CreateUdp(2);
+    auto udp = network ? network->CreateUdp(2) : nullptr;
+    if (!udp) {
+        ESP_LOGE(TAG, "Failed to create UDP audio channel");
+        return false;
+    }
     udp->OnMessage([this](const std::string& data) {
         /*
          * UDP Encrypted OPUS Packet Format:
@@ -440,8 +539,10 @@ bool MqttProtocol::OpenAudioChannel() {
                 return;
             }
             if (sequence != remote_sequence_ + 1) {
-                ESP_LOGW(TAG, "Received audio packet with wrong sequence: %lu, expected: %lu",
-                         sequence, remote_sequence_ + 1);
+                // Record the sequence gap without synthesizing repeated PCM.
+                // As upstream does, decode the received payload once.
+                ESP_LOGI(TAG, "Downlink audio gap of %lu packet(s) before sequence %lu",
+                         sequence - remote_sequence_ - 1, sequence);
             }
         }
 
@@ -460,9 +561,15 @@ bool MqttProtocol::OpenAudioChannel() {
         }
         {
             std::lock_guard<std::mutex> lock(channel_mutex_);
+            // Re-check under the lock: a reordered packet can arrive while the
+            // one that overtook it is still being decrypted above.
             if (sequence <= remote_sequence_) {
                 return;
             }
+            // Keep bounded gap metadata for diagnostics. A sequence gap is
+            // not a reason to replay an earlier spoken syllable.
+            const uint32_t gap = sequence - remote_sequence_ - 1;
+            packet->missing_before = static_cast<uint8_t>(std::min<uint32_t>(gap, 255));
             remote_sequence_ = sequence;
         }
         last_incoming_time_ = std::chrono::steady_clock::now();
@@ -471,8 +578,13 @@ bool MqttProtocol::OpenAudioChannel() {
         }
     });
 
-    if (!udp->Connect(udp_server_, udp_port_)) {
-        ESP_LOGE(TAG, "Failed to connect UDP audio channel");
+    if (auto connected = udp->Connect(udp_server_, udp_port_); !connected) {
+        ESP_LOGE(TAG, "Failed to connect UDP audio channel: %s",
+                 connected.error().ToString().c_str());
+        if (board.UsesCellularNetwork()) {
+            SetError(Lang::Strings::SERVER_NOT_CONNECTED);
+            ScheduleCellularRecheck();
+        }
         return false;
     }
     {

@@ -47,7 +47,7 @@ These instructions apply to `main/boards/wzh_dinosaur/`.
 
 - Product: five-axis dinosaur with articulated neck, head, and tail.
 - Board directory: `wzh_dinosaur`.
-- Build/reported type: `wzh-dinosaur`.
+- Board family: `wzh-dinosaur`. Firmware build name: `wzh-dinosaur-270-servo`.
 - Kconfig selector: `CONFIG_BOARD_TYPE_WZH_DINOSAUR`.
 - Chip target: ESP32-S3.
 - Board factory: `DECLARE_BOARD(WzhDinosaur)` in `wzh_dinosaur.cc`. Keep exactly one factory in a build.
@@ -73,8 +73,8 @@ Read `README.md`, `CURRENT_STATUS.md`, `config.h`, `wzh_dinosaur.cc`, and the re
 - GPIOs in that order are 17, 16, 15, 8, and 18. Servo power is GPIO4.
 - Default pose is `70/90/90/90/90`.
 - The user confirmed all five physical axis directions on 2026-09-13. Do not reinterpret IO17 as a lateral axis. IO17=0 is skyward roaring; IO17=180 is ground-level feeding. IO8's theoretical 0 is down but is prohibited by the 55-degree minimum.
-- Current physical semantics: neck tilt `0=highest`, `70=default`, `180=lowest`; neck lean and head turn use `0=right`, `90=center`, `180=left`; tail-LR uses the opposite sense, `0=left`, `90=center`, `180=right`; tail-UD uses `55=lowest`, `90=default`, `180=highest`.
-- Tail-UD has explicit `55..180` board limits. Other axes are finally clamped to `0..180`; real mechanical limits may be narrower and must be measured on hardware.
+- Logical motion coordinates: neck tilt `0=highest`, `70=default`, `180=lowest`. Neck lean and head turn use `0=right`, `90=center`, `180=left`. Tail-LR uses `0=left`, `90=center`, `180=right`. Tail-UD uses `55=lowest`, `90=default`, `180=highest`.
+- The four 270° neck and tail servos use 135° ± 110° around the existing 1500 µs center. Tail-UD has logical `55..180` limits. The head-turn servo uses the original 180° calibration. Measure physical clearances on hardware.
 - Power latch is GPIO7; analog power key is GPIO6/ADC1 channel 5; battery divider is GPIO3/ADC1 channel 2.
 - External audio Flash uses SPI2 on CS10/CLK9/MOSI47/MISO21. The shared layer owns JEDEC NOR/NAND detection, PNDA legacy compatibility, bad-block handling, and writes.
 
@@ -135,8 +135,8 @@ When changing clips, keep action/clip arrays and enum indexes aligned. Estimate 
 Use ESP-IDF 6.0.2 when available, then run:
 
 ```sh
-python3 -m unittest discover -s scripts/tests -v
-python3 scripts/build.py wzh_dinosaur --name wzh-dinosaur
+python3 scripts/run_host_tests.py
+python3 scripts/build.py wzh_dinosaur
 clang-format -i path/to/touched.cc path/to/touched.h
 clang-format --dry-run -Werror path/to/touched.cc path/to/touched.h
 ```

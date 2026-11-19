@@ -9,11 +9,21 @@ from test_wzh_action_queue import queue_function
 ROOT=Path(__file__).resolve().parents[2]
 
 class PortalNetworkTest(unittest.TestCase):
+    def test_station_scan_request_does_not_reenter_manager_from_start_path(self):
+        source = (ROOT / 'project_components/esp-wifi-connect/wifi_station.cc').read_text()
+        method = queue_function(source, 'bool WifiStation::RequestScan(')
+        # WifiManager::StartStation() holds its mutex while calling Start().
+        # RequestScan() runs from that path, so notifying through the manager
+        # here would take the same mutex again and freeze every portal request.
+        self.assertNotIn('on_scan_begin_()', method)
+
     def test_first_boot_announces_provisioning_only_without_saved_networks(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')
-        method=queue_function((ROOT/'main/boards/common/wifi_board.cc').read_text(),
-                              'void WifiBoard::StartNetwork(')
+        source=(ROOT/'main/boards/common/wifi_board.cc').read_text()
+        method='\n'.join(queue_function(source, name) for name in (
+            'void WifiBoard::StartNetwork(', 'void WifiBoard::AnnounceMissingWifiCredentials(',
+            'void WifiBoard::CompleteDeferredWifiSetup('))
         program=r'''
 #include <cassert>
 #include <cstdint>
@@ -27,8 +37,12 @@ class PortalNetworkTest(unittest.TestCase):
 #define CONFIG_WZH_SYSTEM_PROMPTS 1
 #define ESP_MAC_WIFI_STA 0
 #define ESP_OK 0
+#define CONFIG_WIFI_CONNECT_TIMEOUT_SEC 60
+constexpr int CONNECT_TIMEOUT_SEC=60;
 #define ESP_LOGW(...)
 int esp_read_mac(uint8_t*,int){return -1;}
+void esp_timer_stop(void*){}
+void esp_timer_start_once(void*,uint64_t){}
 enum class WifiEvent{Scanning,Connecting,Connected,Disconnected,ConfigModeEnter,ConfigModeExit};
 enum class NetworkEvent{Scanning,Connecting,Connected,Disconnected,WifiConfigModeEnter,WifiConfigModeExit};
 struct WifiManagerConfig{
@@ -59,10 +73,14 @@ struct Application{
  void Alert(const char*,const char*,const char*,std::string){}
 };
 namespace Lang{namespace Strings{constexpr auto CONNECT_TO_HOTSPOT="ssid",ACCESS_VIA_BROWSER="url",WIFI_CONFIG_MODE="setup";}}
-namespace wzh{int prompts=0,ready=0;void RequestWifiSetupPrompt(){++prompts;}
+namespace wzh{int prompts=0,ready=0;bool onboarding_pending=false;
+bool StartupOnboardingPending(){return onboarding_pending;}
+void RequestWifiSetupPrompt(){++prompts;}
 void MarkStartupNetworkReady(){++ready;}}
 struct WifiBoard{
- std::string wifi_ssid_prefix_="WZH";int prompts=0,fallbacks=0;
+ std::string wifi_ssid_prefix_="WZH";int prompts=0,fallbacks=0;bool deferred=false;void* connect_timer_=nullptr;
+ bool DeferWifiSetup(){return deferred;}
+ void AnnounceMissingWifiCredentials();void CompleteDeferredWifiSetup();
  void OnNetworkEvent(NetworkEvent,const std::string& = ""){}
  void EnterWifiConfigMode(){++prompts;}void TryWifiConnect(){++fallbacks;}
  void StartNetwork();
@@ -85,6 +103,29 @@ int main(){
  assert(WifiManager::GetInstance().station_starts==starts);
  Board::GetInstance().cellular=false;
  WifiBoard legacy;legacy.StartNetwork();assert(wzh::prompts==1&&wzh::ready==5&&legacy.fallbacks==1);
+ // While modem detection is pending, bring the hotspot up but defer prompts.
+ WifiManager::GetInstance().active=true;
+ WifiBoard probing;probing.deferred=true;probing.StartNetwork();
+ assert(wzh::prompts==1&&wzh::ready==6&&probing.fallbacks==0);
+ int setup_scans=WifiManager::GetInstance().station_starts;
+ probing.CompleteDeferredWifiSetup();assert(wzh::prompts==2);
+ // First-time provisioning still needs the station: it is the sole owner
+ // of the persistent portal's Wi-Fi scan cache.
+ assert(WifiManager::GetInstance().station_starts==setup_scans+1);
+ // A detected cellular module never announces Wi-Fi setup.
+ Board::GetInstance().cellular=true;
+ WifiBoard cell;cell.deferred=true;cell.StartNetwork();cell.CompleteDeferredWifiSetup();
+ assert(wzh::prompts==3);
+ // A tutorial that has not completed suppresses the cellular prompt, while a
+ // second boot after the tutorial still asks for Wi-Fi credentials.
+ wzh::onboarding_pending=true;
+ WifiBoard first_cellular;first_cellular.deferred=true;first_cellular.StartNetwork();
+ first_cellular.CompleteDeferredWifiSetup();assert(wzh::prompts==3);
+ wzh::onboarding_pending=false;
+ // If the portal failed, a selected Wi-Fi fallback still starts provisioning.
+ Board::GetInstance().cellular=false;WifiManager::GetInstance().active=false;
+ WifiBoard no_portal;no_portal.deferred=true;no_portal.StartNetwork();
+ assert(no_portal.fallbacks==0);no_portal.CompleteDeferredWifiSetup();assert(no_portal.fallbacks==1);
 }
 '''
         with tempfile.TemporaryDirectory() as d:

@@ -27,15 +27,17 @@ namespace wzh {
 namespace {
 constexpr const char* kTag = "IdlePower";
 constexpr uint32_t kTickMs = 100;
-constexpr uint32_t kAcquireDeadlineMs = 2000;
+constexpr uint32_t kAcquireDeadlineMs = 60000;
 constexpr uint32_t kSpeechDeadlineMs = 7000;
 
 std::atomic<bool> started{false};
 std::atomic<bool> stopping{false};
 std::atomic<bool> suppressed{false};
+std::atomic<bool> miss_voice_active{false};
 std::atomic<bool> shutdown_issued{false};
 // Zero means "no pending reset"; the worker adopts the first sample as its base.
 std::atomic<uint32_t> pending_interaction{0};
+std::atomic<uint32_t> interaction_generation{0};
 IdlePower timeline;
 std::function<void()> request_shutdown;
 std::mutex lifecycle_mutex;
@@ -73,12 +75,14 @@ bool Available() {
 }
 
 void Worker(void*) {
-    ESP_LOGI(kTag, "Idle countdown armed (%u min greeting / %u min auto-off)",
-             unsigned(IdlePower::kMissMs / 60000U), unsigned(IdlePower::kOffMs / 60000U));
+    ESP_LOGI(kTag, "Idle countdown armed (%lu s greeting / %lu s auto-off)",
+             static_cast<unsigned long>(IdlePower::kMissMs / 1000U),
+             static_cast<unsigned long>(IdlePower::kOffMs / 1000U));
     while (!stopping.load()) {
         if (const auto stamp = pending_interaction.exchange(0)) {
             timeline.Interaction(stamp);
             suppressed.store(false);
+            miss_voice_active.store(false);
             // A fresh interaction re-arms the whole timeline, including auto-off
             // and the bounded retry window for the next miss sentence.
             shutdown_issued.store(false);
@@ -91,6 +95,8 @@ void Worker(void*) {
         // mean someone is using the device; none of them counts as silence.
         if (IsOnboardingActive() || !Available()) {
             timeline.Interaction(now);
+            suppressed.store(false);
+            miss_voice_active.store(false);
             phase = Phase::kIdle;
             retry_armed = false;
             vTaskDelay(pdMS_TO_TICKS(kTickMs));
@@ -103,16 +109,18 @@ void Worker(void*) {
                 !Available() || audio.GetPlaybackGeneration() != speech_generation;
             if (cancelled || audio.IsPlaybackIdle()) {
                 if (cancelled)
-                    ESP_LOGW(kTag, "Idle-miss prompt interrupted; quiet mode still starts");
+                    ESP_LOGW(kTag, "Idle-miss prompt interrupted");
                 else
-                    ESP_LOGI(kTag, "Idle-miss prompt finished; idle sounds are now silent");
-                suppressed.store(true);
+                    ESP_LOGI(kTag, "Idle-miss prompt finished; sparse playback resumes");
+                suppressed.store(false);
+                miss_voice_active.store(false);
                 phase = Phase::kIdle;
                 continue;
             }
             if (now - speech_start >= kSpeechDeadlineMs) {
-                ESP_LOGW(kTag, "Idle-miss prompt timed out; quiet mode still starts");
-                suppressed.store(true);
+                ESP_LOGW(kTag, "Idle-miss prompt timed out; sparse playback resumes");
+                suppressed.store(false);
+                miss_voice_active.store(false);
                 phase = Phase::kIdle;
                 continue;
             }
@@ -121,6 +129,9 @@ void Worker(void*) {
         }
 
         if (timeline.MissDue(now)) {
+            // Let a playing clip finish, but prevent another autonomous clip
+            // from taking the audio lane before this reminder can play.
+            suppressed.store(true);
             const auto token = timeline.BeginMiss();
             // The sentence only exists when the product voice pack is compiled in;
             // without it gen_lang.py omits the symbol entirely.
@@ -129,6 +140,7 @@ void Worker(void*) {
                 // Mark the episode handled as soon as it is enqueued; the retry
                 // window must not fire a second sentence behind the first.
                 timeline.FinishMiss(token, true);
+                miss_voice_active.store(true);
                 retry_armed = false;
                 speech_start = now;
                 phase = Phase::kWaitingMiss;
@@ -148,12 +160,11 @@ void Worker(void*) {
 #else
             (void)acquire_start;
             (void)retry_armed;
-            ESP_LOGI(kTag, "Idle-miss prompt disabled; silencing idle sounds");
+            ESP_LOGI(kTag, "Idle-miss prompt disabled");
 #endif
-            // Quiet starts at the miss mark either way: motion stays at full
-            // amplitude, but a pet that keeps talking to an empty room reads as broken.
+            // Mark the reminder handled even if the bounded reservation failed.
             timeline.FinishMiss(token, true);
-            suppressed.store(true);
+            suppressed.store(false);
             // The next episode gets its own retry window; leaving this set would
             // make every later attempt give up on its first tick.
             retry_armed = false;
@@ -163,21 +174,20 @@ void Worker(void*) {
         }
 
         if (timeline.OffDue(now) && !shutdown_issued.load()) {
-            suppressed.store(true);
             shutdown_issued.store(true);
 #if CONFIG_WZH_IDLE_AUTO_OFF
-            ESP_LOGI(kTag, "No interaction for %u min: requesting shutdown",
-                     unsigned(IdlePower::kOffMs / 60000U));
+            suppressed.store(true);
+            ESP_LOGI(kTag, "No interaction for %lu seconds: requesting shutdown",
+                     static_cast<unsigned long>(IdlePower::kOffMs / 1000U));
             // Shutdown() owns the goodbye sentence; playing it here as well would
             // say it twice. Keep the loop alive: a touch or a power-key press in
             // the seconds before the latch drops is a real interaction.
             if (request_shutdown)
                 request_shutdown();
 #else
-            // Auto-off disabled: stay silent-but-animated instead of shuttering
-            // the pet; only an explicit power press may turn it off.
-            ESP_LOGI(kTag, "No interaction for %u min; auto-off is disabled",
-                     unsigned(IdlePower::kOffMs / 60000U));
+            // Auto-off disabled: continue sparse performances until interaction.
+            ESP_LOGI(kTag, "No interaction for %lu seconds; auto-off is disabled",
+                     static_cast<unsigned long>(IdlePower::kOffMs / 1000U));
 #endif
         }
         vTaskDelay(pdMS_TO_TICKS(kTickMs));
@@ -188,13 +198,17 @@ void Worker(void*) {
 }  // namespace
 
 void NotifyIdleInteraction() {
+    interaction_generation.fetch_add(1);
     if (!started.load() || stopping.load())
         return;
     pending_interaction.store(Now());
     suppressed.store(false);
+    miss_voice_active.store(false);
 }
 
+uint32_t IdleInteractionGeneration() { return interaction_generation.load(); }
 bool IdleSoundSuppressed() { return suppressed.load(); }
+bool IdleMissVoiceMotionActive() { return miss_voice_active.load(); }
 
 void StartIdlePower(std::function<void()> shutdown_request) {
     std::lock_guard<std::mutex> lock(lifecycle_mutex);
@@ -218,6 +232,7 @@ void StartIdlePower(std::function<void()> shutdown_request) {
 void StopIdlePower() {
     std::lock_guard<std::mutex> lock(lifecycle_mutex);
     stopping.store(true);
+    miss_voice_active.store(false);
 }
 }  // namespace wzh
 
@@ -225,7 +240,9 @@ void StopIdlePower() {
 
 namespace wzh {
 void NotifyIdleInteraction() {}
+uint32_t IdleInteractionGeneration() { return 0; }
 bool IdleSoundSuppressed() { return false; }
+bool IdleMissVoiceMotionActive() { return false; }
 void StartIdlePower(std::function<void()>) {}
 void StopIdlePower() {}
 }  // namespace wzh

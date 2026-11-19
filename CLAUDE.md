@@ -19,7 +19,7 @@ ESP-IDF v6.0.1 lives at `/home/wzh/.espressif/v6.0.1/esp-idf`:
 
 python3 scripts/build.py --list-boards   # discover exact names
 python3 scripts/build.py wzh_crawlPanda --name wzh-crawlpanda
-python3 scripts/build.py wzh_dinosaur --name wzh-dinosaur
+python3 scripts/build.py wzh_dinosaur
 python3 scripts/build.py wzh_tailRedPanda --name wzh-tailredpanda
 
 python3 -m unittest discover -s scripts/tests -v   # host-side tests

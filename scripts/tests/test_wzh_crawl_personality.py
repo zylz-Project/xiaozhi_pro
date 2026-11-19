@@ -93,7 +93,7 @@ class WzhCrawlPersonalityTest(unittest.TestCase):
     }
 ''')
 
-    def test_phase_continuity_and_instance_voice_follow_with_stale_state_reset(self):
+    def test_phase_continuity_and_instance_voice_follow_across_delayed_ticks(self):
         header = ROOT/'main/boards/wzh_crawlPanda/panda_motion_style.h'
         output.WzhMotionOutputTest().run_cpp('#include "'+str(header)+'"\n'+r'''
 #include <cassert>
@@ -116,19 +116,22 @@ int main(){
     VoiceGesture voice;
     for(unsigned t=0;t<1000;t+=20){auto p=voice.Update(true,0,0,t);assert(p.head==0&&p.left==0&&p.right==0);}
     voice.Update(false,0,0,1000);
-    std::array<float,3> low{},high{};
+    std::array<float,3> low{},high{},previous_pose{};
     for(unsigned t=0;t<15000;t+=20){
         auto p=voice.Update(true,.4f,t%600<60?.6f:0,2000+t);
         const std::array<float,3> values={p.head,p.left,p.right};
+        previous_pose=values;
         for(unsigned axis=0;axis<3;++axis){
             assert(std::isfinite(values[axis])&&std::abs(values[axis])<90);
             low[axis]=std::min(low[axis],values[axis]);high[axis]=std::max(high[axis],values[axis]);
         }
     }
     assert(high[0]-low[0]>60&&high[1]-low[1]>30&&high[2]-low[2]>30);
-    // Maintenance/stop gaps may bypass the voice updater. No old accent survives.
+    // A delayed tick continues smoothly from the last commanded offset.
     auto fresh=voice.Update(true,.4f,.6f,20000);
-    assert(std::abs(fresh.head)<3&&std::abs(fresh.left)<3&&std::abs(fresh.right)<3);
+    assert(std::abs(fresh.head-previous_pose[0])<=5.61f);
+    assert(std::abs(fresh.left-previous_pose[1])<=5.61f);
+    assert(std::abs(fresh.right-previous_pose[2])<=5.61f);
     auto end=voice.Update(false,0,0,20020);assert(end.head==0&&end.left==0&&end.right==0);
     VoiceGesture independent;auto still=independent.Update(true,0,0,UINT32_MAX-100);
     assert(still.head==0&&still.left==0&&still.right==0);

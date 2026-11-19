@@ -115,6 +115,17 @@ void Nt26Board::StartNetwork() {
                 break;
             case UartEthModem::UartEthModemEvent::RequestingPdpContext:
                 break;
+            case UartEthModem::UartEthModemEvent::ModemReset:
+                ESP_LOGW(TAG, "Modem reset unexpectedly: %s", detail.c_str());
+                OnNetworkEvent(NetworkEvent::Disconnected);
+                break;
+            case UartEthModem::UartEthModemEvent::RegistrationLost:
+                ESP_LOGW(TAG, "Cellular registration lost: %s", detail.c_str());
+                OnNetworkEvent(NetworkEvent::Disconnected);
+                break;
+            case UartEthModem::UartEthModemEvent::PlmnSearchFallback:
+                ESP_LOGI(TAG, "PLMN search fell back to modem default: %s", detail.c_str());
+                break;
         }
     });
 
@@ -203,11 +214,15 @@ std::string Nt26Board::GetBoardJson() {
 Nt26CeregState Nt26Board::GetRegistrationState() {
     Nt26CeregState state;
     if (modem_) {
-        auto cell_info = modem_->GetCellInfo();
-        state.stat = cell_info.stat;
-        state.tac = cell_info.tac;
-        state.ci = cell_info.ci;
-        state.AcT = cell_info.act;
+        auto cell_info = modem_->QueryCellInfo();
+        if (!cell_info) {
+            ESP_LOGW(TAG, "QueryCellInfo failed: %s", esp_err_to_name(cell_info.error()));
+            return state;
+        }
+        state.stat = cell_info->stat;
+        state.tac = cell_info->tac;
+        state.ci = cell_info->ci;
+        state.AcT = cell_info->act;
     }
     return state;
 }

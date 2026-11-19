@@ -81,8 +81,8 @@ public:
             cv_.notify_all();
         });
         const int64_t tcp_start = esp_timer_get_time();
-        if (!tcp_->Connect(host, port)) {
-            ESP_LOGW(kTag, "AT TCP connect failed");
+        if (auto connected = tcp_->Connect(host, port); !connected) {
+            ESP_LOGW(kTag, "AT TCP connect failed: %s", connected.error().ToString().c_str());
             return -1;
         }
         ESP_LOGI(kTag, "TCP connected: elapsed_ms=%u",
@@ -222,9 +222,12 @@ void VoiceHttpDelete::operator()(esp_http_client* client) const {
 
 VoiceHttpClient CreateVoiceHttpClient(const esp_http_client_config_t& original) {
     auto& board = Board::GetInstance();
+    // The STA can connect before startup has chosen the cloud transport.
+    if (!board.IsNetworkAvailable())
+        return {};
     if (!board.UsesCellularNetwork())
         return VoiceHttpClient(esp_http_client_init(&original), VoiceHttpDelete{});
-    if (!board.IsNetworkAvailable() || !original.url || strncmp(original.url, "https://", 8) != 0)
+    if (!original.url || strncmp(original.url, "https://", 8) != 0)
         return {};
     auto transport = esp_transport_init();
     if (!transport)
@@ -264,7 +267,7 @@ VoiceHttpClient CreateVoiceHttpClient(const esp_http_client_config_t& original) 
 }
 bool VoiceHttpNetworkAvailable() {
     auto& board = Board::GetInstance();
-    return board.UsesCellularNetwork() ? board.IsNetworkAvailable() : board.HasSystemNetwork();
+    return board.IsNetworkAvailable();
 }
 }  // namespace voice_tts
 #endif

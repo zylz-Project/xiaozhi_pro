@@ -5,14 +5,21 @@
 #include <cstring>
 #include "wzh_sound_score.h"
 namespace wzh {
-// Same 32-entry bound as the Flash TOC. Commit only after enqueue succeeds;
-// stable filename hashes prevent reordering from losing coverage or variety.
+// Round-robin coverage over a sound pool. Every entry gets a turn before any
+// entry repeats, then the round resets. kSlots must be large enough to hold a
+// whole pool: the Flash TOC caps at 32 entries today, but paired packs and
+// future larger tables need headroom, otherwise the visited set rolls over
+// mid-round and the same few names come back within a minute or two.
+// Commit only after enqueue succeeds; stable filename hashes prevent
+// reordering from losing coverage or variety.
 class SoundCoverage {
 public:
+    static constexpr unsigned kSlots = 128;
+
     template <class Files>
     int Select(const Files& files, uint32_t random, bool include_ambient = true,
                bool ambient_only = false) const {
-        std::array<int, 32> unseen{}, all{};
+        std::array<int, kSlots> unseen{}, all{};
         unsigned fresh = 0, count = 0;
         for (size_t i = 0; i < files.size() && count < all.size(); ++i) {
             const auto& f = files[i];
@@ -76,7 +83,7 @@ private:
             h = (h ^ static_cast<uint8_t>(*s)) * 16777619U;
         return h;
     }
-    std::array<uint32_t, 32> visited_{};
+    std::array<uint32_t, kSlots> visited_{};
     unsigned used_ = 0;
     uint32_t last_ = 0;
 };

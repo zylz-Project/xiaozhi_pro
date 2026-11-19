@@ -27,6 +27,9 @@ def keep(path: pathlib.Path) -> bool:
         return False
     if not product or path.parent.name != 'assets' or path.suffix != '.webp':
         return True
+    # Shared brand assets (not tied to any toy) always ship.
+    if not any(path.name.startswith(p) for prefixes in TOY_PREFIXES.values() for p in prefixes):
+        return True
     # Each firmware build serves one product only (product.js syncs the toy to
     # /api/status and HTML placeholders are inline), so ship just its own photos.
     return path.name.startswith(TOY_PREFIXES[product])

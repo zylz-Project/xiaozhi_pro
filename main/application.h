@@ -132,11 +132,15 @@ public:
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
+    size_t GetMcpWireOverhead() const;
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);
     void SetAecMode(AecMode mode);
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    bool IsCellularServerConnected() const { return cellular_server_connected_.load(); }
+#endif
 
     /**
      * Reset protocol resources (thread-safe)
@@ -154,6 +158,26 @@ private:
     // A reconnect worker retains the protocol until its pending handshake ends.
     std::shared_ptr<Protocol> protocol_;
     std::atomic<uint32_t> protocol_generation_{0};
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    std::atomic<bool> cellular_server_connected_{false};
+    std::atomic<bool> conversation_transport_disconnected_{false};
+    uint32_t disconnect_recovery_generation_ = 0;
+    bool disconnect_recovery_attempted_ = false;
+    std::atomic<bool> cellular_prewarming_{false};
+    std::atomic<bool> cellular_prewarmed_{false};
+    std::atomic<uint32_t> dinosaur_server_audio_packets_{0};
+    std::atomic<unsigned> cellular_pending_mcp_{0};
+    int64_t cellular_prewarm_next_us_ = 0;
+    bool cellular_prewarm_retired_ = false;  // Main task only.
+    EventBits_t cellular_prewarm_pending_events_ = 0;
+    uint32_t cellular_pending_interaction_generation_ = 0;
+    uint32_t cellular_pending_protocol_generation_ = 0;
+    std::string cellular_prewarm_wake_word_;
+    void MaybePrewarmCellularAudio();
+    void ConsumePrewarmedCellularAudio();
+    void QueueCellularInteraction(EventBits_t event);
+    void ReplayCellularInteraction();
+#endif
     EventGroupHandle_t event_group_ = nullptr;
     esp_timer_handle_t clock_timer_handle_ = nullptr;
     DeviceStateMachine state_machine_;
@@ -172,6 +196,10 @@ private:
     std::atomic<uint32_t> interaction_generation_{0};
 #if CONFIG_USE_VOICE_BARGE_IN
     std::atomic<uint32_t> pending_voice_interruption_{0};
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    uint32_t cellular_recovery_generation_ = 0;
+    bool cellular_recovery_attempted_ = false;
+#endif
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
     std::atomic<int64_t> keyword_interruption_until_us_{0};
 #endif
@@ -243,7 +271,8 @@ private:
     void ConfigureWakeWordForListening();
     void ResumeAfterVoiceEnrollment(uint32_t generation);
 #if CONFIG_USE_VOICE_BARGE_IN
-    bool ReconnectAfterVoiceInterruption(uint32_t generation);
+    bool ReconnectAfterVoiceInterruption(uint32_t generation, bool close_first = false,
+                                         bool reopen = true, bool resume_listening = false);
 #endif
 
     // Activation task (runs in background)

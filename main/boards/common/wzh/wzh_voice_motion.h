@@ -21,17 +21,24 @@ public:
     unsigned phrase() const { return style_; }
     std::array<float, 5> Update(VoiceMechanism mechanism, bool playing, float level, float attack,
                                 uint32_t now, SpeechIntent intent = SpeechIntent::kNeutral) {
-        if (!playing || (active_ && now - last_ms_ > 200)) {
+        if (!playing) {
             active_ = false;
             level_ = 0;
             accent_ = 0;
             gaze_energy_ = 0;
             for (auto& joint : joints_)
                 joint = {};
-            if (!playing)
-                return {};
+            return {};
         }
-        const float dt = active_ ? std::min<uint32_t>(now - last_ms_, 50) / 1000.f : .02f;
+        const bool delayed = active_ && now - last_ms_ > 200;
+        if (delayed) {
+            // Resume at the previous offset with one normal tick of travel;
+            // stale elapsed time must not cause a catch-up jump.
+            for (auto& joint : joints_)
+                joint.velocity = 0;
+        }
+        const float dt =
+            active_ && !delayed ? std::min<uint32_t>(now - last_ms_, 50) / 1000.f : .02f;
         if (!active_) {
             active_ = true;
             NextPhrase(now, intent);

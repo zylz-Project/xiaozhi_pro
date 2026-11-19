@@ -78,7 +78,20 @@
 共用 V4-2.2 主板的全部接口、三款舵机插座分配和本轮功放参数修正见[硬件复核](../../../docs/wzh/hardware/hardware_review.md)。
 
 `wzh_dinosaur` 是基于 ESP32-S3、ES8311、五路舵机和外部 SPI Flash 默认音频（原理图为 W25N01GV NAND）的恐龙板型。
-兼容性标识和构建名按仓库规则使用 `wzh-dinosaur`（标识不允许下划线）。
+设备家族标识为 `wzh-dinosaur`，唯一的固件构建名为 `wzh-dinosaur-270-servo`。
+
+## 当前 4G 固件与 270° 颈尾舵机
+
+`wzh-dinosaur-270-servo` 使用独立的 OTA 构建名并保留 ML307 AT 4G。适用于 IO17 颈俯仰、
+IO16 颈左右、IO8 尾上下和 IO18 尾左右更换为 270° 舵机的装配。IO15 头左右仍使用 180° 舵机。
+动作库、随音动作和关机归位沿用 0–180° 逻辑坐标。四路颈尾围绕物理 135° 向两侧各展开 110°，
+逻辑 0°、90°、180° 分别对应物理 25°、135°、245°。尾上下的逻辑下限 55° 对应约 92.2°。
+以 500–2500 µs 对应完整 270° 行程计算，旧 180° 舵机的 90° 和新 270° 舵机的 135° 对应同一
+1500 µs 中位。颈尾两端脉宽约为 685 µs 和 2315 µs。上板时需校准脉宽、安装中位和真实机械行程。
+
+```sh
+python3 scripts/build.py wzh_dinosaur
+```
 
 ## 模式
 
@@ -190,7 +203,7 @@ IO8、IO18。此测试不会开机自动执行。若 IO17 单轴测试实际带�
 ## 构建
 
 ```sh
-python3 scripts/build.py wzh_dinosaur --name wzh-dinosaur
+python3 scripts/build.py wzh_dinosaur
 ```
 
 构建成功只能验证软件集成；首次烧录后仍需检查 IO5 的 16 档触摸电压、电源锁存、

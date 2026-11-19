@@ -46,23 +46,27 @@ inline std::string_view MatchBodyCommand(std::string_view text, unsigned product
 }
 
 inline std::string BodyCommandHelp(unsigned product) {
+    // This string is sent as an MCP tool description. Cellular MQTT allows at
+    // most 1024 bytes per publish, so keep the canonical action list compact;
+    // local speech aliases remain in kBodyPhrases and are not needed online.
     std::string text =
-        "按用户明确要求控制关节。一次执行一段有限动作，结束柔和归中。方向以宠物自身左右为准。";
+        "按明确要求控制关节，一次一段，结束回中，左右以宠物自身为准。";
     text += product == kBodyDinosaur
-                ? "头可左右转，颈可俯仰侧倾，尾可上下左右；点头由颈俯仰实现。"
-                : "头只有左右转动，范围30到150度（正前90度左右各60度），不支持抬头、低头或点头。";
+                ? "头可左右转，颈可俯仰侧倾，尾可上下左右；点头由颈俯仰。"
+                : "头只能左右转30到150度，不能抬头、低头或点头。";
+    text += "action:";
     std::string_view previous;
+    bool first = true;
     for (const auto& phrase : kBodyPhrases) {
         if (!(phrase.products & product) || previous == phrase.action)
             continue;
         previous = phrase.action;
-        text += " ";
+        if (!first)
+            text += ",";
+        first = false;
         text += phrase.action;
-        text += "=";
-        text += phrase.text;
-        text += "；";
     }
-    text += "用户说停下、别动或安静时使用pet_control；不要重复执行已调用的动作。";
+    text += "。停止或安静用pet_control，勿重复调用。";
     return text;
 }
 }  // namespace wzh

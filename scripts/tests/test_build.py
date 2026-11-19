@@ -18,6 +18,20 @@ SPEC.loader.exec_module(build)
 
 
 class VersionTests(unittest.TestCase):
+    def test_dinosaur_has_one_4g_build_and_selects_it_by_default(self):
+        config = json.loads((ROOT / "main/boards/wzh_dinosaur/config.json").read_text())
+        identity = "wzh-dinosaur-270-servo"
+        self.assertEqual([item["name"] for item in config["builds"]], [identity])
+        settings = config["builds"][0]["sdkconfig_append"]
+        self.assertIn("CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC=y", settings)
+        self.assertIn("CONFIG_ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT=y", settings)
+        variants = build._collect_variants(idf_version=(6, 0, 2))
+        self.assertEqual(build._select_variant("wzh_dinosaur", variants), identity)
+        variant = next(item for item in variants if item["name"] == identity)
+        self.assertEqual(variant["target"], "esp32s3")
+        self.assertEqual(variant["type"], "wzh-dinosaur")
+        self.assertEqual(variant["config"], "CONFIG_BOARD_TYPE_WZH_DINOSAUR")
+
     def test_parse_and_match(self):
         self.assertEqual(build._parse_version("ESP-IDF v6.0.1"), (6, 0, 1))
         self.assertTrue(build._version_matches((5, 5, 4), "<6.0"))
@@ -44,8 +58,7 @@ class VersionTests(unittest.TestCase):
         for expected in (
             "wzh-crawlpanda",
             "wzh-crawlpanda-barge-in",
-            "wzh-dinosaur",
-            "wzh-dinosaur-barge-in",
+            "wzh-dinosaur-270-servo",
             "wzh-tailredpanda",
             "wzh-tailredpanda-barge-in",
         ):
@@ -906,7 +919,8 @@ class BuildOptionTests(unittest.TestCase):
                 mock.patch.object(build, 'merge_bin'),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
-                build.build_board('wzh_dinosaur', name_filter='wzh-dinosaur', wake_word=override)
+                build.build_board('wzh_dinosaur', name_filter='wzh-dinosaur-270-servo',
+                                  wake_word=override)
                 options = configure.call_args.args[1]
                 self.assertIn('CONFIG_USE_AFE_WAKE_WORD=y', options)
                 self.assertIn('CONFIG_USE_CUSTOM_WAKE_WORD=n', options)

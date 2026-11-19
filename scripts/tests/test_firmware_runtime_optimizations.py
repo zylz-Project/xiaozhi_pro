@@ -41,6 +41,51 @@ class FirmwareRuntimeOptimizationsTest(unittest.TestCase):
                                     text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_cellular_uplink_yields_to_main_events_and_rearms_pending_audio(self):
+        source = (ROOT / 'main/application.cc').read_text()
+        block = queue_function(source, 'if ((bits & MAIN_EVENT_SEND_AUDIO)')
+        self.run_cpp(r'''
+#include <atomic>
+#include <cassert>
+#include <deque>
+#include <memory>
+constexpr unsigned MAIN_EVENT_SEND_AUDIO=1;
+void xEventGroupSetBits(unsigned& events,unsigned bits){events|=bits;}
+struct Board{bool cellular=true;
+ static Board& GetInstance(){static Board board;return board;}
+ bool UsesCellularNetwork(){return cellular;}};
+struct Audio{std::deque<int> queue;
+ std::unique_ptr<int> PopPacketFromSendQueue(){
+  if(queue.empty())return {};
+  queue.pop_front();return std::make_unique<int>(1);
+ }};
+struct Protocol{Audio* audio;int sent=0;bool ok=true,refill=false;
+ bool SendAudio(std::unique_ptr<int>){++sent;if(refill)audio->queue.push_back(1);return ok;}};
+struct Application{
+ Audio audio_service_;Protocol transport{&audio_service_};Protocol* protocol_=&transport;
+ std::atomic<bool> barge_in_reconnecting_{false},interaction_stopped_{false},voice_enrollment_active_{false};
+ unsigned event_group_=0;
+ void RunSend(unsigned bits){
+''' + block + r'''
+ }
+};
+int main(){
+ Application app;app.audio_service_.queue={1,2,3};app.transport.refill=true;
+ app.RunSend(MAIN_EVENT_SEND_AUDIO);
+ assert(app.transport.sent==1&&app.audio_service_.queue.size()==3);
+ assert(app.event_group_==MAIN_EVENT_SEND_AUDIO);
+ app.transport.refill=false;app.event_group_=0;app.RunSend(MAIN_EVENT_SEND_AUDIO);
+ assert(app.transport.sent==2&&app.audio_service_.queue.size()==2);
+ assert(app.event_group_==MAIN_EVENT_SEND_AUDIO);
+ Board::GetInstance().cellular=false;app.event_group_=0;
+ app.RunSend(MAIN_EVENT_SEND_AUDIO);
+ assert(app.transport.sent==4&&app.audio_service_.queue.empty()&&app.event_group_==0);
+ Board::GetInstance().cellular=true;app.audio_service_.queue={1,2,3};app.transport.ok=false;
+ app.RunSend(MAIN_EVENT_SEND_AUDIO);
+ assert(app.transport.sent==5&&app.audio_service_.queue.empty()&&app.event_group_==0);
+}
+''')
+
     def test_ota_rejects_malformed_and_overflowing_versions_without_exceptions(self):
         source = (ROOT / 'main/ota.cc').read_text()
         self.run_cpp(r'''

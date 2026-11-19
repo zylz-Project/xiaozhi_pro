@@ -26,7 +26,8 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     pa_inverted_ = pa_inverted;
     // Keep the high-volume segment monotonic above its 80 / -10 dB anchor.
     max_output_volume_db_ = std::clamp(max_output_volume_db, -10.0f, 0.0f);
-    speaker_makeup_gain_db_ = std::clamp(speaker_makeup_gain_db, 0.0f, 21.0f);
+    speaker_makeup_gain_db_ =
+        std::clamp(speaker_makeup_gain_db, 0.0f, SpeakerProtection::kMaxMakeupGainDb);
     // Close speaker/microphone placement needs ADC headroom for full duplex;
     // saturated echo cannot be reconstructed by a linear echo canceller.
     input_gain_ = dac_reference ? std::clamp(reference_mic_gain_db, 0.0f, 42.0f) : 36.0f;

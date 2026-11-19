@@ -276,6 +276,16 @@ void Worker(void*) {
             }
             if (stopping.load())
                 break;
+            // The tutorial may have been completed externally while this wait
+            // ran (CompleteOnboardingInConversation): the live conversation
+            // owns the speaker now, reload and exit without narrating.
+            if (!online_double_click.load()) {
+                OnboardingProgress refreshed;
+                if (LoadOnboardingProgress(refreshed) && refreshed.Done()) {
+                    progress = refreshed;
+                    break;
+                }
+            }
         }
         const auto counter = progress.step == 1   ? &touch_events
                              : progress.step == 2 ? &motion_events
@@ -389,6 +399,36 @@ void PrepareOnboardingDoubleClick() {
 bool ConsumeOnboardingConnectionProbe() {
     const bool requested = connection_probe.exchange(false);
     return requested && worker_running.load() && current_step.load() == 8;
+}
+bool CompleteOnboardingInConversation() {
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    if (!worker_running.load() || current_step.load() < 8)
+        return false;
+    // The connection the tutorial waited for is live inside a conversation.
+    // Mark the remaining introduction steps (ability/interrupt/voice/farewell)
+    // complete instead of taking the speaker back from the user: the online
+    // chapter is introductory narration, and on slow transports the old
+    // "hang up, then narrate" flow felt like the chat was being killed.
+    OnboardingProgress progress;
+    if (!LoadOnboardingProgress(progress))
+        return false;
+    // Skip playback: finish every remaining online step as satisfied.
+    while (progress.step < OnboardingProgress::kStepCount) {
+        progress.completed |= static_cast<uint16_t>(1U << progress.step);
+        progress.skipped &= static_cast<uint16_t>(~(1U << progress.step));
+        ++progress.step;
+    }
+    progress.flags |= OnboardingProgress::kOnlineComplete;
+    if (!SaveOnboardingProgress(progress))
+        return false;
+    current_step.store(progress.step);
+    // The worker's step-8 wait sees step >= kStepCount and exits on its own.
+    stopping.store(true);
+    ESP_LOGI(kTag, "Tutorial completed in conversation; narration skipped");
+    return true;
+#else
+    return false;
+#endif
 }
 bool CaptureOnboardingInteraction(OnboardingEvent event) {
     const auto window = feedback_window.load();
