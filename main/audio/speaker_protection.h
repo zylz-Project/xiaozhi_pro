@@ -14,7 +14,7 @@
 // near-full-scale material below clipping before it reaches the codec.
 class SpeakerProtection {
 public:
-    static constexpr float kMaxMakeupGainDb = 24.0f;
+    static constexpr float kMaxMakeupGainDb = 30.0f;
 
     void Configure(int sample_rate, bool voice_clarity = false, bool smooth_limiter = false,
                    float makeup_gain_db = 0.0f);

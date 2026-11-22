@@ -64,6 +64,7 @@ struct Protocol{Audio* audio;int sent=0;bool ok=true,refill=false;
 struct Application{
  Audio audio_service_;Protocol transport{&audio_service_};Protocol* protocol_=&transport;
  std::atomic<bool> barge_in_reconnecting_{false},interaction_stopped_{false},voice_enrollment_active_{false};
+ std::atomic<int> external_voice_preview_status_{0};
  unsigned event_group_=0;
  void RunSend(unsigned bits){
 ''' + block + r'''
@@ -310,6 +311,7 @@ int main(){
 #include <deque>
 #include <functional>
 #include <condition_variable>
+#include <optional>
 #define ESP_LOGW(...) ((void)0)
 #define TAG "test"
 template<typename...Args>void TestLog(const char*,const char*,Args&&...){}
@@ -333,18 +335,20 @@ int esp_ae_rate_cvt_open(const int*,void**out){
 }
 struct Codec{int output_sample_rate(){return 24000;}};
 struct AudioService{
+ enum class PlaybackSource { kRegular,kShutdown };
  Codec codec;Codec*codec_=&codec;std::mutex decoder_mutex_;
  void*opus_decoder_=nullptr;void*output_resampler_=nullptr;
  int decoder_sample_rate_=0,decoder_duration_ms_=0,decoder_frame_size_=0;
  std::mutex audio_queue_mutex_;std::condition_variable audio_queue_cv_;
  unsigned playback_generation_=0;
+ bool shutdown_playback_=false;
  std::deque<int>timestamp_queue_,audio_decode_queue_,audio_playback_queue_,audio_testing_queue_;
  struct{std::function<void()>on_playback_drained;}callbacks_;
  bool MarkPlaybackDrainedLocked(){
   assert(timestamp_queue_.empty()&&audio_decode_queue_.empty()&&
          audio_playback_queue_.empty()&&audio_testing_queue_.empty());return true;
  }
- void ResetDecoder();
+ void ResetDecoder(std::optional<uint32_t> expected={},PlaybackSource source=PlaybackSource::kRegular);
  bool SetDecodeSampleRate(int,int);
 };
 ''' + queue_function(source, 'bool AudioService::SetDecodeSampleRate(')
@@ -371,5 +375,174 @@ int main(){
  int notified=0;audio.callbacks_.on_playback_drained=[&]{++notified;};
  audio.ResetDecoder();assert(audio.playback_generation_==1&&notified==1);
  assert(resets==1&&converter_resets==1);
+ // A delayed stop of a local clip must leave its replacement intact.
+ audio.audio_playback_queue_.push_back(5);
+ audio.ResetDecoder(0);
+ assert(audio.playback_generation_==1&&audio.audio_playback_queue_.front()==5);
+ audio.ResetDecoder(1);assert(audio.playback_generation_==2&&audio.audio_playback_queue_.empty());
+ audio.ResetDecoder({},AudioService::PlaybackSource::kShutdown);
+ audio.audio_decode_queue_.push_back(6);
+ audio.ResetDecoder();audio.ResetDecoder(3);
+ assert(audio.playback_generation_==3&&audio.audio_decode_queue_.front()==6);
+}
+''')
+
+    def test_shutdown_playback_rejects_ordinary_decode_and_pcm_producers(self):
+        source = (AUDIO / 'audio_service.cc').read_text()
+        enqueue = queue_function(source, 'bool AudioService::PushPacketToDecodeQueue(')
+        enqueue_pcm = queue_function(source, 'bool AudioService::PushPcmToPlaybackQueue(')
+        self.run_cpp(r'''
+#include <atomic>
+#include <cassert>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <vector>
+#include "fixed_queue.h"
+struct AudioStreamPacket {};
+constexpr int kAudioTaskTypeDecodeToPlaybackQueue=1;
+struct AudioTask {int type;uint32_t playback_generation;std::vector<int16_t> pcm;};
+struct Codec {int output_sample_rate(){return 24000;}};
+struct AudioService {
+ enum class PlaybackSource { kRegular,kShutdown };
+ Codec codec;Codec* codec_=&codec;
+ std::mutex audio_queue_mutex_;std::condition_variable audio_queue_cv_;
+ std::atomic<bool> service_stopped_{false};
+ uint32_t playback_generation_=7,decode_queue_full_count_=0;
+ bool shutdown_playback_=false,playback_drained_notified_=true,decode_in_flight_=false;
+ size_t max_decode_packets_=2,max_playback_tasks_=2;
+ FixedQueue<std::unique_ptr<AudioStreamPacket>,2> audio_decode_queue_;
+ FixedQueue<AudioTask,2> audio_playback_queue_;
+ bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket>,bool=false,
+                              std::optional<uint32_t> ={},PlaybackSource =PlaybackSource::kRegular);
+ bool PushPcmToPlaybackQueue(std::vector<int16_t>,int,uint32_t,bool=false);
+};
+''' + enqueue + '\n' + enqueue_pcm + r'''
+int main(){
+ AudioService audio;const auto goodbye=AudioService::PlaybackSource::kShutdown;
+ const auto packet=[](){return std::make_unique<AudioStreamPacket>();};
+ assert(audio.PushPacketToDecodeQueue(packet()));
+ assert(!audio.PushPacketToDecodeQueue(packet(),false,7,goodbye));
+ assert(audio.PushPcmToPlaybackQueue({123},24000,7));
+
+ audio.audio_decode_queue_.clear();audio.audio_playback_queue_.clear();
+ ++audio.playback_generation_;audio.shutdown_playback_=true;
+ assert(audio.PushPacketToDecodeQueue(packet(),false,8,goodbye));
+ assert(!audio.PushPacketToDecodeQueue(packet(),true));
+ assert(!audio.PushPacketToDecodeQueue(packet(),false,8));
+ assert(!audio.PushPacketToDecodeQueue(packet(),true,7,goodbye));
+ assert(!audio.PushPcmToPlaybackQueue({123},24000,8,true));
+ assert(audio.audio_decode_queue_.size()==1&&audio.audio_playback_queue_.empty());
+}
+''')
+
+    def test_incoming_audio_rechecks_interaction_before_admitting_early_packets(self):
+        source = (ROOT / 'main/application.cc').read_text()
+        callback = queue_function(source, 'protocol_->OnIncomingAudio(') + ');'
+        self.run_cpp(r'''
+#include <atomic>
+#include <cassert>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <mutex>
+enum {kDeviceStateListening,kDeviceStateSpeaking};
+struct AudioStreamPacket {};
+struct AudioService {
+ std::function<void()> interleave;
+ int accepted=0;
+ uint32_t GetPlaybackGeneration(){if(interleave)interleave();return 7;}
+ void PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket>,bool,uint32_t){++accepted;}
+};
+struct Protocol {
+ std::function<void(std::unique_ptr<AudioStreamPacket>)> receive;
+ void OnIncomingAudio(decltype(receive) callback){receive=std::move(callback);}
+};
+struct Application {
+ Protocol protocol;Protocol* protocol_=&protocol;AudioService audio_service_;
+ std::atomic<uint32_t> protocol_generation_{1},interaction_generation_{1};
+ std::atomic<bool> interaction_stopped_{false},external_tts_selected_{false};
+ std::atomic<bool> voice_enrollment_active_{false},voice_selection_reply_guard_{false};
+ std::atomic<bool> tts_start_pending_{true};
+ std::mutex early_audio_mutex_;
+ std::deque<std::unique_ptr<AudioStreamPacket>> early_audio_;
+ static constexpr size_t kMaxEarlyAudioPackets=2;
+ int state=kDeviceStateListening;
+ int GetDeviceState(){return state;}
+ void Install(){const auto protocol_generation=protocol_generation_.load();
+''' + callback + r'''
+ }
+};
+int main(){
+ Application app;app.Install();
+ const auto receive=[&]{app.protocol.receive(std::make_unique<AudioStreamPacket>());};
+ receive();assert(app.early_audio_.size()==1);
+ app.audio_service_.interleave=[&]{++app.interaction_generation_;};
+ receive();assert(app.early_audio_.size()==1);
+ app.state=kDeviceStateSpeaking;
+ app.tts_start_pending_=false;
+ app.audio_service_.interleave=[&]{app.interaction_stopped_=true;};
+ receive();assert(app.audio_service_.accepted==0);
+ app.interaction_stopped_=false;app.audio_service_.interleave={};
+ receive();assert(app.audio_service_.accepted==1);
+}
+''')
+
+    def test_websocket_audio_checks_frame_lengths_and_preserves_valid_payload(self):
+        source = ROOT / 'main/protocols'
+        protocol = (source / 'protocol.h').read_text()
+        headers = '\n'.join(
+            queue_function(protocol, f'struct BinaryProtocol{version}') + ' __attribute__((packed));'
+            for version in (2, 3)
+        )
+        handle = queue_function((source / 'websocket_protocol.cc').read_text(),
+                                'void WebsocketProtocol::HandleBinaryAudio(')
+        self.run_cpp(r'''
+#include <arpa/inet.h>
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+''' + headers + r'''
+struct AudioStreamPacket {
+ int sample_rate=0,frame_duration=0;uint32_t timestamp=0;std::vector<uint8_t> payload;
+};
+struct WebsocketProtocol {
+ int version_=1,server_sample_rate_=24000,server_frame_duration_=60;
+ std::function<void(std::unique_ptr<AudioStreamPacket>)> on_incoming_audio_;
+ void HandleBinaryAudio(const char*,size_t);
+};
+''' + handle + r'''
+int main(){
+ WebsocketProtocol ws;unsigned played=0;uint32_t expected_timestamp=0;
+ ws.on_incoming_audio_=[&](auto packet){
+  ++played;assert(packet->sample_rate==24000&&packet->frame_duration==60);
+  assert(packet->timestamp==expected_timestamp);
+  assert((packet->payload==std::vector<uint8_t>{0x12,0x34}));
+ };
+ ws.HandleBinaryAudio("\x12\x34",2);assert(played==1);
+ for(int version:{2,3}){
+  ws.version_=version;expected_timestamp=version==2?1234:0;
+  std::string frame;
+  if(version==2){
+   const BinaryProtocol2 header{htons(2),0,0,htonl(expected_timestamp),htonl(2)};
+   frame.assign(reinterpret_cast<const char*>(&header),sizeof(header));
+  }else{
+   const BinaryProtocol3 header{0,0,htons(2)};
+   frame.assign(reinterpret_cast<const char*>(&header),sizeof(header));
+  }
+  const auto header_size=frame.size();frame.append("\x12\x34",2);
+  const auto original=frame;
+  const auto count=played;
+  ws.HandleBinaryAudio(frame.data(),header_size-1);
+  ws.HandleBinaryAudio(frame.data(),frame.size()-1);
+  assert(played==count);
+  ws.HandleBinaryAudio(frame.data(),frame.size());
+  assert(played==count+1&&frame==original);
+ }
 }
 ''')

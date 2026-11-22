@@ -147,6 +147,74 @@ int main(){
 }
 ''')
 
+    def test_new_dinosaur_roars_turn_after_the_centered_skyward_onset(self):
+        source=(ROOT/'main/boards/wzh_dinosaur/dinosaur_controller.cc').read_text()
+        start=source.index('constexpr Keyframe kRoarFrontFrames[]')
+        end=source.index('constexpr Keyframe kSoundEatNibbleFrames[]',start)
+        self.run_cpp(r'''
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstdint>
+constexpr unsigned kMaxClipFrames=16;
+constexpr int SERVO_TAIL_UD_MIN=55,SERVO_TAIL_UD_MAX=180;
+enum class MotionEase{kSmooth,kLinear,kFastOut};
+struct Keyframe{
+ int neck_tilt,neck_lean,head_turn,tail_ud,tail_lr;
+ uint16_t duration_ms;
+ MotionEase ease;
+};
+struct MotionClip{const char* name;const Keyframe* frames;unsigned count;bool authored_dynamics=false;};
+'''+source[start:end]+r'''
+int main(){
+    assert(std::size(kSkyRoarClips)==21);
+    for(unsigned i=7;i<12;++i){
+        const auto& clip=kSkyRoarClips[i];
+        const auto& first=clip.frames[0];
+        assert(first.neck_tilt==0&&first.neck_lean==90&&first.head_turn==90&&first.tail_lr==90);
+        std::array<int,5> previous{70,90,90,90,90};
+        bool right=false,left=false;
+        unsigned calls=0,duration=0;
+        for(unsigned frame=0;frame<clip.count;++frame){
+            const auto& key=clip.frames[frame];
+            const std::array<int,5> pose{key.neck_tilt,key.neck_lean,key.head_turn,
+                                         key.tail_ud,key.tail_lr};
+            duration+=key.duration_ms;
+            assert(key.duration_ms>=420&&key.neck_tilt<=28);
+            for(unsigned axis=0;axis<pose.size();++axis){
+                const auto travel=std::max(pose[axis]-previous[axis],previous[axis]-pose[axis]);
+                assert(travel*1000<=key.duration_ms*80);
+            }
+            previous=pose;
+            right|=key.head_turn<=65;
+            left|=key.head_turn>=115;
+            calls+=key.neck_tilt==0&&key.head_turn==90;
+        }
+        if(i==7||i==8){
+            assert(duration<1500&&clip.count==2);
+            assert(right==(i==7)&&left==(i==8));
+        }else{
+            assert(duration>=2400&&right&&left);
+        }
+        assert(calls==(i==11?2:1));
+    }
+    for(unsigned i=12;i<std::size(kSkyRoarClips);++i){
+        const auto& clip=kSkyRoarClips[i];
+        assert(clip.authored_dynamics&&std::abs(clip.frames[0].head_turn-90)>=20);
+        std::array<int,5> previous{70,90,90,90,90};
+        for(unsigned frame=0;frame<clip.count;++frame){
+            const auto& key=clip.frames[frame];
+            const std::array<int,5> pose{key.neck_tilt,key.neck_lean,key.head_turn,
+                                         key.tail_ud,key.tail_lr};
+            assert(key.duration_ms>=420);
+            for(unsigned axis=0;axis<pose.size();++axis)
+                assert(std::abs(pose[axis]-previous[axis])*1000<=key.duration_ms*80);
+            previous=pose;
+        }
+    }
+}
+''')
+
     def test_dinosaur_each_recording_shuffles_only_duration_compatible_roars(self):
         from test_wzh_action_queue import queue_function
         source=(ROOT/'main/boards/wzh_dinosaur/dinosaur_controller.cc').read_text()
@@ -157,21 +225,28 @@ int main(){
 #include <set>
 #include "wzh_sound_variants.h"
 namespace wzh_dino{struct MotionClip{int index;};}
-const wzh_dino::MotionClip kSkyRoarClips[]={{0},{1},{2},{3},{4},{5},{6}};
+const wzh_dino::MotionClip kSkyRoarClips[]={{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},
+                                         {12},{13},{14},{15},{16},{17},{18},{19},{20}};
 uint32_t state=12345;
 uint32_t esp_random(){state^=state<<13;state^=state>>17;state^=state<<5;return state;}
 int irnd(int n){return esp_random()%n;}
 struct DinosaurController{
     int last_sky_roar_clip_index_=-1;
-    wzh::SoundVariantSelector<4> roar_variants_;
+    wzh::SoundVariantSelector<21> roar_variants_;
     const wzh_dino::MotionClip* PickSkyRoarClip(uint32_t,const wzh::SoundPlayback* = nullptr);
 };
 '''+method+r'''
 int main(){
     DinosaurController controller;
-    const unsigned durations[]={1700,3200,5200,9000};
-    const std::set<int> expected[]={{0,1,5},{0,1,2,5},{2,3,0,6},{3,4,2,6}};
-    for(unsigned length=0;length<4;++length){
+    const unsigned durations[]={0,1700,1800,2400,3200,3201,3480,3860,4200,4201,5200,6500,9000};
+    const std::set<int> expected[]={
+        {1,7,8,12,13,14,20},{1,7,8,12,13,14,20},{0,1,5,7,8,12,13,14,20},
+        {0,1,5,7,8,9,12,13,14,15,20},{0,1,5,7,8,9,12,13,14,15,18,20},{0,5,9,14,15,18,20},
+        {0,5,9,10,14,15,18,20},{0,5,9,10,11,14,15,16,18},{0,2,5,9,10,11,14,15,16,18,19},
+        {2,9,10,11,15,16,18,19},{2,3,9,10,11,15,16,17,18,19},
+        {2,3,4,6,9,10,11,16,17,19},{2,3,4,6,9,10,11,17,19}
+    };
+    for(unsigned length=0;length<std::size(durations);++length){
         std::array<int,8> previous;previous.fill(-1);
         for(unsigned round=0;round<6;++round){
             std::array<std::set<int>,8> seen;
@@ -186,7 +261,7 @@ int main(){
             for(const auto& choices:seen)assert(choices==expected[length]);
         }
     }
-    for(unsigned length=0;length<4;++length){
+    for(unsigned length=0;length<std::size(durations);++length){
         int previous=-1;
         for(unsigned i=0;i<50;++i){
             int n=controller.PickSkyRoarClip(durations[length])->index;

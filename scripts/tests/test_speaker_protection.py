@@ -39,7 +39,7 @@ int main(){
         self.run_program(r'''
 #include <cassert>
 int main(){
- for(int rate:{8000,16000,24000,48000})for(bool clarity:{false,true})for(float gain:{21.0f,24.0f}){
+ for(int rate:{8000,16000,24000,48000})for(bool clarity:{false,true})for(float gain:{24.0f,27.0f,30.0f}){
   std::vector<int16_t> input(rate);
   for(int i=0;i<rate;++i)input[i]=std::lrint(300*std::sin(6.283185307179586*1000*i/rate));
   auto previous=input, louder=input;SpeakerProtection a,b;

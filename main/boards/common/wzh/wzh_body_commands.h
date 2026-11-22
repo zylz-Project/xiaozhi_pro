@@ -49,8 +49,9 @@ inline std::string BodyCommandHelp(unsigned product) {
     // This string is sent as an MCP tool description. Cellular MQTT allows at
     // most 1024 bytes per publish, so keep the canonical action list compact;
     // local speech aliases remain in kBodyPhrases and are not needed online.
-    std::string text =
-        "按明确要求控制关节，一次一段，结束回中，左右以宠物自身为准。";
+    std::string text = "按用户要求控制关节，完成后回中，左右以宠物为准。";
+    text += product == kBodyCrawl ? "摇头用shake_head、挥左爪用wave_left。"
+                                  : "摇头用shake_head、摇尾巴用wag_tail。";
     text += product == kBodyDinosaur
                 ? "头可左右转，颈可俯仰侧倾，尾可上下左右；点头由颈俯仰。"
                 : "头只能左右转30到150度，不能抬头、低头或点头。";

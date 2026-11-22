@@ -41,7 +41,9 @@ int main(){
                 }
             }
             const bool lively=score.kind!=SoundKind::kSleep;
-            if(enforce&&lively){
+            const bool compact=!paired&&lively&&score.kind!=SoundKind::kAmbient&&
+                               score.duration_ms>0&&score.duration_ms<=TailMotion::kCompactMaxSoundMs;
+            if(enforce&&lively&&!compact){
                 if(!(90-low[0]>=46&&high[0]-90>=46&&90-low[1]>=72&&high[1]-90>=72&&low[2]<=24)){
                     std::cerr<<score.name<<" v="<<v<<" head="<<low[0]<<".."<<high[0]<<" tail="<<low[1]<<".."<<high[1]<<" up="<<low[2]<<"\n";
                     return 1;
@@ -50,6 +52,13 @@ int main(){
                 assert(std::abs(mean/n)<=5.0);
                 assert(up*20>=100);
                 assert(std::abs(int(left)-int(right))<=int((left+right)*.10f+4));
+                if(previous_side)assert(first_side==-previous_side);
+                previous_side=first_side;
+            }else if(enforce&&compact){
+                assert(90-low[0]>=13&&high[0]-90>=13);
+                assert(90-low[1]>=19&&high[1]-90>=19);
+                assert(low[2]<=122);
+                assert(player.body_duration()>=score.duration_ms&&player.body_duration()<=2100);
                 if(previous_side)assert(first_side==-previous_side);
                 previous_side=first_side;
             }
@@ -85,6 +94,55 @@ int main(){
             previous=q;
         }
         assert((motion.Sample(motion.duration())==TailMotion::Pose{90,90,150,0,0}));
+    }
+}
+''')
+
+    def test_compact_flash_matches_short_recordings_and_leaves_full_paths_untouched(self):
+        output.WzhMotionOutputTest().run_cpp(r'''
+#include <cassert>
+#include <set>
+#include <vector>
+#include "wzh_tail_motion.h"
+int main(){
+    using namespace wzh;
+    constexpr TailMotion::Pose rest{90,90,150,0,0};
+    const TailMotion::Pose starts[]={rest,{30,174,178,0,0},{150,6,10,0,0}};
+    for(unsigned duration:{350,900,1400,2000}){
+        std::set<std::vector<int>> paths;
+        for(unsigned variant=0;variant<32;++variant)for(const auto& start:starts){
+            TailMotion compact,original;
+            compact.Begin(duration,start,SoundKind::kCall,variant,19,true);
+            original.Begin(duration,start,SoundKind::kCall,variant,19);
+            assert(compact.body_duration()>=duration);
+            assert(compact.body_duration()+1400<original.body_duration());
+            assert(compact.Sample(0)==start);
+            std::vector<int> shape;
+            auto previous=start;
+            for(unsigned t=5;t<=compact.duration();t+=5){
+                const auto current=compact.Sample(t);
+                assert(current[0]>=30&&current[0]<=150&&current[1]>=6&&current[1]<=174);
+                assert(current[2]>=10&&current[2]<=178);
+                for(unsigned axis=0;axis<3;++axis)
+                    assert(std::abs(current[axis]-previous[axis])*200<351);
+                if(t%50==0)
+                    for(unsigned axis=0;axis<3;++axis)
+                        shape.push_back(std::lround(current[axis]*10));
+                previous=current;
+            }
+            assert(compact.Sample(compact.duration())==rest);
+            if(start==rest)paths.insert(shape);
+        }
+        assert(paths.size()==32);
+    }
+    TailMotion opted,original;
+    for(unsigned duration:{0,2001,9000}){
+        opted.Begin(900,rest,SoundKind::kCall,5,19,true);
+        opted.Begin(duration,rest,SoundKind::kCall,5,19,true);
+        original.Begin(duration,rest,SoundKind::kCall,5,19);
+        assert(opted.duration()==original.duration());
+        for(unsigned t=0;t<=opted.duration();t+=5)
+            assert(opted.Sample(t)==original.Sample(t));
     }
 }
 ''')

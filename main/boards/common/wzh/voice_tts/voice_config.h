@@ -8,6 +8,7 @@ std::string LoadAliKey();
 bool SaveAliKey(const std::string& key);
 std::string LoadAliVoice();
 std::string LoadPreviousAliVoice();
+bool LoadAliVoiceSelection(std::string& current, std::string& previous);
 bool SaveAliVoice(const std::string& voice);
 bool CommitAliVoice(const std::string& voice);
 bool RestorePreviousAliVoice();

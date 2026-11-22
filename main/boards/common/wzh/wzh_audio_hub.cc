@@ -1,11 +1,17 @@
 #include "wzh_audio_hub.h"
+#include "wzh_developer_session.h"
 #include "wzh_sound_score.h"
 
 #include <algorithm>
+#include <cerrno>
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <memory>
 #include <utility>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <esp_app_desc.h>
 #include <esp_http_client.h>
@@ -14,9 +20,12 @@
 #endif
 #include <esp_log.h>
 #include <esp_mac.h>
+#include <esp_netif.h>
+#include <esp_random.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <mbedtls/md.h>
 
 #include <cJSON.h>
 
@@ -32,11 +41,42 @@ namespace {
 constexpr int kDownloadRetries = 3;
 constexpr int kHttpTimeoutMs = 10000;
 constexpr int kDownloadTimeoutMs = 180000;
-constexpr int kCheckinIntervalMs = 60000;
-constexpr int kSyncIntervalMs = 60 * 60 * 1000;  // 每小时对一次清单
-constexpr int kMaxBackoffS = 300;
 constexpr size_t kMaxControlResponse = 8192;
 constexpr size_t kMaxManifestResponse = 65536;
+constexpr uint16_t kDiscoveryPort = 39876;
+constexpr int64_t kPresenceIntervalUs = 45000000;
+constexpr int64_t kPresenceRetryUs = 10000000;
+constexpr std::string_view kDiscoveryPrefix = "WZH-HUB/1 ";
+
+std::string Hex(const uint8_t* bytes, size_t count) {
+    constexpr char digits[] = "0123456789abcdef";
+    std::string output(count * 2, '0');
+    for (size_t i = 0; i < count; ++i) {
+        output[2 * i] = digits[bytes[i] >> 4];
+        output[2 * i + 1] = digits[bytes[i] & 15];
+    }
+    return output;
+}
+
+bool ValidProof(std::string_view message, std::string_view proof) {
+    uint8_t digest[32];
+    const auto* sha256 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (proof.size() != sizeof(digest) * 2 || !sha256 ||
+        mbedtls_md_hmac(sha256, reinterpret_cast<const uint8_t*>(kDeveloperPassword.data()),
+                        kDeveloperPassword.size(), reinterpret_cast<const uint8_t*>(message.data()),
+                        message.size(), digest) != 0)
+        return false;
+    const auto expected = Hex(digest, sizeof(digest));
+    unsigned difference = 0;
+    for (size_t i = 0; i < expected.size(); ++i)
+        difference |= static_cast<unsigned char>(expected[i] ^ proof[i]);
+    return difference == 0;
+}
+
+bool FactoryNetworkAvailable() {
+    const auto& board = Board::GetInstance();
+    return !board.UsesCellularNetwork() && board.HasSystemNetwork();
+}
 
 void ConfigureHttpTrust(esp_http_client_config_t* config) {
 #if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
@@ -67,10 +107,31 @@ bool ReadResponse(esp_http_client_handle_t client, size_t limit, std::string* bo
     return true;
 }
 
+bool VerifyHub(std::string_view server) {
+    uint8_t bytes[16];
+    esp_fill_random(bytes, sizeof(bytes));
+    const auto nonce = Hex(bytes, sizeof(bytes));
+    const std::string url = std::string(server) + "/api/device/discovery?nonce=" + nonce;
+    esp_http_client_config_t config = {};
+    config.url = url.c_str();
+    config.timeout_ms = 2000;
+    config.buffer_size = 512;
+    auto client = esp_http_client_init(&config);
+    if (!client)
+        return false;
+    std::string response;
+    const bool ok =
+        esp_http_client_open(client, 0) == ESP_OK && esp_http_client_fetch_headers(client) >= 0 &&
+        esp_http_client_get_status_code(client) == 200 && ReadResponse(client, 64, &response) &&
+        ValidProof(std::string(kDiscoveryPrefix) + "verify " + nonce, response);
+    esp_http_client_cleanup(client);
+    return ok;
+}
+
 const char* StatusNameImpl(AudioHub::Status status) {
     switch (status) {
-        case AudioHub::Status::kDisabled:
-            return "disabled";
+        case AudioHub::Status::kIdle:
+            return "idle";
         case AudioHub::Status::kWaitingNetwork:
             return "waiting_network";
         case AudioHub::Status::kRegistering:
@@ -96,20 +157,23 @@ const char* AudioHub::StatusName(Status status) { return StatusNameImpl(status);
 
 bool AudioHub::InitializeClient() {
     uint8_t mac[6] = {0};
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK)
+        return false;
     char id[32];
     snprintf(id, sizeof(id), "ZYLZ-%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3],
              mac[4], mac[5]);
     device_id_ = id;
 
     // 服务地址：NVS 可覆盖 Kconfig 默认值（换服务器不用重烧固件）。
-    Settings hub("audio_hub", true);
+    Settings hub("audio_hub");
     server_ = hub.GetString("server", CONFIG_WZH_AUDIO_SYNC_SERVER);
     api_token_ = hub.GetString("api_token");
     claim_token_ = hub.GetString("claim_token");
     activation_code_ = hub.GetString("act_code");
-    Settings sync("audio_sync", true);
-    revision_ = sync.GetString("revision");
+    {
+        std::lock_guard<std::mutex> lock(metadata_mutex_);
+        revision_ = Settings("audio_sync").GetString("revision");
+    }
     activated_.store(!api_token_.empty());
     return true;
 }
@@ -123,51 +187,117 @@ bool AudioHub::EnsureInitialized() {
     return client_initialized_;
 }
 
-bool AudioHub::Start(AudioStore* store, std::function<bool()> interaction_busy) {
+void AudioHub::ConfigureForFactory(AudioStore* store, std::function<bool()> interaction_busy) {
     store_ = store;
     interaction_busy_ = std::move(interaction_busy);
-#if !CONFIG_WZH_AUDIO_SYNC_ENABLE
-    status_.store(Status::kDisabled);
-    ESP_LOGI(TAG, "Audio Hub 同步已在 Kconfig 中关闭");
-    return false;
-#else
-    if (!InitializeClient()) {
-        return false;
-    }
-    sync_now_.store(true);
-    manual_mode_ = false;
-    if (xTaskCreate(TaskEntry, "wzh_hub", 8192, this, 1, &task_handle_) != pdPASS) {
-        ESP_LOGE(TAG, "无法启动 Audio Hub 任务");
-        return false;
-    }
-    ESP_LOGI(TAG, "Audio Hub 已启动: device=%s product=%s server=%s", device_id_.c_str(),
-             Product().hub_product_id, server_.c_str());
-    return true;
-#endif
 }
 
-bool AudioHub::StartManual(AudioStore* store, std::function<bool()> interaction_busy) {
-    store_ = store;
-    interaction_busy_ = std::move(interaction_busy);
-    if (manual_mode_ && task_handle_ != nullptr) {
-        return true;
-    }
-    manual_mode_ = true;
-    if (xTaskCreate(TaskEntry, "wzh_hub_manual", 8192, this, 1, &task_handle_) != pdPASS) {
-        ESP_LOGE(TAG, "无法启动 Audio Hub 手动任务");
-        manual_mode_ = false;
+void AudioHub::StartLanDiscovery() {
+    if (store_ == nullptr || !FactoryNetworkAvailable() || discovery_running_.exchange(true))
+        return;
+    if (xTaskCreate(LanDiscoveryTaskEntry, "wzh_hub_lan", 4096, this, 1, nullptr) != pdPASS)
+        discovery_running_.store(false);
+}
+
+void AudioHub::LanDiscoveryTaskEntry(void* arg) {
+    auto& hub = *static_cast<AudioHub*>(arg);
+    const bool wait_for_network = hub.ListenForHub();
+    hub.discovery_running_.store(false);
+    if (wait_for_network)
+        hub.StartLanDiscovery();  // The next address event may have arrived during cleanup.
+    vTaskDelete(nullptr);
+}
+
+bool AudioHub::ListenForHub() {
+    auto* sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    ifreq interface{};
+    if (!sta || esp_netif_get_netif_impl_name(sta, interface.ifr_name) != ESP_OK)
+        return false;
+    const int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0)
+        return false;
+    sockaddr_in local{};
+    local.sin_family = AF_INET;
+    local.sin_port = htons(kDiscoveryPort);
+    timeval timeout{1, 0};
+    const int broadcast = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &interface, sizeof(interface)) != 0 ||
+        setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) != 0 ||
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+        bind(fd, reinterpret_cast<const sockaddr*>(&local), sizeof(local)) != 0) {
+        close(fd);
         return false;
     }
-    ESP_LOGI(TAG, "Audio Hub 手动模式就绪（等待管理页命令）");
+    uint32_t last_sta_address = 0;
+    while (FactoryNetworkAvailable()) {
+        char bytes[128];
+        sockaddr_in peer{};
+        socklen_t size = sizeof(peer);
+        const auto count =
+            recvfrom(fd, bytes, sizeof(bytes), 0, reinterpret_cast<sockaddr*>(&peer), &size);
+        if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            close(fd);
+            return false;
+        }
+        if (count <= 0 || count >= static_cast<ssize_t>(sizeof(bytes)) ||
+            peer.sin_family != AF_INET || !FactoryNetworkAvailable())
+            continue;
+        esp_netif_ip_info_t ip{};
+        const uint32_t source = peer.sin_addr.s_addr;
+        const uint32_t host = ntohl(source);
+        const bool private_address =
+            (host >> 24) == 10 || (host >> 20) == 0xac1 || (host >> 16) == 0xc0a8;
+        if (!private_address || esp_netif_get_ip_info(sta, &ip) != ESP_OK || ip.ip.addr == 0 ||
+            ip.netmask.addr == 0 || source == ip.ip.addr ||
+            (source & ip.netmask.addr) != (ip.ip.addr & ip.netmask.addr))
+            continue;
+        char peer_ip[INET_ADDRSTRLEN];
+        if (!inet_ntop(AF_INET, &peer.sin_addr, peer_ip, sizeof(peer_ip)))
+            continue;
+        const std::string prefix = std::string(kDiscoveryPrefix) + peer_ip + " ";
+        const std::string_view packet(bytes, count);
+        const auto proof_start = packet.rfind(' ');
+        if (!packet.starts_with(prefix) || proof_start <= prefix.size() ||
+            proof_start == std::string_view::npos)
+            continue;
+        const char* port_end = packet.data() + proof_start;
+        unsigned port = 0;
+        const auto parsed = std::from_chars(packet.data() + prefix.size(), port_end, port);
+        if (parsed.ec != std::errc{} || parsed.ptr != port_end || port == 0 || port > 65535 ||
+            !ValidProof(packet.substr(0, proof_start), packet.substr(proof_start + 1)))
+            continue;
+        if (last_sta_address != ip.ip.addr) {
+            last_sta_address = ip.ip.addr;
+            std::lock_guard<std::mutex> lock(job_mutex_);
+            next_presence_us_ = 0;
+        }
+        if (Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
+            !Board::GetInstance().IsAudioMaintenanceActive())
+            RequestJob(Job::kPresence, {},
+                       "http://" + std::string(peer_ip) + ":" + std::to_string(port));
+    }
+    close(fd);
     return true;
 }
 
-void AudioHub::TaskEntry(void* arg) { static_cast<AudioHub*>(arg)->Task(); }
-
-void AudioHub::SleepBackoff(int* backoff_s) {
-    ESP_LOGW(TAG, "失败退避 %d 秒", *backoff_s);
-    vTaskDelay(pdMS_TO_TICKS(*backoff_s * 1000));
-    *backoff_s = std::min(*backoff_s * 2, kMaxBackoffS);
+void AudioHub::TaskEntry(void* arg) {
+    auto& hub = *static_cast<AudioHub*>(arg);
+    Job job;
+    std::string server;
+    {
+        std::lock_guard<std::mutex> lock(hub.job_mutex_);
+        job = hub.pending_job_;
+        if (job == Job::kPresence)
+            server = hub.offered_server_;
+    }
+    if (job == Job::kPresence)
+        hub.DoPresence(server);
+    else if (job == Job::kCheck)
+        hub.DoCheck();
+    else
+        hub.DoUpdate();
+    hub.job_running_.store(false);
+    vTaskDelete(nullptr);
 }
 
 std::string AudioHub::ServerUrl() const {
@@ -318,9 +448,25 @@ bool AudioHub::TryActivate(int* status_code) {
     return activated;
 }
 
+void AudioHub::ClearRegistration() {
+    activated_.store(false);
+    api_token_.clear();
+    claim_token_.clear();
+    {
+        std::lock_guard<std::mutex> lock(metadata_mutex_);
+        activation_code_.clear();
+    }
+    Settings settings("audio_hub", true);
+    settings.EraseKey("api_token");
+    settings.EraseKey("claim_token");
+    settings.EraseKey("act_code");
+}
+
 bool AudioHub::CheckIn() {
     const std::string url = ServerUrl() + "/api/device/v1/check-in";
-    std::string body = "{\"firmware_version\":\"" + FirmwareVersion() + "\"}";
+    const std::string body = "{\"device_id\":\"" + device_id_ + "\",\"product_id\":\"" +
+                             Product().hub_product_id + "\",\"firmware_version\":\"" +
+                             FirmwareVersion() + "\"}";
 
     esp_http_client_config_t config = {};
     config.url = url.c_str();
@@ -330,30 +476,48 @@ bool AudioHub::CheckIn() {
     ConfigureHttpTrust(&config);
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == nullptr) {
+        SetJobMessage("设备资源不足，无法连接 Audio Hub");
         return false;
     }
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_header(client, "Authorization", ("Bearer " + api_token_).c_str());
 
+    int status = 0;
     bool ok = false;
+    std::string response;
     if (esp_http_client_open(client, body.size()) == ESP_OK) {
         esp_http_client_write(client, body.data(), body.size());
         if (esp_http_client_fetch_headers(client) >= 0) {
-            const int status = esp_http_client_get_status_code(client);
-            ok = status == 200;
-            if (status == 401 || status == 403) {
-                ESP_LOGW(TAG, "check-in 返回 %d，token 失效，回到激活流程", status);
-                activated_.store(false);
-            }
+            status = esp_http_client_get_status_code(client);
+            ok = status == 200 && ReadResponse(client, kMaxControlResponse, &response);
         }
     }
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
-    return ok;
+    if (!ok) {
+        if (status == 401 || status == 410)
+            ClearRegistration();
+        SetJobMessage(status == 403 ? "该设备已在 Audio Hub 停用"
+                                    : "未能上报设备信息，请检查 Audio Hub 或局域网");
+        return false;
+    }
+
+    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
+        cJSON_ParseWithLength(response.data(), response.size()), cJSON_Delete);
+    const auto* device = cJSON_GetObjectItemCaseSensitive(root.get(), "device");
+    const auto* product = cJSON_GetObjectItemCaseSensitive(device, "product_id");
+    if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root.get(), "ok")) ||
+        !cJSON_IsString(product) ||
+        std::strcmp(product->valuestring, Product().hub_product_id) != 0) {
+        SetJobMessage("Audio Hub 未确认当前设备型号，请检查登记信息");
+        return false;
+    }
+    return true;
 }
 
 bool AudioHub::FetchManifest(std::string* body) {
-    const std::string url = ServerUrl() + "/api/device/v1/files";
+    const std::string url =
+        ServerUrl() + "/api/device/v1/files?product=" + Product().hub_product_id;
     esp_http_client_config_t config = {};
     config.url = url.c_str();
     config.method = HTTP_METHOD_GET;
@@ -372,11 +536,8 @@ bool AudioHub::FetchManifest(std::string* body) {
             const int status = esp_http_client_get_status_code(client);
             if (status == 200) {
                 ok = ReadResponse(client, kMaxManifestResponse, body);
-            } else if (status == 401 || status == 403 || status == 410) {
-                // The token no longer matches the server; bind again on the next check.
-                activated_.store(false);
-                claim_token_.clear();
-                Settings("audio_hub", true).EraseKey("claim_token");
+            } else if (status == 401 || status == 410) {
+                ClearRegistration();
             }
         }
     }
@@ -397,10 +558,12 @@ bool AudioHub::ParseManifest(const std::string& body, std::vector<RemoteFile>* f
     }
     cJSON* rev = cJSON_GetObjectItem(root, "revision");
     cJSON* items = cJSON_GetObjectItem(root, "files");
+    const auto* product = cJSON_GetObjectItemCaseSensitive(root, "product");
     bool ok = false;
     std::vector<RemoteFile> validated;
     if (cJSON_IsString(rev) && rev->valuestring[0] != '\0' &&
-        std::strlen(rev->valuestring) <= 128 && cJSON_IsArray(items)) {
+        std::strlen(rev->valuestring) <= 128 && cJSON_IsArray(items) && cJSON_IsString(product) &&
+        std::strcmp(product->valuestring, Product().hub_product_id) == 0) {
         const int count = cJSON_GetArraySize(items);
         // An empty/malformed response must never wipe factory recordings.
         ok = count > 0 && count <= 32;
@@ -460,17 +623,23 @@ bool AudioHub::ParseManifest(const std::string& body, std::vector<RemoteFile>* f
     return ok;
 }
 
+bool AudioHub::CanDownload() const {
+    return FactoryNetworkAvailable() &&
+           Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
+           (!interaction_busy_ || !interaction_busy_());
+}
+
 bool AudioHub::DownloadFile(int index, const RemoteFile& file) {
-    const std::string url = ServerUrl() + "/api/device/v1/download/" + std::to_string(index);
+    const std::string url = ServerUrl() + "/api/device/v1/download/" + std::to_string(index) +
+                            "?product=" + Product().hub_product_id;
     const std::string auth = "Bearer " + api_token_;
 
     for (int attempt = 0; attempt < kDownloadRetries; ++attempt) {
-        if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle ||
-            (interaction_busy_ && interaction_busy_()))
-            return false;
         if (attempt > 0) {
-            vTaskDelay(pdMS_TO_TICKS(2000 << (attempt - 1)));  // 线性退避 2s/4s
+            vTaskDelay(pdMS_TO_TICKS(2000 << (attempt - 1)));  // 仅在当前手动任务内重试。
         }
+        if (!CanDownload())
+            return false;
         esp_http_client_config_t config = {};
         config.url = url.c_str();
         config.method = HTTP_METHOD_GET;
@@ -490,8 +659,7 @@ bool AudioHub::DownloadFile(int index, const RemoteFile& file) {
             esp_http_client_get_status_code(client) == 200) {
             const int64_t started = esp_timer_get_time();
             auto reader = [this, client, started](uint8_t* buf, size_t len) -> size_t {
-                if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle ||
-                    (interaction_busy_ && interaction_busy_()) ||
+                if (!CanDownload() ||
                     esp_timer_get_time() - started >= int64_t(kDownloadTimeoutMs) * 1000)
                     return static_cast<size_t>(-1);
                 const int got = esp_http_client_read(client, reinterpret_cast<char*>(buf), len);
@@ -516,8 +684,7 @@ bool AudioHub::DownloadFile(int index, const RemoteFile& file) {
         }
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
-        if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle ||
-            (interaction_busy_ && interaction_busy_()))
+        if (!CanDownload())
             return false;
         if (ok) {
             ESP_LOGI(TAG, "已同步 %s（%lu 字节）", file.name.c_str(),
@@ -526,89 +693,6 @@ bool AudioHub::DownloadFile(int index, const RemoteFile& file) {
         }
     }
     return false;
-}
-
-bool AudioHub::SyncOnce() {
-    if (syncing_.exchange(true)) {
-        return true;
-    }
-    status_.store(Status::kSyncing);
-    bool ok = false;
-    std::string body;
-    std::vector<RemoteFile> remote;
-    std::string remote_revision;
-
-    do {
-        if (!FetchManifest(&body) || !ParseManifest(body, &remote, &remote_revision)) {
-            break;
-        }
-        // Even with an unchanged revision, repair missing/local-reset files.
-        // Metadata equality is checked below before skipping each download.
-        ESP_LOGI(TAG, "清单 revision %s -> %s，共 %u 个文件", revision_.c_str(),
-                 remote_revision.c_str(), static_cast<unsigned>(remote.size()));
-        if (refresh_revision_ != remote_revision) {
-            refresh_revision_ = remote_revision;
-            refreshed_files_ = 0;
-        }
-
-        bool failed = false;
-        for (size_t i = 0; i < remote.size(); ++i) {
-            const int local = store_->FindByName(remote[i].base_name);
-            if (local >= 0) {
-                AudioFileInfo info = {};
-                if (store_->GetFile(local, &info) && info.size == remote[i].size &&
-                    (revision_ == remote_revision || (refreshed_files_ & (1U << i)))) {
-                    continue;
-                }
-                // WriteFile appends and replaces only after a verified commit.
-                // Never delete the working recording before a download succeeds.
-            }
-            // 对话开始时暂停下载，等下一轮再继续（保留未提交的旧目录）。
-            if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle ||
-                (interaction_busy_ && interaction_busy_())) {
-                ESP_LOGI(TAG, "对话进行中，暂停同步（revision 不更新）");
-                failed = true;
-                break;
-            }
-            if (!DownloadFile(static_cast<int>(i), remote[i])) {
-                failed = true;
-                break;  // 保留旧 revision，下轮重试
-            }
-            refreshed_files_ |= 1U << i;
-        }
-
-        // 清单中没有的本地文件删除（服务端删除的同步下来）。
-        if (!failed) {
-            for (const auto& local : store_->Snapshot()) {
-                bool in_manifest = false;
-                for (const auto& item : remote) {
-                    if (item.base_name == local.name) {
-                        in_manifest = true;
-                        break;
-                    }
-                }
-                if (!in_manifest) {
-                    std::string error;
-                    if (!store_->DeleteFile(local.name, &error)) {
-                        failed = true;
-                        break;
-                    }
-                }
-            }
-            if (!failed) {
-                {
-                    std::lock_guard<std::mutex> lock(metadata_mutex_);
-                    revision_ = remote_revision;
-                }
-                Settings("audio_sync", true).SetString("revision", remote_revision);
-            }
-        }
-        ok = !failed;
-    } while (false);
-
-    syncing_.store(false);
-    status_.store(ok ? Status::kActive : Status::kError);
-    return ok;
 }
 
 void AudioHub::SetJobMessage(const std::string& message) {
@@ -636,35 +720,36 @@ bool AudioHub::has_diff() const {
     return !diff_.empty();
 }
 
-bool AudioHub::RequestCheck() {
-    std::lock_guard<std::mutex> lock(job_mutex_);
-    if (local_maintenance_)
-        return false;
-    if (!manual_mode_ || task_handle_ == nullptr) {
-        return false;
-    }
-    if (job_running_.exchange(true)) {
-        return false;
-    }
-    check_requested_.store(true);
-    xTaskNotifyGive(task_handle_);
-    return true;
-}
+bool AudioHub::RequestCheck() { return RequestJob(Job::kCheck, {}); }
 
 bool AudioHub::RequestUpdate(const std::vector<std::string>& names) {
+    return !names.empty() && RequestJob(Job::kUpdate, names);
+}
+
+bool AudioHub::RequestJob(Job job, const std::vector<std::string>& names,
+                          const std::string& server) {
     std::lock_guard<std::mutex> lock(job_mutex_);
-    if (local_maintenance_)
+    if (store_ == nullptr || local_maintenance_ || job_running_.load())
         return false;
-    if (!manual_mode_ || task_handle_ == nullptr || names.empty()) {
-        return false;
+    if (job == Job::kPresence) {
+        if (server == offered_server_ && esp_timer_get_time() < next_presence_us_)
+            return false;
+        offered_server_ = server;
+        next_presence_us_ = esp_timer_get_time() + kPresenceRetryUs;
+    } else {
+        update_names_ = names;
+        job_ok_.store(false);
     }
-    if (job_running_.exchange(true)) {
-        return false;
+    pending_job_ = job;
+    job_running_.store(true);
+    if (xTaskCreate(TaskEntry, "wzh_hub_job", 8192, this, 1, nullptr) == pdPASS)
+        return true;
+    if (job != Job::kPresence) {
+        job_message_ = "设备资源不足，无法开始 Audio Hub 任务";
+        status_.store(Status::kError);
     }
-    update_names_ = names;
-    update_requested_.store(true);
-    xTaskNotifyGive(task_handle_);
-    return true;
+    job_running_.store(false);
+    return false;
 }
 
 bool AudioHub::BeginLocalMaintenance() {
@@ -680,8 +765,6 @@ void AudioHub::EndLocalMaintenance(bool library_erased) {
         {
             std::lock_guard<std::mutex> lock(metadata_mutex_);
             revision_.clear();
-            refresh_revision_.clear();
-            refreshed_files_ = 0;
         }
         Settings("audio_sync", true).SetString("revision", "");
     }
@@ -695,21 +778,73 @@ void AudioHub::EndLocalMaintenance(bool library_erased) {
     local_maintenance_ = false;
 }
 
-void AudioHub::ManualTask() {
-    while (true) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        if (check_requested_.exchange(false)) {
-            DoCheck();
-        } else if (update_requested_.exchange(false)) {
-            DoUpdate();
+bool AudioHub::EnsureRegistered() {
+    if (activated_.load() && CheckIn())
+        return true;
+    // Authentication errors clear the old token. A disabled device keeps it
+    // and must not register again while the server has disabled that record.
+    if (activated_.load()) {
+        status_.store(Status::kError);
+        return false;
+    }
+    if (claim_token_.empty() && !Register()) {
+        SetJobMessage("设备登记失败，请检查 Audio Hub 地址和局域网");
+        status_.store(Status::kError);
+        return false;
+    }
+    if (!activated_.load()) {
+        int status_code = 0;
+        if (TryActivate(&status_code)) {
+            activated_.store(true);
         } else {
-            job_running_.store(false);
+            if (status_code == 401 || status_code == 409 || status_code == 410) {
+                ClearRegistration();
+                SetJobMessage("登记凭据已失效，等待重新接入");
+                status_.store(Status::kError);
+            } else if (status_code == 200) {
+                const std::string code = activation_code();
+                SetJobMessage(code.empty() ? "等待在 Audio Hub 绑定设备"
+                                           : "等待绑定，激活码 " + code);
+                status_.store(Status::kWaitingActivation);
+            } else {
+                SetJobMessage(status_code == 403 ? "该设备已在 Audio Hub 停用"
+                                                 : "读取绑定状态失败，请检查设备网络");
+                status_.store(Status::kError);
+            }
+            return false;
         }
     }
+    if (CheckIn())
+        return true;
+    status_.store(Status::kError);
+    return false;
+}
+
+void AudioHub::DoPresence(const std::string& server) {
+    auto& app = Application::GetInstance();
+    auto& board = Board::GetInstance();
+    if (board.IsAudioMaintenanceActive() || app.GetDeviceState() != kDeviceStateIdle ||
+        !FactoryNetworkAvailable() || !VerifyHub(server) || !EnsureInitialized() ||
+        !FactoryNetworkAvailable() || board.IsAudioMaintenanceActive() ||
+        app.GetDeviceState() != kDeviceStateIdle)
+        return;
+
+    if (server_ != server) {
+        server_ = server;
+        std::lock_guard<std::mutex> lock(job_mutex_);
+        diff_.clear();
+        checked_revision_.clear();
+        remote_files_.clear();
+    }
+    if (!EnsureRegistered())
+        return;
+
+    status_.store(Status::kActive);
+    std::lock_guard<std::mutex> lock(job_mutex_);
+    next_presence_us_ = esp_timer_get_time() + kPresenceIntervalUs;
 }
 
 void AudioHub::DoCheck() {
-    job_ok_.store(false);
     status_.store(Status::kSyncing);
     SetJobMessage("正在检查 Audio Hub 清单…");
     {
@@ -718,40 +853,24 @@ void AudioHub::DoCheck() {
         checked_revision_.clear();
         remote_files_.clear();
     }
+    if (!FactoryNetworkAvailable()) {
+        SetJobMessage("请先让设备连接 Audio Hub 所在的局域网 Wi-Fi");
+        status_.store(Status::kWaitingNetwork);
+        return;
+    }
     if (!EnsureInitialized()) {
         SetJobMessage("无法读取 Audio Hub 配置");
         status_.store(Status::kError);
-        job_running_.store(false);
+        return;
+    }
+
+    if (!EnsureRegistered()) {
+        if (status_.load() == Status::kWaitingActivation)
+            job_ok_.store(true);
         return;
     }
 
     do {
-        if (!Board::GetInstance().HasSystemNetwork()) {
-            SetJobMessage("设备未联网，无法检查 Audio Hub");
-            status_.store(Status::kError);
-            break;
-        }
-        if (!activated_.load()) {
-            if (claim_token_.empty() && !Register()) {
-                SetJobMessage("设备注册失败，请检查服务器地址");
-                status_.store(Status::kError);
-                break;
-            }
-            if (!activated_.load()) {
-                int status_code = 0;
-                if (TryActivate(&status_code)) {
-                    activated_.store(true);
-                } else {
-                    const std::string code = activation_code();
-                    SetJobMessage(code.empty() ? "等待平台绑定设备"
-                                               : "等待平台绑定，激活码 " + code);
-                    status_.store(Status::kWaitingActivation);
-                    job_ok_.store(true);
-                    break;
-                }
-            }
-        }
-
         std::string body;
         std::vector<RemoteFile> remote;
         std::string revision;
@@ -809,8 +928,6 @@ void AudioHub::DoCheck() {
         job_ok_.store(true);
         SetJobMessage("检查完成：远端 " + std::to_string(remote_count) + " 个文件");
     } while (false);
-
-    job_running_.store(false);
 }
 
 void AudioHub::DoUpdate() {
@@ -823,16 +940,17 @@ void AudioHub::DoUpdate() {
         remote = remote_files_;
         revision = checked_revision_;
     }
-    job_ok_.store(false);
     if (names.empty() || remote.empty() || revision.empty()) {
         SetJobMessage("请先检查清单，再选择要更新的文件");
-        job_running_.store(false);
         return;
     }
-    if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle ||
-        (interaction_busy_ && interaction_busy_())) {
+    if (!FactoryNetworkAvailable()) {
+        SetJobMessage("请先让设备连接 Audio Hub 所在的局域网 Wi-Fi");
+        status_.store(Status::kWaitingNetwork);
+        return;
+    }
+    if (!CanDownload()) {
         SetJobMessage("对话或动作进行中，稍后再更新");
-        job_running_.store(false);
         return;
     }
 
@@ -863,8 +981,11 @@ void AudioHub::DoUpdate() {
     }
 
     if (!failed && done == names.size()) {
-        revision_ = revision;
-        Settings("audio_sync", true).SetString("revision", revision_);
+        Settings("audio_sync", true).SetString("revision", revision);
+        {
+            std::lock_guard<std::mutex> lock(metadata_mutex_);
+            revision_ = revision;
+        }
         {
             std::lock_guard<std::mutex> lock(job_mutex_);
             diff_.clear();
@@ -879,87 +1000,6 @@ void AudioHub::DoUpdate() {
         status_.store(Status::kError);
         if (!failed) {
             SetJobMessage("没有文件被更新");
-        }
-    }
-    job_running_.store(false);
-}
-
-void AudioHub::Task() {
-    if (manual_mode_) {
-        ManualTask();
-        return;
-    }
-    int backoff_s = 5;
-    uint32_t last_checkin_ms = 0;
-    uint32_t last_sync_ms = 0;
-
-    while (true) {
-        if (!Board::GetInstance().HasSystemNetwork()) {
-            status_.store(Status::kWaitingNetwork);
-            vTaskDelay(pdMS_TO_TICKS(5000));
-            continue;
-        }
-
-        // 统一激活流程：从未绑定、token 失效都回到这里（401/410 会清掉
-        // claim 触发重新注册，参考工程行为一致）。
-        if (!activated_.load()) {
-            if (claim_token_.empty()) {
-                if (!Register()) {
-                    status_.store(Status::kError);
-                    SleepBackoff(&backoff_s);
-                    continue;
-                }
-            }
-            if (activated_.load()) {
-                sync_now_.store(true);
-                status_.store(Status::kActive);
-                backoff_s = 5;
-                continue;
-            }
-            status_.store(Status::kWaitingActivation);
-            int status_code = 0;
-            if (TryActivate(&status_code)) {
-                activated_.store(true);
-                sync_now_.store(true);
-                backoff_s = 5;
-                continue;
-            }
-            if (status_code == 401 || status_code == 410) {
-                claim_token_.clear();
-                Settings("audio_hub", true).EraseKey("claim_token");
-            }
-            // 等待用户在平台输入激活码完成绑定，每 3 秒轮询一次。
-            vTaskDelay(pdMS_TO_TICKS(3000));
-            continue;
-        }
-
-        // 已绑定：心跳 + 增量同步（全部在后台，不阻塞对话）。
-        if (status_.load() == Status::kWaitingNetwork ||
-            status_.load() == Status::kWaitingActivation)
-            status_.store(Status::kActive);
-        const uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-        if (now_ms - last_checkin_ms >= kCheckinIntervalMs) {
-            CheckIn();
-            last_checkin_ms = now_ms;
-            if (!activated_.load())
-                continue;
-        }
-        if ((sync_now_.load() || now_ms - last_sync_ms >= kSyncIntervalMs) &&
-            Application::GetInstance().GetDeviceState() == kDeviceStateIdle &&
-            (!interaction_busy_ || !interaction_busy_())) {
-            sync_now_.store(false);
-            if (SyncOnce()) {
-                last_sync_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-                backoff_s = 5;
-            } else {
-                sync_now_.store(
-                    true);  // Retry after backoff; a busy session never loses the request.
-            }
-        }
-        if (status_.load() == Status::kError) {
-            SleepBackoff(&backoff_s);
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
 }

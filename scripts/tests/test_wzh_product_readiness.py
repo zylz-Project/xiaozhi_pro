@@ -49,14 +49,15 @@ using namespace wzh;
 int main(){
     for(auto control:{PetControl::kStop,PetControl::kRest,PetControl::kQuiet}){
         PetBehavior pet;pet.Touch(1,100);pet.PollTouch(100);
-        assert(pet.PollTouch(1300)==TouchResponse::kHeld);
+        assert(pet.PollTouch(1300)==TouchResponse::kNone);
         pet.Control(control,1400);pet.Control(PetControl::kWake,5000);
-        assert(pet.PollTouch(8000)==TouchResponse::kNone&&!pet.Get(8000).gentle);
+        pet.Touch(1,8000);pet.Touch(3,8050); // A mode change does not create a press.
+        assert(pet.PollTouch(8050)==TouchResponse::kNone&&!pet.Get(8050).gentle);
         pet.Touch(0,8100);assert(pet.PollTouch(8100)==TouchResponse::kNone);
         pet.Touch(1,8200);assert(pet.PollTouch(8200)==TouchResponse::kAffection);
     }
     PetBehavior pet;pet.Touch(1,100);pet.PollTouch(100);
-    pet.SetMaintenance(true);pet.Touch(1,1000);pet.SetMaintenance(false);
+    pet.SetMaintenance(true);pet.Touch(1,1000);pet.SetMaintenance(false);pet.Touch(1,9999);
     assert(pet.PollTouch(10000)==TouchResponse::kNone);
     pet.Touch(0,10020);pet.Touch(2,10040);
     assert(pet.PollTouch(10040)==TouchResponse::kAffection);
@@ -173,15 +174,17 @@ int main(){
  wzh::onboarding_block=false;
 }
 '''
-        for board, wake in [('wzh_crawlPanda', '小华小华'),
-                            ('wzh_tailRedPanda', '小武小武'),
-                            ('wzh_dinosaur', '小威小威')]:
-            source = (ROOT / 'main/boards' / board / (board + '.cc')).read_text()
+        for board, wake in [('wzh_crawlPanda', '小华'),
+                            ('wzh_tailRedPanda', '小武'),
+                            ('wzh_dinosaur', '小威')]:
+            board_dir = ROOT / 'main/boards' / board
+            source = (board_dir / (board + '.cc')).read_text()
             method = queue_function(source, 'bool HandleLocalVoiceCommand(')
             method = method.replace('bool HandleLocalVoiceCommand(',
                                     'bool TestBoard::HandleLocalVoiceCommand(', 1)
             method = method.replace(') override {', ') {', 1)
             with self.subTest(board=board):
+                self.assertIn(f'.wake_phrase = "{wake}",', (board_dir / 'wzh_product.cc').read_text())
                 self.run_cpp(harness.replace('__METHOD__', method).replace('__WAKE__', wake))
 
     def test_all_three_shutdowns_park_only_active_healthy_servos_with_a_deadline(self):
@@ -318,6 +321,8 @@ int main(){
 #include <cJSON.h>
 #define ESP_LOGE(...) ((void)0)
 constexpr size_t kMaxManifestResponse=65536;
+struct ProductInfo{const char* hub_product_id="dinosaur";};
+ProductInfo Product(){return {};}
 struct AudioFileInfo{char name[64];};
 struct Store{uint64_t capacity(){return 128ULL*1024*1024;}};
 struct AudioHub{
@@ -329,11 +334,16 @@ struct AudioHub{
 '''+method+r'''
 int main(){
     AudioHub hub;std::vector<AudioHub::RemoteFile> files;std::string revision="old";
-    auto manifest=[](std::string items){return "{\"revision\":\"v1\",\"files\":["+items+"]}";};
+    auto manifest=[](std::string items, const char* product="dinosaur"){
+        return "{\"product\":\""+std::string(product)+"\",\"revision\":\"v1\",\"files\":["+items+"]}";
+    };
     auto file=[](std::string name,std::string size){return "{\"name\":\""+name+"\",\"size\":"+size+",\"category\":\"animal\"}";};
     auto valid=file("call.opus","64");
     assert(hub.ParseManifest(manifest(valid),&files,&revision));assert(files.size()==1&&files[0].size==64);
     revision="unchanged";
+    assert(!hub.ParseManifest(manifest(valid,"wzh-crawlpanda"),&files,&revision));
+    assert(!hub.ParseManifest("{\"revision\":\"v1\",\"files\":["+valid+"]}",&files,&revision));
+    assert(revision=="unchanged"&&files.size()==1&&files[0].size==64);
     for(auto bad:{"0","-1","1.5","4294967296","33554433","null","1e300"}){
         assert(!hub.ParseManifest(manifest(file("call.opus",bad)),&files,&revision));
         assert(revision=="unchanged"&&files.size()==1&&files[0].size==64);
@@ -380,106 +390,190 @@ int main(){
 }
 ''')
 
-    def test_sync_repairs_same_revision_and_preserves_old_file_and_revision_on_failure(self):
-        source=(COMMON/'wzh_audio_hub.cc').read_text()
-        method=queue_function(source,'bool AudioHub::SyncOnce(')
+    def test_factory_update_writes_only_selected_audio_and_can_retry(self):
+        source = (COMMON/'wzh_audio_hub.cc').read_text()
+        methods = '\n'.join(queue_function(source, signature) for signature in (
+            'bool FactoryNetworkAvailable(', 'void AudioHub::DoUpdate(',
+        ))
         self.run_cpp(r'''
 #include <atomic>
 #include <cassert>
-#include <cstring>
 #include <string>
 #include <vector>
-#define ESP_LOGI(...) ((void)0)
-constexpr int kDeviceStateIdle=0;
-int revision_writes=0,state=0;
-struct Settings{Settings(const char*,bool){}void SetString(const char*,const std::string&){++revision_writes;}};
-struct Application{static Application& GetInstance(){static Application a;return a;}int GetDeviceState(){return state;}};
-struct AudioFileInfo{char name[64];uint32_t size;};
-struct Store{
-    std::vector<AudioFileInfo>files={{"call",32}};int deletions=0;bool deletion_fails=false;
-    int FindByName(const std::string& name){for(size_t i=0;i<files.size();++i)if(name==files[i].name)return i;return -1;}
-    bool GetFile(int index,AudioFileInfo* out){*out=files[index];return true;}
-    auto Snapshot(){return files;}
-    bool DeleteFile(const std::string&,std::string*){++deletions;return !deletion_fails;}
+
+bool FactoryNetworkAvailable();
+struct Board {
+    bool wifi = true;
+    bool cellular = false;
+    static Board& GetInstance() { static Board board; return board; }
+    bool HasSystemNetwork() const { return wifi; }
+    bool UsesCellularNetwork() const { return cellular; }
 };
-struct AudioHub{
-    mutable std::mutex metadata_mutex_;
-    enum class Status{kSyncing,kActive,kError};
-    std::atomic<bool>syncing_{false};std::atomic<Status>status_{Status::kActive};
-    Store store;Store*store_=&store;std::string revision_="v1",remote_revision="v1";
-    std::string refresh_revision_;uint32_t refreshed_files_=0;
-    bool download_fails=true;int downloads=0;
-    std::function<bool()>interaction_busy_=[](){return false;};
-    struct RemoteFile{std::string name,base_name;uint32_t size;};
-    bool FetchManifest(std::string*){return true;}
-    bool ParseManifest(const std::string&,std::vector<RemoteFile>*files,std::string*revision){
-        *files={{"call.opus","call",64}};*revision=remote_revision;return true;
-    }
-    bool DownloadFile(int,const RemoteFile&){
-        ++downloads;if(download_fails)return false;
-        int index=store.FindByName("call");
-        if(index>=0)store.files[index].size=64;else store.files.push_back({"call",64});
+std::string stored_revision = "v1";
+struct Settings {
+    Settings(const char*, bool) {}
+    void SetString(const char*, const std::string& value) { stored_revision = value; }
+};
+struct AudioHub {
+    enum class Status { kWaitingNetwork, kSyncing, kActive, kError };
+    struct RemoteFile { std::string base_name; };
+    std::mutex job_mutex_, metadata_mutex_;
+    std::vector<std::string> update_names_{"call"};
+    std::vector<RemoteFile> remote_files_{{"call"}, {"other"}};
+    std::vector<int> diff_{1};
+    std::string checked_revision_ = "v2", revision_ = "v1", message;
+    std::atomic<Status> status_{Status::kActive};
+    std::atomic<bool> job_ok_{false};
+    bool busy = false, interrupted = true;
+    int downloads = 0, local_call_size = 32, local_only_size = 16;
+    void SetJobMessage(const std::string& value) { message = value; }
+    bool CanDownload() const { return !busy && FactoryNetworkAvailable(); }
+    bool DownloadFile(int index, const RemoteFile& file) {
+        assert(index == 0 && file.base_name == "call");
+        ++downloads;
+        if (interrupted) return false;
+        local_call_size = 64;
         return true;
     }
-    bool SyncOnce();
+    void DoUpdate();
 };
-'''.replace('#include <atomic>','#include <atomic>\n#include <functional>')+method+r'''
-int main(){
+
+''' + methods + r'''
+int main() {
     AudioHub hub;
-    assert(!hub.SyncOnce());assert(hub.downloads==1&&hub.store.deletions==0);
-    assert(hub.store.files[0].size==32&&hub.revision_=="v1"&&revision_writes==0);
-    hub.store.files.clear();hub.download_fails=false;
-    assert(hub.SyncOnce());assert(hub.downloads==2&&hub.store.files[0].size==64&&revision_writes==1);
-    hub.remote_revision="v2";hub.store.files.push_back({"old",16});hub.store.deletion_fails=true;
-    assert(!hub.SyncOnce());assert(hub.revision_=="v1"&&revision_writes==1);
-    assert(hub.downloads==3); // Changed content of the same size is refreshed.
-    assert(!hub.SyncOnce());assert(hub.downloads==3); // Completed download survives retry.
-    hub.store.files={{"call",32}};state=1;
-    assert(!hub.SyncOnce());assert(hub.store.files[0].size==32&&hub.store.deletions==2);
+    auto& board = Board::GetInstance();
+    board.wifi = false;
+    hub.DoUpdate();
+    assert(hub.status_ == AudioHub::Status::kWaitingNetwork && hub.downloads == 0);
+    board.wifi = true;
+    board.cellular = true;
+    hub.DoUpdate();
+    assert(hub.downloads == 0);
+    board.cellular = false;
+    hub.busy = true;
+    hub.DoUpdate();
+    assert(hub.downloads == 0);
+    hub.busy = false;
+    hub.DoUpdate();
+    assert(hub.downloads == 1 && !hub.job_ok_ && hub.local_call_size == 32);
+    assert(hub.revision_ == "v1" && stored_revision == "v1");
+    hub.interrupted = false;
+    hub.DoUpdate();
+    assert(hub.downloads == 2 && hub.job_ok_ && hub.local_call_size == 64);
+    assert(hub.local_only_size == 16 && hub.revision_ == "v2" && stored_revision == "v2");
+    assert(hub.diff_.empty());
 }
 ''')
 
-    def test_manual_sync_survives_conversation_motion_and_retries_after_failure(self):
-        source=(COMMON/'wzh_audio_hub.cc').read_text()
-        method=queue_function(source,'void AudioHub::Task(')
+    def test_factory_hub_serializes_manual_work_and_automatic_presence(self):
+        source = (COMMON/'wzh_audio_hub.cc').read_text()
+        methods = '\n'.join(queue_function(source, signature) for signature in (
+            'void AudioHub::ConfigureForFactory(', 'void AudioHub::TaskEntry(',
+            'bool AudioHub::RequestCheck(', 'bool AudioHub::RequestUpdate(',
+            'bool AudioHub::RequestJob(', 'bool AudioHub::BeginLocalMaintenance(',
+        ))
         self.run_cpp(r'''
 #include <atomic>
 #include <cassert>
-#include <cstdint>
 #include <functional>
 #include <string>
-uint32_t now=0;int syncs=0;
-struct Done{};
-int64_t esp_timer_get_time(){return int64_t(now)*1000;}
-void vTaskDelay(uint32_t ms){now+=ms;if(now>=10000)throw Done{};}
-#define pdMS_TO_TICKS(ms) (ms)
-constexpr uint32_t kCheckinIntervalMs=60000,kSyncIntervalMs=3600000;
-constexpr int kDeviceStateIdle=0;
-struct Board{static Board& GetInstance(){static Board a;return a;}bool HasSystemNetwork(){return true;}};
-struct Application{static Application& GetInstance(){static Application a;return a;}int GetDeviceState(){return now<2000?1:0;}};
-struct Settings{Settings(const char*,bool){}void EraseKey(const char*){}};
-struct AudioHub{
-    mutable std::mutex metadata_mutex_;
-    enum class Status{kWaitingNetwork,kError,kActive,kWaitingActivation};
-    std::atomic<Status>status_{Status::kActive};std::atomic<bool>activated_{true},sync_now_{true};
-    std::string claim_token_;
-    std::function<bool()>interaction_busy_=[](){return now<4000;};
-    bool Register(){assert(false);return false;}bool TryActivate(int*){assert(false);return false;}
-    void CheckIn(){}
-    bool SyncOnce(){
-        assert(now>=4000);++syncs;
-        status_.store(syncs==1?Status::kError:Status::kActive);return syncs>1;
+#include <utility>
+#include <vector>
+
+constexpr int pdPASS = 1;
+constexpr int64_t kPresenceRetryUs = 10000000;
+int64_t clock_us = 1;
+int64_t esp_timer_get_time() { return clock_us; }
+using TaskEntryPoint = void (*)(void*);
+TaskEntryPoint queued = nullptr;
+void* queued_arg = nullptr;
+int created = 0, released = 0;
+bool allocation_fails = false;
+int xTaskCreate(TaskEntryPoint fn, const char*, int, void* arg, int, void*) {
+    if (allocation_fails) return 0;
+    assert(!queued);
+    queued = fn;
+    queued_arg = arg;
+    ++created;
+    return pdPASS;
+}
+void vTaskDelete(void* current) { assert(current == nullptr); ++released; }
+void run_pending_task() {
+    assert(queued);
+    std::exchange(queued, nullptr)(queued_arg);
+}
+
+struct AudioStore {};
+struct AudioHub {
+    enum class Job { kCheck, kUpdate, kPresence };
+    enum class Status { kIdle, kError };
+    AudioStore* store_ = nullptr;
+    std::function<bool()> interaction_busy_;
+    std::mutex job_mutex_;
+    Job pending_job_ = Job::kCheck;
+    std::string offered_server_;
+    int64_t next_presence_us_ = 0;
+    std::vector<std::string> update_names_;
+    std::string job_message_;
+    std::atomic<Status> status_{Status::kIdle};
+    std::atomic<bool> job_ok_{false}, job_running_{false};
+    bool local_maintenance_ = false;
+    int checks = 0, updates = 0, announcements = 0;
+    void ConfigureForFactory(AudioStore*, std::function<bool()>);
+    static void TaskEntry(void*);
+    bool RequestCheck();
+    bool RequestUpdate(const std::vector<std::string>&);
+    bool RequestJob(Job, const std::vector<std::string>&, const std::string& = {});
+    bool BeginLocalMaintenance();
+    void DoCheck() { assert(job_running_); ++checks; }
+    void DoUpdate() { assert(job_running_ && update_names_ == std::vector<std::string>{"call"}); ++updates; }
+    void DoPresence(const std::string& server) {
+        assert(job_running_ && server == "http://192.168.1.7:5000");
+        ++announcements;
     }
-    void SleepBackoff(int*){vTaskDelay(2000);}
-    bool manual_mode_=false;void ManualTask(){}
-    void Task();
 };
-'''+method+r'''
-int main(){
-    AudioHub hub;try{hub.Task();}catch(Done&){}
-    assert(syncs==2&&!hub.sync_now_); // Busy and failed attempts never silently consume the request.
+
+''' + methods + r'''
+int main() {
+    AudioStore store;
+    AudioHub hub;
+    hub.ConfigureForFactory(&store, [] { return false; });
+    assert(created == 0 && !hub.job_running_ && hub.checks == 0);
+    assert(!hub.RequestUpdate({}));
+    assert(hub.RequestCheck());
+    assert(created == 1 && hub.job_running_);
+    assert(!hub.RequestCheck() && !hub.RequestUpdate({"call"}) && !hub.BeginLocalMaintenance());
+    run_pending_task();
+    assert(hub.checks == 1 && hub.updates == 0 && !hub.job_running_ && released == 1);
+    allocation_fails = true;
+    assert(!hub.RequestUpdate({"call"}) && !hub.job_running_ && !queued);
+    allocation_fails = false;
+    assert(hub.RequestUpdate({"call"}));
+    run_pending_task();
+    assert(hub.checks == 1 && hub.updates == 1 && !hub.job_running_ && released == created);
+    const std::string server = "http://192.168.1.7:5000";
+    assert(hub.RequestJob(AudioHub::Job::kPresence, {}, server));
+    assert(!hub.RequestCheck());
+    run_pending_task();
+    assert(hub.announcements == 1 && hub.updates == 1);
+    assert(!hub.RequestJob(AudioHub::Job::kPresence, {}, server));
+    clock_us += kPresenceRetryUs;
+    assert(hub.RequestJob(AudioHub::Job::kPresence, {}, server));
+    run_pending_task();
+    assert(hub.announcements == 2);
+    assert(hub.BeginLocalMaintenance());
+    assert(!hub.RequestCheck() && !hub.RequestUpdate({"call"}));
+    assert(!hub.RequestJob(AudioHub::Job::kPresence, {}, server));
 }
 ''')
+        for board, _, _ in BOARDS:
+            board_source = (ROOT/'main/boards'/board/f'{board}.cc').read_text()
+            self.assertIn('audio_hub_.ConfigureForFactory(', board_source)
+            self.assertNotIn('RegisterHubMcpTools', board_source)
+        console = (COMMON/'wzh_web_console.cc').read_text()
+        for handler, method in [('HandleHubCheck', 'RequestCheck'), ('HandleHubUpdate', 'RequestUpdate')]:
+            body = queue_function(console, f'esp_err_t WebConsole::{handler}(')
+            self.assertLess(body.index('RequireDeveloper(req)'), body.index('->'+method+'('))
 
     def test_registration_accepts_created_response_and_validates_direct_token(self):
         source=(COMMON/'wzh_audio_hub.cc').read_text()
@@ -550,7 +644,8 @@ template<class... T>void log_stub(const T&...){}
 #define ESP_LOGI(...) log_stub(__VA_ARGS__)
 #define ESP_LOGW(...) log_stub(__VA_ARGS__)
 constexpr const char* TAG="key";
-constexpr int ESP_OK=0,POWER_BUTTON_ADC_CHANNEL=5,POWER_DEBOUNCE_MS=50,POWER_LONG_PRESS_MS=1500;
+constexpr int ESP_OK=0,POWER_BUTTON_ADC_CHANNEL=5,POWER_DEBOUNCE_MS=30,POWER_LONG_PRESS_MS=1500;
+constexpr int WZH_DOUBLE_CLICK_MS=650;
 constexpr int POWER_BUTTON_PRESS_MV=1000,POWER_BUTTON_RELEASE_MV=1200,POWER_MAX_SAMPLE_GAP_MS=250;
 using esp_err_t=int;
 const char* esp_err_to_name(int){return "error";}
@@ -574,7 +669,7 @@ struct Power{
     BtnState state=BtnState::kIdle;int adc_=0,power_adc_cali_=0;
     uint32_t state_since_ms=0,press_start_ms=0;int hold_tip=0;
     uint32_t last_sample_ms=0;
-    bool armed=false,boot_hold_logged=false,power_adc_fault=false;
+    bool armed=false,boot_hold_logged=false,power_adc_fault=false,previous_gray_sample=false;
     TickType_t last_click_tick=0;int click_count=0,shutdowns=0;
     int feedbacks=0;
     std::atomic<bool> hold_feedback_ready_{true};
@@ -614,6 +709,17 @@ int main(){
     assert(q.shutdowns==0);
     sample(q,3300,true,10);                       // Stable release re-arms shutdown
     sample(q,100,true,85);assert(q.shutdowns>=1);
+    // Two short taps with a pause longer than the old 400 ms, and one gray
+    // ADC sample on each transition, still make just one double-click.
+    Power spaced;
+    sample(spaced,3300,true,5);sample(spaced,100,true,3);sample(spaced,1100,true,1);
+    sample(spaced,3300,true,24);sample(spaced,1100,true,1);sample(spaced,100,true,4);
+    sample(spaced,1100,true,1);sample(spaced,3300,true,4);
+    assert(Application::GetInstance().toggles==2&&spaced.shutdowns==0);
+    Power separate;
+    sample(separate,3300,true,5);sample(separate,100,true,3);sample(separate,3300,true,38);
+    sample(separate,100,true,3);sample(separate,3300,true,4);
+    assert(Application::GetInstance().toggles==2&&separate.shutdowns==0);
 }
 '''
         for board,stem,_ in BOARDS:
@@ -635,13 +741,16 @@ struct Controller{
     std::atomic<bool>conversation_active_{false},speaking_{false},speech_tail_{false};
     std::atomic<wzh::SpeechIntent>speech_intent_{wzh::SpeechIntent::kNeutral};
     std::atomic<int>pending_expression_{-1};std::atomic<uint32_t>intent_generation_{0};
+    wzh::PetBehavior pet_;
     Audio audio;Audio* audio_=&audio;int listens=0;
     void TriggerAction(Action,bool,wzh::PetPriority){++listens;}
     void SetConversationActive(bool);
 };
 __METHOD__
 int main(){
-    Controller c;c.SetConversationActive(true);c.SetConversationActive(true);
+    Controller c;c.pet_.Touch(1,200);c.SetConversationActive(true);c.SetConversationActive(true);
+    c.pet_.Touch(3,300);
+    assert(c.pet_.PollTouch(300)==wzh::TouchResponse::kNone);
     assert(c.listens==0&&c.audio.stops==1);
     c.pending_expression_=2;c.speaking_=true;c.SetConversationActive(false);
     assert(!c.speaking_&&c.pending_expression_==-1&&c.intent_generation_==1);
@@ -654,7 +763,7 @@ int main(){
             method=queue_function(source,'void '+cls+'::SetConversationActive(').replace(cls+'::','Controller::')
             with self.subTest(board=board):self.run_cpp(harness.replace('__METHOD__',method))
 
-    def test_background_sync_waits_for_thirty_seconds_of_quiet_on_all_three_products(self):
+    def test_factory_audio_write_waits_for_thirty_seconds_of_quiet_on_all_three_products(self):
         harness=r'''
 #include <atomic>
 #include <cassert>

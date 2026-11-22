@@ -64,11 +64,11 @@ bool Available() {
 // busy, so a single tick only decides "can I speak right now?".
 [[maybe_unused]] Gain TrySpeak(const std::string_view& sound, uint32_t& generation) {
     auto& audio = Application::GetInstance().GetAudioService();
+    generation = audio.GetPlaybackGeneration();
     std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
     if (!reservation.owns_lock() || !Available() || !audio.IsPlaybackIdle() ||
         audio.IsAudioProcessorRunning() || Board::GetInstance().IsLocalPlaybackPending())
         return Gain::kRetry;
-    generation = audio.GetPlaybackGeneration();
     ESP_LOGI(kTag, "Voice request: idle_miss text=%s", OnboardingTranscript(13));
     audio.PlaySound(sound, generation);
     return Gain::kReserved;

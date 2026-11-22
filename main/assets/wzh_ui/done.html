@@ -2,8 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<script src="js/viewport.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6eadc">
 <title>正在连接 · 爬爬熊猫</title>
 <link rel="stylesheet" href="css/panda.css">
@@ -40,7 +39,7 @@
             <span class="appbar-spacer"></span>
             <div class="appbar-title" id="doneAppbar">连接网络</div>
             <span class="appbar-spacer"></span>
-            <button class="guide-open" type="button" data-guide-open aria-label="查看使用引导"><img data-p-img="face" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt=""></button>
+            <button class="guide-open" type="button" id="doneGuide" data-guide-open aria-label="查看使用引导" hidden><img data-p-img="face" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt=""></button>
           </div>
 
           <div class="done-body">
@@ -82,25 +81,20 @@
             </section>
 
             <div class="done-copy">
-              <p class="kicker" id="doneKicker">ALMOST THERE · 只差一步</p>
+              <p class="kicker" id="doneKicker">配网结果</p>
               <h1 id="doneHeading">正在把它<br>连上家里的网络</h1>
-              <p class="sub" id="doneSub">别关掉这个页面，通常几秒钟就好。</p>
-              <span class="done-status"><i class="dot amber"></i><span id="doneStatus2">正在连接 Home…</span></span>
+              <p class="sub" id="doneSub" role="status">别关掉这个页面，通常几秒钟就好。</p>
+              <span class="done-status"><i class="dot amber"></i><span id="doneStatus2">正在连接…</span></span>
             </div>
 
             <div class="done-net">
               <span class="dn-ico"><svg class="ico" viewBox="0 0 24 24"><use href="#i-wifi"></use></svg></span>
-              <div class="dn-copy"><b id="doneSsid">Home</b><small><span id="doneBand">2.4GHz</span> · <span id="doneSignal">信号很强</span></small></div>
+              <div class="dn-copy"><b id="doneSsid">所选网络</b><small>2.4 GHz Wi-Fi</small></div>
               <span class="chip" id="doneChip">连接中</span>
             </div>
 
-            <div class="done-fail-card" id="failReason" hidden>
-              <svg class="ico" viewBox="0 0 24 24"><use href="#i-alert"></use></svg>
-              <span><b>没有连上。</b>密码可能不对，或路由器把这个新设备拦住了。回去改一下密码，或者换一个 2.4GHz 网络。</span>
-            </div>
-
             <div class="done-actions" id="doneActions" aria-hidden="true">
-              <button class="btn primary" id="donePrimary" type="button">进入设备详情<svg class="ico" viewBox="0 0 24 24"><use href="#i-arrow"></use></svg></button>
+              <button class="btn primary" id="donePrimary" type="button" disabled><span>进入设备详情</span><svg class="ico" viewBox="0 0 24 24"><use href="#i-arrow"></use></svg></button>
               <button class="btn ghost" id="doneLater" type="button">稍后再看</button>
               <p class="done-note" id="doneNote">进入详情需要页面密码；刚配网完成可以直接进入。</p>
             </div>
@@ -108,7 +102,6 @@
         </div>
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </div>
-      <p class="notes"><b>原型说明：</b><code>?state=connecting</code>（默认）→ 1.9 秒后成功；<code>?state=fail</code> 直接演示失败态。成功页的两个按钮在动画结束后才出现。</p>
     </section>
   </main>
 </div>

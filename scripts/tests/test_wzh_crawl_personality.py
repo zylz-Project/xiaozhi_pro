@@ -18,6 +18,8 @@ class WzhCrawlPersonalityTest(unittest.TestCase):
     for(int id=0;id<C_COUNT+BODY_COUNT+int(std::size(kInteractionClips));++id){
         // Explicit single-joint commands have separate isolation/pose tests.
         if(id>=C_COUNT&&id<C_COUNT+BODY_COUNT)continue;
+        // Short audio cues have their own supporting-paw and timing checks.
+        if(id>=SHORT_PAW_LOOK&&id<C_COUNT)continue;
         const bool head_only=false;
         const bool interaction=id>=C_COUNT+BODY_COUNT;
         for(bool held:{false,true}){
@@ -80,6 +82,40 @@ class WzhCrawlPersonalityTest(unittest.TestCase):
     auto pose=staged.last_output_pose_;
     assert(pose.head-90>90-pose.left_arm+8);
     assert(pose.head-90>pose.right_arm-90+8);
+''')
+
+    def test_short_audio_cues_show_authored_paw_and_head_movement_and_settle_quickly(self):
+        self.run_player(r'''
+    for(int id=SHORT_PAW_LOOK;id<C_COUNT;++id){
+        clock_ms=10000;PandaController controller;controller.StartClip(id,clock_ms);
+        std::array<float,3> expected_low={90,90,90},expected_high=expected_low;
+        for(unsigned frame=0;frame<controller.clip_->count;++frame){
+            const auto pose=Values(TargetPose(*controller.clip_,frame,false));
+            for(unsigned axis=0;axis<3;++axis){
+                expected_low[axis]=std::min(expected_low[axis],pose[axis]);
+                expected_high[axis]=std::max(expected_high[axis],pose[axis]);
+            }
+        }
+        auto low=std::array<float,3>{90,90,90},high=low;
+        float onset=0;unsigned elapsed=0;
+        do{
+            controller.UpdatePlayer(clock_ms);controller.OutputPose(controller.pose_);
+            const auto actual=Values(controller.last_output_pose_);
+            for(unsigned axis=0;axis<3;++axis){
+                low[axis]=std::min(low[axis],actual[axis]);
+                high[axis]=std::max(high[axis],actual[axis]);
+                if(elapsed<=300)onset=std::max(onset,std::abs(actual[axis]-90));
+            }
+            elapsed+=20;clock_ms+=20;
+            assert(elapsed<=2600);
+        }while(controller.clip_active_);
+        assert(onset>=8);
+        assert(std::max(high[1]-low[1],high[2]-low[2])>=22);
+        for(unsigned axis=0;axis<3;++axis){
+            assert(high[axis]-low[axis]>=(expected_high[axis]-expected_low[axis])*0.9f);
+            assert(std::abs(Values(controller.last_output_pose_)[axis]-90)<3);
+        }
+    }
 ''')
 
     def test_explicit_left_right_paw_commands_preserve_requested_side(self):

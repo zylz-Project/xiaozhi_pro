@@ -217,16 +217,24 @@ void WifiConfigurationAp::StartWebServer() {
     // Start the web server
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 24;
-    if (web_server_registrar_) {
-        config.stack_size = 8192;
-        // Mobile browsers load several portal assets concurrently.
-        config.max_open_sockets = 6;
-        config.lru_purge_enable = true;
-    }
-    config.uri_match_fn = httpd_uri_match_wildcard;
-    // 5G Network takes longer to connect
     config.recv_wait_timeout = 15;
     config.send_wait_timeout = 15;
+    if (web_server_registrar_) {
+        config.stack_size = 8192;
+        // Allow two phones to load assets together. WZH variants budget 24
+        // lwIP descriptors for both HTTP servers, DNS and the cloud sockets.
+        config.max_open_sockets = 8;
+        config.lru_purge_enable = true;
+        // The server task also serves fresh requests after the phone rejoins.
+        // Bound stalled I/O and retire idle sockets from a departed phone.
+        config.recv_wait_timeout = 3;
+        config.send_wait_timeout = 3;
+        config.keep_alive_enable = true;
+        config.keep_alive_idle = 5;
+        config.keep_alive_interval = 2;
+        config.keep_alive_count = 2;
+    }
+    config.uri_match_fn = httpd_uri_match_wildcard;
     ESP_ERROR_CHECK(httpd_start(&server_, &config));
     if (web_server_registrar_) {
         // The project portal owns every route on this server. Never expose the
@@ -819,10 +827,15 @@ void WifiConfigurationAp::WifiEventHandler(void* arg, esp_event_base_t event_bas
     WifiConfigurationAp* self = static_cast<WifiConfigurationAp*>(arg);
     if (event_id == WIFI_EVENT_AP_STACONNECTED) {
         wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*)event_data;
-        ESP_LOGI(TAG, "Station " MACSTR " joined, AID=%d", MAC2STR(event->mac), event->aid);
+        uint8_t channel = 0;
+        wifi_second_chan_t secondary = WIFI_SECOND_CHAN_NONE;
+        esp_wifi_get_channel(&channel, &secondary);
+        ESP_LOGI(TAG, "Station " MACSTR " joined, AID=%d channel=%u", MAC2STR(event->mac),
+                 event->aid, channel);
     } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
         wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*)event_data;
-        ESP_LOGI(TAG, "Station " MACSTR " left, AID=%d", MAC2STR(event->mac), event->aid);
+        ESP_LOGI(TAG, "Station " MACSTR " left, AID=%d reason=%u", MAC2STR(event->mac), event->aid,
+                 event->reason);
     } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
         if (!self->persistent_mode_)
             xEventGroupSetBits(self->event_group_, WIFI_CONNECTED_BIT);

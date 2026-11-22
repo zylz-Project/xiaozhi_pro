@@ -80,7 +80,8 @@ struct Controller {
  std::atomic<uint32_t> tutorial_feedback_requested_ms_{0};
  bool QueueRequest(ActionRequest r,wzh::PetPriority){last=r;return true;}
  wzh::PetMode pet_mode(){return wzh::PetMode::kNormal;}
- bool QueueInteraction(wzh::PetInteraction,uint8_t=0);
+ bool QueueInteraction(wzh::PetInteraction,uint8_t=0,
+                       wzh::PetPriority=wzh::PetPriority::kExplicit);
  bool TriggerOnboardingFeedback(uint8_t);
 };
 ''' + methods + r'''

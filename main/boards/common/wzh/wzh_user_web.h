@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <string_view>
 
 #include <esp_http_server.h>
 #include "wzh_user_web_policy.h"
@@ -39,7 +40,8 @@ private:
     struct UploadJob;
     static void UploadTask(void* arg);
     esp_err_t Handle(httpd_req_t* req);
-    esp_err_t SetupStatus(httpd_req_t* req, uint32_t ip, bool has_session);
+    esp_err_t SetupStatus(httpd_req_t* req, uint32_t ip, bool authorized,
+                          std::string_view job = {});
     bool HasSession(httpd_req_t* req, uint32_t ip, uint64_t now);
     bool HasCompletion(httpd_req_t* req, uint32_t ip, uint64_t now);
     void RunSetup();

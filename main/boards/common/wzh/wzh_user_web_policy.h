@@ -33,6 +33,8 @@ public:
                           bool offline_login = false) {
         if (path == "/done" || path == "/done.html")
             return completion ? Route::kDone : Route::kRoot;
+        if (path == "/manual")
+            return Route::kManual;
         if (network != Network::kOnline) {
             if (network == Network::kUnprovisioned)
                 return Route::kSetupFirst;
@@ -48,8 +50,6 @@ public:
             return Route::kLogin;
         if (path == "/setup")
             return Route::kSetupSwitch;
-        if (path == "/manual")
-            return Route::kManual;
         return Route::kDetails;
     }
     static constexpr uint64_t kSessionMs = 30ULL * 60 * 1000;

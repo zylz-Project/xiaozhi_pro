@@ -1,8 +1,9 @@
 #include "dinosaur_controller.h"
 #include "wzh_body_commands.h"
-#include "wzh_pet_feedback.h"
-#include "wzh_onboarding.h"
+#include "wzh_conversation_touch.h"
 #include "wzh_idle_power.h"
+#include "wzh_onboarding.h"
+#include "wzh_pet_feedback.h"
 #include "wzh_startup_greeting.h"
 #include "wzh_system_prompts.h"
 
@@ -32,6 +33,7 @@ constexpr uint32_t kTickMs = 20;
 // Slow standby paths use the same 20 ms command grid as active motion; the
 // hardware PWM carrier remains 50 Hz. Avoid a separate coarse idle staircase.
 constexpr uint32_t kIdleUpdateMs = 20;
+constexpr uint32_t kShortSoundMaxMs = 4200;
 constexpr size_t kMaxClipFrames = 16;
 // Legacy story validation and the minimum moving frame for new long-neck stories.
 constexpr uint32_t kMinAuthoredStoryFrameMs = 420;
@@ -69,23 +71,8 @@ inline float frnd() { return static_cast<float>(esp_random()) / 4294967296.0f; }
 int irnd(int count) {
     return count > 0 ? static_cast<int>(esp_random() % static_cast<uint32_t>(count)) : 0;
 }
-int irand(int low, int high) { return low + irnd(high - low + 1); }
-
 bool ContainsText(const char* text, const char* token) {
     return text != nullptr && token != nullptr && std::strstr(text, token) != nullptr;
-}
-
-float BreathingWave(float seconds) {
-    // 12 秒一轮：缓慢吸气、缓慢呼气，最后约 4 秒停在中位。与一直
-    // 摇摆的正弦相比，这段自然停顿更像动物呼吸，也保证默认姿态常回中。
-    const float phase = std::fmod(seconds, 12.0f) / 12.0f;
-    if (phase < 0.30f) {
-        return SmoothStep(phase / 0.30f);
-    }
-    if (phase < 0.64f) {
-        return 1.0f - SmoothStep((phase - 0.30f) / 0.34f);
-    }
-    return 0.0f;
 }
 
 // ============================================================================
@@ -417,6 +404,64 @@ constexpr Keyframe kRichHappyTailFanfare[] = {
 };
 static_assert(ValidatePhysicalStory(kRichHappyTailFanfare));
 
+constexpr Keyframe kDiscoverGroundTrackFrames[] = {
+    {58, 96, 116, 124, 68, 620, MotionEase::kSmooth},   // 捕捉远处动静
+    {58, 96, 116, 124, 68, 420, MotionEase::kLinear},
+    {97, 122, 72, 116, 122, 840, MotionEase::kSmooth},  // 沿斜线追向近处
+    {136, 106, 78, 110, 108, 860, MotionEase::kSmooth},
+    {153, 86, 101, 106, 84, 780, MotionEase::kSmooth},  // 视线落到脚边
+    {153, 86, 101, 106, 84, 520, MotionEase::kLinear},
+    {102, 78, 104, 104, 78, 860, MotionEase::kSmooth},  // 从另一侧抬头
+    {70, 90, 90, 90, 90, 820, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kDiscoverGroundTrackFrames));
+
+constexpr Keyframe kDiscoverGroundScentFrames[] = {
+    {108, 105, 78, 108, 110, 680, MotionEase::kSmooth},
+    {145, 103, 77, 110, 106, 760, MotionEase::kSmooth}, // 寻找气味
+    {163, 95, 85, 111, 98, 730, MotionEase::kSmooth},  // 贴近地面确认
+    {163, 95, 85, 111, 98, 540, MotionEase::kLinear},
+    {154, 80, 103, 108, 79, 840, MotionEase::kSmooth}, // 沿气味扫到另一侧
+    {108, 83, 100, 100, 82, 820, MotionEase::kSmooth},
+    {70, 90, 90, 90, 90, 820, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kDiscoverGroundScentFrames));
+
+constexpr Keyframe kEatTrailFrames[] = {
+    {112, 102, 80, 104, 102, 680, MotionEase::kSmooth},  // 嗅到食物
+    {150, 104, 76, 110, 112, 820, MotionEase::kSmooth},  // 顺着气味低头
+    {169, 94, 84, 117, 99, 720, MotionEase::kSmooth},    // 第一口保持靠近中线
+    {169, 94, 84, 117, 99, 520, MotionEase::kLinear},
+    {140, 90, 90, 108, 90, 660, MotionEase::kSmooth},    // 抬一点慢嚼
+    {163, 80, 104, 114, 78, 800, MotionEase::kSmooth},  // 换一侧取食
+    {163, 80, 104, 114, 78, 480, MotionEase::kLinear},
+    {102, 86, 96, 101, 86, 940, MotionEase::kSmooth},
+    {70, 90, 90, 90, 90, 800, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kEatTrailFrames));
+
+constexpr Keyframe kListenGroundEchoFrames[] = {
+    {92, 112, 76, 112, 112, 680, MotionEase::kSmooth},  // 先侧耳定位
+    {142, 104, 78, 104, 104, 900, MotionEase::kSmooth}, // 俯身听近处动静
+    {142, 104, 78, 104, 104, 560, MotionEase::kLinear},
+    {149, 92, 89, 102, 92, 740, MotionEase::kSmooth},
+    {137, 79, 107, 103, 80, 780, MotionEase::kSmooth}, // 低位越过中线寻找回声
+    {137, 79, 107, 103, 80, 460, MotionEase::kLinear},
+    {102, 83, 103, 99, 83, 840, MotionEase::kSmooth},
+    {70, 90, 90, 90, 90, 820, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kListenGroundEchoFrames));
+
+constexpr Keyframe kHappyLowBowFrames[] = {
+    {100, 106, 112, 121, 110, 620, MotionEase::kSmooth},
+    {142, 96, 98, 139, 103, 780, MotionEase::kSmooth}, // 低头邀请玩耍
+    {142, 96, 98, 139, 103, 480, MotionEase::kLinear},
+    {119, 83, 74, 128, 68, 680, MotionEase::kSmooth},  // 从反侧抬起
+    {55, 86, 81, 114, 76, 880, MotionEase::kSmooth},
+    {70, 90, 90, 90, 90, 800, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kHappyLowBowFrames));
+
 #include "dinosaur_reference_motion.h"
 #include "dinosaur_story_motion.h"
 
@@ -436,6 +481,10 @@ constexpr MotionClip kDiscoverClips[] = {
     {"story-horizon-ladder", story_motion::kHorizonLadder, std::size(story_motion::kHorizonLadder),
      true},
     {"story-scentcompass", story_motion::kScentCompass, std::size(story_motion::kScentCompass),
+     true},
+    {"discover-ground-track", kDiscoverGroundTrackFrames, std::size(kDiscoverGroundTrackFrames),
+     true},
+    {"discover-ground-scent", kDiscoverGroundScentFrames, std::size(kDiscoverGroundScentFrames),
      true},
 };
 constexpr MotionClip kAffectionClips[] = {
@@ -476,6 +525,7 @@ constexpr MotionClip kHappyClips[] = {
     {"story-spiral-invite", story_motion::kSpiralInvite, std::size(story_motion::kSpiralInvite),
      true},
     {"story-cometdance", story_motion::kCometDance, std::size(story_motion::kCometDance), true},
+    {"happy-low-bow", kHappyLowBowFrames, std::size(kHappyLowBowFrames), true},
 };
 constexpr MotionClip kProudClips[] = {
     {"proud-call", kProudFrames, std::size(kProudFrames)},
@@ -506,6 +556,7 @@ constexpr MotionClip kEatClips[] = {
     {"story-graze-share", story_motion::kGrazeShare, std::size(story_motion::kGrazeShare), true},
     {"story-biteandoffer", story_motion::kBiteAndOffer, std::size(story_motion::kBiteAndOffer),
      true},
+    {"eat-follow-trail", kEatTrailFrames, std::size(kEatTrailFrames), true},
 };
 constexpr MotionClip kListenClips[] = {
     {"listen-locate", kListenFrames, std::size(kListenFrames)},
@@ -523,6 +574,7 @@ constexpr MotionClip kListenClips[] = {
      true},
     {"story-questionandanswer", story_motion::kQuestionAndAnswer,
      std::size(story_motion::kQuestionAndAnswer), true},
+    {"listen-ground-echo", kListenGroundEchoFrames, std::size(kListenGroundEchoFrames), true},
 };
 constexpr MotionClip kStartledClips[] = {
     {"startled-recoil", kStartledFrames, std::size(kStartledFrames)},
@@ -707,6 +759,90 @@ constexpr Keyframe kRoarCrownArcFrames[] = {
     {12, 178, 6, 168, 178, 460, MotionEase::kLinear},
     {42, 90, 90, 132, 90, 900, MotionEase::kSmooth},  // 舒展后正面收声
 };
+// Short calls can turn visibly after the lift with just one more landmark.
+// Longer calls can cross center or lift again. Keep the head turn stronger
+// than the neck lean and use the tail to balance without reaching its stops.
+constexpr Keyframe kRoarRightAnswerFrames[] = {
+    {0, 90, 90, 160, 90, 900, MotionEase::kSmooth},
+    {8, 80, 61, 165, 66, 520, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarLeftAnswerFrames[] = {
+    {0, 90, 90, 160, 90, 900, MotionEase::kSmooth},
+    {14, 100, 119, 158, 112, 540, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarHorizonScanFrames[] = {
+    {0, 90, 90, 160, 90, 900, MotionEase::kSmooth},
+    {9, 79, 58, 174, 68, 560, MotionEase::kSmooth},
+    {17, 101, 123, 160, 115, 940, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarSkySweepFrames[] = {
+    {0, 90, 90, 160, 90, 900, MotionEase::kSmooth},
+    {6, 101, 133, 173, 126, 720, MotionEase::kSmooth},
+    {9, 91, 91, 176, 93, 660, MotionEase::kSmooth},
+    {14, 77, 50, 166, 58, 680, MotionEase::kSmooth},
+    {21, 86, 69, 154, 74, 520, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarCallAgainFrames[] = {
+    {0, 90, 90, 160, 90, 900, MotionEase::kSmooth},
+    {14, 78, 57, 173, 64, 620, MotionEase::kSmooth},
+    {28, 90, 90, 152, 90, 620, MotionEase::kSmooth},
+    {0, 90, 90, 174, 90, 540, MotionEase::kSmooth},
+    {11, 102, 123, 168, 116, 660, MotionEase::kSmooth},
+    {25, 94, 108, 149, 102, 520, MotionEase::kSmooth},
+};
+// IO17 pitches, IO16 leans, and IO15 turns the head toward the call.
+// Use moderate lateral travel near the ground and let the tail counterbalance.
+constexpr Keyframe kRoarRightCallFrames[] = {
+    {63, 65, 50, 123, 114, 530, MotionEase::kSmooth},
+    {84, 57, 39, 137, 125, 440, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarLeftCallFrames[] = {
+    {58, 114, 130, 124, 67, 530, MotionEase::kSmooth},
+    {79, 124, 143, 136, 54, 440, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarLowGrowlFrames[] = {
+    {140, 77, 66, 78, 105, 880, MotionEase::kSmooth},
+    {162, 69, 54, 68, 116, 620, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarLowSweepFrames[] = {
+    {126, 65, 57, 78, 115, 710, MotionEase::kSmooth},
+    {158, 89, 86, 70, 92, 560, MotionEase::kSmooth},
+    {139, 114, 122, 89, 68, 560, MotionEase::kSmooth},
+    {94, 132, 155, 116, 51, 640, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarRisingArcFrames[] = {
+    {104, 108, 124, 79, 65, 560, MotionEase::kSmooth},
+    {72, 132, 147, 115, 52, 720, MotionEase::kSmooth},
+    {25, 101, 104, 151, 77, 820, MotionEase::kSmooth},
+    {42, 67, 55, 134, 124, 830, MotionEase::kSmooth},
+    {79, 56, 42, 109, 132, 690, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarFallingArcFrames[] = {
+    {63, 65, 47, 128, 120, 570, MotionEase::kSmooth},
+    {25, 58, 44, 150, 133, 680, MotionEase::kSmooth},
+    {12, 96, 99, 158, 82, 870, MotionEase::kSmooth},
+    {53, 126, 146, 130, 52, 880, MotionEase::kSmooth},
+    {114, 112, 127, 89, 64, 940, MotionEase::kSmooth},
+    {157, 95, 101, 74, 83, 720, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarLevelSweepFrames[] = {
+    {80, 125, 132, 105, 62, 580, MotionEase::kSmooth},
+    {51, 108, 114, 132, 74, 520, MotionEase::kSmooth},
+    {65, 75, 72, 128, 111, 600, MotionEase::kSmooth},
+    {107, 52, 47, 101, 131, 620, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarGroundAnswerFrames[] = {
+    {121, 112, 124, 76, 67, 700, MotionEase::kSmooth},
+    {157, 91, 94, 65, 90, 640, MotionEase::kSmooth},
+    {157, 91, 94, 65, 90, 420, MotionEase::kLinear},
+    {129, 65, 58, 79, 117, 620, MotionEase::kSmooth},
+    {88, 48, 42, 107, 132, 640, MotionEase::kSmooth},
+    {111, 83, 86, 89, 94, 700, MotionEase::kSmooth},
+};
+constexpr Keyframe kRoarLowLeftFrames[] = {
+    {136, 108, 114, 79, 73, 860, MotionEase::kSmooth},
+    {160, 119, 128, 68, 58, 640, MotionEase::kSmooth},
+};
 constexpr MotionClip kSkyRoarClips[] = {
     {"roar-front", kRoarFrontFrames, std::size(kRoarFrontFrames)},
     {"roar-quick-answer", kRoarQuickAnswerFrames, std::size(kRoarQuickAnswerFrames)},
@@ -715,19 +851,35 @@ constexpr MotionClip kSkyRoarClips[] = {
     {"roar-echo", kRoarEchoFrames, std::size(kRoarEchoFrames)},
     {"roar-soft-answer", kRoarSoftAnswerFrames, std::size(kRoarSoftAnswerFrames)},
     {"roar-crown-arc", kRoarCrownArcFrames, std::size(kRoarCrownArcFrames)},
+    {"roar-right-answer", kRoarRightAnswerFrames, std::size(kRoarRightAnswerFrames)},
+    {"roar-left-answer", kRoarLeftAnswerFrames, std::size(kRoarLeftAnswerFrames)},
+    {"roar-horizon-scan", kRoarHorizonScanFrames, std::size(kRoarHorizonScanFrames)},
+    {"roar-sky-sweep", kRoarSkySweepFrames, std::size(kRoarSkySweepFrames)},
+    {"roar-call-again", kRoarCallAgainFrames, std::size(kRoarCallAgainFrames)},
+    {"roar-right-call", kRoarRightCallFrames, std::size(kRoarRightCallFrames), true},
+    {"roar-left-call", kRoarLeftCallFrames, std::size(kRoarLeftCallFrames), true},
+    {"roar-low-growl", kRoarLowGrowlFrames, std::size(kRoarLowGrowlFrames), true},
+    {"roar-low-sweep", kRoarLowSweepFrames, std::size(kRoarLowSweepFrames), true},
+    {"roar-rising-arc", kRoarRisingArcFrames, std::size(kRoarRisingArcFrames), true},
+    {"roar-falling-arc", kRoarFallingArcFrames, std::size(kRoarFallingArcFrames), true},
+    {"roar-level-sweep", kRoarLevelSweepFrames, std::size(kRoarLevelSweepFrames), true},
+    {"roar-ground-answer", kRoarGroundAnswerFrames, std::size(kRoarGroundAnswerFrames), true},
+    {"roar-low-left", kRoarLowLeftFrames, std::size(kRoarLowLeftFrames), true},
 };
-// Two-beat recordings cannot fit a lateral story after the mandatory skyward
-// onset. Give each borrowed path an authored compact tail height instead.
-// Values stay near the top of the tail range so short roars still read as a
-// skyward call, while remaining distinct for trajectory diversity.
-constexpr float kCompactRoarTailAngles[] = {178, 170, 174, 166, 172, 176, 168};
-static_assert(std::size(kCompactRoarTailAngles) == std::size(kSkyRoarClips));
+
+// Tail accents keep the original Flash-only short variants distinct.
+constexpr float kCompactRoarTailAngles[std::size(kSkyRoarClips)] = {
+    178, 170, 174, 166, 172, 176, 168, 160, 158, 163, 165, 162,
+};
 
 constexpr bool ValidateRoarClips() {
     for (const auto& clip : kSkyRoarClips) {
+        if (clip.count < 2 || clip.count > kMaxClipFrames)
+            return false;
         const auto& first = clip.frames[0];
-        if (first.neck_tilt != 0 || first.neck_lean != 90 || first.head_turn != 90 ||
-            first.tail_lr != 90 || first.duration_ms < 900 || clip.count > kMaxClipFrames) {
+        if (!clip.authored_dynamics &&
+            (first.neck_tilt != 0 || first.neck_lean != 90 || first.head_turn != 90 ||
+             first.tail_lr != 90 || first.duration_ms < 900)) {
             return false;
         }
         for (uint8_t i = 0; i < clip.count; ++i) {
@@ -735,16 +887,17 @@ constexpr bool ValidateRoarClips() {
             // Roars may use the full mechanical range, mirroring the reference
             // project's proud-call paths (neck 18..172, head 18..176, tail 180).
             if (frame.tail_ud < SERVO_TAIL_UD_MIN || frame.tail_ud > SERVO_TAIL_UD_MAX ||
-                frame.neck_tilt < 0 || frame.neck_tilt > 70 || frame.neck_lean < 0 ||
-                frame.neck_lean > 180 || frame.head_turn < 0 || frame.head_turn > 180 ||
-                frame.tail_lr < 0 || frame.tail_lr > 180) {
+                frame.neck_tilt < 0 || frame.neck_tilt > (clip.authored_dynamics ? 180 : 70) ||
+                frame.duration_ms == 0 || frame.neck_lean < 0 || frame.neck_lean > 180 ||
+                frame.head_turn < 0 || frame.head_turn > 180 || frame.tail_lr < 0 ||
+                frame.tail_lr > 180) {
                 return false;
             }
         }
     }
     return true;
 }
-static_assert(ValidateRoarClips(), "Roars must start skyward and keep lateral travel bounded");
+static_assert(ValidateRoarClips(), "Roars must keep travel inside each servo's limits");
 constexpr Keyframe kSoundEatNibbleFrames[] = {
     {126, 116, 118, 106, 64, 680, MotionEase::kSmooth},
     {154, 84, 80, 112, 122, 760, MotionEase::kFastOut},
@@ -842,12 +995,46 @@ constexpr Keyframe kRichSoundHappyFanfare[] = {
     {70, 90, 90, 90, 90, 750, MotionEase::kSmooth},
 };
 
+constexpr Keyframe kSoundDiscoverGroundScentFrames[] = {
+    {118, 106, 79, 108, 107, 620, MotionEase::kSmooth},
+    {154, 97, 85, 108, 101, 760, MotionEase::kSmooth},
+    {154, 97, 85, 108, 101, 440, MotionEase::kLinear},
+    {104, 83, 103, 101, 84, 700, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kSoundDiscoverGroundScentFrames));
+
+constexpr Keyframe kSoundEatLowBiteFrames[] = {
+    {126, 101, 78, 106, 100, 620, MotionEase::kSmooth},
+    {166, 92, 87, 113, 95, 740, MotionEase::kSmooth},
+    {166, 92, 87, 113, 95, 480, MotionEase::kLinear},
+    {132, 88, 96, 103, 84, 660, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kSoundEatLowBiteFrames));
+
+constexpr Keyframe kSoundListenLowTrackFrames[] = {
+    {100, 80, 106, 113, 78, 640, MotionEase::kSmooth},
+    {140, 84, 103, 104, 82, 780, MotionEase::kSmooth},
+    {140, 84, 103, 104, 82, 460, MotionEase::kLinear},
+    {104, 99, 80, 105, 106, 700, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kSoundListenLowTrackFrames));
+
+constexpr Keyframe kSoundHappyLowBowFrames[] = {
+    {100, 104, 111, 120, 108, 580, MotionEase::kSmooth},
+    {139, 95, 100, 137, 101, 740, MotionEase::kSmooth},
+    {139, 95, 100, 137, 101, 440, MotionEase::kLinear},
+    {77, 84, 80, 108, 79, 820, MotionEase::kSmooth},
+};
+static_assert(ValidatePhysicalStory(kSoundHappyLowBowFrames));
+
 constexpr MotionClip kSoundDiscoverClips[] = {
     {"sound-discover", kSoundDiscoverFrames, std::size(kSoundDiscoverFrames)},
     {"sound-discover-sweep", kSoundDiscoverSweepFrames, std::size(kSoundDiscoverSweepFrames)},
     {"sound-discover-sky", kSoundDiscoverSkyFrames, std::size(kSoundDiscoverSkyFrames)},
     {"sound-discover-scent", kRichSoundDiscoverScent, std::size(kRichSoundDiscoverScent)},
     {"sound-discover-listen-back", kRichSoundDiscoverBack, std::size(kRichSoundDiscoverBack)},
+    {"sound-discover-ground-scent", kSoundDiscoverGroundScentFrames,
+     std::size(kSoundDiscoverGroundScentFrames), true},
 };
 constexpr MotionClip kSoundAffectionClips[] = {
     {"sound-affection", kSoundAffectionFrames, std::size(kSoundAffectionFrames)},
@@ -863,6 +1050,7 @@ constexpr MotionClip kSoundHappyClips[] = {
     {"sound-happy-orbit", kSoundHappyOrbitFrames, std::size(kSoundHappyOrbitFrames)},
     {"sound-happy-bow", kRichSoundHappyBow, std::size(kRichSoundHappyBow)},
     {"sound-happy-fanfare", kRichSoundHappyFanfare, std::size(kRichSoundHappyFanfare)},
+    {"sound-happy-low-bow", kSoundHappyLowBowFrames, std::size(kSoundHappyLowBowFrames), true},
 };
 constexpr MotionClip kSoundProudClips[] = {
     {"sound-proud", kSoundProudFrames, std::size(kSoundProudFrames)},
@@ -873,11 +1061,14 @@ constexpr MotionClip kSoundEatClips[] = {
     {"sound-eat", kSoundEatFrames, std::size(kSoundEatFrames)},
     {"sound-eat-nibble", kSoundEatNibbleFrames, std::size(kSoundEatNibbleFrames)},
     {"sound-eat-look-up", kSoundEatLookUpFrames, std::size(kSoundEatLookUpFrames)},
+    {"sound-eat-low-bite", kSoundEatLowBiteFrames, std::size(kSoundEatLowBiteFrames), true},
 };
 constexpr MotionClip kSoundListenClips[] = {
     {"sound-listen", kSoundListenFrames, std::size(kSoundListenFrames)},
     {"sound-listen-track", kSoundListenTrackFrames, std::size(kSoundListenTrackFrames)},
     {"sound-listen-overhead", kSoundListenOverheadFrames, std::size(kSoundListenOverheadFrames)},
+    {"sound-listen-low-track", kSoundListenLowTrackFrames, std::size(kSoundListenLowTrackFrames),
+     true},
 };
 constexpr MotionClip kSoundStartledClips[] = {
     {"sound-startled", kSoundStartledFrames, std::size(kSoundStartledFrames)},
@@ -1100,39 +1291,71 @@ constexpr Keyframe kJointNodHeadFrames[] = {
 };
 
 constexpr MotionClip kBodyClips[] = {
-    {"body-shake-head", kBodyShakeHeadFrames, std::size(kBodyShakeHeadFrames)},
-    {"body-look-left", kBodyLookLeftFrames, std::size(kBodyLookLeftFrames)},
-    {"body-look-right", kBodyLookRightFrames, std::size(kBodyLookRightFrames)},
-    {"body-look-up", kBodyLookUpFrames, std::size(kBodyLookUpFrames)},
-    {"body-look-down", kBodyLookDownFrames, std::size(kBodyLookDownFrames)},
-    {"body-wag-tail", kBodyWagTailFrames, std::size(kBodyWagTailFrames)},
-    {"body-twist-neck", kBodyTwistNeckFrames, std::size(kBodyTwistNeckFrames)},
-    {"body-head-center", kJointHeadCenterFrames, std::size(kJointHeadCenterFrames), true},
-    {"body-head-sway-left", kJointHeadSwayLeftFrames, std::size(kJointHeadSwayLeftFrames), true},
-    {"body-head-sway-right", kJointHeadSwayRightFrames, std::size(kJointHeadSwayRightFrames), true},
-    {"body-head-scan", kJointHeadScanFrames, std::size(kJointHeadScanFrames), true},
-    {"body-center", kJointCenterFrames, std::size(kJointCenterFrames), true},
-    {"body-tail-up", kJointTailUpFrames, std::size(kJointTailUpFrames), true},
-    {"body-tail-down", kJointTailDownFrames, std::size(kJointTailDownFrames), true},
-    {"body-tail-left", kJointTailLeftFrames, std::size(kJointTailLeftFrames), true},
-    {"body-tail-right", kJointTailRightFrames, std::size(kJointTailRightFrames), true},
-    {"body-tail-center", kJointTailCenterFrames, std::size(kJointTailCenterFrames), true},
-    {"body-tail-level", kJointTailLevelFrames, std::size(kJointTailLevelFrames), true},
-    {"body-tail-sway-left", kJointTailSwayLeftFrames, std::size(kJointTailSwayLeftFrames), true},
-    {"body-tail-sway-right", kJointTailSwayRightFrames, std::size(kJointTailSwayRightFrames), true},
-    {"body-tail-circle", kJointTailCircleFrames, std::size(kJointTailCircleFrames), true},
-    {"body-tail-eight", kJointTailEightFrames, std::size(kJointTailEightFrames), true},
-    {"body-tail-curl", kJointTailCurlFrames, std::size(kJointTailCurlFrames), true},
-    {"body-wag-tail-slow", kJointWagTailSlowFrames, std::size(kJointWagTailSlowFrames), true},
-    {"body-tail-fan", kJointTailFanFrames, std::size(kJointTailFanFrames), true},
-    {"body-tail-bounce", kJointTailBounceFrames, std::size(kJointTailBounceFrames), true},
-    {"body-neck-left", kJointNeckLeftFrames, std::size(kJointNeckLeftFrames), true},
-    {"body-neck-right", kJointNeckRightFrames, std::size(kJointNeckRightFrames), true},
-    {"body-neck-center", kJointNeckCenterFrames, std::size(kJointNeckCenterFrames), true},
-    {"body-neck-circle", kJointNeckCircleFrames, std::size(kJointNeckCircleFrames), true},
-    {"body-neck-reach", kJointNeckReachFrames, std::size(kJointNeckReachFrames), true},
-    {"body-neck-stretch", kJointNeckStretchFrames, std::size(kJointNeckStretchFrames), true},
-    {"body-nod-head", kJointNodHeadFrames, std::size(kJointNodHeadFrames), true},
+    {"body-shake-head", kBodyShakeHeadFrames, std::size(kBodyShakeHeadFrames), false,
+     wzh_dino::kHeadAxis},
+    {"body-look-left", kBodyLookLeftFrames, std::size(kBodyLookLeftFrames), false,
+     wzh_dino::kHeadAxis},
+    {"body-look-right", kBodyLookRightFrames, std::size(kBodyLookRightFrames), false,
+     wzh_dino::kHeadAxis},
+    {"body-look-up", kBodyLookUpFrames, std::size(kBodyLookUpFrames), false,
+     wzh_dino::kNeckTiltAxis},
+    {"body-look-down", kBodyLookDownFrames, std::size(kBodyLookDownFrames), false,
+     wzh_dino::kNeckTiltAxis},
+    {"body-wag-tail", kBodyWagTailFrames, std::size(kBodyWagTailFrames), false,
+     wzh_dino::kTailAxes},
+    {"body-twist-neck", kBodyTwistNeckFrames, std::size(kBodyTwistNeckFrames), false,
+     wzh_dino::kNeckLeanAxis},
+    {"body-head-center", kJointHeadCenterFrames, std::size(kJointHeadCenterFrames), true,
+     wzh_dino::kHeadAxis},
+    {"body-head-sway-left", kJointHeadSwayLeftFrames, std::size(kJointHeadSwayLeftFrames), true,
+     wzh_dino::kHeadAxis},
+    {"body-head-sway-right", kJointHeadSwayRightFrames, std::size(kJointHeadSwayRightFrames), true,
+     wzh_dino::kHeadAxis},
+    {"body-head-scan", kJointHeadScanFrames, std::size(kJointHeadScanFrames), true,
+     wzh_dino::kHeadAxis},
+    {"body-center", kJointCenterFrames, std::size(kJointCenterFrames), true, wzh_dino::kAllAxes},
+    {"body-tail-up", kJointTailUpFrames, std::size(kJointTailUpFrames), true,
+     wzh_dino::kTailHeightAxis},
+    {"body-tail-down", kJointTailDownFrames, std::size(kJointTailDownFrames), true,
+     wzh_dino::kTailHeightAxis},
+    {"body-tail-left", kJointTailLeftFrames, std::size(kJointTailLeftFrames), true,
+     wzh_dino::kTailSideAxis},
+    {"body-tail-right", kJointTailRightFrames, std::size(kJointTailRightFrames), true,
+     wzh_dino::kTailSideAxis},
+    {"body-tail-center", kJointTailCenterFrames, std::size(kJointTailCenterFrames), true,
+     wzh_dino::kTailAxes},
+    {"body-tail-level", kJointTailLevelFrames, std::size(kJointTailLevelFrames), true,
+     wzh_dino::kTailHeightAxis},
+    {"body-tail-sway-left", kJointTailSwayLeftFrames, std::size(kJointTailSwayLeftFrames), true,
+     wzh_dino::kTailSideAxis},
+    {"body-tail-sway-right", kJointTailSwayRightFrames, std::size(kJointTailSwayRightFrames), true,
+     wzh_dino::kTailSideAxis},
+    {"body-tail-circle", kJointTailCircleFrames, std::size(kJointTailCircleFrames), true,
+     wzh_dino::kTailAxes},
+    {"body-tail-eight", kJointTailEightFrames, std::size(kJointTailEightFrames), true,
+     wzh_dino::kTailAxes},
+    {"body-tail-curl", kJointTailCurlFrames, std::size(kJointTailCurlFrames), true,
+     wzh_dino::kTailHeightAxis},
+    {"body-wag-tail-slow", kJointWagTailSlowFrames, std::size(kJointWagTailSlowFrames), true,
+     wzh_dino::kTailAxes},
+    {"body-tail-fan", kJointTailFanFrames, std::size(kJointTailFanFrames), true,
+     wzh_dino::kTailAxes},
+    {"body-tail-bounce", kJointTailBounceFrames, std::size(kJointTailBounceFrames), true,
+     wzh_dino::kTailHeightAxis},
+    {"body-neck-left", kJointNeckLeftFrames, std::size(kJointNeckLeftFrames), true,
+     wzh_dino::kNeckLeanAxis},
+    {"body-neck-right", kJointNeckRightFrames, std::size(kJointNeckRightFrames), true,
+     wzh_dino::kNeckLeanAxis},
+    {"body-neck-center", kJointNeckCenterFrames, std::size(kJointNeckCenterFrames), true,
+     wzh_dino::kNeckAxes},
+    {"body-neck-circle", kJointNeckCircleFrames, std::size(kJointNeckCircleFrames), true,
+     wzh_dino::kNeckAxes},
+    {"body-neck-reach", kJointNeckReachFrames, std::size(kJointNeckReachFrames), true,
+     wzh_dino::kNeckTiltAxis},
+    {"body-neck-stretch", kJointNeckStretchFrames, std::size(kJointNeckStretchFrames), true,
+     wzh_dino::kNeckTiltAxis},
+    {"body-nod-head", kJointNodHeadFrames, std::size(kJointNodHeadFrames), true,
+     wzh_dino::kNeckTiltAxis},
 };
 
 // Deliberate interaction has its own finite response, rather than restarting
@@ -1342,26 +1565,6 @@ constexpr MotionClip kInteractionClips[] = {
 };
 static_assert(std::size(kInteractionClips) == wzh::InteractionMotionSelector::kClipCount);
 
-// 待机"个性姿态"：多轴协同的坐姿，轮换时身体缓慢漂移过去。
-struct IdlePose {
-    int neck_tilt;
-    int neck_lean;
-    int head_turn;
-    int tail_ud;
-    int tail_lr;
-};
-constexpr IdlePose kIdlePoses[] = {
-    {70, 90, 90, 90, 90},    // 平静
-    {67, 94, 99, 94, 97},    // 警觉
-    {75, 87, 82, 85, 86},    // 困倦
-    {64, 97, 105, 99, 81},   // 好奇
-    {73, 88, 85, 92, 102},   // 放松
-    {68, 93, 95, 95, 95},    // 轻快
-    {58, 108, 122, 78, 66},  // 高位探看
-    {84, 76, 62, 104, 118},  // 低尾沉思
-    {61, 112, 56, 108, 34},  // 侧身警戒
-};
-
 // 待机“生命脉冲”：每次只做一次观察、甩尾、嗅闻或精神一振，随后完整
 // 回落。它们打破待机正弦的可预测性，让静止的恐龙仍有生命感。
 constexpr Keyframe kPulseGlanceFrames[] = {
@@ -1480,7 +1683,7 @@ void DinosaurController::InitializeServos() {
 #endif
     SetPose(current_pose_);
     ESP_LOGI(TAG,
-             "Motion revision: stories-v4 / roar-onset-v3; tilt=IO17 lean=IO16 head=IO15 "
+             "Motion revision: stories-v4 / low and lateral roars; tilt=IO17 lean=IO16 head=IO15 "
              "tailUD=IO8 tailLR=IO18");
 }
 
@@ -1497,84 +1700,51 @@ void DinosaurController::SetPose(const Pose& requested) {
     const auto pet_state = pet_.Get(esp_timer_get_time() / 1000);
     const bool commanded =
         request_active_.load() && running_priority_.load() == wzh::PetPriority::kExplicit;
-    const bool talking = (speaking_.load() || speech_tail_.load() ||
-                          (wzh::IsOnboardingVoiceMotionActive() || wzh::IdleMissVoiceMotionActive())) && pet_state.motion &&
-                         !shutdown_requested_.load() && !servo_test_active_ &&
-                         !commanded && audio_ != nullptr;
+    const bool talking =
+        (speaking_.load() || speech_tail_.load() ||
+         (wzh::IsOnboardingVoiceMotionActive() || wzh::IdleMissVoiceMotionActive())) &&
+        pet_state.motion && !shutdown_requested_.load() && !servo_test_active_ && !commanded &&
+        active_body_axes_ == 0 && audio_ != nullptr;
     const auto voice = audio_ != nullptr ? audio_->GetTtsMotionData() : DinoMotionData{};
     const auto gesture =
         voice_motion_.Update(wzh::VoiceMechanism::kDinosaur, talking && voice.playing, voice.level,
                              voice.attack, esp_timer_get_time() / 1000, speech_intent_.load());
-    pose.neck_tilt += gesture[0] * SmoothStep((180.f - base.neck_tilt) / 30.f);
+    if (talking && running_speech_bound_) {
+        // A text-triggered expression contributes posture while the audible
+        // phrase owns the excursion. Keep room to bow or turn in either direction.
+        pose = {70.f + (base.neck_tilt - 70.f) * .28f, 90.f + (base.neck_lean - 90.f) * .24f,
+                90.f + (base.head_turn - 90.f) * .24f, 90.f + (base.tail_ud - 90.f) * .25f,
+                90.f + (base.tail_lr - 90.f) * .24f};
+    }
+    pose.neck_tilt += gesture[0] * SmoothStep((180.f - pose.neck_tilt) / 30.f);
     pose.neck_lean += gesture[1];
     pose.head_turn += gesture[2];
     pose.tail_ud += gesture[3];
     pose.tail_lr += gesture[4];
-    // 优先使用扬声器实际输出的 PCM 包络，因此在线 TTS、本地 Flash 声音和
-    // 系统提示音都能同步动作；本地音频尚未开始输出时，用 Opus 包络预热。
-    if (audio_ != nullptr && !servo_test_active_ && !commanded &&
+    // Flash clips already author the lateral motion. Use fresh speaker PCM
+    // only to accent neck lift and tail height, leaving the clip's poses intact.
+    if (audio_ != nullptr && !servo_test_active_ && !commanded && active_body_axes_ == 0 &&
         flash_performance_active_.load()) {
-        float target_level = 0.0f;
-        float target_emphasis = 0.0f;
         const int64_t now_us = esp_timer_get_time();
-        const int64_t output_age_us = now_us - output_audio_updated_us_.load();
-        if (output_age_us >= 0 && output_age_us < 180000) {
-            // 对话声音略更有表现力；低音量也保留可见动作，不要求每句话都很响。
-            const float gain = flash_performance_active_.load() ? 1.9f
-                               : speaking_.load()               ? 2.6f
-                                                                : 1.35f;
-            target_level = std::clamp(output_audio_level_.load() * gain, 0.0f, 1.0f);
-            target_emphasis = std::clamp(output_audio_attack_.load() * 0.75f, 0.0f, 1.0f);
-        } else {
-            const DinoMotionData sound = audio_->GetMotionData();
-            if (sound.playing) {
-                target_level = std::clamp(sound.level * 0.9f, 0.0f, 1.0f);
-                target_emphasis = std::clamp(sound.attack * 0.5f, 0.0f, 1.0f);
-            }
+        const int64_t updated_us = output_audio_updated_us_.load();
+        float target = 0.f;
+        if (updated_us > 0 && now_us >= updated_us && now_us - updated_us < 180000) {
+            const float level = std::max(0.f, output_audio_level_.load() - .018f);
+            const float stress = level * output_audio_attack_.load();
+            target = std::clamp(level * 2.f + stress * .30f, 0.f, 1.f);
         }
-        const float level_smoothing = target_level > audio_motion_level_ ? 0.10f : 0.04f;
-        const float emphasis_smoothing = target_emphasis > audio_motion_emphasis_ ? 0.09f : 0.045f;
-        audio_motion_level_ += (target_level - audio_motion_level_) * level_smoothing;
-        audio_motion_emphasis_ += (target_emphasis - audio_motion_emphasis_) * emphasis_smoothing;
-
-        const float dt =
-            audio_motion_last_update_us_ > 0
-                ? std::clamp((now_us - audio_motion_last_update_us_) / 1000000.0f, 0.0f, 0.10f)
-                : 0.0f;
+        const float dt = audio_motion_last_update_us_ > 0
+                             ? std::clamp((now_us - audio_motion_last_update_us_) / 1e6f, 0.f, .05f)
+                             : .02f;
         audio_motion_last_update_us_ = now_us;
-        if (audio_motion_level_ > 0.01f) {
-            const float energy = std::sqrt(std::clamp(audio_motion_level_, 0.0f, 1.0f));
-            if (!audio_motion_active_) {
-                // 每段声音随机选择观察方向，同一段话内保持方向连续，避免乱抖。
-                audio_motion_direction_ = (esp_random() & 1U) != 0 ? 1.0f : -1.0f;
-                audio_motion_phase_ = frnd() * 1.2f;
-                audio_motion_active_ = true;
-            }
-            // 五轴同步响应同一份声音包络，再用不同相位形成自然的协调姿态；
-            // 怒吼时只让包络加强“仰”和“抬”，不叠加额外横向偏移，
-            // 但保留当前怒吼编舞自己的小幅侧仰或高位扫视。
-            const float flash_scale = flash_performance_active_.load() ? 1.35f : 1.0f;
-            audio_motion_phase_ += dt * (1.35f + energy * 0.80f);
-            const float lead = std::sin(audio_motion_phase_) * audio_motion_direction_;
-            const float follow = std::sin(audio_motion_phase_ - 0.55f) * audio_motion_direction_;
-            const float tail = std::sin(audio_motion_phase_ - 1.05f) * audio_motion_direction_;
-            // 深低头时不能让声音把取食姿态拉起；150..180 度平滑减弱抬头
-            // 叠加，180 度保持取食落点，尾巴和其他轴仍然响应真实声音。
-            const float lift_room = SmoothStep((180.0f - base.neck_tilt) / 30.0f);
-            pose.neck_tilt -=
-                std::min(32.0f, (energy * 24.0f + audio_motion_emphasis_ * 8.0f) * flash_scale) *
-                lift_room;
-            pose.tail_ud += ((energy * 36.0f + follow * std::min(20.0f, energy * 26.0f) +
-                              audio_motion_emphasis_ * 3.0f) *
-                             flash_scale);
-            if (!sky_roar_active_.load()) {
-                pose.head_turn += (lead * std::min(64.0f, energy * 64.0f * flash_scale));
-                pose.neck_lean += (follow * std::min(42.0f, energy * 42.0f * flash_scale));
-                pose.tail_lr += (tail * std::min(62.0f, energy * 60.0f * flash_scale));
-            }
-        } else {
-            audio_motion_active_ = false;
-        }
+        audio_motion_level_ += (target - audio_motion_level_) *
+                               (1.f - std::exp(-dt * (target > audio_motion_level_ ? 7.f : 5.f)));
+        const float lift_room = SmoothStep((180.f - base.neck_tilt) / 30.f);
+        pose.neck_tilt -= 14.f * audio_motion_level_ * lift_room;
+        pose.tail_ud += 22.f * audio_motion_level_;
+    } else {
+        audio_motion_level_ = 0.f;
+        audio_motion_last_update_us_ = 0;
     }
     // 所有入口最终都在这里限幅。尾巴上下轴机械空间最紧，使用板级专用限位。
     const float desired_gain =
@@ -1601,6 +1771,8 @@ void DinosaurController::SetPose(const Pose& requested) {
                        static_cast<float>(pose.tail_lr)};
     float travel = 0;
     for (size_t i = 0; i < std::size(targets); ++i) {
+        if (active_body_axes_ && !(active_body_axes_ & (1U << i)))
+            targets[i] = output_angles_[i];
         travel = std::max(travel, std::abs(targets[i] - output_angles_[i]));
     }
     const float allowed = wzh::kPetServoSpeed * elapsed / 1000.0f;
@@ -1757,29 +1929,43 @@ const wzh_dino::MotionClip* DinosaurController::PickSoundClip(DinoAction action)
 
 const wzh_dino::MotionClip* DinosaurController::PickSkyRoarClip(uint32_t sound_duration_ms,
                                                                 const wzh::SoundPlayback* sound) {
-    // 音频越长，才开放更完整的高位扫视/二次回应；短吼声保持紧凑。
-    // 实际录音各自不放回洗牌；旧动作入口保留全局不连重复。
-    int candidates[4];
+    // Match the expressive body before the independent return to neutral.
+    // Classic full-range sweeps need more time for their long lateral travel.
+    constexpr struct {
+        uint32_t minimum_ms;
+        uint32_t maximum_ms;
+    } timing[] = {
+        {1800, 4200},  // roar-front
+        {0, 3200},     // roar-quick-answer
+        {4200, 0},     // roar-side-rise
+        {5200, 0},     // roar-high-sweep
+        {6400, 0},     // roar-echo
+        {1800, 4200},  // roar-soft-answer
+        {6500, 0},     // roar-crown-arc
+        {0, 3200},     // roar-right-answer
+        {0, 3200},     // roar-left-answer
+        {2400, 0},     // roar-horizon-scan
+        {3480, 0},     // roar-sky-sweep
+        {3860, 0},     // roar-call-again
+        {0, 3200},     // roar-right-call
+        {0, 3200},     // roar-left-call
+        {0, 4200},     // roar-low-growl
+        {2300, 5600},  // roar-low-sweep
+        {3500, 7300},  // roar-rising-arc
+        {4500, 0},     // roar-falling-arc
+        {2900, 5400},  // roar-level-sweep
+        {4000, 0},     // roar-ground-answer
+        {0, 3600},     // roar-low-left
+    };
+    static_assert(std::size(timing) == std::size(kSkyRoarClips));
+    int candidates[std::size(timing)];
     int count = 0;
-    if (sound_duration_ms <= 1700) {
-        candidates[count++] = 0;  // roar-front
-        candidates[count++] = 1;  // roar-quick-answer
-        candidates[count++] = 5;  // roar-soft-answer
-    } else if (sound_duration_ms <= 3200) {
-        candidates[count++] = 0;
-        candidates[count++] = 1;
-        candidates[count++] = 2;  // roar-side-rise
-        candidates[count++] = 5;
-    } else if (sound_duration_ms <= 5200) {
-        candidates[count++] = 2;
-        candidates[count++] = 3;  // roar-high-sweep
-        candidates[count++] = 0;
-        candidates[count++] = 6;  // roar-crown-arc
-    } else {
-        candidates[count++] = 3;
-        candidates[count++] = 4;  // roar-echo
-        candidates[count++] = 2;
-        candidates[count++] = 6;
+    for (size_t i = 0; i < std::size(timing); ++i) {
+        const auto& range = timing[i];
+        if (sound_duration_ms >= range.minimum_ms &&
+            (range.maximum_ms == 0 || sound_duration_ms <= range.maximum_ms)) {
+            candidates[count++] = static_cast<int>(i);
+        }
     }
     int pick = sound ? roar_variants_.Draw(*sound, esp_random(), count) : irnd(count);
     if (!sound && count > 1 && candidates[pick] == last_sky_roar_clip_index_) {
@@ -1897,7 +2083,7 @@ void DinosaurController::PlaySegment(const Pose& from, const Pose& to, uint32_t 
         }
         // 二级生命感在段落中间展开、在关键帧落点归零。显式动作也保留一层
         // 较弱的低频微动，避免身体像按关键帧停顿的机械臂。
-        if (!servo_test_active_ && !settling) {
+        if (!servo_test_active_ && !settling && active_body_axes_ == 0) {
             const float window = std::sin(progress * 3.14159265f);
             const float duration_gain = std::min(1.0f, duration_ms / 900.0f);
             const float explicit_gain =
@@ -1936,6 +2122,19 @@ DinosaurController::Pose DinosaurController::PlayClip(const wzh_dino::MotionClip
     for (uint8_t i = 0; i < clip.count; ++i) {
         poses[i + 1] =
             ResolveKeyframe(clip.frames[i], poses[i], mirror, amplitude, clip.authored_dynamics);
+        if (clip.body_axes) {
+            auto& pose = poses[i + 1];
+            if (!(clip.body_axes & wzh_dino::kNeckTiltAxis))
+                pose.neck_tilt = start.neck_tilt;
+            if (!(clip.body_axes & wzh_dino::kNeckLeanAxis))
+                pose.neck_lean = start.neck_lean;
+            if (!(clip.body_axes & wzh_dino::kHeadAxis))
+                pose.head_turn = start.head_turn;
+            if (!(clip.body_axes & wzh_dino::kTailHeightAxis))
+                pose.tail_ud = start.tail_ud;
+            if (!(clip.body_axes & wzh_dino::kTailSideAxis))
+                pose.tail_lr = start.tail_lr;
+        }
         if (varied) {
             auto& pose = poses[i + 1];
             // kKeep already inherits the styled physical landmark. Applying
@@ -2092,7 +2291,7 @@ bool DinosaurController::IsSkyRoarSound(int sound_index) const {
     }
     const char* name = audio_->SoundName(sound_index);
     // 实机 Flash 中“叫声音效合集 (N)”的所有条目都是怒吼，无论 N 和
-    // 时长是多少都必须跳过 proud 随机池，避免再选到左右巡视编舞。
+    // 时长是多少都走按时长匹配的吼叫编舞。
     return ContainsText(name, "叫声音效合集") || ContainsText(name, "怒吼") ||
            ContainsText(name, "仰天长啸") || ContainsText(name, "长啸") ||
            ContainsText(name, "咆哮") || ContainsText(name, "roar");
@@ -2120,7 +2319,8 @@ void DinosaurController::RunAction(DinoAction action, uint32_t sound_duration_ms
     const bool mirror = allow_mirror && PickBalancedMirror();
     const float amplitude =
         forced_clip != nullptr ? (sky_roar_active_.load() ? 1.20f : 1.45f) : 1.45f + frnd() * 0.15f;
-    const bool short_flash_cue = flash_sync && sound_duration_ms > 0 && sound_duration_ms <= 4200;
+    const bool short_flash_cue =
+        flash_sync && sound_duration_ms > 0 && sound_duration_ms <= kShortSoundMaxMs;
     // 短音频使用专属紧凑编舞。长音频也保持清楚的动作节奏，不按声音长度
     // 成倍拉慢；怒吼只允许少量延长，动作完成后释放舵机。
     const float tempo = forced_clip != nullptr ? 1.0f
@@ -2135,8 +2335,7 @@ void DinosaurController::RunAction(DinoAction action, uint32_t sound_duration_ms
     const uint32_t settle_ms = short_flash_cue || forced_clip != nullptr ? 760 : 820;
     float duration_scale = 1.0f;
     if (sky_roar_active_.load()) {
-        // 按限速后的真实行程估计时长。声音预算用于仰头和主体编舞，收势
-        // 放在尾音之后；第一段不随长声拉伸，始终尽早形成仰头剪影。
+        // 按限速后的真实行程估计时长。音频长度主要用于主体编舞，起手尽早到位。
         Pose previous = current_pose_;
         uint32_t onset_ms = 0;
         uint32_t body_ms = 0;
@@ -2156,7 +2355,7 @@ void DinosaurController::RunAction(DinoAction action, uint32_t sound_duration_ms
         duration_scale = body_ms > 0
                              ? std::clamp(static_cast<float>(remaining_ms) / body_ms, 1.0f, 1.25f)
                              : 1.0f;
-        ESP_LOGI(TAG, "Roar onset: %" PRIu32 "ms to IO17=0, IO16=90, IO15=90; audio=%" PRIu32 "ms",
+        ESP_LOGI(TAG, "Roar onset: %s after %" PRIu32 "ms; audio=%" PRIu32 "ms", clip->name,
                  onset_ms, sound_duration_ms);
     }
     ESP_LOGI(TAG, "Action: %s%s amp=%.2f tempo=%.2f%s duration=%" PRIu32 "ms scale=%.2f",
@@ -2182,7 +2381,6 @@ void DinosaurController::RunAction(DinoAction action, uint32_t sound_duration_ms
     PlaySegment(last_output_pose_, rest,
                 static_cast<uint32_t>(std::lround(settle_ms * settle_scale)),
                 wzh_dino::MotionEase::kSmooth, living_phase);
-    PrepareIdleCenter();
     quiet_center_.Reset();
 }
 
@@ -2195,61 +2393,7 @@ void DinosaurController::RunPulse(const wzh_dino::MotionClip& clip) {
     const float living_phase = frnd() * 6.2832f;
     ESP_LOGI(TAG, "Pulse: %s%s", clip.name, mirror ? " (mirror)" : "");
     PlayClip(clip, current_pose_, mirror, amplitude, 1.0f / tempo, living_phase);
-    PrepareIdleCenter();
     quiet_center_.Reset();
-}
-
-void DinosaurController::RunIdlePose() {
-    const uint32_t now_ms = esp_timer_get_time() / 1000;
-    if (idle_breath_epoch_ms_ == 0) {
-        idle_breath_epoch_ms_ = now_ms;
-    }
-    if (next_idle_pose_ms_ == 0) {
-        next_idle_pose_ms_ = now_ms + static_cast<uint32_t>(irand(5000, 10000));
-    } else if (static_cast<int32_t>(now_ms - next_idle_pose_ms_) >= 0) {
-        if (idle_pose_index_ == 0) {
-            // 中位停留后偶尔做一次轻微观察姿态。
-            idle_pose_index_ = 1 + irnd(static_cast<int>(std::size(kIdlePoses)) - 1);
-            next_idle_pose_ms_ = now_ms + static_cast<uint32_t>(irand(2500, 4500));
-        } else {
-            // 偏姿只短暂停留，随后回中更久；默认状态大部分时间在中位附近。
-            idle_pose_index_ = 0;
-            next_idle_pose_ms_ = now_ms + static_cast<uint32_t>(irand(6000, 11000));
-        }
-    }
-    const IdlePose& target = kIdlePoses[idle_pose_index_];
-    const float k = 0.028f;
-    idle_drift_[0] += (static_cast<float>(target.neck_tilt) - idle_drift_[0]) * k;
-    idle_drift_[1] += (static_cast<float>(target.neck_lean) - idle_drift_[1]) * k;
-    idle_drift_[2] += (static_cast<float>(target.head_turn) - idle_drift_[2]) * k;
-    idle_drift_[3] += (static_cast<float>(target.tail_ud) - idle_drift_[3]) * k;
-    idle_drift_[4] += (static_cast<float>(target.tail_lr) - idle_drift_[4]) * k;
-    // 呼吸从中位出发并回到中位，每轮最后留出自然停顿。侧向重心只在
-    // 呼吸过程中轻微传递，停顿时四个中位轴回到 90 度附近。
-    const float seconds = (now_ms - idle_breath_epoch_ms_) / 1000.0f;
-    const float breath = BreathingWave(seconds);
-    const float cycle_phase = std::fmod(seconds, 12.0f) / 12.0f;
-    const float active_phase = std::clamp(cycle_phase / 0.64f, 0.0f, 1.0f);
-    // 每次呼吸在左右两侧分配相同时间，避免开机后的前半轮总向同一边。
-    const float sway = std::sin(active_phase * 6.2831853f) * breath;
-    Pose pose = {
-        idle_drift_[0] - 7.0f * breath,  idle_drift_[1] + 2.5f * sway, idle_drift_[2] + 3.5f * sway,
-        idle_drift_[3] + 10.0f * breath, idle_drift_[4] - 5.0f * sway,
-    };
-    SetPose(pose);
-}
-
-void DinosaurController::PrepareIdleCenter() {
-    // 从刚结束的真实姿态继续缓慢回中，避免动作结束后第一帧跳到旧的待机
-    // 漂移值。回中后至少停留 9~15 秒才会选择下一次偏姿。
-    idle_pose_index_ = 0;
-    idle_drift_[0] = static_cast<float>(current_pose_.neck_tilt);
-    idle_drift_[1] = static_cast<float>(current_pose_.neck_lean);
-    idle_drift_[2] = static_cast<float>(current_pose_.head_turn);
-    idle_drift_[3] = static_cast<float>(current_pose_.tail_ud);
-    idle_drift_[4] = static_cast<float>(current_pose_.tail_lr);
-    idle_breath_epoch_ms_ = esp_timer_get_time() / 1000;
-    next_idle_pose_ms_ = esp_timer_get_time() / 1000 + static_cast<uint32_t>(irand(9000, 15000));
 }
 
 void DinosaurController::TaskEntry(void* arg) { static_cast<DinosaurController*>(arg)->Task(); }
@@ -2303,8 +2447,20 @@ bool DinosaurController::UpdateSoundMotion(uint32_t now) {
         return false;
     }
     const auto sound = audio_->GetMotionData();
-    const uint32_t random = sound_motion_.NeedsBegin(sound) ? esp_random() : 0;
-    if (sound_motion_.NeedsBegin(sound)) {
+    const bool begin = sound_motion_.NeedsBegin(sound);
+    const uint32_t random = begin ? esp_random() : 0;
+    if (begin && sound.kind == wzh::SoundKind::kRoar) {
+        const auto* clip = PickSkyRoarClip(sound.duration_ms, &sound);
+        const bool paired = wzh::UserPairAtIndex(sound.sound_index) != nullptr;
+        // Preserve each clip's lateral and low landmarks. Paired playback
+        // blends these with the original recorded path without remapping
+        // the recorded neck pitch into the skyward range.
+        const bool authored = paired || clip->authored_dynamics;
+        sound_motion_.SetRoarClip(
+            *clip, authored ? 0 : kCompactRoarTailAngles[last_sky_roar_clip_index_], authored);
+        ESP_LOGI(TAG, "Sound expression: roar=%s source=%s duration=%" PRIu32 "ms", clip->name,
+                 paired ? "paired" : "flash", sound.duration_ms);
+    } else if (begin) {
         // These are the actual reference-example stories, not another set of
         // generic five-axis poses. Also reach paired playback, whose main path
         // remains the user's recording with a bounded reference contribution.
@@ -2330,16 +2486,13 @@ bool DinosaurController::UpdateSoundMotion(uint32_t now) {
             case wzh::SoundKind::kSneeze:
                 action = DinoAction::kStartled;
                 break;
-            case wzh::SoundKind::kRoar:
-                action = DinoAction::kProud;
-                break;
             default:
                 break;
         }
         // Do not answer every recording of the same category with the exact
         // same family. A little cross-family variation keeps the dinosaur from
         // looking like it has only one reaction per sound type.
-        if (sound.kind != wzh::SoundKind::kRoar && irnd(100) < 35) {
+        if (irnd(100) < 35) {
             switch (action) {
                 case DinoAction::kAffection:
                     action = DinoAction::kHappy;
@@ -2357,7 +2510,8 @@ bool DinosaurController::UpdateSoundMotion(uint32_t now) {
                     break;
             }
         }
-        const auto& set = kActionClips[static_cast<unsigned>(action)];
+        const unsigned action_index = static_cast<unsigned>(action);
+        const auto& set = kActionClips[action_index];
         const wzh_dino::MotionClip* reference[8]{};
         unsigned count = 0;
         for (unsigned i = 0; i < set.count && count < std::size(reference); ++i) {
@@ -2365,16 +2519,19 @@ bool DinosaurController::UpdateSoundMotion(uint32_t now) {
                 reference[count++] = &set.clips[i];
         }
         if (count) {
-            // Autonomous exhibition draws the complete matching action family,
-            // including authored stories. Keep paired recordings and special
-            // sound cues on their existing choreography paths.
-            const bool full_family =
-                autonomous_playback_ && !wzh::UserPairAtIndex(sound.sound_index) &&
-                sound.kind != wzh::SoundKind::kAmbient && sound.kind != wzh::SoundKind::kRoar &&
-                sound.kind != wzh::SoundKind::kSneeze;
-            const auto* clip =
-                full_family ? PickClip(action)
-                            : reference[sound_motion_.ReferenceVariant(sound, random, count)];
+            const bool regular_flash = !wzh::UserPairAtIndex(sound.sound_index) &&
+                                       sound.kind != wzh::SoundKind::kAmbient &&
+                                       sound.kind != wzh::SoundKind::kSneeze;
+            const MotionClip* clip;
+            if (regular_flash && sound.duration_ms > 0 && sound.duration_ms <= kShortSoundMaxMs) {
+                const auto& short_set = kSoundActionClips[action_index];
+                clip = &short_set
+                            .clips[sound_motion_.ReferenceVariant(sound, random, short_set.count)];
+            } else if (regular_flash && autonomous_playback_) {
+                clip = PickClip(action);
+            } else {
+                clip = reference[sound_motion_.ReferenceVariant(sound, random, count)];
+            }
             sound_motion_.SetReferenceClip(*clip);
             ESP_LOGI(TAG, "Sound expression: reference=%s source=%s", clip->name,
                      wzh::UserPairAtIndex(sound.sound_index) ? "paired" : "flash");
@@ -2382,11 +2539,6 @@ bool DinosaurController::UpdateSoundMotion(uint32_t now) {
         if (sound.kind == wzh::SoundKind::kSneeze) {
             sound_motion_.SetReferenceClip(kSneezeClip);
         }
-    }
-    if (!wzh::UserPairAtIndex(sound.sound_index) && sound.kind == wzh::SoundKind::kRoar &&
-        sound_motion_.NeedsBegin(sound)) {
-        const auto* clip = PickSkyRoarClip(sound.duration_ms, &sound);
-        sound_motion_.SetRoarClip(*clip, kCompactRoarTailAngles[last_sky_roar_clip_index_]);
     }
     wzh::SoundPose out{};
     bool powered = false;
@@ -2482,7 +2634,6 @@ void DinosaurController::Task() {
         if (!startup.Pending() && !startup_sound_pending && !startup_sound_started)
             wzh::MarkStartupGreetingComplete();
         if (servo_output_.blocked() || !pet_state.motion) {
-            idle_breathing_ = false;
             CancelSoundMotion();
             autoplay_.Busy(now_ms, esp_random());
             autonomous_playback_ = false;
@@ -2519,7 +2670,6 @@ void DinosaurController::Task() {
             request_gain_ =
                 pet_state.gentle || pet_state.mode == wzh::PetMode::kQuiet ? .60f : 1.0f;
             request_active_.store(true);
-            idle_breathing_ = false;
             // Motion can answer a new gesture without truncating an existing
             // Flash call. Explicit stop and conversation still cancel it.
             if (request.interaction != wzh::PetInteraction::kNone && !conversation_active_.load() &&
@@ -2585,7 +2735,6 @@ void DinosaurController::Task() {
                 running_generation_ = intent_generation_.load();
                 running_speech_bound_ = false;
                 request_gain_ = 1.0f;
-                idle_breathing_ = false;
                 startup_sound_pending = !wzh::StartupOnboardingPending();
                 if (startup_sound_pending && audio_ != nullptr && pet_state.local_sound &&
                     wzh::StartupGreetingAudioReady() && !audio_->Playing() &&
@@ -2621,50 +2770,39 @@ void DinosaurController::Task() {
             if (autoplay_.Due(now_ms,
                               offline && pet_state.local_sound && !wzh::IsOnboardingActive() &&
                                   wzh::StartupGreetingAudioReady() && !startup.Pending() &&
-                                  !startup_sound_pending &&
-                                  (!servo_output_.powered() || idle_breathing_) && !local_motion &&
-                                  (audio_ == nullptr || !audio_->Playing()),
+                                  !startup_sound_pending && !servo_output_.powered() &&
+                                  !local_motion && (audio_ == nullptr || !audio_->Playing()),
                               esp_random())) {
                 if (audio_ != nullptr &&
-                    audio_->PlayAutonomousSound(true, 15, true, autoplay_.InShow())) {
+                    audio_->PlayAutonomousSound(true, 15, true, !autoplay_.Legacy())) {
                     autonomous_playback_ = true;
                     running_generation_ = intent_generation_.load();
                     running_speech_bound_ = false;
                     request_gain_ = 1.0f;
-                    idle_breathing_ = false;
                 }
                 autoplay_.Busy(now_ms, esp_random());
             }
             if (local_motion) {
-                idle_breathing_ = false;
                 quiet_center_.Reset();
                 vTaskDelay(pdMS_TO_TICKS(kTickMs));
                 continue;
             }
             const auto voice = audio_ != nullptr ? audio_->GetTtsMotionData() : DinoMotionData{};
-            const bool audible = ((conversation_active_.load() &&
-                                  (speaking_.load() || speech_tail_.load())) ||
-                                  (wzh::IsOnboardingVoiceMotionActive() || wzh::IdleMissVoiceMotionActive())) && voice.playing;
+            const bool audible =
+                ((conversation_active_.load() && (speaking_.load() || speech_tail_.load())) ||
+                 (wzh::IsOnboardingVoiceMotionActive() || wzh::IdleMissVoiceMotionActive())) &&
+                voice.playing;
             const bool idle_eligible = !conversation_active_.load() && pet_state.motion &&
                                        !request_active_.load() && !local_motion && !audible &&
                                        !wzh::IsOnboardingActive();
             if (audible) {
-                idle_breathing_ = false;
                 quiet_center_.Reset();
                 SetPose({70, 90, 90, 90, 90});
-            } else if (idle_eligible) {
-                // Between pulses keep the body breathing instead of freezing
-                // at the neutral pose. A due autonomous sound may still
-                // preempt this low-level motion.
-                idle_breathing_ = true;
-                if (!pet_state.local_sound && idle_life_.Due(now_ms, autoplay_.Legacy(), esp_random())) {
-                    RunPulse(*PickPulse());
-                    idle_life_.Busy(now_ms, esp_random());
-                    continue;
-                }
-                RunIdlePose();
+            } else if (idle_eligible && !pet_state.local_sound &&
+                       idle_life_.Due(now_ms, autoplay_.Legacy(), esp_random())) {
+                RunPulse(*PickPulse());
+                idle_life_.Busy(esp_timer_get_time() / 1000, esp_random());
             } else {
-                idle_breathing_ = false;
                 if (!speaking_.load() && !voice.audible)
                     speech_tail_.store(false);
                 SettleToCenter(now_ms);
@@ -2744,12 +2882,10 @@ void DinosaurController::RunBodyAction(DinoBodyAction action) {
         return;
     ESP_LOGI(TAG, "Body action: %s", clip->name);
     const float living_phase = frnd() * 6.2832f;
-    // 固定放大身体指令，不随机镜像，保证方向和行程稳定。
+    // The authored last frame centers only the joints involved in the command.
+    active_body_axes_ = clip->body_axes;
     PlayClip(*clip, last_output_pose_, false, 1.40f, 1.0f, living_phase);
-    const Pose rest = {SERVO_NECK_TILT_DEFAULT, SERVO_NECK_LEAN_DEFAULT, SERVO_HEAD_TURN_DEFAULT,
-                       SERVO_TAIL_UD_DEFAULT, SERVO_TAIL_LR_DEFAULT};
-    PlaySegment(last_output_pose_, rest, 1000, wzh_dino::MotionEase::kSmooth, living_phase);
-    PrepareIdleCenter();
+    active_body_axes_ = 0;
     quiet_center_.Reset();
 }
 
@@ -2764,7 +2900,6 @@ void DinosaurController::RunTutorialTouch() {
     };
     static constexpr MotionClip clip{"tutorial-touch", frames, std::size(frames)};
     PlayClip(clip, current_pose_, false, 1.0f, 1.0f, 0);
-    PrepareIdleCenter();
     quiet_center_.Reset();
 }
 
@@ -2776,7 +2911,6 @@ void DinosaurController::RunInteraction(wzh::PetInteraction interaction) {
     const auto& clip = kInteractionClips[index];
     ESP_LOGI(TAG, "Interaction=%s motion=%s", wzh::InteractionName(interaction), clip.name);
     PlayClip(clip, current_pose_, false, 1.40f, 1.0f, frnd() * 6.2832f);
-    PrepareIdleCenter();
     quiet_center_.Reset();
 }
 
@@ -2824,7 +2958,6 @@ void DinosaurController::RunServoTest(int gpio) {
         PlaySegment(target, rest, 1200, MotionEase::kSmooth, 0);
     }
     servo_test_active_ = false;
-    PrepareIdleCenter();
     quiet_center_.Reset();
     ESP_LOGI(TAG, "Servo test: IO%d finished, default pose restored", gpio);
 }
@@ -2966,6 +3099,7 @@ void DinosaurController::SetConversationActive(bool active) {
     if (!changed) {
         return;
     }
+    pet_.ResetTouch();
     ESP_LOGI(TAG, "Mode changed to %s",
              active ? "online/conversation" : "offline/interaction-wait");
     if (!active) {
@@ -3282,7 +3416,8 @@ bool DinosaurController::TriggerOnboardingFeedback(uint8_t step) {
     return false;
 }
 
-bool DinosaurController::QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step) {
+bool DinosaurController::QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step,
+                                          wzh::PetPriority priority) {
     DinoBodyAction body = DinoBodyAction::kShakeHead;
     switch (interaction) {
         case wzh::PetInteraction::kTouch1:
@@ -3318,7 +3453,7 @@ bool DinosaurController::QueueInteraction(wzh::PetInteraction interaction, uint8
     ActionRequest request{static_cast<DinoAction>(body), false, true};
     request.interaction = interaction;
     request.tutorial_step = tutorial_step;
-    const bool accepted = QueueRequest(request, wzh::PetPriority::kExplicit);
+    const bool accepted = QueueRequest(request, priority);
     if (accepted) {
         ESP_LOGD(TAG, "Interaction=%s accepted", wzh::InteractionName(interaction));
     } else {
@@ -3329,14 +3464,11 @@ bool DinosaurController::QueueInteraction(wzh::PetInteraction interaction, uint8
     return accepted;
 }
 
-void DinosaurController::HandleTouch(uint8_t code) {
+void DinosaurController::HandleTouch(uint8_t code, bool allow_contact_start) {
     const uint32_t now = esp_timer_get_time() / 1000;
-    pet_.Touch(code, now);
-    // A confirmed press is play: restart the two-minute exhibition burst.
-    // Release events (code 0) only feed the held/tap state machine.
-    if (code != 0)
-        autoplay_.Engage(now, esp_random(), true);
-    PollInteraction(now);
+    pet_.Touch(code, now, allow_contact_start);
+    if (code != 0 && code != 0xFF)
+        PollInteraction(now);
 }
 
 bool DinosaurController::HandleSensorEvent(int event) {
@@ -3362,7 +3494,7 @@ bool DinosaurController::HandleSensorEvent(int event) {
                              : kind == wzh::Sensors::Event::kFlipped
                                  ? wzh::PetInteraction::kFlipped
                                  : wzh::PetInteraction::kPutDown;
-    const bool accepted = QueueInteraction(interaction);
+    const bool accepted = QueueInteraction(interaction, 0, wzh::PetPriority::kSensor);
     if (accepted) {
         pet_.Gentle(now, kind == wzh::Sensors::Event::kPutDown ? 1800 : 3500);
         autoplay_.Engage(now, esp_random(), true);
@@ -3418,7 +3550,14 @@ bool DinosaurController::React(wzh::PetReaction reaction, wzh::PetPriority prior
 void DinosaurController::PollInteraction(uint32_t now) {
     const auto touch = pet_.PollTouchEvent(now);
     if (touch.response != wzh::TouchResponse::kNone) {
-        QueueInteraction(touch.interaction());
+        if (conversation_active_.load()) {
+            Application::GetInstance().QueueTouchConversationInput(wzh::ConversationTouchText(
+                touch, {"头", "胸前", "背部靠近脖子的位置", "背部靠近尾巴的位置"}));
+        } else if (touch.response == wzh::TouchResponse::kStrokeForward) {
+            pet_.Gentle(now, 1800);
+        }
+        if (QueueInteraction(touch.interaction()))
+            autoplay_.Engage(now, esp_random(), true);
     }
     int expression = pending_expression_.load();
     if (expression >= 0 && now - expression_since_.load() >= 2500) {

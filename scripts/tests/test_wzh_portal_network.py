@@ -17,6 +17,83 @@ class PortalNetworkTest(unittest.TestCase):
         # here would take the same mutex again and freeze every portal request.
         self.assertNotIn('on_scan_begin_()', method)
 
+    def test_persistent_hotspot_leaves_radio_up_and_scans_on_demand_without_credentials(self):
+        if not shutil.which('g++'):
+            self.skipTest('g++ required')
+        source = (ROOT/'project_components/esp-wifi-connect/wifi_station.cc').read_text()
+        start = queue_function(source, 'void WifiStation::Start(')
+        program = r'''
+#include <cassert>
+#include <string>
+#include <vector>
+#define ESP_LOGE(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
+#define ESP_LOGW(...) ((void)0)
+#define ESP_ERROR_CHECK(result) assert((result)==0)
+using esp_err_t=int;
+constexpr int ESP_OK=0, WIFI_EVENT_STOPPED=1, WIFI_EVENT_SCAN_DONE_BIT=2;
+constexpr int WIFI_EVENT=1, ESP_EVENT_ANY_ID=2, IP_EVENT=3, IP_EVENT_STA_GOT_IP=4,
+              IP_EVENT_STA_LOST_IP=5, WIFI_MODE_STA=6, WIFI_MODE_APSTA=7, ESP_TIMER_TASK=8;
+constexpr int WIFI_SCAN_TYPE_ACTIVE=0;
+struct wifi_scan_config_t{
+    struct {struct{int min,max;}active;} scan_time;
+    int scan_type,home_chan_dwell_time;
+};
+void xEventGroupClearBits(void*,int){}
+int netif=0, mode_calls=0, radio_starts=0;
+int* esp_netif_get_handle_from_ifkey(const char*) {return &netif;}
+int* esp_netif_create_default_wifi_sta(){return &netif;}
+int esp_netif_set_hostname(int*,const char*){return 0;}
+const char* esp_err_to_name(int){return "error";}
+template<class... T>int esp_event_handler_instance_register(T...) {return 0;}
+int esp_wifi_set_mode(int mode){++mode_calls;assert(mode==WIFI_MODE_STA);return 0;}
+int esp_wifi_start(){++radio_starts;return 0;}
+int esp_wifi_set_max_tx_power(int){return 0;}
+struct esp_timer_create_args_t{
+    void (*callback)(void*);void* arg;int dispatch_method;const char* name;bool skip_unhandled_events;
+};
+int esp_timer_create(const esp_timer_create_args_t*,void**){return 0;}
+struct SsidManager{
+    bool saved=false;
+    static SsidManager& GetInstance(){static SsidManager db;return db;}
+    std::vector<int> GetSsidList()const{return saved?std::vector<int>{1}:std::vector<int>{};}
+};
+struct WifiStation{
+    bool persistent_ap_=true;
+    int automatic_scans=0,max_tx_power_=0;
+    int* station_netif_=nullptr;
+    void* event_group_=nullptr;void* timer_handle_=nullptr;
+    int instance_any_id_=0,instance_got_ip_=0,instance_lost_ip_=0;
+    std::string hostname_;
+    static void WifiEventHandler(){}static void IpEventHandler(){}
+    void RequestScan(const wifi_scan_config_t* config=nullptr){
+        if(config)assert(config->scan_type==WIFI_SCAN_TYPE_ACTIVE&&config->scan_time.active.max==70&&
+                         config->home_chan_dwell_time==60);
+        ++automatic_scans;
+    }
+    void Start();
+};
+''' + start + r'''
+int main(){
+    WifiStation first;
+    first.Start();
+    assert(first.station_netif_==&netif&&first.automatic_scans==0&&mode_calls==0&&radio_starts==0);
+    first.RequestScan();assert(first.automatic_scans==1);
+    SsidManager::GetInstance().saved=true;
+    WifiStation returning;
+    returning.Start();assert(returning.automatic_scans==1&&mode_calls==0&&radio_starts==0);
+    WifiStation standalone;standalone.persistent_ap_=false;
+    standalone.Start();assert(mode_calls==1&&radio_starts==1);
+}
+'''
+        with tempfile.TemporaryDirectory() as d:
+            cpp = Path(d)/'first_join.cc'
+            binary = cpp.with_suffix('')
+            cpp.write_text(program)
+            result = subprocess.run(['g++','-std=c++20','-Wall','-Wextra','-Werror',str(cpp),'-o',str(binary)],capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            subprocess.run([str(binary)],check=True,timeout=5)
+
     def test_first_boot_announces_provisioning_only_without_saved_networks(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')

@@ -190,18 +190,12 @@ NetworkResult<> DinosaurMl307Mqtt::Connect(const std::string broker_address, int
     // must not tear down the MQTTCONN that follows.
     pending_cleanup_serial_.store(0);
     session_possible_.store(!session_cleared);
-    if (!session_cleared) {
+    if (!session_cleared && !RecoverMl307AtParser(*at_uart_, kProbeTimeoutMs)) {
         // The disconnect timed out, so its final response can still be queued
-        // in the AT parser. Resynchronise before MQTTCFG/MQTTCONN; keep
-        // session_possible_ set so the next Connect()/destructor retries the
-        // cleanup instead of forgetting a potentially live session.
-        for (int pass = 0; pass < 2; ++pass) {
-            if (!AtCommandSucceeded(at_uart_->SendCommand("AT", kProbeTimeoutMs))) {
-                last_error_.store(-1);
-                ESP_LOGE(kTag, "Cannot resynchronise AT parser after stale MQTT cleanup");
-                return Fail(NetworkError::Timeout());
-            }
-        }
+        // in the AT parser. Keep the session marked for cleanup the next time.
+        last_error_.store(-1);
+        ESP_LOGE(kTag, "Cannot resynchronise AT parser after stale MQTT cleanup");
+        return Fail(NetworkError::Timeout());
     }
     xEventGroupClearBits(event_group_handle_,
                          kConnectedBit | kDisconnectedBit | kStateBit | kCleanupBit);
@@ -278,12 +272,10 @@ NetworkResult<> DinosaurMl307Mqtt::Connect(const std::string broker_address, int
         // state; otherwise the first MQTTSTATE response could actually be the
         // delayed output of MQTTCONN. The second probe proves a fresh command
         // generated after that output can complete.
-        for (int pass = 0; pass < 2; ++pass) {
-            if (!AtCommandSucceeded(at_uart_->SendCommand("AT", kProbeTimeoutMs))) {
-                last_error_.store(-1);
-                ESP_LOGE(kTag, "Cannot resynchronise AT parser after MQTTCONN timeout");
-                return Fail(NetworkError::Timeout());
-            }
+        if (!RecoverMl307AtParser(*at_uart_, kProbeTimeoutMs)) {
+            last_error_.store(-1);
+            ESP_LOGE(kTag, "Cannot resynchronise AT parser after MQTTCONN timeout");
+            return Fail(NetworkError::Timeout());
         }
         bits = xEventGroupWaitBits(event_group_handle_, kConnectedBit | kDisconnectedBit,
                                    pdTRUE, pdFALSE, 0);

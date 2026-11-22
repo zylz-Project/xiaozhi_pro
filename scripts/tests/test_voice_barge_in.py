@@ -33,6 +33,49 @@ inline void FeedBargeReference(VoiceBargeIn&detector,int64_t now,float rms=1000,
 
 
 class VoiceBargeInTest(unittest.TestCase):
+    def test_keyword_vad_tracks_the_pcm_packet_across_short_silence(self):
+        source = (AUDIO / 'engines/afe_audio_engine.cc').read_text()
+        self.run_cpp(r'''
+#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1
+#define CONFIG_USE_VOICE_BARGE_IN 1
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <functional>
+#include <vector>
+constexpr int VAD_SPEECH=1,VAD_SILENCE=0;
+struct afe_fetch_result_t{int16_t*data;int data_size;int vad_state;};
+struct AfeAudioEngine{
+ std::atomic<bool>output_reset_pending_{false};std::vector<int16_t>output_buffer_;
+ std::atomic<uint32_t>control_generation_{0};
+ int frame_samples_=960;size_t output_vad_samples_=0;
+ std::function<void(bool)>vad_state_change_callback_;
+ std::function<void(std::vector<int16_t>&&)>output_callback_;
+ void HandleVoiceResult(const afe_fetch_result_t*,uint32_t);
+};
+''' + queue_function(source, 'void AfeAudioEngine::HandleVoiceResult(') + r'''
+int main(){
+ AfeAudioEngine engine;bool current=false;std::vector<bool> output;
+ engine.vad_state_change_callback_=[&](bool speech){current=speech;};
+ engine.output_callback_=[&](std::vector<int16_t>&& data){
+  assert(data.size()==960);output.push_back(current);
+ };
+ std::vector<int16_t> pcm(960,500);
+ auto feed=[&](int samples,int state,uint32_t generation=0){
+  afe_fetch_result_t r{pcm.data(),samples*2,state};engine.HandleVoiceResult(&r,generation);
+ };
+ feed(640,VAD_SPEECH);feed(320,VAD_SILENCE);
+ feed(640,VAD_SILENCE);feed(320,VAD_SPEECH);
+ assert((output==std::vector<bool>{true,false}));
+ feed(640,VAD_SPEECH);
+ engine.control_generation_=1;engine.output_reset_pending_=true;
+ feed(320,VAD_SPEECH);assert(output.size()==2);
+ feed(960,VAD_SILENCE,1);
+ assert((output==std::vector<bool>{true,false,false}));
+}
+''')
+
     run_cpp = runtime_tests.FirmwareRuntimeOptimizationsTest.run_cpp
 
     def test_dinosaur_release_uses_webrtc_without_experimental_vadnet(self):
@@ -77,17 +120,17 @@ struct Controller {
  int64_t LastServoCommandMovementUs()const{return last;}
  bool ServoPoweredForBargeIn()const{return powered;}
 };
-struct Base{virtual size_t GetBargeInMinimumSpeechSamples()const{return 2880;}};
+struct Base{virtual size_t GetBargeInMinimumSpeechSamples()const{return 0;}};
 struct Dinosaur : Base {Controller controller_;
 ''' + method + r'''
 };
 int main(){
- Dinosaur d;assert(d.GetBargeInMinimumSpeechSamples()==2880);
- d.controller_.last=now_us-14000;assert(d.GetBargeInMinimumSpeechSamples()==2880);
+ Dinosaur d;assert(d.GetBargeInMinimumSpeechSamples()==0);
+ d.controller_.last=now_us-14000;assert(d.GetBargeInMinimumSpeechSamples()==0);
  d.controller_.powered=true;assert(d.GetBargeInMinimumSpeechSamples()==4800);
  d.controller_.last=now_us-150000;assert(d.GetBargeInMinimumSpeechSamples()==4800);
- d.controller_.last=now_us-150001;assert(d.GetBargeInMinimumSpeechSamples()==2880);
- d.controller_.last=now_us+1;assert(d.GetBargeInMinimumSpeechSamples()==2880);
+ d.controller_.last=now_us-150001;assert(d.GetBargeInMinimumSpeechSamples()==0);
+ d.controller_.last=now_us+1;assert(d.GetBargeInMinimumSpeechSamples()==0);
 }
 ''')
 
@@ -436,7 +479,7 @@ struct AudioStreamPacket{int number=0;};
 struct Codec{bool reference=true;bool input_reference(){return reference;}int output_volume(){return 70;}};
 struct Engine{bool ready=true;bool CanMonitorVoiceInterruption(){return ready;}};
 struct Board{static Board& GetInstance(){static Board board;return board;}
- size_t GetBargeInMinimumSpeechSamples() const{return 2880;}};
+ size_t GetBargeInMinimumSpeechSamples() const{return 0;}};
 struct AudioService{
  Engine engine;Engine*audio_engine_=&engine;
  Codec codec;Codec*codec_=&codec;bool device_aec_enabled_=true,capture_enabled_=true,running=true,retain_interruption_prefix_=false;
@@ -851,6 +894,11 @@ class Application;''')
         program += queue_function(source,'bool Application::ReconnectAfterVoiceInterruption(')
         self.run_cpp(program+r'''
 int main(){
+ Application network;network.Install();network.state=kDeviceStateConnecting;
+ network.barge_in_reconnecting_=true;network.protocol.opened=false;
+ assert(network.ReconnectAfterVoiceInterruption(network.interaction_generation_,false,true,true));
+ worker();worker=nullptr;network.Drain();
+ assert(network.state==kDeviceStateListening&&network.protocol.opened&&!network.barge_in_reconnecting_);
  Application app;app.Install();app.state=kDeviceStateSpeaking;app.protocol.opened=false;
  app.audio_service_.voice=true;app.audio_service_.processor_running=true;
  app.audio_service_.monitoring=true;app.audio_service_.interruption_pending=true;
@@ -905,6 +953,25 @@ int main(){
  ordinary.audio_service_.playback_idle=true;ordinary.ListeningStateEvent();
  assert(!ordinary.audio_service_.monitoring&&ordinary.audio_service_.voice);
  assert(!ordinary.pending_listening_start_&&ordinary.protocol.listens==2);
+}
+''',use_json=True)
+
+    def test_keyword_can_interrupt_buffered_tail_before_listening_callback(self):
+        self.run_cpp('#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n'+self.application()+r'''
+int main(){
+ Application app;app.Install();app.protocol.opened=true;app.state=kDeviceStateListening;app.StartListeningAudio();
+ app.Tts(R"({"type":"tts","state":"start"})");
+ app.protocol.audio(std::make_unique<AudioStreamPacket>());
+ app.Tts(R"({"type":"tts","state":"stop"})");app.Drain();
+ assert(app.state==kDeviceStateListening&&app.audio_service_.monitoring&&!app.pending_listening_start_);
+ app.audio_service_.playback_idle=false;app.audio_service_.interruption_pending=true;
+ app.pending_voice_interruption_=app.audio_service_.interruption_token;
+ app.HandleVoiceInterruptionEvent();assert(app.aborts==0);
+ app.keyword_interruption_until_us_=esp_timer_get_time()-1;
+ app.HandleVoiceInterruptionEvent();assert(app.aborts==0);
+ app.keyword_interruption_until_us_=esp_timer_get_time()+1000000;
+ app.HandleVoiceInterruptionEvent();
+ assert(app.aborts==1&&app.state==kDeviceStateListening&&app.keyword_interruption_until_us_==0);
 }
 ''',use_json=True)
 

@@ -129,6 +129,7 @@ int main(){
             for(uint8_t frame=0;frame<clip->count;++frame){
                 auto target=Values(TargetPose(*clip,frame,false));
                 for(int axis=0;axis<3;++axis){
+                    if(clip->body_axes&&!(clip->body_axes&(1U<<axis)))continue;
                     auto value=center[axis]+(target[axis]-center[axis])*gain;
                     expected_min[axis]=std::min(expected_min[axis],value);
                     expected_max[axis]=std::max(expected_max[axis],value);
@@ -247,7 +248,7 @@ int main(){
         assert(p.tail_ud>0&&p.tail_ud<180);
         min_ud=std::min(min_ud,p.tail_ud);max_ud=std::max(max_ud,p.tail_ud);
     }
-    assert(min_ud<50&&max_ud>120);
+    assert(min_ud<50&&max_ud>=149);
     auto quiet=high_tail.ApplyAudioMotion({160,160,20},{false,0,0},50000);
     assert(quiet.head==160&&quiet.tail_lr==160&&quiet.tail_ud==20);
     high_tail.request_active_.store(true);
@@ -269,7 +270,7 @@ int main(){
             head_min=std::min(head_min,p[0]);head_max=std::max(head_max,p[0]);
         }
         assert(both?together:left&&right);
-        assert(head_min>=30&&head_min<=40&&head_max>=140&&head_max<=150);
+        assert(head_min==90&&head_max==90);
         assert(std::abs(c.last_output_pose_.head-90)<2);
         const uint32_t settle_ms=wzh::SettlingDuration(both?0:kCrawlStrokeDeg,100.f);
         assert(!c.clip_active_&&clock_ms==15220+((settle_ms+19)/20)*20); // Preserve reference gait; slow only its final settling.
@@ -300,10 +301,11 @@ int main(){
         for(uint32_t elapsed=0;elapsed<=entry+cycles*period+((wzh::SettlingDuration(both?0:kCrawlStrokeDeg,100.f)+19)/20)*20;elapsed+=20){
             clock_ms=started+elapsed;
             c.UpdatePlayer(clock_ms);
-            // Simulate a large concurrent voice accent. Walking must retain
-            // the reference head center and opposite-direction arm strokes.
+            // Simulate a large concurrent voice accent. A crawl command holds
+            // the head while the reference paw strokes drive the gait.
             c.OutputPose(c.clip_active_?Pose{8,172,8}:c.pose_);
             auto output=Values(c.last_output_pose_);
+            if(c.clip_active_)assert(output[0]==(interrupted?30:90));
             for(unsigned axis=0;axis<3;++axis)
                 assert(std::abs(output[axis]-previous[axis])<=8.001f);
             previous=output;
@@ -322,7 +324,8 @@ int main(){
             }
         }
         assert(!c.clip_active_);
-        for(float angle:Values(c.last_output_pose_))assert(std::abs(angle-90)<.02);
+        assert(std::abs(c.last_output_pose_.left_arm-90)<.02);
+        assert(std::abs(c.last_output_pose_.right_arm-90)<.02);
         // A completed clip cannot restart merely because time passes.
         c.UpdatePlayer(clock_ms+3600000);assert(!c.clip_active_);
     }
@@ -333,6 +336,21 @@ int main(){
     const auto short_end=10000+400+1600+wzh::SettlingDuration(kCrawlStrokeDeg,100.f);
     short_gait.UpdatePlayer(short_end-20);assert(short_gait.clip_active_);
     short_gait.UpdatePlayer(short_end);assert(!short_gait.clip_active_);
+    for(int mode:{2,3}){
+        const auto neutral=Values(CrawlStroke(mode,0));
+        assert((neutral==std::array<float,3>{90,90,90}));
+        auto previous=neutral;
+        float left=90,right=90;
+        for(unsigned elapsed=20;elapsed<=4*800;elapsed+=20){
+            const auto stroke=Values(CrawlStroke(mode,elapsed));
+            for(unsigned axis=1;axis<3;++axis)
+                assert(std::abs(stroke[axis]-previous[axis])<8.f);
+            assert(stroke[1]<=90&&stroke[2]>=90);
+            left=std::min(left,stroke[1]);right=std::max(right,stroke[2]);
+            previous=stroke;
+        }
+        assert(left<=45&&right>=135&&previous==neutral);
+    }
 '''
         self.run_cpp(program[:program.rfind('}')] + extra + '\n}\n')
 
@@ -394,12 +412,13 @@ struct Output{
         last_pwm={angles[0],angles[1],angles[2],angles[3],angles[4]};
         auto logical=last_pwm;
         // Compare the capture in the choreography's original coordinates.
-        for(size_t axis:{0,1,3,4})logical[axis]=90.0f+(logical[axis]-90.0f)*(270.0f/220.0f);
+        for(size_t axis:{0,1,3,4})logical[axis]=90.0f+(logical[axis]-90.0f)*(270.0f/200.0f);
         samples.push_back(logical);return true;
     }
 };
 '''+types+'\n'+re.search(r'constexpr uint32_t kMinAuthoredStoryFrameMs = \d+;',source).group(0)+'\n'+tables+'\n'
         program+=function(header,'enum class DinoAction')+';\n'
+        program+=function(header,'enum class DinoBodyAction')+';\n'
         program+=function(source,'float SmoothStep(')+'\n'+function(source,'float EaseValue(')+'\n'
         program+=r'''
 struct DinosaurController{
@@ -409,14 +428,15 @@ struct DinosaurController{
     std::atomic<bool> speech_tail_{false};Audio* audio_=nullptr;
     wzh::InteractionMotionSelector interaction_motion_;
     bool servo_test_active_=false;float request_gain_=1;
+    bool running_speech_bound_=false;
+    uint8_t active_body_axes_=0;
     wzh::QuietCenter<5> quiet_center_;void SettleToCenter(uint32_t);
     std::atomic<bool> request_active_{false};
     std::atomic<wzh::PetPriority> running_priority_{wzh::PetPriority::kEmotion};
     std::atomic<bool> flash_performance_active_{false},speaking_{false},sky_roar_active_{false},shutdown_requested_{false};
     std::atomic<float> output_audio_level_{0},output_audio_attack_{0};
     std::atomic<int64_t> output_audio_updated_us_{0};
-    float audio_motion_level_=0,audio_motion_emphasis_=0,audio_motion_phase_=0,audio_motion_direction_=1;
-    bool audio_motion_active_=false;int64_t audio_motion_last_update_us_=0;
+    float audio_motion_level_=0;int64_t audio_motion_last_update_us_=0;
     uint32_t last_output_ms_=0,last_pose_log_ms_=0,interrupt_at=UINT32_MAX;
     std::atomic<int64_t> last_servo_command_movement_us_{0};
     float output_angles_[5]={70,90,90,90,90};
@@ -424,7 +444,6 @@ struct DinosaurController{
     bool MotionInterrupted()const{return clock_ms>=interrupt_at;}
     void PollInteraction(uint32_t){}
     void ApplyLiving(Pose&,float,float){}
-    void PrepareIdleCenter(){}
     void RunInteraction(wzh::PetInteraction);
     wzh::MotionShuffleBag<16> action_clip_bags_[8];
     int8_t last_sound_clip_indices_[8]={-1,-1,-1,-1,-1,-1,-1,-1};
@@ -436,6 +455,9 @@ struct DinosaurController{
     void PlaySegment(const Pose&,const Pose&,uint32_t,wzh_dino::MotionEase,float,
                      const Pose* =nullptr,const Pose* =nullptr,uint32_t=0,uint32_t=0,bool=false);
     Pose PlayClip(const wzh_dino::MotionClip&,const Pose&,bool,float,float,float);
+    static const wzh_dino::MotionClip* PickBodyClip(DinoBodyAction);
+    static const char* BodyActionName(DinoBodyAction){return "test";}
+    void RunBodyAction(DinoBodyAction);
 };
 '''
         for marker in ['void DinosaurController::SettleToCenter(', 'void DinosaurController::SetPose(',
@@ -443,6 +465,8 @@ struct DinosaurController{
                        'uint32_t DinosaurController::ComfortableDuration(',
                        'void DinosaurController::PlaySegment(',
                        'DinosaurController::Pose DinosaurController::PlayClip(',
+                       'const wzh_dino::MotionClip* DinosaurController::PickBodyClip(',
+                       'void DinosaurController::RunBodyAction(',
                        'void DinosaurController::RunInteraction(',
                        'const wzh_dino::MotionClip* DinosaurController::PickClip(',
                        'const wzh_dino::MotionClip* DinosaurController::PickSoundClip(']:
@@ -585,6 +609,7 @@ struct DinosaurController{
     // several direction changes rather than a single slow drift over 15 sec.
     DinosaurController talking;Audio audio;talking.audio_=&audio;talking.speaking_=true;
     std::array<float,5> movement{};int head_turns=0;float previous_delta=0,previous_head=90;
+    bool deep_bow=false, bow_left=false, bow_right=false, raised=false;
     for(unsigned sample=0;sample<750;++sample){
         clock_ms=10000+sample*20;talking.output_audio_updated_us_=int64_t(clock_ms)*1000;
         talking.output_audio_level_=.4f;talking.output_audio_attack_=.3f;
@@ -592,6 +617,10 @@ struct DinosaurController{
         auto actual=Values(talking.last_output_pose_);
         auto rest=Values(DinosaurController::Pose{70,90,90,90,90});
         for(unsigned axis=0;axis<5;++axis)movement[axis]=std::max(movement[axis],std::abs(actual[axis]-rest[axis]));
+        deep_bow|=actual[0]>=132;
+        bow_left|=actual[0]>=105&&actual[1]>=110;
+        bow_right|=actual[0]>=105&&actual[1]<=70;
+        raised|=actual[0]<=40;
         float delta=actual[2]-previous_head;
         if(delta*previous_delta<0)++head_turns;
         if(std::abs(delta)>.001f)previous_delta=delta;
@@ -599,6 +628,36 @@ struct DinosaurController{
     }
     for(float range:movement)assert(range>=15);
     assert(head_turns>=6);
+    assert(deep_bow&&bow_left&&bow_right&&raised);
+    // A strong automatic expression must leave room for the speaking neck
+    // and tail to move down, even when the underlying clip keeps both raised.
+    DinosaurController proud_voice;proud_voice.audio_=&audio;proud_voice.speaking_=true;
+    proud_voice.running_speech_bound_=true;proud_voice.request_active_=true;
+    bool bowed=false,dropped_tail=false;
+    for(unsigned t=0;t<60000;t+=20){
+        clock_ms=30000+t;
+        proud_voice.SetPose({12,90,90,168,90});
+        const auto& out=proud_voice.last_output_pose_;
+        bowed|=out.neck_tilt>80;
+        dropped_tail|=out.tail_ud<88;
+    }
+    assert(bowed&&dropped_tail);
+    // Local Flash PCM accents the two vertical axes without adding its own sway.
+    DinosaurController local;local.audio_=&audio;local.flash_performance_active_=true;
+    for(unsigned t=0;t<2000;t+=20){
+        clock_ms=26000+t;
+        local.output_audio_updated_us_=int64_t(clock_ms)*1000;
+        local.output_audio_level_=.4f;local.output_audio_attack_=.3f;
+        local.SetPose({70,90,90,90,90});
+    }
+    auto accent=Values(local.last_output_pose_);
+    assert(accent[0]<65&&accent[3]>100);
+    assert(accent[1]==90&&accent[2]==90&&accent[4]==90);
+    for(unsigned t=0;t<2000;t+=20){
+        clock_ms=28000+t;local.SetPose({70,90,90,90,90});
+    }
+    auto rest_after_voice=Values(local.last_output_pose_);
+    assert(std::abs(rest_after_voice[0]-70)<.1f&&std::abs(rest_after_voice[3]-90)<.1f);
     // The tutorial reuses the same PCM-driven motion, but cannot animate
     // during a stop or while the shutdown pose is being parked.
     wzh::tutorial_voice=true;
@@ -639,7 +698,7 @@ struct DinosaurController{
         assert(logical == expected);
         for (size_t axis = 0; axis < pwm.size(); ++axis) {
             const float physical = pwm[axis] * (axis == 2 ? 1.0f : 270.0f / 180.0f);
-            const float target = axis == 2 ? expected[axis] : 25.0f + expected[axis] * (220.0f / 180.0f);
+            const float target = axis == 2 ? expected[axis] : 35.0f + expected[axis] * (200.0f / 180.0f);
             assert(std::abs(physical - target) < .001f);
             if (expected[axis] == 90.0f) assert(pwm[axis] == 90.0f); // Same 1500 us midpoint.
         }

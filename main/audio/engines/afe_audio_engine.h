@@ -115,6 +115,9 @@ private:
     std::string last_detected_wake_word_;
     std::vector<int16_t> input_buffer_;
     std::vector<int16_t> output_buffer_;
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    size_t output_vad_samples_ = 0;
+#endif
     std::mutex input_buffer_mutex_;
 
     std::function<void(const std::string&)> wake_word_detected_callback_;
@@ -134,6 +137,7 @@ private:
     void HandleDetectedWakeWord(const std::string& wake_word);
     void UpdateActiveState();
     void UpdateAecState();
+    bool IsLocalCommandCapture() const;
     void ApplyAfeControls();
     void ApplyPendingReset();
     void OutputRawAudio(const std::vector<int16_t>& data);

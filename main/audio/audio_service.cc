@@ -906,8 +906,10 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
 
     uint32_t dropped_total = 0;
 #if CONFIG_USE_VOICE_BARGE_IN
-    const size_t min_barge_speech_samples = type == kAudioTaskTypeEncodeToSendQueue
-        ? Board::GetInstance().GetBargeInMinimumSpeechSamples() : 2880;
+    const size_t min_barge_speech_samples =
+        type == kAudioTaskTypeEncodeToSendQueue
+            ? Board::GetInstance().GetBargeInMinimumSpeechSamples()
+            : 0;
 #endif
 #if CONFIG_USE_VOICE_BARGE_IN
     uint32_t interruption_token = 0;
@@ -989,7 +991,8 @@ bool AudioService::PushPcmToPlaybackQueue(std::vector<int16_t> pcm, int sample_r
     }
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
     auto can_enqueue = [this, expected_generation]() {
-        return service_stopped_.load() || expected_generation != playback_generation_ ||
+        return service_stopped_.load() || shutdown_playback_ ||
+               expected_generation != playback_generation_ ||
                audio_playback_queue_.size() + (decode_in_flight_ ? 1 : 0) < max_playback_tasks_;
     };
     if (!can_enqueue()) {
@@ -997,7 +1000,8 @@ bool AudioService::PushPcmToPlaybackQueue(std::vector<int16_t> pcm, int sample_r
             return false;
         audio_queue_cv_.wait(lock, can_enqueue);
     }
-    if (service_stopped_.load() || expected_generation != playback_generation_)
+    if (service_stopped_.load() || shutdown_playback_ ||
+        expected_generation != playback_generation_)
         return false;
     AudioTask task;
     task.type = kAudioTaskTypeDecodeToPlaybackQueue;
@@ -1011,23 +1015,27 @@ bool AudioService::PushPcmToPlaybackQueue(std::vector<int16_t> pcm, int sample_r
 }
 
 bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait,
-                                           std::optional<uint32_t> expected_generation) {
+                                           std::optional<uint32_t> expected_generation,
+                                           PlaybackSource source) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
     const uint32_t generation = expected_generation.value_or(playback_generation_);
-    if (generation != playback_generation_)
+    const auto cancelled = [this, generation, source]() {
+        return service_stopped_.load() || generation != playback_generation_ ||
+               shutdown_playback_ != (source == PlaybackSource::kShutdown);
+    };
+    if (cancelled())
         return false;
     if (audio_decode_queue_.size() >= max_decode_packets_) {
         ++decode_queue_full_count_;
         if (wait) {
-            audio_queue_cv_.wait(lock, [this, generation]() {
-                return service_stopped_.load() || generation != playback_generation_ ||
-                       audio_decode_queue_.size() < max_decode_packets_;
+            audio_queue_cv_.wait(lock, [this, &cancelled]() {
+                return cancelled() || audio_decode_queue_.size() < max_decode_packets_;
             });
         } else {
             return false;
         }
     }
-    if (service_stopped_.load() || generation != playback_generation_) {
+    if (cancelled()) {
         return false;
     }
     playback_drained_notified_ = false;
@@ -1140,6 +1148,8 @@ void AudioService::EnableAudioTesting(bool enable) {
         xEventGroupClearBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING);
         /* Copy audio_testing_queue_ to audio_decode_queue_ */
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        if (shutdown_playback_)
+            return;
         audio_decode_queue_.clear();
         audio_decode_queue_.swap(audio_testing_queue_);
         if (!audio_decode_queue_.empty()) {
@@ -1171,7 +1181,7 @@ void AudioService::SetOutputAudioLevelListener(OutputAudioLevelListener listener
 }
 
 void AudioService::PlaySound(const std::string_view& ogg,
-                             std::optional<uint32_t> expected_generation) {
+                             std::optional<uint32_t> expected_generation, PlaybackSource source) {
     // Enqueue only. Speaker enabling belongs to AudioOutputTask when PCM is
     // actually ready, keeping local sound, prompts and TTS on one output path.
     const uint32_t generation = expected_generation.value_or(GetPlaybackGeneration());
@@ -1183,7 +1193,7 @@ void AudioService::PlaySound(const std::string_view& ogg,
     auto demuxer = std::make_unique<OggDemuxer>();
 #if CONFIG_AUDIO_PRODUCT_QUALITY
     const int16_t content_gain = Board::GetInstance().GetAudioSourceGainQ8(buf, size);
-    demuxer->OnOpusPacket([this, generation, &cancelled, content_gain](
+    demuxer->OnOpusPacket([this, generation, source, &cancelled, content_gain](
                               const uint8_t* data, size_t size, const OpusStreamMetadata& stream) {
         if (cancelled)
             return;
@@ -1199,18 +1209,18 @@ void AudioService::PlaySound(const std::string_view& ogg,
         packet->stream.gain_q8 =
             std::clamp<int>(int(stream.gain_q8) + content_gain, -60 * 256, 12 * 256);
         packet->payload.assign(data, data + size);
-        cancelled = !PushPacketToDecodeQueue(std::move(packet), true, generation);
+        cancelled = !PushPacketToDecodeQueue(std::move(packet), true, generation, source);
     });
 #else
     demuxer->OnDemuxerFinished(
-        [this, generation, &cancelled](const uint8_t* data, int sample_rate, size_t size) {
+        [this, generation, source, &cancelled](const uint8_t* data, int sample_rate, size_t size) {
             if (cancelled)
                 return;
             auto packet = std::make_unique<AudioStreamPacket>();
             packet->sample_rate = sample_rate;
             packet->frame_duration = 60;
             packet->payload.assign(data, data + size);
-            cancelled = !PushPacketToDecodeQueue(std::move(packet), true, generation);
+            cancelled = !PushPacketToDecodeQueue(std::move(packet), true, generation, source);
         });
 #endif
     demuxer->Reset();
@@ -1253,10 +1263,15 @@ void AudioService::SetDownlinkJitter(uint32_t target_ms, uint32_t max_wait_ms) {
              static_cast<unsigned>(max_wait_ms));
 }
 
-void AudioService::ResetDecoder() {
+void AudioService::ResetDecoder(std::optional<uint32_t> expected_generation,
+                                PlaybackSource source) {
     bool notify_drained = false;
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        if ((expected_generation && *expected_generation != playback_generation_) ||
+            (shutdown_playback_ && source != PlaybackSource::kShutdown))
+            return;
+        shutdown_playback_ = source == PlaybackSource::kShutdown;
         ++playback_generation_;
 #if CONFIG_AUDIO_PRODUCT_QUALITY
         cancel_fade_requested_ = true;
@@ -1457,7 +1472,7 @@ void AudioService::QueueVoicePacket(std::unique_ptr<AudioStreamPacket> packet,
 void AudioService::FinishPlayback(std::optional<uint32_t> expected_generation) {
 #if CONFIG_AUDIO_PRODUCT_QUALITY
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
-    if (expected_generation && *expected_generation != playback_generation_)
+    if (shutdown_playback_ || (expected_generation && *expected_generation != playback_generation_))
         return;
     playback_drained_notified_ = false;
     if (!audio_decode_queue_.empty())

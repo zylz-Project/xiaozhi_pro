@@ -1,1 +1,0 @@
-PandaGuide.auto("detail");

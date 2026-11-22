@@ -30,25 +30,26 @@ def wzh_offline_commands(product=None, keyword_barge=False):
     # Chinese MultiNet commands use untoned pinyin (e.g. "ni hao"), not
     # numbered tone variants. Duplicating tones is invalid and wastes slots.
     phrases = [
-        ('kai xin', 'happy'), ('sa jiao', 'affection'),
-        ('chi dong xi', 'eat'), ('shui jiao', 'sleepy'),
-        ('ting xia', 'stop'), ('bie dong', 'stop'),
-        ('an jing', 'quiet'), ('wan an', 'rest'), ('xing xing', 'wake'),
+        ('lai wan ba', 'happy'), ('pei wo wan', 'happy'), ('gen wo da zhao hu', 'happy'),
+        ('bao bao wo', 'affection'), ('guo lai bao bao', 'affection'),
+        ('chi fan la', 'eat'), ('chi yi kou', 'eat'), ('gei ni chi hao chi de', 'eat'),
+        ('shui jiao ba', 'sleepy'), ('wan an', 'rest'), ('xiu xi yi xia', 'rest'),
+        ('an jing', 'quiet'), ('an jing yi dian', 'quiet'), ('xiao sheng yi dian', 'quiet'),
+        ('xing xing', 'wake'), ('qi lai wan ba', 'wake'), ('zan men ji xu wan', 'wake'),
+        ('ting', 'stop'), ('ting xia', 'stop'), ('bie dong', 'stop'), ('xian bie dong', 'stop'),
         ('ting zhi dong zuo', 'stop'), ('bu yao yao wei ba', 'stop'),
         ('bie yao tou', 'stop'), ('bu yao dong', 'stop'),
     ]
     masks = {'crawl': 1, 'tail': 2, 'dinosaur': 4, None: 7}
     if product not in masks:
         raise ValueError(f'Unknown WZH local-command product: {product}')
-    product_wake = {'crawl': 'xiao hua xiao hua', 'tail': 'xiao wu xiao wu',
-                    'dinosaur': 'xiao wei xiao wei'}
+    product_wake = {'crawl': 'xiao hua', 'tail': 'xiao wu', 'dinosaur': 'xiao wei'}
     if product in product_wake:
         phrases.append((product_wake[product], 'chat_wake'))
     if product in product_wake and keyword_barge:
+        # The last two aliases are spoken by the bundled onboarding audio.
         phrases.extend((phrase, 'interrupt') for phrase in (
-            'ting', 'ting yi xia', 'deng yi xia', 'bie shuo hua',
-            'bie shuo le', 'xian bie shuo', 'ni hao', 'wo you wen ti',
-            'wo yao shuo hua'))
+            'deng', 'shuo', 'wei', 'ni hao', 'deng yi xia', 'wo yao shuo hua'))
     catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            'main', 'boards', 'common', 'wzh', 'wzh_body_phrases.inc')
     pattern = re.compile(r'WZH_BODY_PHRASE\((\d+), "([a-z_]+)", "([^"]+)", "([a-z ]+)"\)')

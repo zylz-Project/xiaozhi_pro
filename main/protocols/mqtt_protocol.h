@@ -23,12 +23,16 @@
 
 #define MQTT_PROTOCOL_SERVER_HELLO_EVENT (1 << 0)
 
-class MqttProtocol : public Protocol {
+class MqttProtocol : public Protocol, public std::enable_shared_from_this<MqttProtocol> {
 public:
     MqttProtocol();
     ~MqttProtocol();
 
     bool Start() override;
+    bool IsReady() const override { return mqtt_connected_.load(); }
+    void OnNetworkLost() override;
+    void OnNetworkReady() override;
+    bool DeferUntilReconnectFinishes(std::function<void()> resume) override;
     bool SendAudio(std::unique_ptr<AudioStreamPacket> packet) override;
     bool OpenAudioChannel() override;
     void CloseAudioChannel(bool send_goodbye = true) override;
@@ -48,7 +52,11 @@ private:
     std::mutex mqtt_mutex_;
     std::atomic<bool> suspend_queued_{false};
     std::atomic<bool> mqtt_connected_{false};
-    bool mqtt_transport_cellular_ = false;  // Protected by mqtt_mutex_.
+    bool reconnect_running_ = false;  // Application task only.
+    std::function<void()> reconnect_completion_;
+    std::atomic<uint32_t> link_generation_{0};
+    uint32_t mqtt_link_generation_ = 0;  // Protected by mqtt_mutex_.
+    bool mqtt_transport_cellular_ = false;    // Protected by mqtt_mutex_.
     std::unique_ptr<Mqtt> mqtt_;
     // A sender keeps the transport alive while sending without the channel lock.
     std::shared_ptr<Udp> udp_;
@@ -61,6 +69,7 @@ private:
     esp_timer_handle_t reconnect_timer_;
 
     bool StartMqttClient(bool report_error = false);
+    void StartReconnectTask();
     bool IsMqttConnectedLocked();
     void DiscardStaleAudioChannel();
     void ScheduleCellularRecheck();

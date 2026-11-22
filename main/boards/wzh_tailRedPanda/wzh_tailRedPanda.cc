@@ -67,7 +67,8 @@ public:
         return tail_audio_calibration::Find(data, size);
     }
 #endif
-    WzhTailRedPanda() : boot_button_(BOOT_BUTTON_GPIO), display_(controller_) {
+    WzhTailRedPanda()
+        : boot_button_(BOOT_BUTTON_GPIO, false, 0, WZH_DOUBLE_CLICK_MS), display_(controller_) {
         // 配网热点和 DHCP 主机名使用产品前缀（"Panda-XXXX"），
         // 必须在 StartNetwork 之前设置。
         wifi_ssid_prefix_ = PANDA_AP_PREFIX;
@@ -108,10 +109,9 @@ public:
         // 音频管理工具（列表/试听/删除/擦除/状态），Web 控制台取消后的入口。
         wzh::RegisterAudioMcpTools("panda", &local_audio_.audio_store(), &local_audio_);
         // 云端音频按需访问：不自动联网，管理页点击后才检查/更新。
-        audio_hub_.StartManual(&local_audio_.audio_store(), [this]() {
+        audio_hub_.ConfigureForFactory(&local_audio_.audio_store(), [this]() {
             return controller_.IsMaintenanceBusy() || local_audio_.LocalCommandEchoRisk();
         });
-        wzh::RegisterHubMcpTools("panda", &audio_hub_);
         // 本地管理页：设备热点 192.168.4.1:8080，STA 保持联网。
         wzh::WebConsole::Options console;
         console.store = &local_audio_.audio_store();
@@ -128,12 +128,27 @@ public:
             controller_.SetMaintenance(enabled || system || web_console_.maintenance_active() ||
                                        Application::GetInstance().IsVoiceEnrollmentActive());
         };
+        console.live_battery_level = [this](int& level) {
+            const auto sample = power_.battery_sampling();
+            if (!sample.valid || sample.live_mv <= 0)
+                return false;
+            level = wzh::BatteryLevelFromVoltage(sample.live_mv, BATTERY_EMPTY_VOLTAGE_MV,
+                                                 BATTERY_FULL_VOLTAGE_MV);
+            return true;
+        };
         console.center = [this]() { return controller_.RequestCenter(); };
+        console.set_touch_sw4_isolated = [this](bool isolated) {
+            return power_.SetSw4Isolated(isolated);
+        };
         wzh::ConfigureVoiceConsole(console);
         console.status_extra = [this](cJSON* root) {
-            wzh::AddPowerTelemetry(root, power_.battery_voltage_mv(), power_.touch_valid(),
-                                   power_.touch_code(), power_.touch_voltage_mv());
+            wzh::AddPowerTelemetry(root, power_.battery_voltage_mv(), power_.touch_code(),
+                                   power_.touch_voltage_mv());
+            if (auto* touch = cJSON_GetObjectItemCaseSensitive(root, "touch"))
+                cJSON_AddBoolToObject(touch, "sw4_isolated", power_.IsSw4Isolated());
             wzh::AddBatterySamplingTelemetry(root, power_.battery_sampling());
+            if (auto* sensors = cJSON_AddObjectToObject(root, "sensors"))
+                sensors_.AddStatus(sensors);
             cJSON_AddBoolToObject(root, "conversation", controller_.IsConversationActive());
             cJSON_AddBoolToObject(root, "servo_powered", controller_.servo_output().powered());
             cJSON_AddNumberToObject(root, "servo_faults",
@@ -174,15 +189,6 @@ public:
 
     bool IsLocalPlaybackPending() override {
         return local_audio_.Playing() || !local_audio_.WorkerIdle();
-    }
-
-    void OnConversationChannelOpened() override {
-        wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceReady);
-        // The tutorial's connection probe succeeded inside the live
-        // conversation: finish the remaining narration in the background and
-        // keep the chat open instead of hanging up on the user.
-        wzh::ConsumeOnboardingConnectionProbe();
-        wzh::CompleteOnboardingInConversation();
     }
 
     ExternalTts* GetExternalTts() override { return wzh::ProductExternalTts(); }
@@ -286,7 +292,7 @@ public:
         // 当前硬件没有接入充电状态检测脚，只能报告电池正在供电。
         charging = false;
         discharging = true;
-        return power_.battery_level_valid();
+        return level >= 0;
     }
 
     void OnLocalPortalReady() override { web_console_.Start(); }
@@ -324,32 +330,33 @@ private:
     PandaDisplay display_;
 
     void InitializeSensors() {
-        sensors_.Initialize(HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
-                            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
-                                if (event == wzh::Sensors::Event::kPickedUp ||
-                                    event == wzh::Sensors::Event::kShaken) {
-                                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion)) {
-                                        wzh::NotifyIdleInteraction();
-                                        return true;
-                                    }
-                                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
-                                    wzh::NotifyIdleInteraction();
-                                }
-                                if (event == wzh::Sensors::Event::kHuman)
-                                    wzh::NotifyIdleInteraction();
-                                return controller_.HandleSensorEvent(static_cast<int>(event));
-                            });
+        sensors_.Initialize(
+            HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
+            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
+                const bool tutorial_motion = event == wzh::Sensors::Event::kPickedUp ||
+                                             event == wzh::Sensors::Event::kShaken;
+                if (tutorial_motion &&
+                    wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion)) {
+                    wzh::NotifyIdleInteraction();
+                    return true;
+                }
+                const bool accepted = controller_.HandleSensorEvent(static_cast<int>(event));
+                if (accepted && tutorial_motion)
+                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
+                if (accepted || event == wzh::Sensors::Event::kHuman)
+                    wzh::NotifyIdleInteraction();
+                return accepted;
+            });
         sensors_.RegisterMcpTools("panda");
     }
 
     void InitializeTouch() {
-        power_.RegisterTouchHook([this](uint8_t code, uint8_t pressed, uint8_t) {
-            if (pressed) {
-                if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch))
-                    return;
+        power_.RegisterTouchHook([this](uint8_t code, bool starts_contact) {
+            const bool captured =
+                starts_contact && wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch);
+            if (starts_contact && !captured)
                 wzh::NotifyOnboarding(wzh::OnboardingEvent::kTouch);
-            }
-            controller_.HandleTouch(code);
+            controller_.HandleTouch(code, starts_contact && !captured);
         });
     }
 
@@ -400,7 +407,6 @@ private:
         });
         boot_button_.OnDoubleClick([]() {
             if (!wzh::OnboardingBlocksConversation()) {
-                wzh::PrepareOnboardingDoubleClick();
                 Application::GetInstance().ToggleConversation();
             }
         });

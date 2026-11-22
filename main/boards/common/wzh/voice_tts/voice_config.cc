@@ -106,6 +106,15 @@ std::string LoadPreviousAliVoice() {
     VoicePair pair;
     return LoadPairOrLegacy(pair) ? pair.previous : "";
 }
+bool LoadAliVoiceSelection(std::string& current, std::string& previous) {
+    std::lock_guard<std::mutex> lock(voice_pair_mutex);
+    VoicePair pair;
+    if (!LoadPairOrLegacy(pair))
+        return false;
+    current = pair.current;
+    previous = pair.previous;
+    return true;
+}
 bool SaveAliVoice(const std::string& voice) {
     if (voice.size() > 128)
         return false;

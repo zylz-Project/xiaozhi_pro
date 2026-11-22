@@ -80,6 +80,19 @@
   .d-row .d-value.ok { color: var(--green); }
   .d-row .d-value.warn { color: var(--amber); }
 
+  .d-touch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .d-touch-point {
+    display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 4px 6px;
+    padding: 8px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink);
+  }
+  .d-touch-point b { font-family: var(--mono); font-size: 11px; }
+  .d-touch-point span { font-size: 11px; color: var(--ink-soft); overflow-wrap: anywhere; }
+  .d-touch-point strong { grid-column: 1 / -1; font-size: 11px; color: var(--ink-soft); }
+  .d-touch-point[data-state="pressed"] { background: rgba(47,125,82,.14); border-color: var(--green); }
+  .d-touch-point[data-state="pressed"] strong { color: var(--green); }
+  .d-touch-point[data-state="pending"] strong { color: var(--amber); }
+  .d-touch-details { margin-top: 6px; color: var(--ink-soft); }
+
   .d-btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
     min-height: 34px; padding: 0 10px; border-radius: 9px;

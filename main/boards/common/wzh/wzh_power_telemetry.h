@@ -10,8 +10,7 @@ namespace wzh {
 // Serialize cached samples only: HTTP requests must never compete for ADC1.
 // Stable touch codes own the channel indicators; instantaneous voltage is
 // diagnostic data and may still be crossing a debounce threshold.
-inline void AddPowerTelemetry(cJSON* root, int battery_mv, bool touch_stable_valid, int touch_code,
-                              int touch_mv) {
+inline void AddPowerTelemetry(cJSON* root, int battery_mv, int stable_touch_code, int touch_mv) {
     if (!root)
         return;
     auto* battery = cJSON_GetObjectItemCaseSensitive(root, "battery");
@@ -25,10 +24,10 @@ inline void AddPowerTelemetry(cJSON* root, int battery_mv, bool touch_stable_val
     if (!touch)
         return;
     const int decoded = TouchInputFilter::DecodeMillivolts(touch_mv);
-    const bool valid = touch_stable_valid && decoded >= 0 && touch_code >= 0 && touch_code <= 15;
+    const bool valid = decoded >= 0 && stable_touch_code >= 0 && stable_touch_code <= 15;
     cJSON_AddBoolToObject(touch, "available", true);
     cJSON_AddBoolToObject(touch, "valid", valid);
-    cJSON_AddNumberToObject(touch, "code", valid ? touch_code : -1);
+    cJSON_AddNumberToObject(touch, "code", valid ? stable_touch_code : -1);
     cJSON_AddNumberToObject(touch, "raw_code", decoded);
     if (touch_mv >= 0)
         cJSON_AddNumberToObject(touch, "voltage_mv", touch_mv);

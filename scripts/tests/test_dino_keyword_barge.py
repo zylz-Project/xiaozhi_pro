@@ -1,4 +1,4 @@
-"""Exercise the dinosaur-only keyword confirmation and candidate lifetime."""
+"""Exercise keyword interruption for all three WZH products."""
 from pathlib import Path
 import sys
 import unittest
@@ -26,13 +26,13 @@ int main(){
  };
  for(int i=0;i<8;++i)assert(!frame(echo,true));
  assert(!frame(speech,true));assert(!frame(silence,false));
- assert(!frame(silence,false));assert(!frame(speech,true));
- assert(frame(speech,true));
+ assert(!frame(silence,false));assert(frame(speech,true));
+ assert(detector.required_speech_ms()==120);
  detector.Cancel();detector.Begin();
  for(int i=0;i<8;++i)assert(!frame(echo,true));
  assert(!frame(speech,true));
  for(int i=0;i<3;++i)assert(!frame(silence,false));
- assert(!frame(speech,true));assert(!frame(speech,true));assert(frame(speech,true));
+ assert(!frame(speech,true));assert(frame(speech,true));
  detector.Cancel();detector.Begin();
  for(int i=0;i<20;++i)assert(!frame(echo,true));
  assert(!detector.pending(detector.token(),now));
@@ -110,14 +110,16 @@ int main(){Application a;a.Install();a.callbacks.on_voice_interruption(42);
  a.audio_service_.pending=true;a.HandleWakeWordDetectedEvent();assert(a.aborts==1);
  a.audio_service_.word="local:stop";a.HandleWakeWordDetectedEvent();assert(a.aborts==2);
  a.audio_service_.word="local:chat_wake";a.HandleWakeWordDetectedEvent();assert(a.aborts==3);
- a.audio_service_.word="小龙小龙";a.HandleWakeWordDetectedEvent();assert(a.aborts==4);
- a.audio_service_.monitoring=false;a.HandleWakeWordDetectedEvent();assert(a.aborts==4);
+ for(const auto* formal:{"你好小安","你好星宝","小龙小龙"}){
+   a.audio_service_.word=formal;a.HandleWakeWordDetectedEvent();assert(a.aborts==3);
+ }
+ a.audio_service_.monitoring=false;a.audio_service_.word="local:chat_wake";
+ a.HandleWakeWordDetectedEvent();assert(a.aborts==3);
 }
 ''')
 
     def test_keyword_vocabulary_is_opt_in_for_all_three_products(self):
-        wanted = {'ting', 'ting yi xia', 'deng yi xia', 'bie shuo hua',
-                  'bie shuo le', 'xian bie shuo', 'ni hao', 'wo you wen ti', 'wo yao shuo hua'}
+        wanted = {'deng', 'shuo', 'wei', 'ni hao', 'deng yi xia', 'wo yao shuo hua'}
         def keywords(product, enabled):
             return {entry['command'] for entry in assets.wzh_offline_commands(product, enabled)
                     if entry['text'] == 'local:interrupt'}
@@ -126,13 +128,26 @@ int main(){Application a;a.Install();a.callbacks.on_voice_interruption(42);
             self.assertFalse(keywords(product, False))
 
     def test_each_product_has_its_own_offline_wake_phrase(self):
-        names = {'crawl': 'xiao hua xiao hua', 'tail': 'xiao wu xiao wu',
-                 'dinosaur': 'xiao wei xiao wei'}
+        names = {'crawl': 'xiao hua', 'tail': 'xiao wu', 'dinosaur': 'xiao wei'}
         for product, phrase in names.items():
             words = {entry['command']: entry['text']
                      for entry in assets.wzh_offline_commands(product, True)}
-            self.assertEqual(words[phrase], 'local:chat_wake')
-            self.assertTrue(all(other not in words for other in names.values() if other != phrase))
+            self.assertEqual(words['ting'], 'local:stop')
+            self.assertEqual(
+                [command for command, action in words.items() if action == 'local:chat_wake'],
+                [phrase],
+            )
+
+    def test_all_products_offer_natural_offline_interaction(self):
+        for product in ('crawl', 'tail', 'dinosaur'):
+            words = {entry['command']: entry['text']
+                     for entry in assets.wzh_offline_commands(product, True)}
+            self.assertEqual(words['pei wo wan'], 'local:happy')
+            self.assertEqual(words['bao bao wo'], 'local:affection')
+            self.assertEqual(words['chi fan la'], 'local:eat')
+            self.assertEqual(words['kan kan wo'], 'local:head_center')
+            self.assertNotIn('kai xin', words)
+            self.assertNotIn('sa jiao', words)
 
     def test_interruption_vocabulary_uses_tone_free_pinyin(self):
         for product in ('dinosaur', 'crawl', 'tail'):

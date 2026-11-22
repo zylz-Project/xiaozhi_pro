@@ -39,6 +39,9 @@ public:
         std::string ap_prefix;
         // Board-specific status fields (conversation, servo power, ...).
         std::function<void(cJSON*)> status_extra;
+        std::function<bool(bool)> set_touch_sw4_isolated;
+        // The erase guard uses the latest live ADC reading before the UI filter.
+        std::function<bool(int&)> live_battery_level;
         std::function<void(bool)> maintenance;
         std::function<bool()> center;
         // Optional board-specific credential storage; never include the key in status.
@@ -53,7 +56,7 @@ public:
         std::function<bool()> preview_ali_voice;
         std::function<bool()> cancel_voice;
         std::function<const char*()> voice_preview_status;
-        std::function<bool(const std::string&, const std::string&, const std::string&)>
+        std::function<uint32_t(const std::string&, const std::string&, const std::string&)>
             voice_command;
         std::function<bool(uint8_t*, size_t)> voice_upload;
         std::function<bool(const std::string&)> voice_device_record;
@@ -103,9 +106,11 @@ private:
     static esp_err_t HandleDeveloperLogout(httpd_req_t* req);
     static esp_err_t HandleDeveloperStatus(httpd_req_t* req);
     static esp_err_t HandleDeveloperVolume(httpd_req_t* req);
+    static esp_err_t HandleDeveloperTouchSw4(httpd_req_t* req);
     static esp_err_t HandleDeveloperOta(httpd_req_t* req);
     static esp_err_t HandleDeveloperFactoryReset(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceConfig(httpd_req_t* req);
+    static esp_err_t HandleDeveloperVoicePreviewStatus(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceManage(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceUpload(httpd_req_t* req);
     static esp_err_t HandleDeveloperCenter(httpd_req_t* req);

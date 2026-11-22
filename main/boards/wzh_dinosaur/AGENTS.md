@@ -12,8 +12,9 @@ always release immediately. Keep this work in the motion task. See
 Assistant text only supplies a bounded style hint; actual speaker PCM owns voice
 energy, stresses, pauses and tail completion. Never execute controls from quoted
 assistant text. Keep original XiaoZhi cloud transport and the double-click toggle.
-The developer page uses the user-requested password 1 and server-checked expiring
-tokens. External-audio Flash erase requires ERASE, exclusive maintenance and a
+Developer access uses the shared WZH firmware password and server-checked
+expiring tokens. Keep the password out of the web assets and documentation.
+External-audio Flash erase requires ERASE, exclusive maintenance and a
 quiescent reader; never erase internal firmware/provisioning through this action.
 
 
@@ -74,7 +75,7 @@ Read `README.md`, `CURRENT_STATUS.md`, `config.h`, `wzh_dinosaur.cc`, and the re
 - Default pose is `70/90/90/90/90`.
 - The user confirmed all five physical axis directions on 2026-09-13. Do not reinterpret IO17 as a lateral axis. IO17=0 is skyward roaring; IO17=180 is ground-level feeding. IO8's theoretical 0 is down but is prohibited by the 55-degree minimum.
 - Logical motion coordinates: neck tilt `0=highest`, `70=default`, `180=lowest`. Neck lean and head turn use `0=right`, `90=center`, `180=left`. Tail-LR uses `0=left`, `90=center`, `180=right`. Tail-UD uses `55=lowest`, `90=default`, `180=highest`.
-- The four 270° neck and tail servos use 135° ± 110° around the existing 1500 µs center. Tail-UD has logical `55..180` limits. The head-turn servo uses the original 180° calibration. Measure physical clearances on hardware.
+- The four 270° neck and tail servos use 135° ± 100° around the existing 1500 µs center. Tail-UD has logical `55..180` limits. The head-turn servo uses the original 180° calibration. Measure physical clearances on hardware.
 - Power latch is GPIO7; analog power key is GPIO6/ADC1 channel 5; battery divider is GPIO3/ADC1 channel 2.
 - External audio Flash uses SPI2 on CS10/CLK9/MOSI47/MISO21. The shared layer owns JEDEC NOR/NAND detection, PNDA legacy compatibility, bad-block handling, and writes.
 
@@ -91,10 +92,10 @@ The intended product character is expressive, elegant, and animal-like—not fas
 - Every moving keyframe must pass through the common duration limiter: at least 420 ms and no more than about 80 degrees/second average travel on the fastest-moving axis.
 - Preserve the AudioService output-level callback into `FeedOutputAudioLevel()`. Real speaker PCM from online TTS, local Flash audio, and system prompts must all drive the same smooth multi-axis voice-motion layer.
 - Offline autonomous performance is Flash-first: select the actual `animal` sound, classify it by filename/duration, wait briefly for that exact file to enter playback, then start its matched motion. Preserve the three short-Flash clips per enum category, per-family no-repeat selection, and stretch long-audio choreography only toward slower timing.
-- The library currently contains 24 full clips, 24 general short-Flash clips, and seven dedicated sky-roar variants. Add spatially distinct stories instead of near-duplicate angle lists; never modify an old clip merely to increase the count.
+- Add spatially distinct full, short-Flash, and roar stories. Keep the existing authored clips and the recorded pair catalog.
 - All axes that change within one keyframe share one interpolation progress and must start and arrive together. Do not add artificial head/neck/tail start delays.
 - Preserve smooth action starts, direction changes, deliberate holds, and final stops. Consecutive same-direction `kSmooth` frames use clamped monotone Hermite tangents so motion flows through intermediate poses without stopping or overshooting; historical `kFastOut` frames may use only a mild early-arrival blend and remain subject to the same duration limiter.
-- Every sound whose name contains `叫声音效合集`, plus sounds named `怒吼`, `长啸`, `咆哮`, or `roar`, uses the seven-clip sky-roar library regardless of number. Every variant must visibly raise neck tilt to `0..4` degrees before lateral detail; duration selects front, quick-answer, side-rise, high-sweep, or echo candidates. Disable random mirroring and lateral audio/living offsets, but retain each clip's limited, balanced authored lateral movement so roars remain varied rather than identical.
+- Every sound whose name contains `叫声音效合集`, plus sounds named `怒吼`, `长啸`, `咆哮`, or `roar`, uses the duration-filtered roar library. Keep distinct centered, lateral and low opening poses. Use coordinated neck tilt, neck lean and head turn for longer arcs and measure clearances on hardware. Do not randomly mirror these clips or add lateral living offsets.
 - Idle life pulses include glance, tail, perk, sniff, curious, greeting, double-take, and stretch. Keep them synchronized, slow, self-contained, returning toward center, and avoid selecting the same pulse twice in succession.
 - The action queue intentionally keeps only the latest pending intent, and repeated actions are coalesced to prevent back-to-back performances.
 - Keep 50 Hz servo PWM. Motion-target refresh rate and PWM carrier rate are different concepts; do not lower PWM frequency to make motion slower.
@@ -103,7 +104,7 @@ Additional invariants:
 
 - `stories-v4` adds `affection-check-in`, `listen-confirm`, `roar-soft-answer`, and `roar-crown-arc`. Clamp resolved keyframe targets before interpolation as well as at final output. The living-offset envelope has zero endpoint slopes and duration-based attenuation below 900 ms; avoid reintroducing quick per-frame wiggles. Preserve short/long roar candidate separation and no-repeat selection.
 - New full stories include `discover-canopy`, `happy-invite`, and `eat-graze`. Keep their physical-pose compile-time checks. Explicit 0/180 keyframes retain endpoints under amplitude variation; speaker-driven neck lift fades smoothly across tilt 150..180 to preserve ground feeding. Combination clearance still requires hardware validation.
-- Roar revision `roar-onset-v3`: every roar's first frame is neck tilt 0 with all lateral axes at 90, about 900 ms from default under the shared speed limiter. Only subsequent content is stretched for long audio; onset and final centering are not stretched. Preserve the compile-time roar-pose checks and final-output `Roar pose` diagnostics.
+- Keep the centered lift of the original roar clips. The spatial clips reach their own first pose promptly, fit the remaining beats to the recording and settle independently. On paired sounds, compose the spatial clip with the recorded trajectory. Preserve compile-time pose checks and the `Roar pose` diagnostics.
 - `self.dinosaur.test_servo(gpio)` is an explicit, queued assembly diagnostic for GPIO 17/16/15/8/18. Disable audio/living overlays while testing, use modest travel, and return to default. Never run it automatically. Reference GPIO definitions alone do not prove the direction of the current physical assembly.
 
 - `kKeep` means an axis inherits the previous keyframe. It must not create artificial axis lag inside a keyframe; every changing axis in that frame shares one interpolation progress.

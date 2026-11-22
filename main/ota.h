@@ -9,6 +9,8 @@
 #include <esp_err.h>
 #include "board.h"
 
+struct cJSON;
+
 class Ota {
 public:
     Ota();
@@ -57,7 +59,7 @@ private:
     std::string GetActivationPayload();
     std::unique_ptr<Http> SetupHttp();
     esp_err_t FetchVersionResponse(const std::string& url, const std::string& payload,
-                                   std::string& response);
+                                   cJSON*& response);
 };
 
 #endif  // _OTA_H

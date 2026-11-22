@@ -118,14 +118,16 @@ int main(){
 #include <cstdint>
 struct AudioStreamPacket{};
 struct AudioService{
+ enum class PlaybackSource { kRegular,kShutdown };
  std::mutex audio_queue_mutex_;std::condition_variable audio_queue_cv_;
  std::deque<std::unique_ptr<AudioStreamPacket>>audio_decode_queue_;
  std::atomic<bool>service_stopped_{false};
- bool playback_drained_notified_=true;
+ bool playback_drained_notified_=true,shutdown_playback_=false;
  uint32_t playback_generation_=7,decode_queue_full_count_=0;
  size_t max_decode_packets_=40;
  bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket>,bool,
-                              std::optional<uint32_t> expected_generation=std::nullopt);
+                              std::optional<uint32_t> expected_generation=std::nullopt,
+                              PlaybackSource source=PlaybackSource::kRegular);
 };
 '''+method+r'''
 int main(){

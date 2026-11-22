@@ -61,11 +61,18 @@ public:
     void OnDisconnected(std::function<void()> callback);
 
     virtual bool Start() = 0;
+    // Protocols with a persistent control connection can lose it after Start().
+    virtual bool IsReady() const { return true; }
+    virtual void OnNetworkLost() {}
+    virtual void OnNetworkReady() {}
+    // Called on the application task. Returns true when the continuation was queued.
+    virtual bool DeferUntilReconnectFinishes(std::function<void()>) { return false; }
     virtual bool OpenAudioChannel() = 0;
     virtual void CloseAudioChannel(bool send_goodbye = true) = 0;
     virtual bool IsAudioChannelOpened() const = 0;
     virtual bool SendAudio(std::unique_ptr<AudioStreamPacket> packet) = 0;
     virtual void SendWakeWordDetected(const std::string& wake_word);
+    bool SendListenText(const std::string& text);
     virtual void SendStartListening(ListeningMode mode);
     virtual void SendStopListening();
     virtual void SendAbortSpeaking(AbortReason reason);

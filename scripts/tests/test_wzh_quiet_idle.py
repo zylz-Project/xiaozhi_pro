@@ -194,31 +194,52 @@ template<class... T>void log_stub(const T&...){}
 #define ESP_LOGW(...) log_stub(__VA_ARGS__)
 #define ESP_LOGD(...) log_stub(__VA_ARGS__)
 constexpr int ESP_OK=0,TOUCH_ADC_CHANNEL=4;
+constexpr uint8_t kSw4Mask=0x08;
 const char* TAG="test";
-int voltage=410;bool failed=false;
+int voltage=410;bool failed=false;uint32_t now=0;
 int adc_oneshot_read(int,int,int* sample){*sample=voltage;return failed?-1:ESP_OK;}
 int AdcToMv(int,int raw){return raw;}
-namespace wzh { void NotifyIdleInteraction(){} }
+int idle_updates=0;
+namespace wzh { void NotifyIdleInteraction(){++idle_updates;} }
 struct Power{
     int adc_=0,touch_adc_cali_=0;
-    std::atomic<int>touch_voltage_mv_{0},touch_code_{0};
-    std::atomic<bool>touch_valid_{false},touch_hook_ready_{true};
+    std::atomic<int>touch_voltage_mv_{0},touch_code_{-1};
+    std::atomic<bool>touch_hook_ready_{true};
     wzh::TouchInputFilter touch_filter{5};
-    std::function<void(uint8_t,uint8_t,uint8_t)>touch_hook_;
+    bool isolate_sw4=false;
+    bool IsSw4Isolated()const{return isolate_sw4;}
+    std::function<void(uint8_t,bool)>touch_hook_;
     void Step(){__STEP__}
 };
 int main(){
-    Power power;wzh::PetBehavior pet;uint32_t now=0;int replies=0,cancels=0;
-    power.touch_hook_=[&](uint8_t code,uint8_t,uint8_t){pet.Touch(code,now);if(code==0xFF)++cancels;};
+    Power power;wzh::PetBehavior pet;int replies=0,cancels=0;
+    int starts=0;
+    power.touch_hook_=[&](uint8_t code,bool start){pet.Touch(code,now,start);starts+=start;if(code==0xFF)++cancels;};
     auto sample=[&](int mv,int count){voltage=mv;for(int i=0;i<count;++i){
         now+=20;power.Step();if(pet.PollTouch(now)!=wzh::TouchResponse::kNone)++replies;
     }};
-    sample(410,200);assert(replies==0); // Stuck high on boot is status, not a press.
-    sample(0,5);sample(410,5);assert(replies==1);
-    failed=true;sample(410,5);assert(cancels==1&&!power.touch_valid_.load());
-    failed=false;sample(410,200);assert(replies==1); // No phantom held/released event.
-    sample(0,5);sample(410,5);assert(replies==2);
-    sample(0,5);sample(410,2);sample(0,5);assert(replies==2); // Short glitch rejected.
+    assert(power.touch_code_.load()==-1);
+    sample(1629,200);assert(replies==0&&power.touch_code_.load()==8); // SW4 held at boot.
+    sample(0,19);sample(1632,5);assert(replies==0); // 360 ms does not re-arm.
+    sample(0,21);sample(1629,5);assert(replies==1);
+    for (const int dropout_samples : {5,10,15}) {
+        sample(0,dropout_samples);
+        sample(1632,50);
+        assert(power.touch_code_.load()==8&&replies==1);
+    }
+    sample(0,5);now+=200;sample(0,5);
+    sample(1632,5);assert(replies==1); // A gap in sampling cannot count as release time.
+    sample(1800,5);sample(1632,5);sample(1632,600);
+    assert(replies==1&&starts==1&&idle_updates==1); // Bit drift and long contact.
+    failed=true;sample(410,5);assert(cancels==1&&power.touch_code_.load()==-1);
+    failed=false;sample(410,4);assert(power.touch_code_.load()==-1);
+    sample(410,200);assert(replies==1); // No phantom held/released event.
+    sample(0,21);sample(410,5);assert(replies==2);
+    sample(0,21);sample(410,2);sample(0,21);assert(replies==2); // Short glitch rejected.
+    sample(950,4);assert(power.touch_code_.load()==0);
+    sample(950,1);assert(power.touch_code_.load()==5); // SW1 and SW3 published together.
+    assert(replies==3&&starts==3&&idle_updates==3);
+    __ISOLATION__
 }
 '''
         for board, stem in BOARDS:
@@ -226,7 +247,17 @@ int main(){
             start = source.index('        // IO5 上')
             end = source.index('        // UI uses rest voltage;', start)
             with self.subTest(board=board):
-                self.run_cpp(harness.replace('__STEP__', source[start:end]))
+                isolation = r'''
+    power.isolate_sw4=true;
+    for (int i=0;i<10;++i) {sample(0,21);sample(1634,50);}
+    assert(power.touch_code_.load()==0&&power.touch_voltage_mv_.load()==1634&&replies==3);
+    sample(1810,5);assert(power.touch_code_.load()==1&&replies==4); // SW1 plus the stuck SW4.
+    sample(210,16);assert(replies==4); // SW4 flicker while SW1 remains pressed.
+    sample(1634,16);power.isolate_sw4=false;
+    sample(1634,40);assert(replies==4); // Enabling under a held contact waits for release.
+    sample(0,21);sample(1634,5);assert(replies==5);
+''' if board == 'wzh_tailRedPanda' else ''
+                self.run_cpp(harness.replace('__STEP__', source[start:end]).replace('__ISOLATION__', isolation))
 
     def test_echo_guard_covers_pending_output_decoder_tail_and_recent_pcm(self):
         source = (COMMON/'wzh_audio_player.cc').read_text()

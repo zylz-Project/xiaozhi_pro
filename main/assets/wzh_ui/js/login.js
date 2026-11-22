@@ -18,8 +18,8 @@
         method: 'POST', credentials: 'same-origin', signal: controller.signal,
         headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password: input.value})
       });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || d.ok === false) throw new Error(d.error?.message || '登录失败，请重试');
+      const d = await r.json().catch(() => null);
+      if (!r.ok || d?.ok !== true) throw new Error(d?.error?.message || '登录结果未完整收到，请重试');
       input.value = '';
       const next = new URLSearchParams(location.search).get('next');
       location.replace(next === '/setup' || next === '/manual' ? next : '/');
@@ -32,6 +32,10 @@
       button.disabled = false;
     }
   });
-  $('loginPeek').onclick = () => { const input = $('loginPw'); input.type = input.type === 'password' ? 'text' : 'password'; };
+  $('loginPeek').onclick = () => {
+    const input = $('loginPw');
+    input.type = input.type === 'password' ? 'text' : 'password';
+    $('loginPeek').setAttribute('aria-label', input.type === 'password' ? '显示密码' : '隐藏密码');
+  };
   if (window.PandaGuide) PandaGuide.auto('login', {manualOnly: true});
 })();

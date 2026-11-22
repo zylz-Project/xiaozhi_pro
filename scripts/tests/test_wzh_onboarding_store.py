@@ -60,6 +60,15 @@ int main(){
  for(int i=6;i<13;++i)reboot.Finish(true);
  assert(SaveOnboardingProgress(reboot));assert(store[key(2,"setup_guide")][0]==1);
  OnboardingProgress again;assert(LoadOnboardingProgress(again)&&again.Done()&&again.step==13);
+ // A v2 completed record may have skipped the entire online introduction.
+ store[key(1,"progress")][0]=2;
+ OnboardingProgress upgraded;assert(PeekOnboardingProgress(upgraded)&&upgraded.step==8&&!upgraded.Done());
+ assert(store[key(1,"progress")][0]==2);
+ assert(LoadOnboardingProgress(upgraded)&&upgraded.step==8&&upgraded.completed==255);
+ assert(store[key(1,"progress")][0]==3);
+ for(int i=8;i<13;++i)upgraded.Finish(true);
+ assert(SaveOnboardingProgress(upgraded));
+ assert(LoadOnboardingProgress(upgraded)&&upgraded.Done());
  store.clear();store[key(2,"setup_guide")]={1};OnboardingProgress legacy;
  assert(LoadOnboardingProgress(legacy)&&legacy.Done());
  // A v1 record (no skipped mask) still loads; a skip survives a round trip.

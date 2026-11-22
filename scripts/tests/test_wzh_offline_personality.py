@@ -57,12 +57,13 @@ int main(){
         source = (base/'panda_controller.cc').read_text()
         program = output.WzhMotionOutputTest().panda_program('wzh_crawlPanda')
         program = program[:program.index('int main(){')]
-        program = '#include "wzh_sound_score.h"\n'+program
+        program = '#include "wzh_sound_choreography.h"\n'+program
         program = program.replace('int irnd(int){return 0;}',
                                   'int irnd(int n){static unsigned i=0;return i++%n;}')
         program = program.replace('void StartClip(int,uint32_t);',r'''
     Behaviour ClassifySound(int)const{return Behaviour::kCurious;}
     int ChooseClip(Behaviour){return C_CURIOUS_PEEK;}
+    wzh::SoundChoreography sound_motion_;
     int ChooseOfflineSoundClip(int,wzh::SoundKind,uint32_t);
     void StartClip(int,uint32_t);
 ''')
@@ -81,6 +82,26 @@ int main(){
     }
     assert(alternate&&together);
     assert(c.ChooseOfflineSoundClip(0,wzh::SoundKind::kSleep,20000)==C_CURIOUS_PEEK);
+    // Compact paw cues each get their own pass through the shuffle for a
+    // recording. A long clip nearing its end also takes the compact path.
+    int previous=-1;
+    for(unsigned round=0;round<2;++round){
+        unsigned used=0;
+        for(unsigned draw=0;draw<3;++draw){
+            const int id=c.ChooseOfflineSoundClip(4,wzh::SoundKind::kSearch,1700);
+            auto pick=std::find(std::begin(kShortSoundFamily[1]),std::end(kShortSoundFamily[1]),id);
+            assert(pick!=std::end(kShortSoundFamily[1])&&id!=previous);
+            const unsigned bit=1U<<(pick-std::begin(kShortSoundFamily[1]));
+            assert(!(used&bit));used|=bit;previous=id;
+            c.ChooseOfflineSoundClip(5,wzh::SoundKind::kSteps,1400);
+            clock_ms=10000;c.StartClip(id,clock_ms);assert(!IsCrawlClip(*c.clip_));
+            unsigned elapsed=0;
+            do{
+                c.UpdatePlayer(clock_ms);c.OutputPose(c.pose_);clock_ms+=20;elapsed+=20;
+                assert(elapsed<2400);
+            }while(c.clip_active_);
+        }
+    }
 }
 '''
         output.WzhMotionOutputTest().run_cpp(program)
@@ -131,8 +152,11 @@ int main(){
 int main(){
     const char* stories[]={"story_head_first_greeting","story_peek_then_flag",
         "story_tail_compass","story_ribbon_bow","story_curled_listening",
-        "story_left_right_invitation","story_food_peek","story_question_answer"};
-    for(const char* name:stories){
+        "story_left_right_invitation","story_food_peek","story_question_answer",
+        "story_track_and_listen","story_high_tail_acknowledgment",
+        "story_bamboo_double_check","story_invite_tail_curl"};
+    for(unsigned variant=0;variant<std::size(stories);++variant){
+        const auto* name=stories[variant];
         int id=-1;
         for(int i=0;i<C_COUNT;++i)if(std::strcmp(kClips[i].name,name)==0)id=i;
         assert(id>=0);bool reachable=false;
@@ -150,7 +174,10 @@ int main(){
             for(unsigned a=0;a<3;++a){low[a]=std::min(low[a],p[a]);high[a]=std::max(high[a],p[a]);}
             clock_ms+=20;elapsed+=20;assert(elapsed<10000);
         }while(c.clip_active_);
-        assert(high[1]-low[1]>110&&high[2]-low[2]>80);
+        if(variant<8)
+            assert(high[1]-low[1]>110&&high[2]-low[2]>80);
+        else
+            assert(high[0]-low[0]>30&&high[1]-low[1]>55&&high[2]-low[2]>60);
         assert(std::abs(c.last_output_pose_.tail_ud-150)<3);
     }
 }

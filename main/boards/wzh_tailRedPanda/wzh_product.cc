@@ -14,7 +14,7 @@ const ProductConfig& Product() {
         .flash_clk_pin = PANDA_FLASH_CLK_PIN,
         .flash_mosi_pin = PANDA_FLASH_MOSI_PIN,
         .flash_miso_pin = PANDA_FLASH_MISO_PIN,
-        .wake_phrase = "小武小武",
+        .wake_phrase = "小武",
     };
     return config;
 }

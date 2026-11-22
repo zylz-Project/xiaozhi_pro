@@ -76,12 +76,11 @@ std::unique_ptr<Http> Ota::SetupHttp() {
 }
 
 esp_err_t Ota::FetchVersionResponse(const std::string& url, const std::string& payload,
-                                    std::string& response) {
+                                    cJSON*& response) {
     auto& board = Board::GetInstance();
     // ML307 can report a ready PDP context before the first DNS request works.
     // Retry transport failures briefly on the activation worker, before the
-    // application's longer backoff and user-facing error. HTTP responses are
-    // definitive and are returned immediately.
+    // application's longer backoff. An HTTP error status is definitive.
     const int attempts = board.UsesCellularNetwork() ? 3 : 1;
     const std::string method = payload.empty() ? "GET" : "POST";
     for (int attempt = 0; attempt < attempts; ++attempt) {
@@ -90,6 +89,8 @@ esp_err_t Ota::FetchVersionResponse(const std::string& url, const std::string& p
         auto http = SetupHttp();
         if (!http)
             return ESP_FAIL;
+        if (board.UsesCellularNetwork())
+            http->SetHeader("Connection", "close");
         http->SetContent(std::string(payload));
         esp_err_t error = ESP_FAIL;
         if (auto opened = http->Open(method, url); !opened) {
@@ -101,9 +102,22 @@ esp_err_t Ota::FetchVersionResponse(const std::string& url, const std::string& p
                 ESP_LOGW(TAG, "Version check transport status failed: %s",
                          status.error().ToString().c_str());
             } else if (*status == 200) {
-                response = http->ReadAll();
+                const size_t expected = http->GetBodyLength();
+                const auto data = http->ReadAll();
                 http->Close();
-                return ESP_OK;
+                if (!data.empty() && (expected == 0 || data.size() == expected)) {
+                    const char* end = nullptr;
+                    auto* root = cJSON_ParseWithLengthOpts(data.c_str(), data.size() + 1, &end, 1);
+                    if (cJSON_IsObject(root) && end == data.c_str() + data.size()) {
+                        response = root;
+                        return ESP_OK;
+                    }
+                    cJSON_Delete(root);
+                }
+                // The response can include service credentials. Log lengths only.
+                ESP_LOGW(TAG, "Invalid service configuration response: received=%u expected=%u",
+                         static_cast<unsigned>(data.size()), static_cast<unsigned>(expected));
+                error = ESP_ERR_INVALID_RESPONSE;
             } else {
                 ESP_LOGE(TAG, "Failed to check version, status code: %d", *status);
                 return static_cast<esp_err_t>(*status);
@@ -114,8 +128,8 @@ esp_err_t Ota::FetchVersionResponse(const std::string& url, const std::string& p
         if (attempt + 1 == attempts)
             return error;
         const int delay_ms = (attempt + 1) * 1500;
-        ESP_LOGI(TAG, "Retrying cellular version check in %d ms (%d/%d)", delay_ms,
-                 attempt + 1, attempts - 1);
+        ESP_LOGI(TAG, "Retrying cellular version check in %d ms (%d/%d)", delay_ms, attempt + 1,
+                 attempts - 1);
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
     return ESP_FAIL;
@@ -138,20 +152,14 @@ esp_err_t Ota::CheckVersion() {
         return ESP_ERR_INVALID_ARG;
     }
 
-    std::string data;
-    const esp_err_t request_result = FetchVersionResponse(url, board.GetSystemInfoJson(), data);
+    cJSON* root = nullptr;
+    const esp_err_t request_result = FetchVersionResponse(url, board.GetSystemInfoJson(), root);
     if (request_result != ESP_OK)
         return request_result;
 
     // Response: { "firmware": { "version": "1.0.0", "url": "http://" } }
     // Parse the JSON response and check if the version is newer
     // If it is, set has_new_version_ to true and store the new version and URL
-
-    cJSON* root = cJSON_Parse(data.c_str());
-    if (root == NULL) {
-        ESP_LOGE(TAG, "Failed to parse JSON response");
-        return ESP_ERR_INVALID_RESPONSE;
-    }
 
     has_activation_code_ = false;
     has_activation_challenge_ = false;
@@ -244,6 +252,7 @@ esp_err_t Ota::CheckVersion() {
         ESP_LOGW(TAG, "No server_time section found!");
     }
 
+#if CONFIG_ENABLE_ONLINE_UPDATES
     has_new_version_ = false;
     cJSON* firmware = cJSON_GetObjectItem(root, "firmware");
     if (cJSON_IsObject(firmware)) {
@@ -273,6 +282,7 @@ esp_err_t Ota::CheckVersion() {
     } else {
         ESP_LOGW(TAG, "No firmware section found!");
     }
+#endif
 
     cJSON_Delete(root);
     return ESP_OK;
@@ -310,9 +320,6 @@ bool Ota::Upgrade(const std::string& firmware_url,
 
     ESP_LOGI(TAG, "Writing to partition %s at offset 0x%lx", update_partition->label,
              update_partition->address);
-    bool image_header_checked = false;
-    std::string image_header;
-
     auto network = Board::GetInstance().GetNetwork();
     auto http = network ? network->CreateHttp(0) : nullptr;
     if (!http) {
@@ -335,15 +342,19 @@ bool Ota::Upgrade(const std::string& firmware_url,
         return false;
     }
 
-    size_t content_length = http->GetBodyLength();
-    if (content_length == 0) {
-        ESP_LOGE(TAG, "Firmware response has no Content-Length (chunked OTA is not supported)");
+    const size_t content_length = http->GetBodyLength();
+    constexpr size_t kImagePrefixSize =
+        sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t);
+    if (content_length < kImagePrefixSize || content_length > update_partition->size) {
+        ESP_LOGE(TAG, "Invalid firmware Content-Length: %zu", content_length);
         return false;
     }
 
     constexpr size_t PAGE_SIZE = 4096;
-    char* buffer = (char*)heap_caps_malloc(PAGE_SIZE, MALLOC_CAP_INTERNAL);
-    if (buffer == nullptr) {
+    static_assert(kImagePrefixSize <= PAGE_SIZE);
+    std::unique_ptr<char, decltype(&heap_caps_free)> buffer(
+        static_cast<char*>(heap_caps_malloc(PAGE_SIZE, MALLOC_CAP_INTERNAL)), &heap_caps_free);
+    if (!buffer) {
         ESP_LOGE(TAG, "Failed to allocate buffer");
         return false;
     }
@@ -351,21 +362,25 @@ bool Ota::Upgrade(const std::string& firmware_url,
     size_t buffer_offset = 0;  // Current data size in buffer
     size_t total_read = 0, recent_read = 0;
     auto last_calc_time = esp_timer_get_time();
-    while (true) {
-        auto ret = http->Read(buffer + buffer_offset, PAGE_SIZE - buffer_offset);
-        if (!ret) {
-            ESP_LOGE(TAG, "Failed to read HTTP data: %s", ret.error().ToString().c_str());
-            heap_caps_free(buffer);
+    bool update_started = false;
+    while (total_read < content_length) {
+        const size_t requested = std::min(PAGE_SIZE - buffer_offset, content_length - total_read);
+        const auto ret = http->Read(buffer.get() + buffer_offset, requested);
+        if (!ret || *ret <= 0 || static_cast<size_t>(*ret) > requested) {
+            ESP_LOGE(TAG, "Firmware transfer ended early or failed at %zu/%zu bytes", total_read,
+                     content_length);
+            if (update_started)
+                esp_ota_abort(update_handle);
             return false;
         }
-        const int read_size = *ret;
+        const size_t read_size = *ret;
 
         // Calculate speed and progress every second
         recent_read += read_size;
         total_read += read_size;
         buffer_offset += read_size;
-        if (esp_timer_get_time() - last_calc_time >= 1000000 || read_size == 0) {
-            size_t progress = total_read * 100 / content_length;
+        if (esp_timer_get_time() - last_calc_time >= 1000000 || total_read == content_length) {
+            const size_t progress = static_cast<uint64_t>(total_read) * 100 / content_length;
             ESP_LOGI(TAG, "Progress: %u%% (%u/%u), Speed: %uB/s", progress, total_read,
                      content_length, recent_read);
             if (callback) {
@@ -375,49 +390,32 @@ bool Ota::Upgrade(const std::string& firmware_url,
             recent_read = 0;
         }
 
-        if (!image_header_checked) {
-            image_header.append(buffer, buffer_offset);
-            if (image_header.size() >= sizeof(esp_image_header_t) +
-                                           sizeof(esp_image_segment_header_t) +
-                                           sizeof(esp_app_desc_t)) {
-                esp_app_desc_t new_app_info;
-                memcpy(&new_app_info,
-                       image_header.data() + sizeof(esp_image_header_t) +
-                           sizeof(esp_image_segment_header_t),
-                       sizeof(esp_app_desc_t));
-
-                if (esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &update_handle)) {
-                    esp_ota_abort(update_handle);
-                    ESP_LOGE(TAG, "Failed to begin OTA");
-                    heap_caps_free(buffer);
-                    return false;
-                }
-
-                image_header_checked = true;
-                std::string().swap(image_header);
+        if (!update_started && buffer_offset >= kImagePrefixSize) {
+            if (static_cast<uint8_t>(buffer.get()[0]) != ESP_IMAGE_HEADER_MAGIC) {
+                ESP_LOGE(TAG, "Invalid firmware image header");
+                return false;
             }
+            const auto err =
+                esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &update_handle);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to begin OTA: %s", esp_err_to_name(err));
+                return false;
+            }
+            update_started = true;
         }
 
-        // Write to flash when buffer is full (4KB) or it's the last chunk
-        bool is_last_chunk = (ret == 0);
-        if (buffer_offset == PAGE_SIZE || (is_last_chunk && buffer_offset > 0)) {
-            auto err = esp_ota_write(update_handle, buffer, buffer_offset);
+        if (buffer_offset == PAGE_SIZE || total_read == content_length) {
+            const auto err = esp_ota_write(update_handle, buffer.get(), buffer_offset);
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to write OTA data: %s", esp_err_to_name(err));
                 esp_ota_abort(update_handle);
-                heap_caps_free(buffer);
                 return false;
             }
 
             buffer_offset = 0;
         }
-
-        if (is_last_chunk) {
-            break;
-        }
     }
     http->Close();
-    heap_caps_free(buffer);
 
     esp_err_t err = esp_ota_end(update_handle);
     if (err != ESP_OK) {

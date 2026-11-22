@@ -108,5 +108,26 @@ constexpr Keyframe kQuestionAnswer[] = {
     {650, 116, 24, 112}, {800, 102, 160, 18}, {800, 72, 22, 24},
     {800, 88, 162, 112}, {800, 108, 26, 18},  {1000, 90, 90, 150},
 };
+
+// The head finds a sound first. The raised tail follows after the listening hold.
+constexpr Keyframe kTrackAndListen[] = {
+    {560, 124, 88, 148}, {360, 124, 88, 148}, {760, 112, 121, 62},
+    {720, 57, 121, 62},  {820, 70, 65, 94},   {1000, 90, 90, 150},
+};
+// A raised tail presents one high arc, then folds while the head checks back.
+constexpr Keyframe kHighTailAcknowledgment[] = {
+    {660, 96, 64, 80},  {690, 107, 62, 24},   {350, 107, 62, 24},
+    {860, 64, 130, 42}, {700, 102, 118, 107}, {1000, 90, 90, 150},
+};
+// Small searching turns before lifting the tail and offering attention.
+constexpr Keyframe kBambooDoubleCheck[] = {
+    {560, 62, 104, 157}, {510, 80, 104, 159}, {590, 117, 84, 141},
+    {360, 117, 84, 141}, {780, 101, 56, 73},  {980, 90, 90, 150},
+};
+// The side curl opens as the head comes forward to greet.
+constexpr Keyframe kInviteTailCurl[] = {
+    {660, 109, 123, 113}, {440, 83, 123, 113}, {820, 112, 71, 58},
+    {350, 112, 71, 58},   {740, 83, 107, 112}, {980, 90, 90, 150},
+};
 }  // namespace story_motion
 #endif  // WZH_TAILREDPANDA_STORY_MOTION_H_

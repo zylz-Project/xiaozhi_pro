@@ -191,7 +191,7 @@ int main(){
             with self.assertRaises(ValueError):
                 assets.BUILD.read_local_command_config(config)
 
-    def test_panda_joint_poses_are_isolated_from_live_tts_and_return_centered(self):
+    def test_panda_joint_commands_hold_unselected_joints_during_live_tts(self):
         for _, board, mask, _ in PRODUCTS[:2]:
             with self.subTest(board=board):
                 case = output.WzhMotionOutputTest()
@@ -202,26 +202,25 @@ int main(){
         PandaController c;clock_ms=10000;
         // Warm the live speech motion before the explicit command interrupts it.
         for(unsigned t=0;t<5000;t+=20)c.ApplyAudioMotion(c.pose_,{true,.4f,.8f},10000+t);
-        clock_ms=15000;c.request_active_=true;c.running_priority_=wzh::PetPriority::kExplicit;
-        c.StartClip(C_COUNT+id,clock_ms);
         const auto rest=Values(c.last_output_pose_);
-        std::array<bool,3> changed{};
-        for(unsigned f=0;f<c.clip_->count;++f){
-            const auto target=Values(TargetPose(*c.clip_,f,false));
-            for(unsigned a=0;a<3;++a)changed[a]|=std::abs(target[a]-rest[a])>.01f;
-        }
+        for(;clock_ms<15000;clock_ms+=20)c.OutputPose(Pose{104,71,125});
+        const auto origin=Values(c.last_output_pose_);
+        c.request_active_=true;c.running_priority_=wzh::PetPriority::kExplicit;
+        c.StartClip(C_COUNT+id,clock_ms);
+        const auto axes=c.clip_->body_axes;assert(axes);
         unsigned ticks=0;
-        do{
+        while(c.clip_active_){
             c.UpdatePlayer(clock_ms);
-            const Pose pose=c.clip_active_?c.ApplyAudioMotion(c.pose_,{true,.6f,.9f},clock_ms):c.pose_;
+            if(!c.clip_active_)break;
+            const Pose pose=c.ApplyAudioMotion(c.pose_,{true,.6f,.9f},clock_ms);
             assert(Values(pose)==Values(c.pose_));
             c.OutputPose(pose);const auto actual=Values(c.last_output_pose_);
             assert(actual[0]>=30&&actual[0]<=150);
-            for(unsigned a=0;a<3;++a)if(!changed[a])assert(std::abs(actual[a]-rest[a])<.01f);
+            for(unsigned a=0;a<3;++a)if(!(axes&(1U<<a)))assert(actual[a]==origin[a]);
             clock_ms+=20;assert(++ticks<1500);
-        }while(c.clip_active_);
-        for(unsigned t=0;t<1000;t+=20,clock_ms+=20)c.OutputPose(c.pose_);
-        for(unsigned a=0;a<3;++a)assert(std::abs(Values(c.last_output_pose_)[a]-rest[a])<.01f);
+        }
+        for(unsigned a=0;a<3;++a)if(axes&(1U<<a))
+            assert(std::abs(Values(c.last_output_pose_)[a]-rest[a])<1);
     }
 }
 '''
@@ -235,16 +234,23 @@ int main(){
         program = captured[0]
         main = r'''
 int main(){
-    for(const auto& clip:kBodyClips){
+    for(unsigned i=0;i<std::size(kBodyClips);++i){
+        const auto& clip=kBodyClips[i];
         std::vector<std::array<float,5>> expected;
         for(bool talking:{false,true}){
             DinosaurController c;Audio audio;clock_ms=10000;
+            for(;clock_ms<11000;clock_ms+=20)c.SetPose({82,103,78,106,79});
+            const auto origin=Values(c.last_output_pose_);
+            c.servo_output_.samples.clear();
             c.audio_=&audio;c.speaking_=talking;
             c.request_active_=true;c.running_priority_=wzh::PetPriority::kExplicit;
             c.flash_performance_active_=true;
             c.output_audio_level_=.7f;c.output_audio_attack_=.9f;
-            c.PlayClip(clip,c.last_output_pose_,false,1.4f,1,0);
+            c.RunBodyAction(static_cast<DinoBodyAction>(i));
             assert(clock_ms-10000<30000);
+            for(const auto& sample:c.servo_output_.samples)
+                for(unsigned a=0;a<sample.size();++a)
+                    if(!(clip.body_axes&(1U<<a)))assert(std::abs(sample[a]-origin[a])<.001f);
             if(!talking)expected=c.servo_output_.samples;
             else assert(c.servo_output_.samples==expected);
         }

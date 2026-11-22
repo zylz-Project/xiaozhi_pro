@@ -141,9 +141,9 @@ struct Es8311AudioCodec:AudioCodec{
 
     def test_wzh_boards_use_their_protected_loudness_profiles(self):
         for board, makeup, microphone in (
-            ('wzh_crawlPanda', '21.0f', '18.0f'),
-            ('wzh_tailRedPanda', '21.0f', '18.0f'),
-            ('wzh_dinosaur', '24.0f', '12.0f'),
+            ('wzh_crawlPanda', '27.0f', '18.0f'),
+            ('wzh_tailRedPanda', '27.0f', '18.0f'),
+            ('wzh_dinosaur', '30.0f', '12.0f'),
         ):
             config = (ROOT / 'main/boards' / board / 'config.h').read_text()
             self.assertIn('#define AUDIO_CODEC_PA_GAIN_DB 20.0f', config)
@@ -158,8 +158,8 @@ struct Es8311AudioCodec:AudioCodec{
         self.run_cpp(self.program() + r'''
 int main(){
  struct Profile{bool reference;float mic_gain;float makeup;};
- for(const auto profile:{Profile{false,18.0f,21.0f},Profile{true,18.0f,21.0f},
-                         Profile{true,12.0f,24.0f}}){
+ for(const auto profile:{Profile{false,18.0f,27.0f},Profile{true,18.0f,27.0f},
+                         Profile{true,12.0f,30.0f}}){
   const float expected_input_gain=profile.reference?profile.mic_gain:36.0f;
   Es8311AudioCodec codec(nullptr,0,24000,24000,-1,48,13,46,14,-1,0x30,
                          false,false,3.3f,profile.reference,20.0f,-0.5f,profile.makeup,

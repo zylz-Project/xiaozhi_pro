@@ -30,7 +30,7 @@ public:
     }
     bool Initialize(AudioCodec* codec, srmodel_list_t* models_list, bool local_commands_only);
     void Feed(const std::vector<int16_t>& data);
-    void FeedMono(const int16_t* data, size_t samples);
+    void FeedMono(const int16_t* data, size_t samples, bool allow_interrupt = true);
     void OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback);
     void Start();
     void Stop();
@@ -74,7 +74,7 @@ private:
     std::mutex wake_word_mutex_;
     std::condition_variable wake_word_cv_;
 
-    void FeedSamples(const int16_t* data, size_t samples, bool mono);
+    void FeedSamples(const int16_t* data, size_t samples, bool mono, bool allow_interrupt);
     void ParseWakenetModelConfig();
 };
 

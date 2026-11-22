@@ -1,6 +1,8 @@
 #pragma once
 
+#include <array>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -14,7 +16,7 @@ namespace voice_tts {
 // One bounded worker; HTTP callbacks only receive and enqueue work.
 class VoiceWeb {
 public:
-    bool Command(const std::string& action, const std::string& id, const std::string& name);
+    uint32_t Command(const std::string& action, const std::string& id, const std::string& name);
     // On success takes ownership of the PSRAM buffer; on failure caller keeps it.
     bool Upload(uint8_t* data, size_t length);
     bool Cancel();
@@ -32,6 +34,13 @@ private:
     std::atomic<bool> busy_{false};
     std::atomic<bool> cancelled_{false};
     std::string action_, id_, name_, status_ = "idle";
+    struct Result {
+        uint32_t request = 0;
+        const char* status = "busy";
+    };
+    std::array<Result, 4> results_{};
+    uint32_t next_request_ = 0;
+    uint32_t active_request_ = 0;
     std::vector<ManagedVoice> voices_;
     bool have_list_ = false;
     uint8_t* data_ = nullptr;

@@ -8,6 +8,7 @@
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <nvs.h>
 
 #include "application.h"
 #include "assets/lang_config.h"
@@ -22,6 +23,10 @@
 #define TAG "PandaPower"
 
 namespace {
+constexpr char kTouchNamespace[] = "panda_touch";
+constexpr char kSw4IsolationKey[] = "isolate_sw4";
+constexpr uint8_t kSw4Mask = 0x08;
+
 int AdcToMv(adc_cali_handle_t cali, int raw) {
     if (cali != nullptr) {
         int mv = 0;
@@ -133,7 +138,29 @@ bool PandaPower::Initialize() {
             temperature_ = nullptr;
         }
     }
+    nvs_handle_t touch_settings = 0;
+    if (nvs_open(kTouchNamespace, NVS_READONLY, &touch_settings) == ESP_OK) {
+        uint8_t isolated = 1;
+        if (nvs_get_u8(touch_settings, kSw4IsolationKey, &isolated) == ESP_OK)
+            sw4_isolated_.store(isolated != 0);
+        nvs_close(touch_settings);
+    }
     return xTaskCreate(TaskEntry, "panda_power", 3072, this, 1, nullptr) == pdPASS;
+}
+
+bool PandaPower::SetSw4Isolated(bool isolated) {
+    if (IsSw4Isolated() == isolated)
+        return true;
+    nvs_handle_t settings = 0;
+    if (nvs_open(kTouchNamespace, NVS_READWRITE, &settings) != ESP_OK)
+        return false;
+    auto result = nvs_set_u8(settings, kSw4IsolationKey, isolated);
+    if (result == ESP_OK)
+        result = nvs_commit(settings);
+    nvs_close(settings);
+    if (result == ESP_OK)
+        sw4_isolated_.store(isolated);
+    return result == ESP_OK;
 }
 
 void PandaPower::RegisterShutdownHook(ShutdownHook hook) {
@@ -227,6 +254,7 @@ void PandaPower::ReadBattery(uint32_t now) {
     if (!valid || battery_mv <= 0 || battery_mv > 4600) {
         battery_protection_.Invalidate();
         battery_rest_voltage_.Invalidate();
+        battery_level_.store(battery_display_level_.OnMissingSample(now));
         battery_sample_valid_.store(false);
         battery_live_mv_.store(0);
         battery_protection_mv_.store(0);
@@ -236,10 +264,6 @@ void PandaPower::ReadBattery(uint32_t now) {
         return;
     }
     battery_live_mv_.store(battery_mv);
-    battery_level_.store(std::clamp((battery_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
-                                        (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
-                                    0, 100));
-    battery_sample_valid_.store(true);
     // Normal protection uses the temporal median plus three confirmations;
     // recovery requires rest. Critical undervoltage has its own live path.
     const bool previous_low = battery_protection_.low();
@@ -260,15 +284,13 @@ void PandaPower::ReadBattery(uint32_t now) {
         const int rest_mv = battery_rest_voltage_.millivolts();
         battery_voltage_mv_.store(rest_mv);
         battery_rest_updated_ms_.store(battery_rest_voltage_.updated_ms());
-        const int rested_level = std::clamp((rest_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
-                                                (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
-                                            0, 100);
+        const int rested_level = wzh::BatteryLevelFromVoltage(rest_mv, BATTERY_EMPTY_VOLTAGE_MV,
+                                                              BATTERY_FULL_VOLTAGE_MV);
         // The divider's large capacitor can still be settling after a cold
         // power-up. Do not latch an early underestimated percentage warning.
         if (now >= 15000) {
-            const int current_level = std::clamp((battery_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
-                                                     (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
-                                                 0, 100);
+            const int current_level = wzh::BatteryLevelFromVoltage(
+                battery_mv, BATTERY_EMPTY_VOLTAGE_MV, BATTERY_FULL_VOLTAGE_MV);
             // A filtered value can retain an early, low startup sample. Only
             // warn when both the filter and current rested sample are low.
             const bool previous_warning = battery_warning_.low();
@@ -279,6 +301,17 @@ void PandaPower::ReadBattery(uint32_t now) {
                          std::max(rested_level, current_level));
         }
     }
+    int display_mv =
+        battery_rest_voltage_.DisplayMillivolts(now, battery_mv, battery_protection_.millivolts());
+    // A latched low battery must not continue to show a healthy cached level.
+    const bool protection_low = battery_protection_.low();
+    if (protection_low)
+        display_mv = std::min(display_mv, BATTERY_LOW_MV);
+    const int target =
+        wzh::BatteryLevelFromVoltage(display_mv, BATTERY_EMPTY_VOLTAGE_MV, BATTERY_FULL_VOLTAGE_MV);
+    battery_level_.store(battery_display_level_.Update(
+        target, now, battery_rest_voltage_.HasRecentSample(now), protection_low));
+    battery_sample_valid_.store(true);
 }
 
 void PandaPower::Task() {
@@ -294,6 +327,7 @@ void PandaPower::Task() {
     bool boot_hold_logged = false;
     uint32_t last_sample_ms = 0;
     bool power_adc_fault = false;
+    bool previous_gray_sample = false;
     // 双击检测。
     TickType_t last_click_tick = 0;
     int click_count = 0;
@@ -304,6 +338,8 @@ void PandaPower::Task() {
     uint32_t last_fast_battery_log_ms = 0;
     wzh::FastBatteryStart fast_battery;
     wzh::TouchInputFilter touch_filter(TOUCH_STABLE_SAMPLES);
+    touch_filter.SetIgnoredMask(IsSw4Isolated() ? kSw4Mask : 0);
+    ESP_LOGI(TAG, "Touch guard: release=400ms SW4=%s", IsSw4Isolated() ? "isolated" : "enabled");
 
     // Battery and key monitoring run independently of audio initialization.
     ESP_LOGI(TAG, "Power task ready; monitoring battery and power key");
@@ -332,9 +368,14 @@ void PandaPower::Task() {
         const bool sample_gap =
             last_sample_ms != 0 && now - last_sample_ms > POWER_MAX_SAMPLE_GAP_MS;
         last_sample_ms = now;
+        // The analog key crosses the gray band between pressed and released.
+        // A lone transition sample neither advances the key nor cancels a tap.
+        const bool gray_sample = !power_sample_valid && power_err == ESP_OK && !sample_gap;
+        const bool skip_gray_sample = gray_sample && !previous_gray_sample;
+        previous_gray_sample = gray_sample;
         int hold_ms = 0;
 
-        if (!power_sample_valid || sample_gap) {
+        if ((!power_sample_valid && !skip_gray_sample) || sample_gap) {
             if (!power_adc_fault)
                 ESP_LOGW(TAG, "Power key sample invalid: %s raw=%d value=%dmV",
                          esp_err_to_name(power_err), raw, power_mv);
@@ -343,7 +384,7 @@ void PandaPower::Task() {
             armed = false;
             press_start_ms = 0;
             click_count = 0;
-        } else {
+        } else if (power_sample_valid) {
             if (power_adc_fault)
                 ESP_LOGI(TAG, "Power key sample valid again; wait for a stable release");
             power_adc_fault = false;
@@ -419,7 +460,7 @@ void PandaPower::Task() {
                         } else if (dur < POWER_LONG_PRESS_MS) {
                             // 短按只统计双击；对话切换及提示音由主任务串行处理。
                             const TickType_t tick_now = xTaskGetTickCount();
-                            if (tick_now - last_click_tick <= pdMS_TO_TICKS(400)) {
+                            if (tick_now - last_click_tick <= pdMS_TO_TICKS(WZH_DOUBLE_CLICK_MS)) {
                                 ++click_count;
                             } else {
                                 click_count = 1;
@@ -429,7 +470,6 @@ void PandaPower::Task() {
                                 click_count = 0;
                                 ESP_LOGI(TAG, "Power key double click: toggle chat");
                                 if (!wzh::OnboardingBlocksConversation()) {
-                                    wzh::PrepareOnboardingDoubleClick();
                                     Application::GetInstance().ToggleConversation();
                                 }
                             }
@@ -442,7 +482,7 @@ void PandaPower::Task() {
         }
 
         // IO5 上的 4-bit R-2R 触摸网络：每轮取 3 次 ADC 中值，再进行
-        // 5 样本（100ms）稳定判定，避免手指接触边缘时反复跳码。
+        // 5 样本稳定判定。连续零码满 400ms 才确认松手，防止瞬间掉电平反复触发。
         int touch_raw[3] = {};
         bool touch_read_valid = true;
         for (int& sample : touch_raw) {
@@ -455,18 +495,21 @@ void PandaPower::Task() {
                           wzh::TouchInputFilter::Median3(touch_raw[0], touch_raw[1], touch_raw[2]))
                 : -1;
         touch_voltage_mv_.store(touch_mv);
+        if (touch_filter.SetIgnoredMask(IsSw4Isolated() ? kSw4Mask : 0)) {
+            touch_code_.store(-1);
+            if (touch_hook_ready_.load(std::memory_order_acquire) && touch_hook_)
+                touch_hook_(0xFF, false);
+        }
         wzh::TouchInputFilter::Event touch_event = {};
-        if (touch_filter.Update(touch_mv, touch_event)) {
+        if (touch_filter.Update(touch_mv, now, touch_event)) {
+            touch_code_.store(touch_event.code);
             const bool accept_interaction = touch_filter.AcceptInteraction(touch_event);
             if (touch_event.code < 0) {
-                touch_valid_.store(false);
                 ESP_LOGW(TAG, "[TOUCH] invalid voltage=%dmV; cancel contact until released",
                          touch_event.voltage_mv);
                 if (touch_hook_ready_.load(std::memory_order_acquire) && touch_hook_)
-                    touch_hook_(0xFF, 0, 0);
+                    touch_hook_(0xFF, false);
             } else {
-                touch_valid_.store(true);
-                touch_code_.store(touch_event.code);
                 const uint8_t previous =
                     touch_event.previous_code >= 0 ? touch_event.previous_code : 0;
                 const uint8_t code = static_cast<uint8_t>(touch_event.code);
@@ -474,14 +517,20 @@ void PandaPower::Task() {
                 const uint8_t released_mask = previous & static_cast<uint8_t>(~code);
                 ESP_LOGD(TAG, "[TOUCH] code=0x%02X voltage=%dmV pressed=0x%02X released=0x%02X",
                          code, touch_event.voltage_mv, pressed_mask, released_mask);
+                if (code == 0 && previous != 0) {
+                    ESP_LOGI(TAG, "Touch released previous=0x%02X voltage=%dmV stable_ms=%lu",
+                             previous, touch_event.voltage_mv,
+                             static_cast<unsigned long>(touch_event.stable_ms));
+                }
                 if (accept_interaction && touch_hook_ready_.load(std::memory_order_acquire) &&
                     touch_hook_) {
-                    if (pressed_mask) {
+                    const bool starts_contact = touch_event.StartsContact();
+                    if (starts_contact) {
                         ESP_LOGI(TAG, "Input=touch code=0x%02X voltage=%dmV", code,
                                  touch_event.voltage_mv);
                         wzh::NotifyIdleInteraction();
                     }
-                    touch_hook_(code, pressed_mask, released_mask);
+                    touch_hook_(code, starts_contact);
                 }
             }
         }
@@ -512,11 +561,16 @@ void PandaPower::Task() {
                     measured_mv);
             if (valid && measured_mv > 0 && measured_mv <= 4600) {
                 battery_live_mv_.store(measured_mv);
-                battery_level_.store(std::clamp((measured_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
-                                                    (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
-                                                0, 100));
+                // Early readings below the motion threshold can still be biased
+                // by the divider settling. Publish the first percentage once qualified.
+                if (measured_mv > BATTERY_LOW_MV) {
+                    const int target = wzh::BatteryLevelFromVoltage(
+                        measured_mv, BATTERY_EMPTY_VOLTAGE_MV, BATTERY_FULL_VOLTAGE_MV);
+                    battery_level_.store(battery_display_level_.Update(target, now, false, false));
+                }
                 battery_sample_valid_.store(true);
             } else {
+                battery_level_.store(battery_display_level_.OnMissingSample(now));
                 battery_sample_valid_.store(false);
             }
             if (valid && measured_mv > BATTERY_LOW_MV && measured_mv <= 4600) {
@@ -539,7 +593,8 @@ void PandaPower::Task() {
                          static_cast<unsigned long>(now), battery_adc_cali_ ? "yes" : "no",
                          valid ? "yes" : "no", measured_mv, BATTERY_LOW_MV);
             }
-            if (!battery_settled && fast_battery.Observe(now, valid, measured_mv, BATTERY_RECOVER_MV)) {
+            if (!battery_settled &&
+                fast_battery.Observe(now, valid, measured_mv, BATTERY_RECOVER_MV)) {
                 if (auto* output = servo_output_.load()) {
                     if (wzh::CommitFastBatteryStart(
                             fast_battery, battery_protection_, battery_rest_voltage_.RestReady(now),
@@ -570,17 +625,25 @@ void PandaPower::Task() {
                                             battery_protection_.low() || battery_warning_.low());
 #endif
             if (last_battery_log_ms == 0 || now - last_battery_log_ms >= 30000) {
-                const long rest_age_ms = battery_voltage_mv_.load() > 0
-                                             ? static_cast<long>(now - battery_rest_updated_ms_.load())
-                                             : -1;
+                const long rest_age_ms =
+                    battery_voltage_mv_.load() > 0
+                        ? static_cast<long>(now - battery_rest_updated_ms_.load())
+                        : -1;
+                const char* source =
+                    battery_protection_.millivolts() > 0 ? "live_median" : "live_estimate";
+                if (!battery_sample_valid_.load())
+                    source = "pending";
+                else if (battery_protection_.low())
+                    source = "protection_low";
+                else if (battery_rest_voltage_.HasRecentSample(now))
+                    source = "rest_estimate";
                 ESP_LOGI(TAG,
                          "Battery live=%dmV rest=%dmV rest_age=%ldms level=%d%% source=%s "
                          "valid=%d load=%d protection=%dmV ready=%d low=%d",
                          battery_live_mv_.load(), battery_voltage_mv_.load(), rest_age_ms,
-                         battery_level_.load(),
-                         battery_sample_valid_.load() ? "live_estimate" : "pending",
-                         battery_sample_valid_.load(), battery_loaded, battery_protection_mv_.load(),
-                         battery_protection_.ready(), battery_protection_.low());
+                         battery_level_.load(), source, battery_sample_valid_.load(),
+                         battery_loaded, battery_protection_mv_.load(), battery_protection_.ready(),
+                         battery_protection_.low());
                 last_battery_log_ms = now;
             }
         }
@@ -613,12 +676,12 @@ void PandaPower::Task() {
                        (faults & (wzh::kFalling | wzh::kMotionTimeout | 16U))) {
                 notice = wzh::StartupProtectionNotice::kMotionBlocked;
             } else if ((faults & (wzh::kBatteryPending | wzh::kLowBattery)) ||
-                       (battery_sample_valid_.load() && battery_live_mv_.load() <= BATTERY_LOW_MV)) {
+                       (battery_sample_valid_.load() &&
+                        battery_live_mv_.load() <= BATTERY_LOW_MV)) {
                 notice = wzh::StartupProtectionNotice::kCheckingBattery;
             }
             wzh::ObserveStartupProtection(notice);
-            if (notice == wzh::StartupProtectionNotice::kNone &&
-                wzh::StartupGreetingFinished())
+            if (notice == wzh::StartupProtectionNotice::kNone && wzh::StartupGreetingFinished())
                 startup_protection_monitoring = false;
         }
         vTaskDelay(pdMS_TO_TICKS(kPollMs));

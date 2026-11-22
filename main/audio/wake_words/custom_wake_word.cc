@@ -185,14 +185,15 @@ void CustomWakeWord::Stop() {
 }
 
 void CustomWakeWord::Feed(const std::vector<int16_t>& data) {
-    FeedSamples(data.data(), data.size(), false);
+    FeedSamples(data.data(), data.size(), false, true);
 }
 
-void CustomWakeWord::FeedMono(const int16_t* data, size_t samples) {
-    FeedSamples(data, samples, true);
+void CustomWakeWord::FeedMono(const int16_t* data, size_t samples, bool allow_interrupt) {
+    FeedSamples(data, samples, true, allow_interrupt);
 }
 
-void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono) {
+void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono,
+                                 bool allow_interrupt) {
     if (multinet_model_data_ == nullptr || data == nullptr || samples == 0) {
         return;
     }
@@ -228,8 +229,6 @@ void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono)
         if (mn_state == ESP_MN_STATE_DETECTED) {
             esp_mn_results_t* mn_result = multinet_->get_results(multinet_model_data_);
             for (int i = 0; i < mn_result->num && running_; i++) {
-                ESP_LOGI(TAG, "Custom wake word detected: command_id=%d, string=%s, prob=%f",
-                         mn_result->command_id[i], mn_result->string, mn_result->prob[i]);
                 const int command_id = mn_result->command_id[i];
                 if (command_id <= 0 || static_cast<size_t>(command_id) > commands_.size()) {
                     ESP_LOGW(TAG, "Ignoring unknown command ID %d", command_id);
@@ -237,6 +236,10 @@ void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono)
                 }
                 auto& command = commands_[command_id - 1];
                 if (command.action == "wake") {
+                    if (!allow_interrupt && command.text == "local:interrupt")
+                        break;
+                    ESP_LOGI(TAG, "Custom wake word detected: command_id=%d, string=%s, prob=%f",
+                             command_id, mn_result->string, mn_result->prob[i]);
                     last_detected_wake_word_ = command.text;
                     running_ = false;
                     input_buffer_.clear();

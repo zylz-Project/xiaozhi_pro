@@ -17,6 +17,7 @@ class DeviceVoiceEnrollmentTest(unittest.TestCase):
             self.skipTest('g++ required')
         source = (ROOT / 'main/application.cc').read_text()
         start = function(source, 'bool Application::RequestDeviceVoiceEnrollment(')
+        cancel = function(source, 'bool Application::RequestCancelDeviceVoiceEnrollment(')
         status = function(source, 'const char* Application::DeviceVoiceEnrollmentStatus(')
         code = r'''
 #include <atomic>
@@ -33,12 +34,12 @@ struct Protocol { bool opened=true; int stops=0, closes=0; bool IsAudioChannelOp
  void SendStopListening(){++stops;} void CloseAudioChannel(){++closes;opened=false;} };
 namespace Lang { namespace Sounds { constexpr std::string_view OGG_POPUP="popup"; } }
 struct Enrollment : VoiceEnrollment {
- bool start_ok=true; std::string name; std::function<void(bool)> capture, done;
+ bool start_ok=true; int cancellations=0; std::string name; std::function<void(bool)> capture, done;
  bool Start(std::function<void(bool)>,std::function<void(bool)>) override { return false; }
  bool StartNamed(const std::string& n,std::function<void(bool)> c,std::function<void(bool)> d) override {
    name=n; capture=c; done=d; return start_ok; }
  bool Capture(const int16_t*,size_t,bool) override { return true; }
- void Cancel() override {}
+ void Cancel() override {++cancellations;}
  const char* Status() const override { return "recording"; }
 };
 struct Board {
@@ -57,6 +58,7 @@ struct Application {
  std::atomic<bool> external_voice_preview_active_{false},voice_enrollment_active_{false},interaction_stopped_{false};
  std::atomic<long> voice_enrollment_resume_guard_until_us_{0}; Protocol protocol;Protocol* protocol_=&protocol;
  int aborted=0,cleared=0,resumed=0;
+ bool device_voice_enrollment_from_chat_=false;
  std::atomic<int> device_voice_enrollment_status_{0};std::atomic<unsigned> interaction_generation_{0},device_voice_enrollment_generation_{0};
  DeviceState state=kDeviceStateIdle; Audio audio_service_;std::vector<std::function<void()>> tasks;
  DeviceState GetDeviceState() const{return state;} void SetDeviceState(DeviceState v){state=v;}
@@ -65,9 +67,11 @@ struct Application {
  void Schedule(std::function<void()> f){tasks.push_back(std::move(f));}
  void Drain(){auto batch=std::move(tasks);tasks.clear();for(auto& f:batch)f();}
  bool RequestDeviceVoiceEnrollment(const std::string&);
+ bool RequestCancelDeviceVoiceEnrollment(uint32_t);
+ uint32_t DeviceVoiceEnrollmentRequest() const {return device_voice_enrollment_generation_.load();}
  const char* DeviceVoiceEnrollmentStatus() const;
 };
-''' + start + '\n' + status + r'''
+''' + start + '\n' + cancel + '\n' + status + r'''
 int main() {
  Application app; auto& board=Board::GetInstance();
  assert(!app.RequestDeviceVoiceEnrollment(""));
@@ -96,6 +100,16 @@ int main() {
  app.voice_enrollment_active_.store(false);app.interaction_generation_.fetch_add(1);
  before=app.resumed;board.enrollment.done(true);app.Drain();
  assert(app.resumed==before&&!std::strcmp(app.DeviceVoiceEnrollmentStatus(),"cancelled"));
+ assert(app.RequestDeviceVoiceEnrollment("web cancel"));app.Drain();
+ const auto recording=app.DeviceVoiceEnrollmentRequest();
+ assert(!app.RequestCancelDeviceVoiceEnrollment(recording-1));
+ board.enrollment.capture(true);app.Drain();assert(board.recording);
+ assert(app.RequestCancelDeviceVoiceEnrollment(recording));
+ board.enrollment.capture(true);board.enrollment.done(true);
+ app.Drain();
+ assert(board.enrollment.cancellations==1&&!board.recording&&!app.audio_service_.enabled);
+ assert(app.state==kDeviceStateListening&&app.resumed==before+1);
+ assert(!std::strcmp(app.DeviceVoiceEnrollmentStatus(),"cancelled"));
  app.state=kDeviceStateIdle;assert(app.RequestDeviceVoiceEnrollment("test"));
  app.voice_enrollment_active_.store(false);app.Drain();assert(!std::strcmp(app.DeviceVoiceEnrollmentStatus(),"cancelled"));
  app.interaction_generation_.fetch_add(1);app.voice_enrollment_active_.store(true);

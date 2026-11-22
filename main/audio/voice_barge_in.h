@@ -11,8 +11,8 @@
 
 // Called under AudioService's queue lock, on post-AEC 16 kHz mono PCM only.
 // VAD, a bounded noise floor and a playback-correlation veto must agree for
-// 180 ms, allowing one 60 ms echo-vetoed frame within that candidate. For
-// keyword-confirmed interruption, allow up to 120 ms of VAD/energy gaps too.
+// 180 ms, allowing one 60 ms echo-vetoed frame within that candidate. Keyword
+// confirmation needs 120 ms of speech and allows up to 120 ms of VAD/energy gaps.
 // Settle for 300 ms of actual referenced, unclipped playback.
 // Input and post-AEC observations share the audio queue lock.
 class VoiceBargeIn {
@@ -25,7 +25,7 @@ public:
         noise_rms_ = 40.0f;
         residual_rms_ = 0.0f;
         correlation_ = -1.0f;
-        required_speech_samples_ = 2880;
+        required_speech_samples_ = kDefaultSpeechSamples;
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
         confirmed_at_us_ = -1;
 #endif
@@ -74,7 +74,7 @@ public:
                !fresh(last_clipped_us_, 240000);
     }
     bool Observe(const int16_t* pcm, size_t samples, bool vad_speech, int64_t now_us,
-                 bool muted = false, size_t min_speech_samples = 2880) {
+                 bool muted = false, size_t min_speech_samples = 0) {
         if (!monitoring_ || pcm == nullptr || samples == 0) {
             return false;
         }
@@ -142,7 +142,7 @@ public:
             return false;
         }
         speech_samples_ += samples;
-        required_speech_samples_ = std::max<size_t>(2880, min_speech_samples);
+        required_speech_samples_ = std::max(kDefaultSpeechSamples, min_speech_samples);
         if (speech_samples_ < required_speech_samples_) {
             return false;
         }
@@ -178,10 +178,15 @@ public:
     int required_speech_ms() const { return required_speech_samples_ * 1000 / 16000; }
 
 private:
+#if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    static constexpr size_t kDefaultSpeechSamples = 1920;
+#else
+    static constexpr size_t kDefaultSpeechSamples = 2880;
+#endif
     uint32_t token_ = 0;
     bool monitoring_ = false, confirmed_ = false;
     size_t elapsed_samples_ = 0, speech_samples_ = 0, speech_gap_samples_ = 0;
-    size_t required_speech_samples_ = 2880;
+    size_t required_speech_samples_ = kDefaultSpeechSamples;
     float noise_rms_ = 40.0f;
     float residual_rms_ = 0.0f, correlation_ = -1.0f;
     EchoReferenceGuard echo_reference_;

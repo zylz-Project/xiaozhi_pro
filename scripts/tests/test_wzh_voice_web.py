@@ -33,13 +33,17 @@ int xTaskCreate(void(*f)(void*),const char*,int,void* a,int,void**){worker=f;wor
 void vTaskDelete(void*){}
 namespace voice_tts {
 std::string recorded_name,current_voice;size_t recorded_samples=0;std::vector<std::string> actions;
+bool list_online=true;
 std::string LoadAliVoice(){return current_voice;}
 bool VoiceResetActive(){return false;}
 bool IsValidVoiceName(const std::string& n){return !n.empty()&&n.find('\0')==std::string::npos;}
 VoiceOperation EnrollManagedVoice(const int16_t* pcm,size_t n,const std::string& name,const std::function<bool()>& cancelled,std::string& id){
  if(cancelled())return VoiceOperation::kCancelled;
  assert(pcm[0]==1234);recorded_samples=n;recorded_name=name;id="id";return VoiceOperation::kOk;}
-VoiceOperation ListManagedVoices(std::vector<ManagedVoice>& v){v={{"id","name",false}};return VoiceOperation::kOk;}
+VoiceOperation ListManagedVoices(std::vector<ManagedVoice>& v){
+ if(!list_online)return VoiceOperation::kNetwork;
+ v={{"id","name",false}};return VoiceOperation::kOk;
+}
 VoiceOperation RenameManagedVoice(const std::string&,const std::string&){return VoiceOperation::kOk;}
 VoiceOperation DeleteManagedVoice(const std::string& id){actions.push_back("delete:"+id);return VoiceOperation::kOk;}
 VoiceOperation SelectManagedVoice(const std::string& id){actions.push_back("select:"+id);current_voice=id;return VoiceOperation::kOk;}
@@ -54,7 +58,9 @@ int main(){using namespace voice_tts;VoiceWeb web;
  assert(!cJSON_IsTrue(cJSON_GetObjectItem(root,"voice_management_busy")));
  assert(!std::strcmp(cJSON_GetObjectItem(root,"voice_management_status")->valuestring,"ok"));
  assert(cJSON_GetArraySize(cJSON_GetObjectItem(root,"voice_catalog"))==2);
- assert(!std::strcmp(cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(root,"voice_catalog"),0),"id")->valuestring,"xiaozhi-native"));cJSON_Delete(root);
+ auto* native=cJSON_GetArrayItem(cJSON_GetObjectItem(root,"voice_catalog"),0);
+ assert(!std::strcmp(cJSON_GetObjectItem(native,"id")->valuestring,"xiaozhi-native"));
+ assert(!std::strcmp(cJSON_GetObjectItem(native,"name")->valuestring,"原声"));cJSON_Delete(root);
  assert(web.Command("list","",""));assert(web.Busy()&&!web.BusyWithMutation());worker(worker_arg);
  assert(!web.Cancel());
  auto* cancelled_data=(uint8_t*)std::malloc(1+3+n*2);
@@ -67,7 +73,26 @@ int main(){using namespace voice_tts;VoiceWeb web;
  assert(!std::strcmp(cJSON_GetObjectItem(root,"voice_management_status")->valuestring,"cancelled"));
  cJSON_Delete(root);
  assert(!web.Command("unexpected","",""));assert(web.Command("list","",""));assert(!web.Cancel());worker(worker_arg);
- current_voice="id";assert(web.Command("delete","id",""));worker(worker_arg);
+ auto rename=web.Command("rename","id","new name");assert(rename);
+ auto outcome=[&](uint32_t request,const char* status){
+  cJSON* body=cJSON_CreateObject();web.AddStatus(body);const cJSON* value=nullptr;
+  bool found=false;
+  cJSON_ArrayForEach(value,cJSON_GetObjectItem(body,"voice_operations")) {
+   if(cJSON_GetObjectItem(value,"request")->valuedouble==request) {
+    found=!std::strcmp(cJSON_GetObjectItem(value,"status")->valuestring,status);break;
+   }
+  }
+  cJSON_Delete(body);assert(found);
+ };
+ outcome(rename,"busy");list_online=false;
+ worker(worker_arg);outcome(rename,"ok");
+ root=cJSON_CreateObject();web.AddStatus(root);
+ auto* last=cJSON_GetArrayItem(cJSON_GetObjectItem(root,"voice_catalog"),1);
+ assert(!std::strcmp(cJSON_GetObjectItem(last,"name")->valuestring,"new name"));cJSON_Delete(root);
+ current_voice="id";auto remove=web.Command("delete","id","");assert(remove&&remove!=rename);worker(worker_arg);
+ assert(web.Command("list","",""));worker(worker_arg);outcome(rename,"ok");outcome(remove,"ok");
+ root=cJSON_CreateObject();web.AddStatus(root);
+ assert(cJSON_GetArraySize(cJSON_GetObjectItem(root,"voice_catalog"))==1);cJSON_Delete(root);
  assert(actions.size()==2&&actions[0]=="select:longanhuan_v3.1"&&actions[1]=="delete:id");
 }
 ''')

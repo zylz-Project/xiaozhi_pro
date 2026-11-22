@@ -203,6 +203,10 @@ int main(){
             auto p=silent.Update(mechanism,true,0,0,t);
             for(float value:p)assert(value==0);
         }
+        for(unsigned t=520;t<2520;t+=20){
+            auto p=silent.Update(mechanism,true,.014f,t%200==0?.9f:0,t);
+            for(float value:p)assert(value==0); // Quiet PCM and spikes below the floor.
+        }
         // A new utterance uses another spatial phrase, rather than repeating
         // a single waveform with a different volume.
         std::set<std::string> signatures;
@@ -306,6 +310,66 @@ int main(){
 }
 ''')
 
+    def test_short_replies_show_directional_gestures_and_pause_without_consuming_styles(self):
+        self.run_cpp(r'''
+#include <cassert>
+#include <set>
+#include "wzh_voice_motion.h"
+using namespace wzh;
+int main(){
+    for(auto mechanism:{VoiceMechanism::kDinosaur,VoiceMechanism::kTail,VoiceMechanism::kCrawl}){
+        VoiceMotion voice;
+        std::set<unsigned> used;
+        bool left=false,right=false,high=false,low=false,look_only=false;
+        for(unsigned reply=0;reply<VoiceMotion::kPhraseCount;++reply){
+            const unsigned start=reply*2400;
+            std::array<float,5> pose{};
+            for(unsigned t=0;t<780;t+=20){
+                // Audible speech with a brief within-word gap.
+                const float level=t>=360&&t<440?0.f:.09f;
+                pose=voice.Update(mechanism,true,level,t==480?.6f:0,start+t);
+                const unsigned head_axis=mechanism==VoiceMechanism::kDinosaur?2:0;
+                left|=pose[head_axis]>18;
+                right|=pose[head_axis]<-18;
+                if(mechanism==VoiceMechanism::kDinosaur){
+                    high|=pose[0]<-12;low|=pose[0]>15;
+                    look_only|=std::abs(pose[2])>18&&std::abs(pose[3])<4;
+                }else if(mechanism==VoiceMechanism::kTail){
+                    high|=pose[2]<-24;low|=pose[2]>5;
+                    look_only|=std::abs(pose[0])>16&&std::abs(pose[2])<4;
+                }else{
+                    high|=pose[1]<-12&&std::abs(pose[2])<3;
+                    low|=pose[2]>12&&std::abs(pose[1])<3;
+                    look_only|=std::abs(pose[0])>16&&std::abs(pose[1])+std::abs(pose[2])<4;
+                }
+            }
+            const auto style=voice.phrase();
+            assert(used.insert(style).second);
+            for(unsigned t=780;t<2400;t+=20){
+                pose=voice.Update(mechanism,true,0,0,start+t);
+                assert(voice.phrase()==style);
+            }
+            for(float angle:pose)assert(std::abs(angle)<.5f);
+        }
+        assert(left&&right&&high&&low&&look_only);
+
+        std::array<float,5> previous{},previous_step{};
+        voice.Update(mechanism,false,0,0,40000);
+        for(unsigned t=0;t<35000;t+=20){
+            const unsigned section=t%3500;
+            const float level=section>=2500||section%350<60?0.f:.21f;
+            const auto pose=voice.Update(mechanism,true,level,t%640<25?.9f:0,40020+t);
+            for(unsigned a=0;a<pose.size();++a){
+                const float step=pose[a]-previous[a];
+                assert(std::abs(step)<=3.71f&&std::abs(step-previous_step[a])<.70f);
+                previous_step[a]=step;
+            }
+            previous=pose;
+        }
+    }
+}
+''')
+
     def test_larger_voice_moves_stay_in_physical_room_and_return_during_silence(self):
         self.run_cpp(r'''
 #include <array>
@@ -330,10 +394,10 @@ int main(){
             }
             previous=q;
         }
-        if(dino){assert(low[0]<-45&&high[2]-low[2]>140&&high[3]>70);}
+        if(dino){assert(low[0]<-40&&high[0]>25&&high[2]-low[2]>120&&low[3]<-14&&high[3]>55);}
         // Ordinary conversation has attentive yaw, rather than rapid full-stop
         // sweeps; full-range body look commands are covered by controller tests.
-        else if(tail){assert(high[0]-low[0]>100&&high[0]-low[0]<145&&low[2]<-115);}
+        else if(tail){assert(high[0]-low[0]>100&&high[0]-low[0]<145&&low[2]<-100&&high[2]>10);}
         else{assert(high[0]-low[0]>100&&high[0]-low[0]<145&&low[1]<-78&&high[2]>78);}
         for(unsigned t=90000;t<92000;t+=20)previous=voice.Update(mechanism,true,0,0,t);
         for(float value:previous)assert(std::abs(value)<.5f);

@@ -1,9 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-device-status-owner>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<script src="js/viewport.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6eadc">
 <title>连接网络 · 爬爬熊猫</title>
 <link rel="stylesheet" href="css/panda.css">
@@ -86,6 +85,7 @@
                   <span class="on"><b>2</b>选网络</span>
                   <span><b>3</b>输密码</span>
                 </div>
+                <a class="manual-link" href="/manual#m-network">查看配网说明</a>
               </div>
 
               <div class="current-net" id="currentNet" hidden>
@@ -118,7 +118,7 @@
           </div>
         </div>
 
-        <div class="layer" id="pwLayer" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+        <div class="layer" id="pwLayer" role="dialog" aria-modal="true" aria-labelledby="pwTitle" aria-hidden="true" inert>
           <div class="sheet">
             <div class="grab"></div>
             <div class="sheet-head">
@@ -129,7 +129,7 @@
             <label class="field" for="pwInput">
               <span>Wi-Fi 密码</span>
               <div class="input-wrap">
-                <input id="pwInput" type="password" inputmode="text" autocomplete="current-password" placeholder="至少 8 位" spellcheck="false">
+                <input id="pwInput" type="password" inputmode="none" data-edit-on-tap autocomplete="current-password" placeholder="至少 8 位" spellcheck="false">
                 <button class="peek" id="pwPeek" type="button" aria-label="显示密码"><svg class="ico" viewBox="0 0 24 24"><use href="#i-eye"></use></svg></button>
               </div>
             </label>
@@ -142,18 +142,18 @@
           </div>
         </div>
 
-        <div class="layer" id="manualLayer" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
+        <div class="layer" id="manualLayer" role="dialog" aria-modal="true" aria-labelledby="manualTitle" aria-hidden="true" inert>
           <div class="sheet">
             <div class="grab"></div>
             <div class="sheet-head">
               <div><h2 id="manualTitle">手动输入网络</h2><p>适合隐藏 SSID 或列表里没有的网络</p></div>
               <button class="sheet-close" type="button" data-close="manualLayer" aria-label="关闭"><svg class="ico" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
-            <label class="field" for="manualSsid"><span>网络名称（SSID）</span><input id="manualSsid" type="text" autocomplete="off" placeholder="例如 Home" spellcheck="false"></label>
+            <label class="field" for="manualSsid"><span>网络名称（SSID）</span><input id="manualSsid" type="text" inputmode="none" data-edit-on-tap autocomplete="off" placeholder="例如 Home" spellcheck="false"></label>
             <label class="field" for="manualPw">
               <span>Wi-Fi 密码</span>
               <div class="input-wrap">
-                <input id="manualPw" type="password" autocomplete="current-password" placeholder="至少 8 位">
+                <input id="manualPw" type="password" inputmode="none" data-edit-on-tap autocomplete="current-password" placeholder="开放网络可留空">
                 <button class="peek" id="manualPeek" type="button" aria-label="显示密码"><svg class="ico" viewBox="0 0 24 24"><use href="#i-eye"></use></svg></button>
               </div>
             </label>
@@ -171,6 +171,7 @@
   </main>
 </div>
 
+<script src="js/editor-focus.js"></script>
 <script src="js/guide-config.js?v=2"></script>
 <script src="js/guide.js"></script>
 <script src="js/setup.js"></script>

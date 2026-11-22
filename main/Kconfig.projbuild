@@ -6,6 +6,14 @@ config OTA_URL
     help
         The application will access this URL to check for new firmwares and server address.
 
+config ENABLE_ONLINE_UPDATES
+    bool "Enable online firmware and asset updates"
+    default n if BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA
+    default y
+    help
+        Allow installing firmware and assets from the network. Device activation
+        and retrieval of conversation server settings remain available when disabled.
+
 config WIFI_CONNECT_TIMEOUT_SEC
     int "WiFi connect timeout before entering config mode (seconds)"
     default 60
@@ -617,19 +625,11 @@ menu "WZH Product Configuration"
             Edge 的云希/晓晓不等于阳光青年/樱桃丸子。仅在接受替代声音后开启。
             此选项不改变云端角色音色，也不代表获得音色的商用许可。
 
-    config WZH_AUDIO_SYNC_ENABLE
-        bool "Enable Audio Hub background sync"
-        default n
-        help
-            默认关闭：设备开机和运行期间不主动连接 Audio Hub。
-            后续可由设备网页控制台按需检查清单、选择并更新音频；
-            关闭时设备完整离线运行（对话与本地声音不受影响）。
-
     config WZH_AUDIO_SYNC_SERVER
-        string "Audio Hub server base URL"
+        string "Factory Audio Hub server base URL"
         default "http://192.168.1.7:5000"
         help
-            Audio Hub 服务地址（老工程硬编码 192.168.1.7:5000）。
+            仅开发者页面手动检查或更新时连接的局域网服务地址。
             可通过 NVS（audio_hub 命名空间，server 键）覆盖，无需重烧固件。
 
     menu "WZH idle countdown"

@@ -36,27 +36,38 @@ def keep(path: pathlib.Path) -> bool:
 
 
 paths = sorted(p for p in root.rglob('*') if p.is_file() and keep(p))
+assets = {path.relative_to(root).as_posix(): path.read_bytes() for path in paths}
 hash_state = hashlib.sha256()
 # A packer change can alter the served bytes even when the source assets do not.
 hash_state.update(pathlib.Path(__file__).read_bytes())
-for path in paths:
-    name = path.relative_to(root).as_posix().encode('utf-8')
-    data = path.read_bytes()
-    hash_state.update(len(name).to_bytes(4, 'big'))
-    hash_state.update(name)
+hash_state.update(product.encode('ascii'))
+for name, data in assets.items():
+    encoded_name = name.encode('utf-8')
+    hash_state.update(len(encoded_name).to_bytes(4, 'big'))
+    hash_state.update(encoded_name)
     hash_state.update(len(data).to_bytes(8, 'big'))
     hash_state.update(data)
 revision = hash_state.hexdigest()[:16]
 # These are local URLs in HTML, CSS and JS; preserve fragments and unrelated queries.
 asset_url = re.compile(r'''(?P<path>(?:assets|css|js)/[^\s"'<>?#)]+\.(?:css|js|webp))(?:\?v=[A-Za-z0-9._-]+)?''')
+# Pack the scripts used only by the detail page into a single transfer. Other
+# pages can still reuse the shared guide, theme and editor files from login.
+detail_scripts = ('js/device-detail.js', 'js/index-app.js', 'js/index-view.js')
+detail_tags = '\n'.join(f'<script defer src="{name}"></script>' for name in detail_scripts).encode()
+if detail_tags in assets.get('index.html', b''):
+    assets['index.html'] = assets['index.html'].replace(
+        detail_tags, b'<script defer src="js/detail.js"></script>', 1)
+    assets['js/detail.js'] = b'\n;\n'.join(assets.pop(name) for name in detail_scripts)
+
 entries = []
 blob = bytearray()
-for path in paths:
-    name = path.relative_to(root).as_posix()
-    data = path.read_bytes()
-    compressed = path.suffix in ('.html', '.css', '.js')
+for name, data in sorted(assets.items()):
+    suffix = pathlib.PurePosixPath(name).suffix
+    compressed = suffix in ('.html', '.css', '.js')
     if compressed:
         source = data.decode('utf-8')
+        if product and suffix == '.html':
+            source = source.replace('<html ', f'<html data-build-product="{product}" ', 1)
         source = asset_url.sub(lambda match: match.group('path') + '?v=' + revision, source)
         data = gzip.compress(source.encode('utf-8'), compresslevel=9, mtime=0)
     entries.append((name, len(blob), len(data), compressed))

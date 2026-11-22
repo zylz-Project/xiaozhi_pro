@@ -4,6 +4,10 @@ function pandaPick2g(evt) {
   var row = evt && evt.target && evt.target.closest ? evt.target.closest('.net-row') : null;
   return !!row && row.getAttribute('data-band') !== '5G';
 }
+function pandaWifiPasswordReady(evt, input) {
+  return document.getElementById('pwLayer').dataset.openNetwork === 'true' ||
+    input.value.length >= 8;
+}
 
 window.PANDA_GUIDE_CONFIG = {
   login: {
@@ -60,8 +64,8 @@ window.PANDA_GUIDE_CONFIG = {
           }
         },
         gate: {
-          selector: '#pwInput', on: 'input', minLength: 8,
-          hint: '至少 8 位，输完才能继续',
+          selector: '#pwInput', on: 'input', test: pandaWifiPasswordReady,
+          hint: '输入密码后继续，开放网络可留空',
           doneHint: '密码填好了，点下一步'
         }
       },
@@ -106,8 +110,8 @@ window.PANDA_GUIDE_CONFIG = {
           }
         },
         gate: {
-          selector: '#pwInput', on: 'input', minLength: 8,
-          hint: '至少 8 位，输完才能继续',
+          selector: '#pwInput', on: 'input', test: pandaWifiPasswordReady,
+          hint: '输入密码后继续，开放网络可留空',
           doneHint: '密码填好了，点下一步'
         }
       },
@@ -152,8 +156,8 @@ window.PANDA_GUIDE_CONFIG = {
           }
         },
         gate: {
-          selector: '#pwInput', on: 'input', minLength: 8,
-          hint: '至少 8 位，输完才能继续',
+          selector: '#pwInput', on: 'input', test: pandaWifiPasswordReady,
+          hint: '输入密码后继续，开放网络可留空',
           doneHint: '密码填好了，点下一步'
         }
       },
@@ -192,17 +196,17 @@ window.PANDA_GUIDE_CONFIG = {
     steps: [
       {
         target: '#donePrimary',
-        title: '回去改一下密码',
-        text: '多半是 Wi-Fi 密码不对。',
+        title: '查看下一步',
+        text: '按页面提示返回配网，或重新登录查看设备状态。',
         action: { selector: '#donePrimary' },
-        hint: '点“返回修改”'
+        hint: '点主按钮继续'
       },
       {
         target: '#doneLater',
-        title: '也可以再试一次',
-        text: '密码没改就原地重试。',
+        title: '也可以返回设备首页',
+        text: '首页会按设备当前网络状态显示。',
         action: { selector: '#doneLater' },
-        hint: '点“再试一次”'
+        hint: '点“返回设备首页”'
       }
     ]
   },

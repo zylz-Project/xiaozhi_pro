@@ -2,8 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<script src="js/viewport.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6eadc">
 <title>开发者控制台 · 爬爬熊猫</title>
 <link rel="stylesheet" href="css/panda.css">
@@ -53,29 +52,20 @@
     <div class="eyebrow">05 / DEVELOPER · 开发者控制台</div>
     <div class="head-row">
       <div>
-        <h1>把设备拆开看</h1>
-        <p class="head-copy">在设备热点或同一局域网内用 <b>:8080</b> 访问，需要开发者密码。这里集中状态、音频库、Audio Hub、声音、网络、OTA、日志和接口；比用户页密，但功能要全。</p>
+        <h1>开发者控制台</h1>
+        <p class="head-copy">查看设备状态、管理音频库和配置语音服务。</p>
       </div>
       <nav class="page-nav" aria-label="页面导航">
-        <a href="setup.html">配网</a>
-        <a href="done.html">完成页</a>
-        <a href="login.html">登录</a>
-        <a href="index.html">详情</a>
-        <a href="manual.html">说明书</a>
-        <a class="now" href="developer.html">开发者</a>
-        <a href="../alternates/prototype.html">全部页面</a>
+        <a href="http://192.168.4.1/">设备首页</a>
+        <a href="http://192.168.4.1/manual">使用说明书</a>
       </nav>
     </div>
-    <div class="statebar" role="group" aria-label="开发者页状态预览">
-      <button type="button" data-devstate="in" class="on">已登录</button>
-      <button type="button" data-devstate="gate">登录门</button>
-      <button type="button" data-devstate="ap">AP 403</button>
-    </div>
+
   </header>
 
   <main class="stage">
     <section class="phone-col">
-      <div class="phone-label"><span class="tag rec">05</span><b>开发者控制台</b><em>热点 / 局域网 · :8080</em></div>
+      <div class="phone-label"><b>开发者控制台</b><em>热点 / 局域网 · :8080</em></div>
       <div class="phone b dev-phone" id="devPhone" data-theme="milk" data-state="gate">
         <div class="wallpaper"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i></div>
         <div class="statusbar">
@@ -84,7 +74,7 @@
 
         <div class="phone-content dev-main">
           <div class="appbar">
-            <button class="back" type="button" onclick="location.href='index.html'" aria-label="返回设备详情"><svg class="ico"><use href="#i-back"></use></svg></button>
+            <a class="back" href="http://192.168.4.1/" aria-label="返回设备首页"><svg class="ico"><use href="#i-back"></use></svg></a>
             <div class="appbar-title">开发者控制台</div>
             <span class="appbar-spacer"></span>
             <span class="tiny-pill" style="color:var(--accent-deep);background:rgba(201,119,82,.10);border-color:transparent">DEV</span>
@@ -93,7 +83,7 @@
 
           <div class="dev-session">
             <i class="sess-dot"></i><b>已解锁</b>
-            <span class="sess-time" id="sessTime">29:58</span>
+            <span class="sess-time" id="sessTime">--</span>
             <span class="sess-addr">开发者会话</span>
             <button class="sess-lock" type="button" id="sessLock">锁定</button>
           </div>
@@ -101,7 +91,7 @@
           <div class="dev-tabs" role="tablist" aria-label="开发者功能">
             <button class="dev-tab" type="button" role="tab" aria-selected="true" data-tab="status">状态</button>
             <button class="dev-tab" type="button" role="tab" aria-selected="false" data-tab="audio">音频库</button>
-            <button class="dev-tab" type="button" role="tab" aria-selected="false" data-tab="hub">Audio Hub</button>
+            <button class="dev-tab" type="button" role="tab" aria-selected="false" data-tab="hub">出厂 Audio Hub</button>
             <button class="dev-tab" type="button" role="tab" aria-selected="false" data-tab="voice">声音</button>
             <button class="dev-tab" type="button" role="tab" aria-selected="false" data-tab="network">网络</button>
             <button class="dev-tab" type="button" role="tab" aria-selected="false" data-tab="system">系统</button>
@@ -114,32 +104,50 @@
             <section class="dev-panel" data-panel="status">
               <div class="d-hero">
                 <div>
-                  <p class="d-kicker">RUNTIME STATE</p>
-                  <b class="d-state" id="runtimeState">待机</b>
-                  <span class="d-state-sub" id="runtimeSub">对话未开始 · 空闲微动中</span>
+                  <p class="d-kicker">设备状态</p>
+                  <b class="d-state" id="runtimeState">--</b>
+                  <span class="d-state-sub" id="runtimeSub">等待设备状态</span>
                 </div>
-                <span class="d-live"><i></i>实时</span>
               </div>
               <div class="d-chips">
-                <span class="d-chip ok"><i class="dot"></i>麦克风 <b>空闲</b></span>
-                <span class="d-chip ok"><i class="dot"></i>扬声器 <b>空闲</b></span>
-                <span class="d-chip off"><i class="dot"></i>舵机 <b>已释放</b></span>
-                <span class="d-chip ok"><i class="dot"></i>触摸 <b>4 路正常</b></span>
+                <span class="d-chip off" id="micChip"><i class="dot"></i>麦克风 <b>--</b></span>
+                <span class="d-chip off" id="speakerChip"><i class="dot"></i>扬声器 <b>--</b></span>
+                <span class="d-chip off" id="servoChip"><i class="dot"></i>舵机供电 <b>--</b></span>
+                <span class="d-chip off" id="touchChip"><i class="dot"></i>触摸 <b id="touchChipValue">等待读取</b></span>
               </div>
               <div class="d-grid">
-                <div class="d-stat"><span>电量 / 电压</span><b>86<small>%</small></b><em>3.98V · 放电中</em></div>
-                <div class="d-stat"><span>芯片温度</span><b>41<small>°C</small></b><em>正常范围</em></div>
-                <div class="d-stat"><span>运行时长</span><b id="uptime">2h18<small>m</small></b><em>开机时长</em></div>
-                <div class="d-stat"><span>信号强度</span><b>-54<small> dBm</small></b><em>Home</em></div>
+                <div class="d-stat"><span>电量 / 静置电压</span><b id="batteryLevel">--</b><em id="batteryRest">--</em></div>
+                <div class="d-stat"><span>芯片温度</span><b id="chipTemp">--</b></div>
+                <div class="d-stat"><span>运行时长</span><b id="uptime">--</b><em>开机时长</em></div>
+                <div class="d-stat"><span>联网状态</span><b id="networkLink">--</b><em id="networkDetail">--</em></div>
               </div>
+              <section class="d-card d-touch-card" aria-labelledby="touchTitle">
+                <div class="d-head"><h2 id="touchTitle">触摸输入</h2><span class="d-meta" id="touchSummary" aria-live="polite">等待读取</span></div>
+                <div class="d-touch-grid">
+                  <div class="d-touch-point" data-touch-sw="1"><b>SW1</b><span data-touch-location></span><strong data-touch-state>等待读取</strong></div>
+                  <div class="d-touch-point" data-touch-sw="2"><b>SW2</b><span data-touch-location></span><strong data-touch-state>等待读取</strong></div>
+                  <div class="d-touch-point" data-touch-sw="3"><b>SW3</b><span data-touch-location></span><strong data-touch-state>等待读取</strong></div>
+                  <div class="d-touch-point" data-touch-sw="4"><b>SW4</b><span data-touch-location></span><strong data-touch-state>等待读取</strong></div>
+                </div>
+                <p class="d-sub d-touch-details" id="touchDiagnostics">IO5 · 等待读数</p>
+                <p class="d-sub d-touch-details">按住触点查看，约每秒更新一次。</p>
+                <button type="button" class="d-btn" id="toggleSw4Isolation" hidden></button>
+              </section>
+              <section class="d-card" aria-labelledby="accelTitle">
+                <div class="d-head"><h2 id="accelTitle">加速度计</h2><span class="d-meta" id="accelSummary">等待读取</span></div>
+                <div class="d-row"><span class="d-label">三轴加速度</span><span class="d-value" id="accelAxes">--</span></div>
+                <div class="d-row"><span class="d-label">合加速度</span><span class="d-value" id="accelMagnitude">--</span></div>
+                <div class="d-row"><span class="d-label">方向（芯片坐标）</span><span class="d-value" id="accelOrientation">--</span></div>
+                <div class="d-row"><span class="d-label">俯仰 / 横滚</span><span class="d-value" id="accelAngles">--</span></div>
+              </section>
               <div class="d-card">
-                <div class="d-head"><h2>外设与传感器</h2><span class="d-meta">LIVE</span></div>
-                <div class="d-row"><span class="d-label">触摸 SW1 / SW2</span><span class="d-value ok">松开 / 松开</span></div>
-                <div class="d-row"><span class="d-label">触摸 SW3 / SW4</span><span class="d-value ok">松开 / 松开</span></div>
-                <div class="d-row"><span class="d-label">姿态</span><span class="d-value">平稳 · 基准已建立</span></div>
-                <div class="d-row"><span class="d-label">人体感应</span><span class="d-value">有人 · 1.2m</span></div>
-                <div class="d-row"><span class="d-label">功放 / 编解码</span><span class="d-value ok">ES8311 正常</span></div>
-                <div class="d-row"><span class="d-label">外置 Flash</span><span class="d-value">W25N01GV · 128 个音频</span></div>
+                <div class="d-head"><h2>电源与音频诊断</h2></div>
+                <div class="d-row"><span class="d-label">电池实时 / 保护电压</span><span class="d-value" id="batteryVoltages">--</span></div>
+                <div class="d-row"><span class="d-label">电池采样 / 静置参考</span><span class="d-value" id="batterySample">--</span></div>
+                <div class="d-row"><span class="d-label">舵机故障位</span><span class="d-value" id="servoFaults">--</span></div>
+                <div class="d-row"><span class="d-label">麦克风采集 / 识别</span><span class="d-value" id="captureState">--</span></div>
+                <div class="d-row"><span class="d-label">音频播放 / 缓冲</span><span class="d-value" id="playbackState">--</span></div>
+                <div class="d-row"><span class="d-label">外置音频 Flash</span><span class="d-value" id="audioStorage">--</span></div>
               </div>
               <div class="d-card tight">
                 <div class="d-head"><h2>快捷操作</h2><span class="d-meta">无需重启</span></div>
@@ -150,33 +158,23 @@
                   <button class="d-btn" type="button" id="exportDiag"><svg class="ico"><use href="#i-download"></use></svg>导出诊断</button>
                 </div>
               </div>
-              <p class="d-note"><b>访问方式：</b>连接设备热点后访问 <code>http://192.168.4.1:8080</code>，或在同一局域网内用设备 STA 地址访问；两者都需要开发者密码。</p>
+              <p class="d-note">连接设备热点后可打开<a class="manual-link" href="http://192.168.4.1/manual">使用说明书</a>。同一局域网内也可用设备 IP 和 8080 端口进入开发者控制台。</p>
             </section>
 
             <!-- 音频库 -->
             <section class="dev-panel" data-panel="audio" hidden>
               <div class="d-card tight">
-                <div class="d-head"><h2>Flash 音频库</h2><span class="d-meta">128 个 · 42.6 MB</span></div>
+                <div class="d-head"><h2>Flash 音频库</h2><span class="d-meta" id="audioStorageSummary">--</span></div>
                 <div class="d-search"><svg class="ico"><use href="#i-search"></use></svg><input class="d-input small" id="audioSearch" type="search" placeholder="搜索文件名或中文名" autocomplete="off"></div>
                 <div class="d-filters" role="group" aria-label="音频分类">
                   <button class="d-filter on" type="button" data-filter="all">全部</button>
-                  <button class="d-filter" type="button" data-filter="env">环境</button>
+                  <button class="d-filter" type="button" data-filter="ambient">环境</button>
                   <button class="d-filter" type="button" data-filter="animal">动物</button>
                   <button class="d-filter" type="button" data-filter="prompt">提示音</button>
                   <button class="d-filter" type="button" data-filter="other">其他</button>
                 </div>
               </div>
-              <div class="d-card tight" id="audioList">
-                <div class="d-audio-row" data-cat="env" data-name="雨落窗台 rain_window"><span class="a-ico"><svg class="ico"><use href="#i-cloud"></use></svg></span><span class="a-main"><b>雨落窗台</b><span>rain_window.ogg · 12.4s · 186 KB</span></span><button class="d-play" type="button" data-audio="雨落窗台"><svg class="ico" style="width:9px;height:9px"><use href="#i-play"></use></svg><span>播放</span></button></div>
-                <div class="d-audio-row" data-cat="prompt" data-name="熊猫招呼 panda_hello"><span class="a-ico"><svg class="ico"><use href="#i-speaker"></use></svg></span><span class="a-main"><b>熊猫招呼</b><span>panda_hello.ogg · 2.1s · 32 KB</span></span><button class="d-play" type="button" data-audio="熊猫招呼"><svg class="ico" style="width:9px;height:9px"><use href="#i-play"></use></svg><span>播放</span></button></div>
-                <div class="d-audio-row" data-cat="env" data-name="竹叶沙沙 bamboo_rustle"><span class="a-ico"><svg class="ico"><use href="#i-cloud"></use></svg></span><span class="a-main"><b>竹叶沙沙</b><span>bamboo_rustle.ogg · 8.7s · 131 KB</span></span><button class="d-play" type="button" data-audio="竹叶沙沙"><svg class="ico" style="width:9px;height:9px"><use href="#i-play"></use></svg><span>播放</span></button></div>
-                <div class="d-audio-row" data-cat="animal" data-name="猫咪 meow cat_meow"><span class="a-ico"><svg class="ico"><use href="#i-speaker"></use></svg></span><span class="a-main"><b>猫咪 meow</b><span>cat_meow.ogg · 1.8s · 27 KB</span></span><button class="d-play" type="button" data-audio="猫咪 meow"><svg class="ico" style="width:9px;height:9px"><use href="#i-play"></use></svg><span>播放</span></button></div>
-                <div class="d-audio-row" data-cat="animal" data-name="鸟鸣 bird_chirp"><span class="a-ico"><svg class="ico"><use href="#i-speaker"></use></svg></span><span class="a-main"><b>鸟鸣</b><span>bird_chirp.ogg · 6.2s · 93 KB</span></span><button class="d-play" type="button" data-audio="鸟鸣"><svg class="ico" style="width:9px;height:9px"><use href="#i-play"></use></svg><span>播放</span></button></div>
-                <div class="d-audio-row" data-cat="prompt" data-name="开机音 power_on"><span class="a-ico"><svg class="ico"><use href="#i-power"></use></svg></span><span class="a-main"><b>开机音</b><span>power_on.ogg · 1.4s · 21 KB</span></span><button class="d-play" type="button" data-audio="开机音"><svg class="ico" style="width:9px;height:9px"><use href="#i-play"></use></svg><span>播放</span></button></div>
-                <div class="d-audio-row" data-cat="env" data-name="森林环境 forest_amb"><span class="a-ico"><svg class="ico"><use href="#i-cloud"></use></svg></span><span class="a-main"><b>森林环境</b><span>forest_amb.ogg · 22.0s · 330 KB</span></span><button class="d-play" type="button" data-audio="森林环境"><svg class="ico" style="width:9px;height:9px"><use href="#i-play"></use></svg><span>播放</span></button></div>
-                <div class="d-audio-row" data-cat="other" data-name="舵机测试 servo_test"><span class="a-ico"><svg class="ico"><use href="#i-chip"></use></svg></span><span class="a-main"><b>舵机测试</b><span>servo_test.ogg · 3.0s · 45 KB</span></span><button class="d-play" type="button" data-audio="舵机测试"><svg class="ico" style="width:9px;height:9px"><use href="#i-play"></use></svg><span>播放</span></button></div>
-                <p class="d-sub" id="audioCount" style="margin-top:8px">显示 8 / 128 个 · 目录 v3</p>
-              </div>
+              <div class="d-card tight" id="audioList"><p class="d-sub">正在读取音频目录…</p></div>
               <div class="d-card tight">
                 <div class="d-head"><h2>目录维护</h2><span class="d-meta">只读浏览</span></div>
                 <div class="d-actions">
@@ -190,33 +188,25 @@
             <!-- Audio Hub -->
             <section class="dev-panel" data-panel="hub" hidden>
               <div class="d-card tight">
-                <div class="d-head"><h2>绑定信息</h2><span class="d-meta" id="hubChecked">上次检查 12:04</span></div>
-                <div class="d-row"><span class="d-label">设备 ID</span><span class="d-value strong">CP-8F2A-1A2B</span></div>
-                <div class="d-row"><span class="d-label">服务器</span><span class="d-value">audiohub.zylz.cn</span></div>
-                <div class="d-row"><span class="d-label">绑定状态</span><span class="d-value ok" id="hubBind">已绑定</span></div>
-                <div class="d-row"><span class="d-label">本地目录</span><span class="d-value">128 个 · TOC v3</span></div>
+                <div class="d-head"><h2>出厂音频配置</h2><span class="d-meta" id="hubChecked">尚未检查</span></div>
+                <p class="d-note">设备与 Audio Hub 连同一 Wi-Fi 后会自动接入。可在工作台检查差异，再选择要写入设备的音频。</p>
+                <div class="d-row"><span class="d-label">设备 ID</span><span class="d-value strong">--</span></div>
+                <div class="d-row"><span class="d-label">服务器</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">绑定状态</span><span class="d-value ok" id="hubBind">--</span></div>
+                <div class="d-row"><span class="d-label">本地目录</span><span class="d-value">--</span></div>
                 <div class="d-actions">
-                  <button class="d-btn" type="button" id="hubCheck"><svg class="ico"><use href="#i-refresh"></use></svg>检查更新</button>
+                  <button class="d-btn" type="button" id="hubCheck" disabled><svg class="ico"><use href="#i-refresh"></use></svg>连接并检查</button>
                   <button class="d-btn" type="button" id="hubDiffBtn">刷新差异</button>
                 </div>
               </div>
               <div class="d-card tight">
-                <div class="d-head"><h2>可更新差异</h2><span class="d-meta" id="hubDiffMeta">3 项</span></div>
-                <label class="d-diff-row"><input class="d-check" type="checkbox" checked data-hub-item><span class="d-diff-main"><b>bamboo_night.ogg</b><span>新增 · 186 KB · 夜间竹影</span></span><span class="d-tag">新增</span></label>
-                <label class="d-diff-row"><input class="d-check" type="checkbox" checked data-hub-item><span class="d-diff-main"><b>panda_sneeze.ogg</b><span>新增 · 42 KB · 喷嚏</span></span><span class="d-tag">新增</span></label>
-                <label class="d-diff-row"><input class="d-check" type="checkbox" checked data-hub-item><span class="d-diff-main"><b>rain_old.ogg</b><span>云端已删除 · 本地保留</span></span><span class="d-tag warn">本地独有</span></label>
+                <div class="d-head"><h2>可更新差异</h2><span class="d-meta" id="hubDiffMeta">尚未检查</span></div>
                 <div class="d-progress"><i id="hubProgress"></i></div>
                 <div class="d-actions">
-                  <button class="d-btn primary" type="button" id="hubUpdate">更新选中项</button>
+                  <button class="d-btn primary" type="button" id="hubUpdate" disabled>更新选中项</button>
                   <button class="d-btn ghost" type="button" id="hubKeep">保留本地独有</button>
                 </div>
-                <p class="d-note" id="hubMsg">勾选后更新；云端已删除但本地存在的文件默认保留，不参与同步。</p>
-              </div>
-              <div class="d-card tight">
-                <div class="d-head"><h2>同步记录</h2><span class="d-meta">最近 3 次</span></div>
-                <div class="d-row"><span class="d-label">2026-11-09 12:04</span><span class="d-value ok">已是最新</span></div>
-                <div class="d-row"><span class="d-label">2026-11-08 21:18</span><span class="d-value">更新 2 项 · 成功</span></div>
-                <div class="d-row"><span class="d-label">2026-11-08 09:02</span><span class="d-value warn">网络中断</span></div>
+                <p class="d-note" id="hubMsg">勾选需要写入的音频。本机独有的录音会保留。</p>
               </div>
             </section>
 
@@ -229,11 +219,12 @@
                   <span class="v-main"><span>当前音色 · 固定</span><b id="devVoiceName">龙安欢</b></span>
                   <button class="d-btn" type="button" id="devVoicePreview">试听</button>
                 </div>
-                <div class="d-row"><span class="d-label">上一个音色</span><span class="d-value" id="devPrevVoice">无</span></div>
+                <div class="d-row"><span class="d-label">上一个音色</span><span class="d-value" id="devPrevVoice">--</span></div>
                 <div class="d-actions">
                   <button class="d-btn" type="button" id="devVoiceRestore" disabled>切回上一个</button>
                   <button class="d-btn" type="button" id="devVoiceAudition">试听当前</button>
                 </div>
+                <p class="d-note">对话中可试听固定音色和复刻音色。原声会在正常对话中播放。</p>
               </div>
               <div class="d-card tight">
                 <div class="d-head"><h2>音量</h2><span class="d-meta" id="devVolVal">60</span></div>
@@ -284,57 +275,40 @@
             <!-- 网络 -->
             <section class="dev-panel" data-panel="network" hidden>
               <div class="d-card tight">
-                <div class="d-head"><h2>当前网络</h2><span class="d-meta">STA</span></div>
-                <div class="d-row"><span class="d-label">SSID</span><span class="d-value strong">Home</span></div>
-                <div class="d-row"><span class="d-label">频段 / 信道</span><span class="d-value">2.4GHz · CH 6</span></div>
-                <div class="d-row"><span class="d-label">IP / 网关</span><span class="d-value">192.168.1.42 / .1</span></div>
-                <div class="d-row"><span class="d-label">RSSI</span><span class="d-value ok" id="netRssi">-54 dBm</span></div>
-                <div class="d-row"><span class="d-label">DNS</span><span class="d-value">192.168.1.1</span></div>
+                <div class="d-head"><h2>网络连接</h2></div>
+                <div class="d-row"><span class="d-label">上网通道</span><span class="d-value strong" id="netTransport">--</span></div>
+                <div class="d-row" id="netServerRow" hidden><span class="d-label">4G 对话服务</span><span class="d-value" id="netServer">--</span></div>
+                <div class="d-row"><span class="d-label">Wi-Fi 状态</span><span class="d-value" id="netWifi">--</span></div>
+                <div class="d-row"><span class="d-label">Wi-Fi 地址</span><span class="d-value" id="netIp">--</span></div>
+                <div class="d-row"><span class="d-label">Wi-Fi 信道 / 信号</span><span class="d-value" id="netRssi">--</span></div>
                 <div class="d-actions">
                   <button class="d-btn" type="button" id="netReconnect"><svg class="ico"><use href="#i-refresh"></use></svg>强制重连</button>
                   <button class="d-btn" type="button" id="netScan">扫描网络</button>
-                  <button class="d-btn" type="button" id="netDiag">网络诊断</button>
+                  <button class="d-btn" type="button" id="netDiag">刷新连接状态</button>
                 </div>
-                <div class="d-progress"><i id="netProgress"></i></div>
-              </div>
-              <div class="d-card tight" id="scanCard" hidden>
-                <div class="d-head"><h2>扫描结果</h2><span class="d-meta">2.4GHz · 4 个</span></div>
-                <div class="d-row"><span class="d-label">Home</span><span class="d-value ok">-54 dBm · 已连接</span></div>
-                <div class="d-row"><span class="d-label">PandaLab</span><span class="d-value">-67 dBm · WPA2</span></div>
-                <div class="d-row"><span class="d-label">Xiaomi_2.4G</span><span class="d-value">-74 dBm · WPA2</span></div>
-                <div class="d-row"><span class="d-label">TP-LINK_5G</span><span class="d-value warn">5GHz · 不支持</span></div>
               </div>
               <div class="d-card tight">
                 <div class="d-head"><h2>配网热点</h2><span class="d-meta">AP</span></div>
-                <div class="d-row"><span class="d-label">SSID</span><span class="d-value strong" data-p-hot>CrawlPanda-1A2B</span></div>
-                <div class="d-row"><span class="d-label">地址</span><span class="d-value">192.168.4.1 · :80 / :8080</span></div>
-                <div class="d-row"><span class="d-label">加密</span><span class="d-value">开放（配网）/ WPA2（开发者）</span></div>
-                <div class="d-row"><span class="d-label">已连接客户端</span><span class="d-value">1 台 · 本机</span></div>
-              </div>
-              <div class="d-card tight">
-                <div class="d-head"><h2>诊断输出</h2><span class="d-meta">最近一次</span></div>
-                <pre class="d-code" id="netDiagOut">> ping gateway 192.168.1.1
-  reply 4ms / 5ms / 4ms
-> dns resolve api.tenclass.net
-  47.96.xx.xx · 23ms
-> websocket handshake
-  connected · 68ms
-> rssi -54 dBm · channel 6
-  all checks passed</pre>
+                <div class="d-row"><span class="d-label">SSID</span><span class="d-value strong" id="netApSsid">--</span></div>
+                <div class="d-row"><span class="d-label">用户页地址</span><span class="d-value" id="netUserAddress">--</span></div>
+                <div class="d-row"><span class="d-label">开发者地址</span><span class="d-value" id="netDevAddress">--</span></div>
+                <div class="d-row"><span class="d-label">加密 / 已连接客户端</span><span class="d-value" id="netApClients">--</span></div>
               </div>
             </section>
 
             <!-- 系统 -->
             <section class="dev-panel" data-panel="system" hidden>
               <div class="d-card tight">
-                <div class="d-head"><h2>系统信息</h2><span class="d-meta">ESP32-S3</span></div>
-                <div class="d-row"><span class="d-label">固件版本</span><span class="d-value strong">v1.0.0 (8f37a35)</span></div>
-                <div class="d-row"><span class="d-label">构建日期</span><span class="d-value">2026-11-02 18:42</span></div>
-                <div class="d-row"><span class="d-label">ESP-IDF</span><span class="d-value">v6.0.2</span></div>
-                <div class="d-row"><span class="d-label">芯片 / 主频</span><span class="d-value">ESP32-S3 · 240MHz</span></div>
-                <div class="d-row"><span class="d-label">Flash / PSRAM</span><span class="d-value">16 MB / 8 MB</span></div>
-                <div class="d-row"><span class="d-label">STA MAC</span><span class="d-value">24:6f:28:xx:xx:1a</span></div>
-                <div class="d-row"><span class="d-label">分区表</span><span class="d-value">ota_0 / ota_1 · 4MB</span></div>
+                <div class="d-head"><h2>系统信息</h2></div>
+                <div class="d-row"><span class="d-label">固件版本</span><span class="d-value strong">--</span></div>
+                <div class="d-row"><span class="d-label">构建日期</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">ESP-IDF</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">芯片</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">Flash / PSRAM</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">STA MAC</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">板型</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">内部堆剩余 / 历史最低</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">内部最大空闲块</span><span class="d-value">--</span></div>
               </div>
               <div class="d-card tight">
                 <div class="d-head"><h2>OTA 升级</h2><span class="d-meta" id="otaState">未检查</span></div>
@@ -344,7 +318,7 @@
                   <button class="d-btn primary" type="button" id="otaStart" disabled>开始升级</button>
                 </div>
                 <div class="d-progress"><i id="otaProgress"></i></div>
-                <p class="d-note" id="otaMsg">OTA 只在开发者页提供；用户页不显示入口。</p>
+                <p class="d-note" id="otaMsg">当前固件未启用网页升级。</p>
               </div>
               <div class="d-card tight">
                 <div class="d-head"><h2>维护</h2><span class="d-meta">谨慎操作</span></div>
@@ -357,50 +331,18 @@
                 <div class="d-actions"><button class="d-btn danger" type="button" id="eraseBtn" disabled><svg class="ico"><use href="#i-trash"></use></svg>擦除外置 Flash 音频</button></div>
               </div>
               <div class="d-card tight">
-                <div class="d-head"><h2>存储占用</h2><span class="d-meta">分区</span></div>
-                <div class="d-row"><span class="d-label">应用分区</span><span class="d-value">1.82 MB / 4 MB</span></div>
-                <div class="d-row"><span class="d-label">外置音频</span><span class="d-value">42.6 MB / 128 MB</span></div>
-                <div class="d-row"><span class="d-label">NVS</span><span class="d-value">18 KB / 64 KB</span></div>
-                <div class="d-progress"><i style="width:36%"></i></div>
+                <div class="d-head"><h2>存储诊断</h2></div>
+                <div class="d-row"><span class="d-label">应用分区</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">外置音频</span><span class="d-value">--</span></div>
+                <div class="d-row"><span class="d-label">NVS 已用 / 总条目</span><span class="d-value">--</span></div>
               </div>
             </section>
 
             <!-- 日志 -->
             <section class="dev-panel" data-panel="log" hidden>
               <div class="d-card tight">
-                <div class="d-head"><h2>实时日志</h2><span class="d-meta" id="logState">已暂停</span></div>
-                <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center">
-                  <select class="d-input small" id="logLevel" style="flex:1 1 120px;min-width:0;height:34px" aria-label="日志级别">
-                    <option value="all">全部级别</option>
-                    <option value="info">INFO</option>
-                    <option value="warn">WARN</option>
-                    <option value="error">ERROR</option>
-                    <option value="debug">DEBUG</option>
-                  </select>
-                  <button class="d-btn" type="button" id="logLive">开始</button>
-                  <button class="d-btn" type="button" id="logClear">清空</button>
-                  <button class="d-btn" type="button" id="logDownload" aria-label="下载日志"><svg class="ico"><use href="#i-download"></use></svg></button>
-                </div>
-                <div class="d-log" id="logBox">
-                  <div data-lv="info"><span class="t">12:04:01.218</span> <span class="info">I</span> app: device ready, state=idle</div>
-                  <div data-lv="info"><span class="t">12:04:01.224</span> <span class="info">I</span> wifi: sta connected ssid=Home rssi=-54</div>
-                  <div data-lv="debug"><span class="t">12:04:01.301</span> <span class="debug">D</span> audio: codec es8311 init ok</div>
-                  <div data-lv="info"><span class="t">12:04:02.004</span> <span class="info">I</span> flash: w25n01gv detected, 128 files</div>
-                  <div data-lv="info"><span class="t">12:04:02.118</span> <span class="info">I</span> servo: rail on, center pose applied</div>
-                  <div data-lv="info"><span class="t">12:04:02.402</span> <span class="info">I</span> servo: rail off, released after 280ms</div>
-                  <div data-lv="warn"><span class="t">12:04:05.771</span> <span class="warn">W</span> touch: sw3 debounce 12ms</div>
-                  <div data-lv="info"><span class="t">12:04:07.020</span> <span class="info">I</span> app: touch affection, motion=look_up</div>
-                  <div data-lv="info"><span class="t">12:04:09.918</span> <span class="info">I</span> hub: check ok, diff=3</div>
-                  <div data-lv="debug"><span class="t">12:04:11.004</span> <span class="debug">D</span> audio: play index=12 name=rain_window</div>
-                  <div data-lv="info"><span class="t">12:04:23.418</span> <span class="info">I</span> audio: stop, reason=eof</div>
-                  <div data-lv="warn"><span class="t">12:05:02.117</span> <span class="warn">W</span> power: battery 3.98v, low threshold 3.45v</div>
-                  <div data-lv="info"><span class="t">12:05:30.006</span> <span class="info">I</span> app: ui heartbeat, heap=182KB</div>
-                  <div data-lv="error"><span class="t">12:06:18.772</span> <span class="error">E</span> ws: ping timeout, retry 1/3</div>
-                  <div data-lv="info"><span class="t">12:06:19.004</span> <span class="info">I</span> ws: reconnected in 232ms</div>
-                  <div data-lv="debug"><span class="t">12:06:19.050</span> <span class="debug">D</span> mcp: tools refreshed, count=14</div>
-                  <div data-lv="info"><span class="t">12:06:20.114</span> <span class="info">I</span> app: state=idle, idle motion resumed</div>
-                </div>
-                <p class="d-note">当前固件暂不提供网页日志。</p>
+                <div class="d-head"><h2>固件日志</h2></div>
+                <p class="d-sub">固件日志可通过串口读取。状态页可导出传感器、网络和内存诊断。</p>
               </div>
             </section>
 
@@ -409,6 +351,7 @@
               <div class="d-card tight">
                 <div class="d-head"><h2>本地 HTTP 接口</h2><span class="d-meta">点击复制</span></div>
                 <button class="d-api-row" type="button" data-copy="GET /api/status"><span class="d-method get">GET</span><code>/api/status</code><span>设备状态与传感器</span></button>
+                <button class="d-api-row" type="button" data-copy="GET /api/developer/status"><span class="d-method get">GET</span><code>/api/developer/status</code><span>详细诊断（需登录）</span></button>
                 <button class="d-api-row" type="button" data-copy="GET /api/audio"><span class="d-method get">GET</span><code>/api/audio</code><span>音频库目录</span></button>
                 <button class="d-api-row" type="button" data-copy="POST /api/audio/play {&quot;name&quot;:&quot;...&quot;}"><span class="d-method post">POST</span><code>/api/audio/play</code><span>播放指定音频</span></button>
                 <button class="d-api-row" type="button" data-copy="POST /api/audio/stop"><span class="d-method post">POST</span><code>/api/audio/stop</code><span>停止试听</span></button>
@@ -431,7 +374,7 @@ curl -X POST http://&lt;设备 IP&gt;:8080/api/developer/volume \
   -H "Content-Type: application/json" \
   -H "X-Developer-Token: &lt;token&gt;" \
   -d '{"volume":70}'</pre>
-                <p class="d-note">写接口需要开发者 token；登录成功返回 token，有效期 30 分钟。</p>
+                <p class="d-note">开发者管理接口使用登录返回的 token，30 分钟内有效。</p>
               </div>
             </section>
           </div>
@@ -447,22 +390,22 @@ curl -X POST http://&lt;设备 IP&gt;:8080/api/developer/volume \
             <div class="field">
               <label for="devPassword">开发者密码</label>
               <div class="input-wrap">
-                <input id="devPassword" type="password" placeholder="请输入密码" autocomplete="off">
+                <input id="devPassword" type="password" placeholder="请输入密码" autocomplete="off" autocapitalize="none" spellcheck="false">
                 <button class="peek" type="button" id="devPwEye" aria-label="显示密码"><svg class="ico"><use href="#i-eye"></use></svg></button>
               </div>
-              <p class="gate-error" id="gateError"></p>
+              <p class="gate-error" id="gateError" role="status" aria-live="polite"></p>
             </div>
             <button class="btn primary" type="button" id="devLogin">解锁</button>
-            <p class="gate-hint">请输入开发者密码</p>
           </div>
         </div>
 
       </div>
-      <p class="notes"><b>原型说明：</b>开发者页按功能齐全优先，视觉密度高于用户页。演示密码 <code>1</code>；状态切换在页面外。OTA、Hub、日志、擦除均为离线模拟，不会访问网络。</p>
     </section>
   </main>
 </div>
 
+<script src="js/editor-focus.js"></script>
+<script src="js/voice-actions.js"></script>
 <script src="js/developer.js"></script>
 
 </body>

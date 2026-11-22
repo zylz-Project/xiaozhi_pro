@@ -2,8 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<script src="js/viewport.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6eadc">
 <title>设备验证 · 爬爬熊猫</title>
 <link rel="stylesheet" href="css/panda.css">
@@ -77,7 +76,7 @@
                 <label class="field" for="loginPw">
                   <span class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">页面密码</span>
                   <div class="input-wrap">
-                    <input id="loginPw" name="password" type="password" inputmode="text" placeholder="输入密码" autocomplete="current-password" spellcheck="false">
+                    <input id="loginPw" name="password" type="password" inputmode="none" data-edit-on-tap placeholder="输入密码" autocomplete="current-password" spellcheck="false">
                     <button class="peek" id="loginPeek" type="button" aria-label="显示密码"><svg class="ico" viewBox="0 0 24 24"><use href="#i-eye"></use></svg></button>
                   </div>
                 </label>
@@ -89,7 +88,7 @@
                 </button>
               </form>
 
-              <p class="login-note">密码区分大小写。连续输错 5 次会锁 60 秒，稍等一下再试。</p>
+              <p class="login-note">密码区分大小写。连续输错 5 次会锁 60 秒。<a class="manual-link" href="/manual#m-network">查看说明书</a></p>
               <footer class="login-foot">
                 <img data-p-img="face" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="">
                 <b data-p-name>爬爬熊猫</b><i></i><span data-p-en>CRAWL PANDA</span>
@@ -99,11 +98,11 @@
         </div>
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </div>
-      <p class="notes"><b>原型说明：</b>玻璃门、探头的小家伙和锁扣都是 CSS/SVG 动的；输入正确密码会开门并进入详情。演示密码 <code data-p-pass>zylz1A2B</code>。</p>
     </section>
   </main>
 </div>
 
+<script src="js/editor-focus.js"></script>
 <script src="js/guide-config.js?v=2"></script>
 <script src="js/guide.js"></script>
 <script src="js/login.js"></script>

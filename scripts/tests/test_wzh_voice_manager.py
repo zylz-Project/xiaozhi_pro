@@ -23,14 +23,19 @@ class VoiceManagerTest(unittest.TestCase):
 using namespace voice_tts;
 std::vector<std::string> remote;std::vector<VoiceName> labels;
 std::string current="legacy",previous;int creates=0,deletes=0,reserved=-1;bool create_fail=false,fail_before_submit=false,delete_fail=false,remove_fail=false;
+std::string key="key";int lists=0;bool selection_read_fails=false,cloud_seen=false;
 int esp_read_mac(unsigned char* m,int){unsigned char a[6]={1,2,3,4,5,6};std::memcpy(m,a,6);return 0;}
 namespace voice_tts {
-std::string LoadAliKey(){return "key";}
+std::string LoadAliKey(){return key;}
 std::string LoadAliVoice(){return current;}
 std::string LoadPreviousAliVoice(){return previous;}
+bool LoadAliVoiceSelection(std::string& selected,std::string& last){
+ if(selection_read_fails)return false;selected=current;last=previous;return true;}
 bool SaveAliVoice(const std::string& id){previous=current;current=id;return true;}
 bool LoadVoiceReservation(int& out){out=reserved;return true;}
 bool SaveVoiceReservation(int value){reserved=value;return true;}
+bool LoadCloudVoiceObservation(bool& out){out=cloud_seen;return true;}
+bool SaveCloudVoiceObservation(bool value){cloud_seen=value;return true;}
 bool CommitAliVoice(const std::string& id){return SaveAliVoice(id);}
 bool ClearAliVoiceSelection(){current.clear();previous.clear();return true;}
 bool ForgetPreviousAliVoice(const std::string& id){if(previous==id)previous.clear();return true;}
@@ -39,8 +44,9 @@ bool LoadVoiceNames(std::vector<VoiceName>& out){out=labels;return true;}
 bool SetVoiceName(const std::string& id,const std::string& name){
  for(auto& e:labels)if(e.id==id){e.name=name;return true;}labels.push_back({id,name});return true;}
 bool RemoveVoiceName(const std::string& id){if(remove_fail)return false;labels.erase(std::remove_if(labels.begin(),labels.end(),[&](auto& x){return x.id==id;}),labels.end());return true;}
-bool ListAliVoices(const std::string&,const std::string& prefix,const std::function<bool()>&,std::vector<std::string>& out){
- assert(prefix==VoicePrefixFromMac((const uint8_t*)"\1\2\3\4\5\6",6));out=remote;return true;}
+bool ListAliVoices(const std::string&,const std::string& prefix,const std::function<bool()>& cancelled,std::vector<std::string>& out){
+ assert(prefix==VoicePrefixFromMac((const uint8_t*)"\1\2\3\4\5\6",6));
+ if(cancelled())return false;++lists;out=remote;return true;}
 bool DeleteAliVoice(const std::string&,const std::string&,const std::string& id,const std::function<bool()>&,int){
  ++deletes;if(delete_fail)return false;auto it=std::find(remote.begin(),remote.end(),id);if(it==remote.end())return false;remote.erase(it);return true;}
 bool CreateAliVoice(const std::string&,const int16_t*,size_t,const std::function<bool()>&,
@@ -69,6 +75,8 @@ int main(){std::string id;int16_t samples[1]={};auto no=[](){return false;};
  fail_before_submit=false;assert(EnrollManagedVoice(samples,1,"新",no,id)==VoiceOperation::kNetwork && reserved==0);
  assert(EnrollManagedVoice(samples,1,"新",no,id)==VoiceOperation::kUncertain && creates==3);
  remote.push_back("created-after-timeout");assert(ListManagedVoices(all)==VoiceOperation::kOk && reserved==-1);
+ assert(labels.empty()&&cloud_seen);
+ assert(ResetManagedVoices(no,{})==VoiceOperation::kOk&&labels.empty()&&remote.empty());
  remote.clear();reserved=0;
  assert(ResetManagedVoices(no,{})==VoiceOperation::kUncertain&&reserved==0);
  reserved=-1;remote={"first","second"};labels={{"first","1"},{"second","2"}};current="first";previous="second";
@@ -80,6 +88,27 @@ int main(){std::string id;int16_t samples[1]={};auto no=[](){return false;};
  remove_fail=false;assert(ResetManagedVoices(no,progress)==VoiceOperation::kOk);
  assert(remote.empty()&&labels.empty()&&current.empty()&&previous.empty()&&completed==1&&total==1);
 
+ remote={"legacy-unlabeled"};
+ assert(ListManagedVoices(all)==VoiceOperation::kOk&&labels.empty()&&cloud_seen);
+ assert(ResetManagedVoices(no,{})==VoiceOperation::kOk&&remote.empty()&&!cloud_seen);
+ remote={"another-unlabeled"};
+ assert(DeleteManagedVoice("another-unlabeled")==VoiceOperation::kOk&&remote.empty()&&!cloud_seen);
+
+ const auto offline=[](){return true;};
+ const int lists_before=lists,deletes_before=deletes;
+ bool local=false;auto clearing_local=[&](){local=true;};
+ current="xiaozhi-native";previous=kBuiltinVoices[0].id;
+ assert(ResetManagedVoices(offline,{},clearing_local)==VoiceOperation::kOk&&local);
+ assert(current.empty()&&previous.empty()&&lists==lists_before&&deletes==deletes_before);
+ key.clear();local=false;
+ assert(ResetManagedVoices(offline,{},clearing_local)==VoiceOperation::kOk&&local);
+ previous="previous-clone";local=false;
+ assert(ResetManagedVoices(offline,{},clearing_local)==VoiceOperation::kConfig&&!local);
+ key="key";
+ assert(ResetManagedVoices(offline,{},clearing_local)==VoiceOperation::kCancelled&&!local);
+ assert(previous=="previous-clone"&&lists==lists_before&&deletes==deletes_before);
+ selection_read_fails=true;
+ assert(ResetManagedVoices(no,{},clearing_local)==VoiceOperation::kSave&&!local);
 }
 '''
         with tempfile.TemporaryDirectory() as d:

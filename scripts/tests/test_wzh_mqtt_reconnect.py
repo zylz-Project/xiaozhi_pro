@@ -9,6 +9,81 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MqttReconnectTest(unittest.TestCase):
+    def test_short_link_loss_resumes_once_and_cancellation_expires(self):
+        source = (ROOT / 'main/application.cc').read_text()
+        methods = '\n'.join(queue_function(source, name) for name in (
+            'bool Application::IsConversationRecovering()',
+            'void Application::SuspendConversationForNetworkLoss(',
+            'void Application::ServiceConversationNetworkRecovery(',
+        ))
+        output.WzhMotionOutputTest.run_cpp(self, r'''
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <functional>
+#define CONFIG_USE_VOICE_BARGE_IN 1
+#define ESP_LOGI(...) ((void)0)
+enum State{kDeviceStateIdle,kDeviceStateConnecting,kDeviceStateListening,kDeviceStateSpeaking};
+int64_t now=100; int64_t esp_timer_get_time(){return now;}
+struct Board{
+ bool online=false, maintenance=false;
+ static Board& GetInstance(){static Board b;return b;}
+ bool IsNetworkAvailable(){return online;} bool IsAudioMaintenanceActive(){return maintenance;}
+};
+struct Protocol {
+ bool ready=false, worker=false;
+ bool IsReady(){return ready;}
+ bool DeferUntilReconnectFinishes(std::function<void()>){return worker;}
+};
+struct Audio {
+ bool live=true;int resets=0;
+ void EnableVoiceProcessing(bool value){live=value;} void ResetDecoder(){++resets;}
+};
+struct Application{
+ State state=kDeviceStateSpeaking;
+ bool shutting=false, pending_listening_start_=true, play_popup_on_listening_=true;
+ bool entry_prompt_before_listening_=true;
+ std::atomic<bool> interaction_stopped_{false}, voice_enrollment_active_{false},
+  external_voice_preview_active_{false}, voice_enrollment_reconnecting_{false},
+  barge_in_reconnecting_{false};
+ std::atomic<uint32_t> interaction_generation_{3},network_resume_generation_{0};
+ std::atomic<int64_t> network_resume_deadline_us_{0};
+ Audio audio_service_;Protocol protocol;Protocol* protocol_=&protocol;
+ int attempts=0;
+ State GetDeviceState(){return state;}bool SetDeviceState(State value){state=value;return true;}
+ bool IsShuttingDown(){return shutting;}
+ void StopInteraction(){++interaction_generation_;interaction_stopped_=true;}
+ bool ReconnectAfterVoiceInterruption(uint32_t token,bool close,bool reopen,bool listen){
+  assert(token==interaction_generation_&&!close&&reopen&&listen);++attempts;return true;
+ }
+ bool IsConversationRecovering()const;
+ void SuspendConversationForNetworkLoss(int64_t);
+ void ServiceConversationNetworkRecovery();
+};
+''' + methods + r'''
+int main(){
+ auto& board=Board::GetInstance();Application app;
+ app.SuspendConversationForNetworkLoss(20000000);
+ assert(app.IsConversationRecovering()&&app.state==kDeviceStateIdle&&!app.audio_service_.live);
+ app.ServiceConversationNetworkRecovery();assert(app.attempts==0);
+ board.online=true;app.ServiceConversationNetworkRecovery();assert(app.attempts==0);
+ app.protocol.ready=true;app.protocol.worker=true;
+ app.ServiceConversationNetworkRecovery();assert(app.attempts==0&&app.IsConversationRecovering());
+ app.protocol.worker=false;app.ServiceConversationNetworkRecovery();
+ assert(app.attempts==1&&app.state==kDeviceStateConnecting&&!app.IsConversationRecovering());
+ app.ServiceConversationNetworkRecovery();assert(app.attempts==1);
+ Application cancelled;cancelled.protocol.ready=true;
+ cancelled.SuspendConversationForNetworkLoss(20000000);cancelled.StopInteraction();
+ cancelled.ServiceConversationNetworkRecovery();assert(cancelled.attempts==0);
+ Application stale;stale.protocol.ready=true;
+ stale.SuspendConversationForNetworkLoss(20000000);now+=20000000;
+ stale.ServiceConversationNetworkRecovery();assert(stale.attempts==0);
+ Application record;record.voice_enrollment_active_=true;
+ record.SuspendConversationForNetworkLoss(20000000);
+ assert(record.state==kDeviceStateIdle&&!record.IsConversationRecovering());
+}
+''')
+
     def test_conversation_disconnect_recovery_is_bounded_and_respects_stop(self):
         source = (ROOT / 'main/application.cc').read_text()
         recovery = queue_function(source, 'if (transport_disconnected && !interaction_stopped_.load()')
@@ -119,18 +194,30 @@ int main(){MqttProtocol p;bool unlocked=false;int destroyed=0;
         output.WzhMotionOutputTest.run_cpp(self, r'''
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <functional>
 #include <utility>
 int stopped=0;void esp_timer_stop(void*){++stopped;}
+struct Board {bool online=true,cellular=false;static Board& GetInstance(){static Board b;return b;}
+ bool IsNetworkAvailable()const{return online;}bool UsesCellularNetwork()const{return cellular;}};
 struct Client {std::function<void()> connected;
  void OnConnected(std::function<void()> f){connected=std::move(f);}};
 struct Protocol {Client client,*mqtt_=&client;std::atomic<bool> mqtt_connected_{false};
+ std::atomic<uint32_t> link_generation_{0};uint32_t mqtt_link_generation_=0;
+ bool mqtt_transport_cellular_=false;
  void* reconnect_timer_=nullptr;std::function<void()> on_connected_;
  void Bind(){
 ''' + callback + r'''
  }};
 int main(){Protocol p;int called=0;p.on_connected_=[&]{++called;};p.Bind();
- p.client.connected();assert(p.mqtt_connected_&&called==1&&stopped==1);}
+ Board::GetInstance().online=false;p.client.connected();assert(!p.mqtt_connected_&&stopped==0);
+ Board::GetInstance().online=true;++p.link_generation_;p.client.connected();
+ assert(!p.mqtt_connected_&&called==0&&stopped==0);
+ p.mqtt_link_generation_=1;p.Bind();
+ Board::GetInstance().cellular=true;p.client.connected();
+ assert(!p.mqtt_connected_&&called==0&&stopped==0);
+ p.mqtt_transport_cellular_=true;p.Bind();p.client.connected();
+ assert(p.mqtt_connected_&&called==1&&stopped==1);}
 ''')
 
     def test_failed_cellular_uplink_closes_without_goodbye(self):
@@ -196,20 +283,35 @@ int main(){Protocol p;auto& app=Application::GetInstance();int closes=0;
 #define CONFIG_BOARD_TYPE_WZH_DINOSAUR 1
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
+#define ESP_LOGE(...) ((void)0)
+constexpr int pdPASS=1;
 enum {kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateIdle,kDeviceStateActivating};
-int tasks=0;int xTaskCreate(void(*)(void*),const char*,int,void*,int,void**){++tasks;return 1;}
+constexpr int MAIN_EVENT_ACTIVATION_DONE=1;
+int tasks=0;bool allocation_ok=true;
+int xTaskCreate(void(*)(void*),const char*,int,void*,int,void**){++tasks;return allocation_ok?pdPASS:0;}
+void xEventGroupSetBits(void*,int){}
 void vTaskDelete(void*){}
 struct Display{int updates=0;void UpdateStatusBar(bool){++updates;}};
 struct Board{bool online=false;Display display;static Board& GetInstance(){static Board b;return b;}
  bool IsNetworkAvailable(){return online;}Display* GetDisplay(){return &display;}};
-struct Application{int state=kDeviceStateIdle;void* protocol_=nullptr;void* activation_task_handle_=nullptr;
+struct Protocol{int ready=0;void OnNetworkReady(){++ready;}};
+struct Application{int state=kDeviceStateIdle;Protocol* protocol_=nullptr;bool activation_running_=false;
+ void* event_group_=nullptr;bool activation_network_ready_pending_=false;
+ bool shutting_down=false;bool IsShuttingDown()const{return shutting_down;}
  int GetDeviceState(){return state;}void SetDeviceState(int s){state=s;}void ActivationTask(){}
  void HandleNetworkConnectedEvent();};
 ''' + method + r'''
 int main(){Application app;auto& board=Board::GetInstance();
  app.HandleNetworkConnectedEvent();assert(tasks==0&&app.state==kDeviceStateIdle&&board.display.updates==0);
- board.online=true;app.HandleNetworkConnectedEvent();
+ board.online=true;app.shutting_down=true;app.HandleNetworkConnectedEvent();
+ assert(tasks==0&&app.state==kDeviceStateIdle&&board.display.updates==0);
+ app.shutting_down=false;app.HandleNetworkConnectedEvent();
  assert(tasks==1&&app.state==kDeviceStateActivating&&board.display.updates==1);
+ Protocol p;app.protocol_=&p;app.HandleNetworkConnectedEvent();
+ assert(p.ready==0&&app.activation_network_ready_pending_);
+ app.state=kDeviceStateIdle;app.HandleNetworkConnectedEvent();assert(p.ready==1&&tasks==1);
+ app.protocol_=nullptr;app.activation_running_=false;allocation_ok=false;app.HandleNetworkConnectedEvent();
+ assert(tasks==2&&app.state==kDeviceStateIdle&&!app.activation_running_);
 }
 ''')
 
@@ -294,6 +396,7 @@ struct Client {bool connected=false,publish_ok=true;int publishes=0,queries=0;
  bool IsConnected(){++queries;return connected;}bool Publish(const std::string&,const std::string&){++publishes;return publish_ok;}};
 struct MqttProtocol {std::string publish_topic_="topic";std::unique_ptr<Client> mqtt_;std::mutex mqtt_mutex_;int errors=0;
  std::atomic<bool> mqtt_connected_{false};bool mqtt_transport_cellular_=false;
+ std::atomic<uint32_t> link_generation_{0};uint32_t mqtt_link_generation_=0;
  std::shared_ptr<std::atomic<bool>> alive_=std::make_shared<std::atomic<bool>>(true);
  void SetError(const char*){++errors;}bool IsMqttConnectedLocked();void ScheduleCellularRecheck();
  bool SendText(const std::string&);};
@@ -301,6 +404,10 @@ struct MqttProtocol {std::string publish_topic_="topic";std::unique_ptr<Client> 
 int main(){MqttProtocol p;assert(!p.SendText("test"));p.mqtt_=std::make_unique<Client>();
  assert(!p.SendText("test")&&p.mqtt_->publishes==0);p.mqtt_->connected=true;
  assert(p.SendText("test")&&p.mqtt_->publishes==1);
+ Board::GetInstance().online=false;assert(!p.SendText("test"));
+ Board::GetInstance().online=true;++p.link_generation_;
+ assert(!p.SendText("test")&&p.mqtt_->publishes==1); // Old TCP socket after a new IP event.
+ p.mqtt_link_generation_=1;
  std::atomic<bool> locked{false},release{false};std::thread connector([&]{
   std::lock_guard<std::mutex> hold(p.mqtt_mutex_);locked=true;while(!release.load())std::this_thread::yield();});
  while(!locked.load())std::this_thread::yield();
@@ -309,6 +416,8 @@ int main(){MqttProtocol p;assert(!p.SendText("test"));p.mqtt_=std::make_unique<C
  assert(!p.SendText("test")); // A Wi-Fi client must not be reused for 4G.
  p.mqtt_transport_cellular_=true;
  int queries=p.mqtt_->queries;assert(p.SendText("test")&&p.mqtt_->queries==queries);
+ ++p.link_generation_;assert(!p.SendText("test")&&p.mqtt_->queries==queries);
+ p.mqtt_link_generation_=p.link_generation_.load();
  Board::GetInstance().online=false;assert(!p.SendText("test")&&p.mqtt_->queries==queries);
  Board::GetInstance().online=true;
  p.mqtt_->publish_ok=false;
@@ -385,16 +494,19 @@ TimerArgs timer;int retries=0;int64_t last_duration=0;
 int esp_timer_create(const TimerArgs* args,void** handle){timer=*args;*handle=&timer;return 0;}
 int esp_timer_start_once(void*,int64_t duration){last_duration=duration;++retries;return 0;}
 void* xEventGroupCreate(){return nullptr;}
-struct Board {bool online=true,maintenance=false;static Board& GetInstance(){static Board b;return b;}
- bool IsNetworkAvailable()const{return online;}bool IsAudioMaintenanceActive(){return maintenance;}};
+struct Board {bool online=true,maintenance=false,cellular=true;static Board& GetInstance(){static Board b;return b;}
+ bool IsNetworkAvailable()const{return online;}bool IsAudioMaintenanceActive(){return maintenance;}
+ bool UsesCellularNetwork()const{return cellular;}};
 struct Application {int state=kDeviceStateIdle;std::function<void()> pending;
  static Application& GetInstance(){static Application a;return a;}int GetDeviceState(){return state;}
  void Schedule(std::function<void()>&& fn){pending=std::move(fn);}void Run(){auto fn=std::move(pending);pending={};fn();}};
 struct Client {bool connected=false;bool IsConnected(){return connected;}};
 struct MqttProtocol {void* event_group_handle_=nullptr;void* reconnect_timer_=nullptr;
  std::unique_ptr<Client> mqtt_;std::mutex mqtt_mutex_;std::atomic<bool> suspend_queued_{false};int suspends=0;
+ bool reconnect_running_=false;
  std::shared_ptr<std::atomic<bool>> alive_=std::make_shared<std::atomic<bool>>(true);
  int connects=0;bool result=true;MqttProtocol();bool Start();void SuspendUnavailableMqtt(){++suspends;}
+ void StartReconnectTask(){if(!StartMqttClient(false))esp_timer_start_once(reconnect_timer_,60000000);}
  bool IsMqttConnectedLocked(){return mqtt_&&mqtt_->IsConnected();}
  bool StartMqttClient(bool){++connects;return result;}};
 ''' + constructor + '\n' + start + r'''
@@ -414,7 +526,147 @@ int main(){MqttProtocol p;auto& b=Board::GetInstance();auto& app=Application::Ge
  assert(p.connects==2&&retries==7);
  timer.callback(timer.arg);*p.alive_=false;app.Run();assert(p.connects==2);
  MqttProtocol fresh;fresh.result=false;b.online=false;assert(!fresh.Start());
- assert(last_duration==5000000);b.online=true;assert(!fresh.Start());assert(last_duration==60000000);
+ assert(last_duration==5000000);b.online=true;assert(!fresh.Start());assert(last_duration==5000000);
+ b.cellular=false;assert(!fresh.Start());assert(last_duration==60000000);
+}
+''')
+
+    def test_network_ready_rearms_retry_and_connects_off_application_task(self):
+        source = (ROOT / 'main/protocols/mqtt_protocol.cc').read_text()
+        methods = '\n'.join(queue_function(source, signature) for signature in (
+            'void MqttProtocol::OnNetworkLost()', 'void MqttProtocol::OnNetworkReady()',
+            'bool MqttProtocol::DeferUntilReconnectFinishes(',
+            'void MqttProtocol::StartReconnectTask()'))
+        output.WzhMotionOutputTest.run_cpp(self, r'''
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <new>
+#include <utility>
+#define ESP_LOGW(...) ((void)0)
+#define TAG "test"
+constexpr int kDeviceStateIdle=0,pdPASS=1,kLinkResumeRetryMs=250;
+constexpr int MQTT_DEFERRED_RETRY_MS=5000,MQTT_RECONNECT_INTERVAL_MS=60000;
+int64_t delay=60000000;
+int esp_timer_stop(void*){delay=0;return 0;}
+int esp_timer_start_once(void*,int64_t value){if(delay)return 1;delay=value;return 0;}
+void(*task)(void*)=nullptr;void* payload=nullptr;bool allocation_ok=true;
+int xTaskCreate(void(*fn)(void*),const char*,int,void* data,int,void*){
+ if(!allocation_ok)return 0;
+ assert(!task);task=fn;payload=data;return pdPASS;}
+void vTaskDelete(void*){}
+void run_task(){const auto fn=task;task=nullptr;fn(payload);}
+struct Board{bool online=true,maintenance=false,cellular=false;static Board& GetInstance(){static Board b;return b;}
+ bool IsNetworkAvailable()const{return online;}bool IsAudioMaintenanceActive()const{return maintenance;}
+ bool UsesCellularNetwork()const{return cellular;}};
+struct Application{int state=kDeviceStateIdle;static Application& GetInstance(){static Application a;return a;}
+ std::function<void()> pending;int GetDeviceState()const{return state;}
+ void Schedule(std::function<void()> fn){pending=std::move(fn);}
+ void Run(){auto fn=std::exchange(pending,{});assert(fn);fn();}};
+struct MqttProtocol:std::enable_shared_from_this<MqttProtocol>{
+ bool reconnect_running_=false;std::atomic<uint32_t> link_generation_{0};
+ std::atomic<bool> mqtt_connected_{true};
+ std::function<void()> reconnect_completion_;
+ void* reconnect_timer_=nullptr;int connects=0;bool succeed=false,lose_link=false;
+ void OnNetworkLost();void OnNetworkReady();void StartReconnectTask();
+ bool DeferUntilReconnectFinishes(std::function<void()>);
+ bool StartMqttClient(){++connects;if(lose_link)OnNetworkLost();return succeed;}};
+''' + methods + r'''
+int main(){auto p=std::make_shared<MqttProtocol>();auto& b=Board::GetInstance();
+ auto& app=Application::GetInstance();int resumed=0;
+ p->OnNetworkLost();assert(p->link_generation_==1&&delay==60000000&&!p->mqtt_connected_);
+ b.cellular=true;p->OnNetworkReady();assert(delay==250000);
+ b.cellular=false;p->OnNetworkReady();assert(delay==250000);b.cellular=true;
+ delay=0;p->StartReconnectTask();assert(task&&p->connects==0);
+ p->StartReconnectTask();assert(delay==0&&p->connects==0);
+ assert(p->DeferUntilReconnectFinishes([&]{++resumed;}));
+ b.online=false;run_task();assert(!resumed&&p->reconnect_running_);app.Run();
+ assert(delay==5000000&&p->connects==0&&resumed==1&&!p->reconnect_running_);
+ assert(!p->DeferUntilReconnectFinishes([&]{++resumed;}));
+ b.online=true;delay=0;p->StartReconnectTask();run_task();app.Run();
+ assert(delay==60000000&&p->connects==1);
+ p->lose_link=true;delay=0;p->StartReconnectTask();run_task();app.Run();
+ assert(delay==250000&&p->connects==2);
+ delay=0;allocation_ok=false;p->StartReconnectTask();assert(!task&&delay==5000000);
+ delay=0;allocation_ok=true;p->succeed=true;p->lose_link=false;p->StartReconnectTask();
+ std::weak_ptr<MqttProtocol> owner=p;p.reset();assert(!owner.expired());
+ run_task();assert(!owner.expired());app.Run();assert(owner.expired()&&delay==0);
+}
+''')
+
+    def test_radio_switch_waits_for_previous_mqtt_worker_to_release_connection(self):
+        method = queue_function((ROOT / 'main/application.cc').read_text(),
+                                'void Application::ResetProtocol(')
+        output.WzhMotionOutputTest.run_cpp(self, r'''
+#include <atomic>
+#include <cassert>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <utility>
+#define CONFIG_BOARD_TYPE_WZH_DINOSAUR 1
+constexpr int kDeviceStateIdle=0;
+int destroyed=0;
+struct Protocol{
+ bool running=true;std::function<void()> completion;
+ ~Protocol(){++destroyed;}
+ bool DeferUntilReconnectFinishes(std::function<void()> next){
+  if(!running)return false;
+  completion=std::move(next);return true;}
+ bool IsAudioChannelOpened(){return false;}void CloseAudioChannel(){}
+};
+struct Enrollment{void Cancel(){}};
+struct Board{
+ static Board& GetInstance(){static Board b;return b;}
+ void SetVoiceEnrollmentRecording(bool){} Enrollment* GetVoiceEnrollment(){return nullptr;}
+};
+struct Audio{void EnableVoiceProcessing(bool){}};
+struct Application{
+ std::shared_ptr<Protocol> protocol_=std::make_shared<Protocol>();
+ std::deque<std::function<void()>> pending;
+ std::atomic<bool> cellular_server_connected_{true},barge_in_reconnecting_{false},
+  voice_enrollment_active_{false},voice_enrollment_reconnecting_{false},conversation_configured_{true};
+ std::atomic<unsigned> protocol_generation_{0},interaction_generation_{0},network_resume_generation_{0};
+ Audio audio_service_;void SetDeviceState(int){}
+ void Schedule(std::function<void()> next){pending.push_back(std::move(next));}
+ void Run(){auto next=std::move(pending.front());pending.pop_front();next();}
+ void ResetProtocol(std::function<void()>);
+};
+''' + method + r'''
+int main(){
+ Application app;bool switched=false;
+ app.interaction_generation_=4;app.network_resume_generation_=4;
+ auto worker=app.protocol_;
+ app.ResetProtocol([&]{assert(!app.protocol_&&destroyed==1);switched=true;});
+ app.Run();assert(app.protocol_&&!switched&&app.pending.empty()&&worker->completion);
+ worker->running=false;auto finished=std::move(worker->completion);finished();worker.reset();
+ assert(app.protocol_&&!switched&&destroyed==0);
+ app.Run();assert(!app.protocol_&&!switched&&destroyed==1);
+ app.Run();assert(switched&&!app.cellular_server_connected_&&!app.conversation_configured_&&app.protocol_generation_==1);
+ assert(app.interaction_generation_==5&&app.network_resume_generation_==5);
+}
+''')
+
+    def test_persistent_portal_limits_idle_wifi_power_saving(self):
+        source = (ROOT / 'project_components/esp-wifi-connect/wifi_station.cc').read_text()
+        method = queue_function(source, 'void WifiStation::SetPowerSaveLevel(')
+        output.WzhMotionOutputTest.run_cpp(self, r'''
+#include <cassert>
+#define ESP_LOGI(...) ((void)0)
+#define ESP_ERROR_CHECK(status) assert((status)==0)
+enum class WifiPowerSaveLevel{LOW_POWER,BALANCED,PERFORMANCE};
+enum wifi_ps_type_t{WIFI_PS_MAX_MODEM,WIFI_PS_MIN_MODEM,WIFI_PS_NONE};
+wifi_ps_type_t applied;
+int esp_wifi_set_ps(wifi_ps_type_t mode){applied=mode;return 0;}
+struct WifiStation{bool persistent_ap_=false;void SetPowerSaveLevel(WifiPowerSaveLevel);};
+''' + method + r'''
+int main(){WifiStation station;
+ station.SetPowerSaveLevel(WifiPowerSaveLevel::LOW_POWER);assert(applied==WIFI_PS_MAX_MODEM);
+ station.persistent_ap_=true;
+ station.SetPowerSaveLevel(WifiPowerSaveLevel::LOW_POWER);assert(applied==WIFI_PS_MIN_MODEM);
+ station.SetPowerSaveLevel(WifiPowerSaveLevel::PERFORMANCE);assert(applied==WIFI_PS_NONE);
 }
 ''')
 

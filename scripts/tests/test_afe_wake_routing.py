@@ -52,13 +52,16 @@ const char* esp_srmodel_get_wake_words(void*, char*) { return "小龙小龙"; }
 struct CustomWakeWord {
     static bool init_ok;
     bool running = false, local_only = false;
+    bool allow_interrupt = true;
     int feeds = 0, stops = 0;
     std::function<void(const std::string&)> callback;
     void OnWakeWordDetected(std::function<void(const std::string&)> cb) { callback = cb; }
     bool Initialize(void*, void*, bool local) { local_only = local; return init_ok; }
     void Start() { running = true; }
     void Stop() { running = false; ++stops; }
-    void FeedMono(const int16_t*, size_t) { assert(running); ++feeds; }
+    void FeedMono(const int16_t*, size_t, bool allow = true) {
+        assert(running); ++feeds; allow_interrupt = allow;
+    }
 };
 bool CustomWakeWord::init_ok = true;
 struct AfeAudioEngine {
@@ -77,12 +80,14 @@ struct AfeAudioEngine {
     void UpdateActiveState() {}
     bool InitializeWakeWordDetectors(char*, char*);
     void EnableWakeWordDetection(bool);
+    bool IsLocalCommandCapture() const;
     void HandleWakeWordResult(const afe_fetch_result_t*);
     void HandleDetectedWakeWord(const std::string&);
 };
 '''
         for marker in ['bool AfeAudioEngine::InitializeWakeWordDetectors(',
                        'void AfeAudioEngine::EnableWakeWordDetection(',
+                       'bool AfeAudioEngine::IsLocalCommandCapture(',
                        'void AfeAudioEngine::HandleWakeWordResult(',
                        'void AfeAudioEngine::HandleDetectedWakeWord(']:
             program += function(source, marker) + '\n'
@@ -107,6 +112,7 @@ int main() {
         assert(engine.custom_wake_word_->local_only == kUseWakeNet);
         engine.HandleWakeWordResult(&result);
         assert(engine.custom_wake_word_->feeds == 1 && detected.empty());
+        assert(engine.custom_wake_word_->allow_interrupt == !kUseWakeNet);
     }
     int expected_feeds = needs_mn ? 1 : 0;
 #if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND
@@ -132,10 +138,16 @@ int main() {
 #endif
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
     if (needs_mn) {
-        engine.bits |= 2; // Keep keyword recognition running during speech capture.
+        // A queued WakeNet result must not reset a partial interruption keyword.
+        engine.bits |= 2;
+        result.wakeup_state = WAKENET_DETECTED;
+        int stops = engine.custom_wake_word_->stops;
         engine.HandleWakeWordResult(&result);
         assert(engine.custom_wake_word_->feeds == ++expected_feeds);
+        assert(engine.custom_wake_word_->allow_interrupt);
+        assert(engine.custom_wake_word_->stops == stops && detected.empty());
         engine.bits &= ~2;
+        assert(!engine.IsLocalCommandCapture());
     }
 #endif
     if (kUseWakeNet) {
@@ -200,7 +212,7 @@ int main() {
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 enum esp_mn_state_t { ESP_MN_STATE_DETECTED, ESP_MN_STATE_TIMEOUT };
-struct esp_mn_results_t { int num = 1; int command_id[1] = {1}; };
+struct esp_mn_results_t { int num = 1; int command_id[2] = {1, 0}; };
 struct Model {
     int cleaned = 0, detects = 0; esp_mn_results_t results;
     int get_samp_chunksize(void*) { return 4; }
@@ -217,11 +229,12 @@ struct CustomWakeWord {
     std::atomic<bool> running_{false}, reset_pending_{true};
     std::vector<int16_t> input_buffer_;
     std::mutex input_buffer_mutex_;
-    std::deque<Command> commands_{{"ting xia", "local:stop", "wake"}};
+    std::deque<Command> commands_{{"ting", "local:stop", "wake"},
+                                 {"ni hao", "local:interrupt", "wake"}};
     std::string last_detected_wake_word_;
     std::function<void(const std::string&)> wake_word_detected_callback_;
     void Start(); void Stop();
-    void FeedSamples(const int16_t*, size_t, bool);
+    void FeedSamples(const int16_t*, size_t, bool, bool);
 };
 '''
         for marker in ['void CustomWakeWord::Start()', 'void CustomWakeWord::Stop()',
@@ -236,16 +249,24 @@ int main() {
     };
     int16_t pcm[8] = {};
     word.Start();
-    word.FeedSamples(pcm, 8, true);
+    word.FeedSamples(pcm, 8, true, false);
     assert(events == 1 && word.input_buffer_.empty());
-    word.FeedSamples(pcm, 4, true);
+    word.FeedSamples(pcm, 4, true, false);
     assert(events == 2 && word.model.detects == 2);
-    word.FeedSamples(pcm, 2, true);
+    word.FeedSamples(pcm, 2, true, false);
     word.Stop(); word.Start();
-    word.FeedSamples(pcm, 2, true);
+    word.FeedSamples(pcm, 2, true, false);
     assert(events == 2);
-    word.FeedSamples(pcm, 2, true);
+    word.FeedSamples(pcm, 2, true, false);
     assert(events == 3 && word.input_buffer_.empty());
+    word.model.results = {2, {2, 1}};
+    word.FeedSamples(pcm, 4, true, false);
+    assert(events == 3 && word.running_ && word.input_buffer_.empty());
+    word.wake_word_detected_callback_ = [&](const std::string& value) {
+        assert(value == "local:interrupt"); ++events;
+    };
+    word.FeedSamples(pcm, 4, true, true);
+    assert(events == 4 && !word.running_);
 }
 '''
         self.compile_and_run(program)

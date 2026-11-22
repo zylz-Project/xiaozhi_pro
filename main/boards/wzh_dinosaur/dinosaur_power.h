@@ -25,8 +25,7 @@
 class DinosaurPower {
 public:
     using ShutdownHook = std::function<void()>;
-    using TouchHook =
-        std::function<void(uint8_t code, uint8_t pressed_mask, uint8_t released_mask)>;
+    using TouchHook = std::function<void(uint8_t code, bool starts_contact)>;
 
     bool Initialize();
     bool IsShuttingDown() const { return shutting_down_.load(); }
@@ -46,10 +45,8 @@ public:
         return temperature_valid_.load();
     }
     int battery_level() const { return battery_level_.load(); }
-    bool battery_level_valid() const { return battery_sample_valid_.load(); }
     int battery_voltage_mv() const { return battery_voltage_mv_.load(); }
     wzh::BatterySamplingStatus battery_sampling() const;
-    bool touch_valid() const { return touch_valid_.load(); }
     int touch_code() const { return touch_code_.load(); }
     int touch_voltage_mv() const { return touch_voltage_mv_.load(); }
 
@@ -67,12 +64,12 @@ private:
     adc_cali_handle_t power_adc_cali_ = nullptr;
     adc_cali_handle_t battery_adc_cali_ = nullptr;
     adc_cali_handle_t touch_adc_cali_ = nullptr;
-    std::atomic<int> battery_level_{0};
+    std::atomic<int> battery_level_{-1};
     std::atomic<int> battery_voltage_mv_{0};
-    std::atomic<bool> touch_valid_{false};
-    std::atomic<int> touch_code_{0};
+    std::atomic<int> touch_code_{-1};  // Invalid until a code is debounced.
     std::atomic<int> touch_voltage_mv_{-1};
     wzh::BatteryRestVoltage battery_rest_voltage_;
+    wzh::BatteryDisplayLevel battery_display_level_;
     wzh::BatteryWarningLevel battery_warning_;
     std::atomic<int> battery_live_mv_{0};
     std::atomic<int> battery_protection_mv_{0};

@@ -120,70 +120,72 @@ int main(){
     ++sound.sequence;assert(motion.Update(sound,PetMechanism::kTail,rest,740,out,powered));
     sound.playing=false;
     assert(!motion.Update(sound,PetMechanism::kTail,rest,6000,out,powered)||out==rest);
-    // Opening burst: first eligible tick engages the show; clips are ~2 s apart.
-    // The burst clock starts once the interaction clip drains (ObservePlayback),
-    // so its own playback time never eats into the two minutes.
+    // Start after the interaction finishes, including across tick wraparound.
     AutoplayCadence cadence;uint32_t now=UINT32_MAX-5000;
-    assert(!cadence.Due(now,true,0));assert(cadence.InShow());
+    assert(!cadence.Due(now,true,0)&&cadence.InShow());
     cadence.ObservePlayback(now,true,0);
     cadence.ObservePlayback(now+4000,false,0);
     now+=4000;
-    cadence.Busy(now,0);
-    assert(!cadence.Due(now+1799,true,0)&&cadence.Due(now+1800,true,0));
-    // Busy during the burst keeps the short gap, never the legacy interval.
-    cadence.Busy(now,599);assert(cadence.Due(now+2399,true,0));
-    // Ineligible ticks pause without consuming: show clock keeps running.
-    assert(!cadence.Due(now+5000,false,0));
-    // After 2 minutes the burst ends; the wait is breathing-only for 2-5 min.
-    uint32_t end=now+120000;
-    assert(!cadence.Due(end,true,0));assert(!cadence.InShow()&&!cadence.Legacy());
-    assert(!cadence.Due(end+119999,true,0));
-    // Wait expired (random=0 -> 2 min): legacy sparse show every 2-3 minutes.
-    uint32_t legacy=end+120000;
-    assert(cadence.Due(legacy,true,0)&&cadence.Legacy());
-    cadence.Busy(legacy,0);
-    assert(!cadence.Due(legacy+119999,true,0)&&cadence.Due(legacy+120000,true,0));
-    // A real interaction restarts the burst from any phase.
-    cadence.Engage(legacy,0);assert(cadence.InShow());
-    cadence.ObservePlayback(legacy,true,0);
-    cadence.ObservePlayback(legacy+1000,false,0);
-    cadence.Busy(legacy+1000,0);
-    assert(cadence.Due(legacy+2800,true,0));
-    // Dinosaur: the matched interaction is part of the two-minute window.
+    assert(!cadence.Due(now+1999,true,0)&&cadence.Due(now+2000,true,0));
+    cadence.Busy(now+2000,1000);
+    assert(!cadence.Due(now+4999,true,0)&&cadence.Due(now+5000,true,0));
+
+    // Middle phase starts at minute two and waits a full 30 seconds.
+    const uint32_t spaced=now+120000;
+    assert(!cadence.Due(spaced,true,0)&&!cadence.InShow()&&!cadence.Legacy());
+    assert(!cadence.Due(spaced+29999,true,0));
+    assert(cadence.Due(spaced+30000,true,0));
+    cadence.Busy(spaced+30000,0);
+    cadence.ObservePlayback(spaced+30000,true,0);
+    assert(!cadence.Due(spaced+65000,true,0)); // Audio/motion still owns the lane.
+    cadence.ObservePlayback(spaced+65000,false,0);
+    assert(!cadence.Due(spaced+94999,true,0));
+    assert(!cadence.Due(spaced+95000,false,0));
+    assert(cadence.Due(spaced+95020,true,0)); // A momentary busy tick does not reset the gap.
+    cadence.Busy(spaced+95020,0);
+    cadence.ObservePlayback(spaced+95020,true,0);
+    cadence.ObservePlayback(spaced+100000,false,0);
+    // At minute five, the legacy gap is measured from the last show's end.
+    assert(!cadence.Due(now+299999,false,0)&&!cadence.Legacy());
+    assert(!cadence.Due(now+300000,true,0)&&cadence.Legacy());
+    assert(!cadence.Due(now+339999,true,0)&&cadence.Due(now+340000,true,0));
+
+    // A new interaction resets either phase to the two-minute opening.
+    const uint32_t reengage=now+340000;
+    cadence.Engage(reengage,0);
+    cadence.ObservePlayback(reengage,true,0);
+    cadence.ObservePlayback(reengage+1000,false,0);
+    assert(cadence.InShow()&&cadence.Due(reengage+3000,true,0));
+
+    // Dinosaur counts the interaction itself. A clip that crosses minute two
+    // cannot consume the new 30-second gap even if its audio is already over.
     AutoplayCadence inclusive;inclusive.Engage(1000,0,true);
     inclusive.ObservePlayback(1000,true,0);
     inclusive.ObservePlayback(11000,false,0);
-    assert(inclusive.Due(12800,true,0));
-    assert(inclusive.Due(120999,true,0));
+    assert(inclusive.Due(13000,true,0));
+    inclusive.ObservePlayback(119000,true,0);
     assert(!inclusive.Due(121000,true,0)&&!inclusive.InShow());
-    // Wait spread stays inside the documented 2-5 minute band.
-    AutoplayCadence spread;now=1000;spread.Engage(now,0);
-    spread.ObservePlayback(now,false,0);  // no clip: clock starts immediately
-    // Enter wait with a mid-band draw: 120000 + 90000 = 210000 ms wait.
-    assert(!spread.Due(now+120000,true,90000));
-    assert(!spread.Due(now+120000+209999,true,0));
-    assert(spread.Due(now+120000+210000,true,0)&&spread.Legacy());
-    // A long sound and its finishing choreography cannot consume the gap.
-    AutoplayCadence completed;completed.Engage(1000,0);
-    completed.ObservePlayback(1000,true,0);
-    completed.ObservePlayback(3000,true,0);
-    assert(!completed.Due(33000,false,0));
-    completed.ObservePlayback(33000,false,0);
-    assert(!completed.Due(34799,true,0));
-    assert(completed.Due(34800,true,0));
-    // Paused conversation and protection do not consume the active show.
+    inclusive.ObservePlayback(125000,false,0);
+    assert(!inclusive.Due(154999,true,0)&&inclusive.Due(155000,true,0));
+
+    // Conversation and protection pause both the active window and its gap.
     AutoplayCadence paused;
     assert(!paused.Due(1000,true,0));
-    paused.ObservePlayback(1000,false,0);  // interaction clip already drained
+    paused.ObservePlayback(1000,false,0);
     paused.SetPaused(2000,true);
     assert(!paused.Due(202000,true,0));
     paused.SetPaused(202000,false);
     paused.Due(320999,true,0);assert(paused.InShow());
-    assert(!paused.Due(321000,true,0));assert(!paused.InShow());
-    // Busy before the first eligible tick must not start the show clock.
+    assert(!paused.Due(321000,true,0)&&!paused.InShow());
+    paused.SetPaused(331000,true);
+    paused.SetPaused(341000,false);
+    assert(!paused.Due(360999,true,0)&&paused.Due(361000,true,0));
+
+    // Busy before the first eligible tick does not engage the show.
     AutoplayCadence delayed;delayed.Busy(10,0);
-    assert(!delayed.Due(200000,true,0));assert(delayed.InShow());
+    assert(!delayed.Due(200000,true,0)&&delayed.InShow());
     delayed.ObservePlayback(200000,false,0);
+    assert(!delayed.Due(201999,true,0)&&delayed.Due(202000,true,0));
     IdleCadence idle;idle.Busy(now,0);
     assert(!idle.Due(now+119999,true,0)&&idle.Due(now+120000,true,0));
     uint8_t p60[]={24},p20[]={0x98},p120[]={25},bad[]={3,0};
@@ -211,15 +213,17 @@ int main(){
 struct AudioStreamPacket{};
 constexpr unsigned MAX_DECODE_PACKETS_IN_QUEUE=1;
 struct AudioService{
+    enum class PlaybackSource { kRegular,kShutdown };
     std::mutex audio_queue_mutex_;
     std::condition_variable audio_queue_cv_;
     std::deque<std::unique_ptr<AudioStreamPacket>>audio_decode_queue_;
     std::atomic<bool>service_stopped_{false};
-    bool playback_drained_notified_=true;
+    bool playback_drained_notified_=true,shutdown_playback_=false;
     uint32_t playback_generation_=7,decode_queue_full_count_=0;
     size_t max_decode_packets_=MAX_DECODE_PACKETS_IN_QUEUE;
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket>,bool,
-        std::optional<uint32_t> expected_generation=std::nullopt);
+        std::optional<uint32_t> expected_generation=std::nullopt,
+        PlaybackSource source=PlaybackSource::kRegular);
 };
 '''+method+r'''
 int main(){

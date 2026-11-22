@@ -73,6 +73,7 @@ int main(){Application a;Board b;
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <functional>
 #define CONFIG_BOARD_TYPE_WZH_DINOSAUR 1
 enum {kDeviceStateConnecting=1,kDeviceStateIdle=2};using ListeningMode=int;
 enum class PowerSaveLevel {PERFORMANCE};
@@ -81,9 +82,11 @@ struct Board {bool cellular=true;static Board& GetInstance(){static Board b;retu
  void SetPowerSaveLevel(PowerSaveLevel){}bool UsesCellularNetwork(){return cellular;}};
 struct Protocol {bool opened=false,success=false;
  bool IsAudioChannelOpened(){return opened;}bool OpenAudioChannel(){opened=success;return success;}
+ bool DeferUntilReconnectFinishes(std::function<void()>){return false;}
  void CloseAudioChannel(){opened=false;}};
 struct Application {Protocol p,*protocol_=&p;int state=kDeviceStateConnecting;int64_t cellular_prewarm_next_us_=0;
  std::atomic<bool> interaction_stopped_{false};bool entry_prompt_before_listening_=true,play_popup_on_listening_=true;
+ std::atomic<uint32_t> interaction_generation_{0};bool IsShuttingDown()const{return false;}
  int GetDeviceState()const{return state;}bool SetDeviceState(int s){state=s;return true;}
  void ConsumePrewarmedCellularAudio(){}void SetListeningMode(ListeningMode){}
  void ContinueOpenAudioChannel(ListeningMode);};

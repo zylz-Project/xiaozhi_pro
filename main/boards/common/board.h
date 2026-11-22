@@ -98,7 +98,7 @@ public:
     virtual void OnConversationChannelOpened() {}
 #if CONFIG_USE_VOICE_BARGE_IN
     // Boards may request a longer local speech candidate, in 16 kHz samples.
-    virtual size_t GetBargeInMinimumSpeechSamples() const { return 2880; }
+    virtual size_t GetBargeInMinimumSpeechSamples() const { return 0; }
 #endif
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
     // Diagnostic only: commanded movement is not physical position feedback.

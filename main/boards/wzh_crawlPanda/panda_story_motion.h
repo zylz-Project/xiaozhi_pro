@@ -74,5 +74,59 @@ constexpr Keyframe kDrowsyStretch[] = {
     {850, 132, 124, 58}, {900, 156, 150, 28}, {520, 156, 150, 28}, {1000, 114, 60, 144},
     {620, 70, 36, 158},  {900, 52, 112, 72},  {1100, 90, 90, 90},
 };
+// Look toward an outstretched paw, pause, then follow the other paw back.
+constexpr Keyframe kLookPastPaw[] = {
+    {520, 104, 85, 96}, {690, 128, 45, 105}, {440, 128, 45, 105},
+    {710, 82, 66, 136}, {580, 64, 89, 113},  {820, 90, 90, 90},
+};
+// Keep a supporting paw steady while the other brings the bamboo closer.
+constexpr Keyframe kBambooTurn[] = {
+    {600, 104, 55, 135}, {520, 112, 55, 111}, {550, 91, 68, 122},
+    {520, 74, 78, 133},  {510, 79, 66, 136},  {780, 90, 90, 90},
+};
+// Reach with one paw, wait, then offer both without a fast alternating beat.
+constexpr Keyframe kPawInvitation[] = {
+    {500, 75, 89, 125},  {570, 79, 89, 125},  {640, 103, 51, 132},
+    {470, 103, 51, 132}, {640, 108, 74, 111}, {790, 90, 90, 90},
+};
+// Two measured reaches with separate gaze targets, settling forward.
+constexpr Keyframe kReachThenLookBack[] = {
+    {460, 77, 84, 102},  {590, 67, 68, 151},  {560, 94, 48, 118},
+    {650, 122, 40, 126}, {490, 104, 71, 114}, {800, 90, 90, 90},
+};
+
+// Short recordings get one readable gesture and a separate return to rest.
+constexpr Keyframe kQuickPawLook[] = {
+    {460, 114, 64, 101},
+    {820, 90, 90, 90},
+};
+constexpr Keyframe kQuickLookBack[] = {
+    {430, 71, 90, 112},
+    {400, 104, 79, 103},
+    {740, 90, 90, 90},
+};
+constexpr Keyframe kQuickBambooBite[] = {
+    {470, 105, 64, 126},
+    {420, 94, 73, 120},
+    {750, 90, 90, 90},
+};
+constexpr Keyframe kQuickBambooOffer[] = {
+    {490, 82, 57, 121},
+    {490, 97, 68, 115},
+    {770, 90, 90, 90},
+};
+constexpr Keyframe kQuickPawTap[] = {
+    {450, 100, 70, 105},
+    {430, 106, 81, 117},
+    {720, 90, 90, 90},
+};
+constexpr Keyframe kQuickBrace[] = {
+    {520, 96, 61, 130},
+    {840, 90, 90, 90},
+};
+constexpr Keyframe kQuickTuck[] = {
+    {560, 107, 106, 73},
+    {990, 90, 90, 90},
+};
 }  // namespace story_motion
 #endif  // WZH_CRAWLPANDA_STORY_MOTION_H_

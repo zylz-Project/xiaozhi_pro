@@ -466,6 +466,10 @@
     }
   }
 
+  function isEditing(element) {
+    return element && (/^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName) || element.isContentEditable);
+  }
+
   function finish(skipped) {
     if (config && config.store) markSeen(config.store);
     else if (key) markSeen(key);
@@ -486,9 +490,12 @@
       dying.style.opacity = '0';
       setTimeout(function () { if (dying.parentNode) dying.parentNode.removeChild(dying); }, 190);
     }
+    if (phoneEl && isEditing(document.activeElement) && phoneEl.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
     phoneEl = null;
     // Restoring a text field reopens the mobile keyboard after the guide closes.
-    if (lastFocus && lastFocus.focus && !/^(INPUT|TEXTAREA|SELECT)$/.test(lastFocus.tagName) && !lastFocus.isContentEditable) {
+    if (lastFocus && lastFocus.focus && !isEditing(lastFocus)) {
       try { lastFocus.focus({ preventScroll: true }); } catch (e) {}
     }
     lastFocus = null;
@@ -561,8 +568,12 @@
     document.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
+    var openedGuide = rootEl;
+    var previousFocus = lastFocus;
     showStep();
     setTimeout(function () {
+      if (rootEl !== openedGuide || document.activeElement !== previousFocus ||
+          isEditing(previousFocus) || window.matchMedia('(pointer: coarse)').matches) return;
       var b = bubbleEl && bubbleEl.querySelector('.pg-next');
       if (b) b.focus({ preventScroll: true });
     }, 260);
@@ -599,9 +610,8 @@
     var forced = params.get('guide') === '1' || params.get('guide') === 'on';
     if (forced || !seen(cfg.store || which)) {
       setTimeout(function () {
-        var active = document.activeElement;
-        var editing = active && (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
-        if (!rootEl && !editing && (forced || !seen(cfg.store || which))) start(which);
+        if (!rootEl && !isEditing(document.activeElement) &&
+            (forced || !seen(cfg.store || which))) start(which);
       }, forced ? 320 : 760);
     }
   }

@@ -58,6 +58,7 @@
     var closeBtn = phone.querySelector('.con-close');
 
     function setManual(next) {
+      var wasOpen = phone.classList.contains('manual-open');
       phone.classList.toggle('manual-open', next);
       if (manualBtn) manualBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
       if (manualSheet) manualSheet.setAttribute('aria-hidden', next ? 'false' : 'true');
@@ -68,7 +69,22 @@
           + (toy ? '&toy=' + encodeURIComponent(toy) : '');
         if (manualFrame.getAttribute('src') !== src) manualFrame.src = src;
       }
+      if (next && !wasOpen && manualClose) manualClose.focus({ preventScroll: true });
+      if (!next && wasOpen) {
+        var opener = phone.classList.contains('expanded') ? manualBtn : handle;
+        if (opener) opener.focus({ preventScroll: true });
+      }
     }
+
+    if (manualFrame) manualFrame.addEventListener('load', function () {
+      var doc = manualFrame.contentDocument;
+      if (doc) doc.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && phone.classList.contains('manual-open')) {
+          event.preventDefault();
+          setManual(false);
+        }
+      });
+    });
 
     function setExpanded(next) {
       phone.classList.toggle('expanded', next);
@@ -497,14 +513,10 @@
   });
 
   document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') {
+    if (event.key === 'Escape' && !document.querySelector('.wzh-voice-dialog[open]')) {
       phones.forEach(function (phone) {
         if (phone.classList.contains('manual-open')) {
-          phone.classList.remove('manual-open');
-          var m = phone.querySelector('.con-manual');
-          var ms = phone.querySelector('.manual-sheet');
-          if (m) m.setAttribute('aria-expanded', 'false');
-          if (ms) ms.setAttribute('aria-hidden', 'true');
+          phone.__setManual(false);
         } else {
           phone.classList.remove('expanded');
           var h = phone.querySelector('.handle');
@@ -549,11 +561,14 @@
 
     function openModal(el) {
       if (!el) return;
+      el.removeAttribute('inert');
       el.classList.add('show');
       el.setAttribute('aria-hidden', 'false');
     }
     function closeModal(el) {
       if (!el) return;
+      WzhEditorFocus.blurWithin(el);
+      el.setAttribute('inert', '');
       el.classList.remove('show');
       el.setAttribute('aria-hidden', 'true');
     }
@@ -781,6 +796,11 @@
     var createTabs = $$('[data-create-tab]');
     var recordPanel = $('[data-record-panel]');
     var uploadPanel = $('[data-upload-panel]');
+    var audioFileInput = $('#audio-file-input');
+    var audioBrowserHelp = $('[data-audio-browser-help]');
+    if (audioBrowserHelp && /Android.*(?:;\s*wv\)|Version\/4\.0)/i.test(navigator.userAgent)) {
+      audioBrowserHelp.hidden = false;
+    }
     var recordPuck = $('[data-record-puck]');
     var recordTime = $('[data-record-time]');
     var recordStatus = $('[data-record-status]');
@@ -860,10 +880,10 @@
       if (uploadPanel) uploadPanel.hidden = createMode !== 'upload';
       resetRecording();
       if (createMode === 'upload') {
-        setGenerateEnabled(false);
+        setGenerateEnabled(!!(audioFileInput && audioFileInput.files.length));
         if (audioHint) audioHint.textContent = '保留 5–20 秒的人声；生成后会出现在“我的复刻”，也会同步到云端。';
       } else if (audioHint) {
-        audioHint.textContent = '录完 10 秒后生成；建议用平常说话的音量。';
+        audioHint.textContent = '请用平常说话的音量。录音会发送至音色服务生成音色。';
       }
     }
     function openAudio(fromManager, mode) {
@@ -886,12 +906,7 @@
     }
     createTabs.forEach(function (tab) {
       tab.addEventListener('click', function () {
-        var mode = tab.getAttribute('data-create-tab');
-        setCreateMode(mode);
-        if (mode === 'upload') {
-          var input = $('.audio-modal input[type=file]');
-          if (input) input.click();
-        }
+        setCreateMode(tab.getAttribute('data-create-tab'));
       });
     });
     if (recordPuck) recordPuck.addEventListener('click', function () {
@@ -912,9 +927,6 @@
         if (event.target === audioModal) closeAudio();
       });
     }
-
-    // The real input lives in the markup inside a <label>: iOS Safari refuses to
-    // open the picker for a display:none input created on the fly.
 
     $$('[data-audio-trim]').forEach(function (trim) {
       trim.addEventListener('input', function () {
@@ -1044,7 +1056,8 @@
         Array.prototype.slice.call(track.querySelectorAll('[data-clone]')).forEach(function (node) {
           if (node.parentNode) node.parentNode.removeChild(node);
         });
-        originals().forEach(function (chip) {
+        var list = originals();
+        (list.length > 1 ? list : []).forEach(function (chip) {
           var clone = chip.cloneNode(true);
           clone.setAttribute('data-clone', '1');
           clone.setAttribute('aria-hidden', 'true');
@@ -1105,7 +1118,7 @@
         frame = requestAnimationFrame(drift);
       }
       function syncDrift() {
-        driftActive = railVisible();
+        driftActive = loopPoint > 0 && rail.scrollWidth > rail.clientWidth && railVisible();
         if (driftActive) {
           if (!frame) frame = requestAnimationFrame(drift);
         } else {
@@ -1123,7 +1136,9 @@
         }).observe(track, { childList: true });
       }
       if (window.ResizeObserver) {
-        new ResizeObserver(function () { measureLoop(); }).observe(track);
+        var resize = new ResizeObserver(function () { measureLoop(); syncDrift(); });
+        resize.observe(track);
+        resize.observe(rail);
       } else {
         window.addEventListener('resize', function () { measureLoop(); syncDrift(); });
       }
@@ -1146,7 +1161,7 @@
 
     // Escape closes the topmost in-page modal before the panel.
     document.addEventListener('keydown', function (event) {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || document.querySelector('.wzh-voice-dialog[open]')) return;
       var top = audioModal && audioModal.classList.contains('show') ? audioModal :
         (resetModal && resetModal.classList.contains('show') ? resetModal :
         (voiceModal && voiceModal.classList.contains('show') ? voiceModal : null));

@@ -194,9 +194,11 @@ public:
 
     // Optional generation binds a streaming producer to the decoder session it
     // started in. ResetDecoder invalidates queued AND waiting old producers.
+    enum class PlaybackSource { kRegular, kShutdown };
     uint32_t GetPlaybackGeneration();
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false,
-                                 std::optional<uint32_t> expected_generation = std::nullopt);
+                                 std::optional<uint32_t> expected_generation = std::nullopt,
+                                 PlaybackSource source = PlaybackSource::kRegular);
     // Enqueue a short frame already converted to the codec's output rate. The
     // caller must be a worker task; waiting producers are released on reset.
     bool PushPcmToPlaybackQueue(std::vector<int16_t> pcm, int sample_rate,
@@ -204,7 +206,8 @@ public:
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     // A deferred prompt may bind to the session observed before its idle/state check.
     void PlaySound(const std::string_view& sound,
-                   std::optional<uint32_t> expected_generation = std::nullopt);
+                   std::optional<uint32_t> expected_generation = std::nullopt,
+                   PlaybackSource source = PlaybackSource::kRegular);
     // Monotonic natural-drain count. A deferred producer compares it with the
     // value sampled at enqueue so a later ResetDecoder can distinguish "already
     // finished" from "cancelled before completion".
@@ -212,7 +215,9 @@ public:
         return playback_drained_count_.load(std::memory_order_relaxed);
     }
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
-    void ResetDecoder();
+    // A shutdown reset reserves the decoder for goodbye through power-off.
+    void ResetDecoder(std::optional<uint32_t> expected_generation = std::nullopt,
+                      PlaybackSource source = PlaybackSource::kRegular);
     // Deepen the downlink prefix for a lossy transport (cellular). Must be
     // called before/during a stream; it only takes effect when the board opted
     // into buffered playback.
@@ -279,6 +284,7 @@ private:
     bool playback_drained_notified_ = true;
     std::atomic<uint32_t> playback_drained_count_{0};
     uint32_t playback_generation_ = 0;
+    bool shutdown_playback_ = false;
     AudioPlayoutBuffer playout_buffer_;
     bool buffered_playback_ = false;
     size_t max_playback_tasks_ = MAX_PLAYBACK_TASKS_IN_QUEUE;

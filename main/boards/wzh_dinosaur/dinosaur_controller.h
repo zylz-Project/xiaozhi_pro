@@ -94,11 +94,18 @@ struct Keyframe {
     MotionEase ease;
 };
 
+constexpr uint8_t kNeckTiltAxis = 1 << 0, kNeckLeanAxis = 1 << 1, kHeadAxis = 1 << 2;
+constexpr uint8_t kTailHeightAxis = 1 << 3, kTailSideAxis = 1 << 4;
+constexpr uint8_t kNeckAxes = kNeckTiltAxis | kNeckLeanAxis;
+constexpr uint8_t kTailAxes = kTailHeightAxis | kTailSideAxis;
+constexpr uint8_t kAllAxes = kNeckAxes | kHeadAxis | kTailAxes;
+
 struct MotionClip {
     const char* name;
     const Keyframe* frames;
     uint8_t count;
     bool authored_dynamics = false;
+    uint8_t body_axes = 0;
 };
 
 }  // namespace wzh_dino
@@ -117,7 +124,7 @@ public:
     void SetConversationActive(bool active);
     void SetSpeaking(bool speaking);
     void SetMaintenance(bool blocked);
-    void HandleTouch(uint8_t code);
+    void HandleTouch(uint8_t code, bool allow_contact_start);
     bool TriggerOnboardingFeedback(uint8_t step);
     bool IsOnboardingFeedbackPending() const { return tutorial_feedback_pending_.load(); }
     bool HandleSensorEvent(int event);
@@ -145,7 +152,7 @@ public:
 
 private:
     std::mutex request_mutex_;
-    wzh::PetBehavior pet_;
+    wzh::PetBehavior pet_{true};
     wzh::InteractionMotionSelector interaction_motion_;
     std::atomic<bool> maintenance_{false};
     std::atomic<bool> stop_audio_requested_{false};
@@ -193,7 +200,8 @@ private:
     };
 
     bool QueueRequest(ActionRequest request, wzh::PetPriority priority);
-    bool QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step = 0);
+    bool QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step = 0,
+                          wzh::PetPriority priority = wzh::PetPriority::kExplicit);
     void RunTutorialTouch();
     bool React(wzh::PetReaction reaction, wzh::PetPriority priority, bool speech_bound = false);
 
@@ -214,6 +222,7 @@ private:
     Pose last_output_pose_{70, 90, 90, 90, 90};
     // 仅动作任务设置；单轴核对时关闭声音/生命叠加。
     bool servo_test_active_ = false;
+    uint8_t active_body_axes_ = 0;  // Motion task only.
     float request_gain_ = 1.0f;
     DinoAction last_action_ = DinoAction::kListen;
     int64_t last_action_time_us_ = 0;
@@ -223,32 +232,22 @@ private:
     int last_pulse_index_ = -1;
     // 音频动作使用低通后的响度，避免每个音节直接变成一次舵机抽动。
     float audio_motion_level_ = 0.0f;
-    float audio_motion_emphasis_ = 0.0f;
-    float audio_motion_phase_ = 0.0f;
     int64_t audio_motion_last_update_us_ = 0;
-    bool audio_motion_active_ = false;
-    float audio_motion_direction_ = 1.0f;
     std::atomic<float> output_audio_level_{0.0f};
     std::atomic<float> output_audio_attack_{0.0f};
     std::atomic<int64_t> output_audio_updated_us_{0};
     // Flash 主体编舞期间提高声音随动表现力；仍只读取低通包络并受最终限幅。
     std::atomic<bool> flash_performance_active_{false};
-    // 怒吼的主语义必须是仰头；声音和生命叠加不得覆盖编舞本身的轻微侧仰。
+    // 吼叫的颈尾走位由编舞控制，避免生命叠加覆盖侧仰。
     std::atomic<bool> sky_roar_active_{false};
     // 每个行为族分别记住完整/短声上一次剪辑，避免连续复读同一轨迹。
     wzh::MotionShuffleBag<16> action_clip_bags_[8];
     int last_sound_clip_indices_[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
     int last_sky_roar_clip_index_ = -1;
-    wzh::SoundVariantSelector<4> roar_variants_;
+    wzh::SoundVariantSelector<21> roar_variants_;
     bool last_mirror_ = false;
     int8_t mirror_balance_ = 0;
     uint8_t mirror_run_length_ = 0;
-    // 待机个性姿态状态。
-    int idle_pose_index_ = 0;
-    uint32_t next_idle_pose_ms_ = 0;
-    uint32_t idle_breath_epoch_ms_ = 0;
-    float idle_drift_[5] = {70.0f, 90.0f, 90.0f, 90.0f, 90.0f};
-
     static void TaskEntry(void* arg);
     void Task();
     bool UpdateSoundMotion(uint32_t now);
@@ -257,7 +256,6 @@ private:
     wzh::VoiceMotion voice_motion_;
     wzh::AutoplayCadence autoplay_;
     wzh::IdleCadence idle_life_;
-    bool idle_breathing_ = false;
     bool autonomous_playback_ = false;
     bool tutorial_audio_active_ = false;
     void ParkForShutdown();
@@ -274,8 +272,6 @@ private:
     void WaitForLocalSoundStart(int sound_index) const;
     // 待机"个性姿态"：缓慢漂移到随机的多轴坐姿（平静/警觉/困倦/好奇…），
     // 再叠加呼吸正弦，让静止的恐龙不再只是单摆。
-    void RunIdlePose();
-    void PrepareIdleCenter();
     // 身体部位动作专用：不随机镜像/幅度，直接按剪辑播放。
     void RunBodyAction(DinoBodyAction action);
     void RunInteraction(wzh::PetInteraction interaction);

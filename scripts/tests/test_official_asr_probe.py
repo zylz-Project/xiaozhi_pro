@@ -94,7 +94,11 @@ int main(){
 #include <cassert>
 #include <cstdint>
 enum {kDeviceStateSpeaking=1,kDeviceStateListening=2};
-struct Audio {bool pending=true;bool IsVoiceInterruptionPending(uint32_t t){return pending&&t==7;}};
+struct Audio {
+ bool pending=true;
+ bool IsVoiceInterruptionPending(uint32_t t){return pending&&t==7;}
+ bool IsPlaybackIdle(){return true;}
+};
 struct Application {
  std::atomic<bool>voice_enrollment_active_{false},voice_enrollment_reconnecting_{false};
  std::atomic<bool>barge_in_reconnecting_{false},interaction_stopped_{false};

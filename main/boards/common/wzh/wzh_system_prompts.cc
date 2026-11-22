@@ -68,7 +68,7 @@ uint32_t QueueShutdownPrompt() {
         auto& audio = Application::GetInstance().GetAudioService();
         audio.EnableWakeWordDetection(false);
         audio.EnableVoiceProcessing(false);
-        audio.ResetDecoder();
+        audio.ResetDecoder(std::nullopt, AudioService::PlaybackSource::kShutdown);
         shutdown_generation.store(audio.GetPlaybackGeneration());
         shutdown_ready.store(request);
         shutdown_requested.store(request);
@@ -115,7 +115,8 @@ void Worker(void*) {
             const auto generation = shutdown_generation.load();
             if (request == shutdown_serial.load()) {
                 ESP_LOGI(kTag, "Voice request: power_off text=我要休息啦，下次再一起玩吧！");
-                audio.PlaySound(Lang::Sounds::OGG_POWER_OFF, generation);
+                audio.PlaySound(Lang::Sounds::OGG_POWER_OFF, generation,
+                                AudioService::PlaybackSource::kShutdown);
                 shutdown_produced.store(request);
             }
         }
@@ -123,10 +124,13 @@ void Worker(void*) {
         else if (!shutting_down.load() &&
                  startup_protection_pending.load() != StartupProtectionNotice::kNone) {
             const auto notice = startup_protection_pending.load();
+            const auto generation = audio.GetPlaybackGeneration();
             std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
             if (notice == startup_protection.load() && reservation.owns_lock() &&
                 app.GetDeviceState() == kDeviceStateIdle && audio.IsPlaybackIdle() &&
-                !audio.IsAudioProcessorRunning() && !Board::GetInstance().IsAudioMaintenanceActive()) {
+                !Board::GetInstance().IsLocalPlaybackPending() &&
+                !audio.IsAudioProcessorRunning() &&
+                !Board::GetInstance().IsAudioMaintenanceActive()) {
                 auto expected = notice;
                 if (startup_protection_pending.compare_exchange_strong(
                         expected, StartupProtectionNotice::kNone)) {
@@ -134,7 +138,7 @@ void Worker(void*) {
                         std::lock_guard<std::mutex> lock(gate_mutex);
                         battery_gate.Observe(true, true);
                         battery_gate.Take(esp_log_timestamp());
-                        low_generation = audio.GetPlaybackGeneration();
+                        low_generation = generation;
                         low_drained_before = audio.GetPlaybackDrainedCount();
                         ESP_LOGI(kTag, "Voice request: startup_low_battery text=我的电量不足啦，请帮我充充电吧！");
                     } else {
@@ -144,7 +148,7 @@ void Worker(void*) {
                     audio.PlaySound(notice == StartupProtectionNotice::kLowBattery
                                         ? Lang::Sounds::OGG_LOW_BATTERY
                                         : Lang::Sounds::OGG_EXCLAMATION,
-                                    audio.GetPlaybackGeneration());
+                                    generation);
                 }
             }
         }
@@ -174,6 +178,7 @@ void Worker(void*) {
             }
             const auto now = esp_log_timestamp();
             const auto elapsed = now - wifi_setup_requested_ms.load();
+            const auto generation = audio.GetPlaybackGeneration();
             // Startup feedback owns audio first. Bound the wait even when the
             // controller, hardware or greeting audio cannot become ready.
             if (!startup_greeting_complete.load() && elapsed < 30000) {
@@ -193,7 +198,10 @@ void Worker(void*) {
             } else if (Board::GetInstance().IsNetworkAvailable()) {
                 // Recheck after the waits before producing setup audio.
                 wifi_setup_requested.store(false);
-            } else if (elapsed >= 500 && audio.IsPlaybackIdle() &&
+            } else if (std::unique_lock<std::mutex> reservation(PromptAudioGate(),
+                                                                std::try_to_lock);
+                       reservation.owns_lock() && elapsed >= 500 && audio.IsPlaybackIdle() &&
+                       !Board::GetInstance().IsLocalPlaybackPending() &&
                        !audio.IsAudioProcessorRunning() &&
                        !Board::GetInstance().IsAudioMaintenanceActive()) {
                 // Reserve this producer until the setup prompt is enqueued.
@@ -201,7 +209,7 @@ void Worker(void*) {
                 wifi_setup_requested.store(false);
                 ESP_LOGI(kTag, "Playing first Wi-Fi setup prompt");
                 ESP_LOGI(kTag, "Voice request: wificonfig text=请用手机帮我配网。");
-                audio.PlaySound(Lang::Sounds::OGG_WIFICONFIG, audio.GetPlaybackGeneration());
+                audio.PlaySound(Lang::Sounds::OGG_WIFICONFIG, generation);
                 wifi_setup_producing.store(false);
             }
         } else if (!shutting_down.load() && !low_generation) {
@@ -211,6 +219,7 @@ void Worker(void*) {
             std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
             if (reservation.owns_lock() && app.GetDeviceState() == kDeviceStateIdle &&
                 audio.IsPlaybackIdle() && !audio.IsAudioProcessorRunning() &&
+                !Board::GetInstance().IsLocalPlaybackPending() &&
                 !Board::GetInstance().IsAudioMaintenanceActive()) {
                 bool play = false;
                 {
@@ -325,6 +334,8 @@ void BeginSystemPromptShutdown() {
     StopIdlePower();
 }
 
+bool IsSystemPromptShutdownActive() { return shutting_down.load(); }
+
 bool PlayShutdownPromptAndWait(const std::function<void()>& check_battery) {
     if (!worker_started.load())
         return false;
@@ -362,7 +373,7 @@ bool PlayShutdownPromptAndWait(const std::function<void()>& check_battery) {
     // Invalidate an unscheduled application callback AND a waiting producer.
     shutdown_serial.fetch_add(1);
     shutdown_requested.store(0);
-    audio.ResetDecoder();
+    audio.ResetDecoder(std::nullopt, AudioService::PlaybackSource::kShutdown);
     ESP_LOGW(kTag, "Shutdown speech incomplete or timed out; releasing power");
     return false;
 }

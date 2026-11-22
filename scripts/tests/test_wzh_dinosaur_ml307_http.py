@@ -37,6 +37,7 @@ template <class... T> void log_stub(T...) {}
 ''')
             (path / 'freertos/task.h').write_text('''#pragma once
 inline void taskYIELD() {}
+inline void vTaskDelay(int) {}
 ''')
             (path / 'http.h').write_text('''#pragma once
 #include <cstddef>
@@ -332,17 +333,26 @@ int main() {
         http.Close();
     }
 
-    // A timed-out MHTTPDEL means the modem may still own the slot. The next
-    // allocation must prove the AT parser is synchronised and delete every
-    // unowned id before creating a new one.
+    // A timed-out MHTTPDEL lets one delayed AT probe fail before the parser
+    // is resynchronised for MQTT. A later HTTP allocation still sweeps the
+    // modem slot because the original delete was never acknowledged.
     {
         Reset(uart);
         uart->delete_timeout_once = true;
+        uart->at_probe_failures = 1;
         {
             DinosaurMl307Http http(uart);
             assert(http.Open("GET", "http://example.com/close-timeout"));
+            const std::string headers = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n";
+            EmitHeader(*uart, 200, headers, headers.size());
+            EmitContent(*uart, "hello");
+            assert(http.ReadAll() == "hello");
             http.Close();
         }
+        const size_t close_pos = IndexOfPrefix(uart->commands, "AT+MHTTPDEL=");
+        assert(close_pos != std::string::npos);
+        assert(!HasPrefix(uart->commands, "AT+MHTTPTERM="));
+        assert(std::count(uart->commands.begin() + close_pos + 1, uart->commands.end(), "AT") == 3);
         Reset(uart);
         DinosaurMl307Http http(uart);
         assert(http.Open("GET", "http://example.com/after-close-timeout"));
@@ -485,6 +495,53 @@ int main() {
             assert(http.GetBodyLength() == 2);
             http.Close();
         }
+    }
+
+    // A corrupted content URC invalidates a previously received HTTP 200
+    // response. Close must abort the transfer before deleting its instance.
+    {
+        Reset(uart);
+        DinosaurMl307Http http(uart);
+        assert(http.Open("GET", "http://example.com/corrupt"));
+        const std::string headers = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n";
+        EmitHeader(*uart, 200, headers, headers.size());
+        assert(Value(http.GetStatusCode()) == 200);
+        uart->Emit("MHTTPURC", {Str("content"), Int(0), Int(5), Int(5), Int(5), Str("6869")});
+        assert(http.ReadAll().empty());
+        auto status = http.GetStatusCode();
+        assert(!status && status.error().code == NetworkErrc::ReceiveFailed);
+        char buffer[5];
+        auto received = http.Read(buffer, sizeof(buffer));
+        assert(!received && received.error().code == NetworkErrc::ReceiveFailed);
+        const size_t before_close = uart->commands.size();
+        http.Close();
+        assert(uart->commands.size() == before_close + 2);
+        assert(uart->commands[before_close] == "AT+MHTTPTERM=0");
+        assert(uart->commands[before_close + 1] == "AT+MHTTPDEL=0");
+    }
+
+    // Firmware may include an explicit empty data field on the final
+    // chunked URC. A fixed-length response with the same terminator is invalid
+    // until it has received its entire body.
+    for (bool chunked : {false, true}) {
+        Reset(uart);
+        DinosaurMl307Http http(uart);
+        assert(http.Open("GET", "http://example.com/terminated"));
+        const std::string headers = chunked ?
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" :
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n";
+        EmitHeader(*uart, 200, headers, headers.size());
+        uart->Emit("MHTTPURC", {Str("content"), Int(0), Int(chunked ? 0 : 5), Int(2), Int(2),
+                                Str("6869")});
+        uart->Emit("MHTTPURC", {Str("content"), Int(0), Int(chunked ? 0 : 5), Int(2), Int(0),
+                                Str("")});
+        if (chunked) {
+            assert(http.ReadAll() == "hi");
+        } else {
+            const auto status = http.GetStatusCode();
+            assert(!status && status.error().code == NetworkErrc::ReceiveFailed);
+        }
+        http.Close();
     }
 
     // Interleaved or inconsistent header fragments fail without issuing AT

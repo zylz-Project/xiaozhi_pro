@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -84,6 +85,7 @@ protected:
     // Reserve from enqueue until Flash reading finishes. Decoder idle alone does
     // not cover the interval before the worker submits its first Opus packet.
     mutable std::mutex playback_mutex_;
+    std::optional<uint32_t> active_decoder_generation_;
     std::atomic<bool> playback_pending_{false};
     std::atomic<bool> maintenance_{false};
     std::atomic<bool> worker_active_{false};

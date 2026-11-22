@@ -54,6 +54,7 @@ private:
     bool WaitForHeadersLocked(std::unique_lock<std::mutex>& lock);
     void HandleUrc(const std::string& command, const std::vector<AtArgumentValue>& arguments);
     void FailLocked(int error);
+    void FailBodyLocked(const char* reason);
     NetworkError CurrentError() const;
     void ResetResponseLocked();
     void ReleaseSlot();
@@ -79,6 +80,7 @@ private:
     std::atomic<bool> error_{false};
     bool ind_received_ = false;
     bool awaiting_create_ = false;
+    bool request_started_ = false;
     int timeout_ms_ = 30000;
     int status_code_ = -1;
     std::atomic<int> last_error_{0};

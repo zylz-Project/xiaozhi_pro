@@ -7,7 +7,6 @@
 
 #include "mcp_server.h"
 
-#include "wzh_audio_hub.h"
 #include "wzh_audio_player.h"
 #include "wzh_audio_store.h"
 #include "wzh_product.h"
@@ -134,50 +133,6 @@ void RegisterAudioMcpTools(const char* prefix, AudioStore* store, AudioPlayer* p
                 });
 
     ESP_LOGI(TAG, "Registered audio MCP tools under %s.*", ns.c_str());
-}
-
-void RegisterHubMcpTools(const char* prefix, AudioHub* hub) {
-    auto& mcp = McpServer::GetInstance();
-    const std::string ns = std::string("self.") + prefix;
-
-    mcp.AddTool(
-        ns + ".sync_status",
-        "返回云端音频同步（Audio Hub）状态：是否已绑定、当前状态、"
-        "激活码（未绑定时）、本地目录 revision。"
-        "用户问“同步状态/怎么绑定设备/激活码”时使用。",
-        PropertyList(), [hub](const PropertyList&) -> ReturnValue {
-            hub->EnsureInitialized();
-            char buf[256];
-            snprintf(buf, sizeof(buf), "设备ID: %s\n状态: %s\n已绑定: %s\n激活码: %s\n目录版本: %s",
-                     hub->device_id().c_str(), AudioHub::StatusName(hub->status()),
-                     hub->activated() ? "是" : "否",
-                     hub->activated() ? "（已绑定，无需激活码）" : hub->activation_code().c_str(),
-                     hub->revision().empty() ? "（尚未同步）" : hub->revision().c_str());
-            return std::string(buf);
-        });
-
-    mcp.AddUserOnlyTool(
-        ns + ".sync_now",
-        "立即与云端（Audio Hub）同步一次本地声音。用户明确要求"
-        "“同步/更新叫声”时使用。",
-        PropertyList(), [hub](const PropertyList&) -> ReturnValue {
-            if (hub->status() == AudioHub::Status::kDisabled) {
-                return std::string("Audio Hub 同步未启用");
-            }
-            if (hub->manual()) {
-                if (!hub->RequestCheck()) {
-                    return std::string("检查任务已在运行，请稍后查看状态");
-                }
-                return std::string("已请求检查清单，不写入 Flash；请在管理页选择要更新的文件");
-            }
-            if (!hub->activated()) {
-                return std::string("设备尚未绑定，激活码：" + hub->activation_code());
-            }
-            hub->RequestSyncNow();
-            return std::string("已请求同步，将在后台执行（对话结束后自动继续）");
-        });
-
-    ESP_LOGI(TAG, "Registered hub MCP tools under %s.*", ns.c_str());
 }
 
 }  // namespace wzh

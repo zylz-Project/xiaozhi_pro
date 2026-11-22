@@ -39,9 +39,9 @@ int main() {
     }
     // Switching pads starts a new sequence; holding does not retrigger every tick.
     pet.Touch(2,5000);assert(pet.PollTouch(5000)==TouchResponse::kAffection);
-    assert(pet.PollTouch(6200)==TouchResponse::kHeld);
+    assert(pet.PollTouch(6200)==TouchResponse::kNone);
     assert(pet.PollTouch(9000)==TouchResponse::kNone);
-    pet.Touch(0,9100);assert(pet.PollTouch(9100)==TouchResponse::kReleased);
+    pet.Touch(0,9100);assert(pet.PollTouch(9100)==TouchResponse::kNone);
 }
 ''')
 
@@ -119,6 +119,187 @@ int main() {
 }
 ''')
 
+    def test_shake_requires_recent_opposing_motion_and_uses_intermediate_samples(self):
+        self.run_cpp(r'''
+#include <cassert>
+#include "wzh_posture_input.h"
+using namespace wzh;
+int main() {
+    PostureInput input;
+    uint32_t now=UINT32_MAX-300;
+    auto sample=[&](int x){return input.Update(x,0,1000,false,false,now+=20);};
+    for(int i=0;i<25;++i)
+        assert(sample(0)==PetInteraction::kNone);
+    // A single bump and its return to baseline were previously two changes
+    // above the shake threshold.
+    assert(sample(1500)==PetInteraction::kNone);
+    assert(sample(0)==PetInteraction::kNone);
+    for(int i=0;i<20;++i)
+        assert(sample(0)==PetInteraction::kNone);
+    // Real alternating handling remains usable with low samples in between.
+    for(int x:{600,420,200,0,-200,-420})
+        assert(sample(x)==PetInteraction::kNone);
+    assert(sample(-600)==PetInteraction::kShaken);
+    input.Accepted(now);
+    for(int i=0;i<60;++i)
+        assert(sample(0)==PetInteraction::kNone);
+    // Suspending sampling cannot combine a stale peak with a new one.
+    assert(sample(1500)==PetInteraction::kNone);
+    now+=160;
+    assert(sample(-1500)==PetInteraction::kNone);
+    for(int i=0;i<25;++i)
+        assert(sample(0)==PetInteraction::kNone);
+    assert(sample(1500)==PetInteraction::kNone);
+    assert(sample(-1500)==PetInteraction::kShaken);
+}
+''')
+
+    def test_smooth_light_shakes_register_but_weak_motion_and_one_rebound_do_not(self):
+        self.run_cpp(r'''
+#include <cassert>
+#include <cmath>
+#include "wzh_posture_input.h"
+using namespace wzh;
+int main() {
+    PostureInput input;
+    uint32_t now=0;
+    auto rest=[&](int count){
+        for(int i=0;i<count;++i)
+            assert(input.Update(0,0,1000,false,false,now+=20)==PetInteraction::kNone);
+    };
+    auto wave=[&](int component,int ms,bool diagonal){
+        const int a=std::lround(component*std::sin(6.283185307*ms/500));
+        return input.Update(a,diagonal?-a:0,1000,false,false,now+=20);
+    };
+    rest(25);
+    // Mild vibration in multiple axes remains below the threshold per axis.
+    for(int ms=0;ms<1500;ms+=20)
+        assert(wave(85,ms,true)==PetInteraction::kNone);
+    rest(25);
+    // A single impact and rebound supplies two lobes but only one reversal.
+    for(int ms=0;ms<500;ms+=20)
+        assert(wave(240,ms,false)==PetInteraction::kNone);
+    rest(25);
+    // A stronger rebound must not drag the resting center so far that
+    // returning to the original stationary reading counts as a third lobe.
+    for(int x:{250,-450})
+        for(int i=0;i<9;++i)
+            assert(input.Update(x,0,1000,false,false,now+=20)==PetInteraction::kNone);
+    rest(25);
+    // A normal, smooth shake does not have the abrupt sample-to-sample
+    // jumps in the existing strong-shake fixtures.
+    for(const bool diagonal:{false,true}){
+        bool shaken=false;
+        for(int ms=0;ms<1400;ms+=20){
+            const auto event=wave(diagonal?190:160,ms,diagonal);
+            if(event==PetInteraction::kShaken){
+                input.Accepted(now);
+                shaken=true;
+                break;
+            }
+            assert(event==PetInteraction::kNone);
+        }
+        assert(shaken);
+        rest(65);
+    }
+}
+''')
+
+    def test_light_shake_requires_fresh_samples_after_power_and_read_gaps(self):
+        self.run_cpp(r'''
+#include <cassert>
+#include <cmath>
+#include "wzh_posture_input.h"
+using namespace wzh;
+int main() {
+    PostureInput input;
+    uint32_t now=UINT32_MAX-900;
+    auto sample=[&](int x,bool powered=false,bool falling=false){
+        return input.Update(x,0,falling?0:1000,powered,falling,now+=20);
+    };
+    auto wave=[&](int ms,bool powered=false){
+        return sample(std::lround(240*std::sin(6.283185307*ms/400)),powered);
+    };
+    for(int i=0;i<25;++i)assert(sample(0)==PetInteraction::kNone);
+    // Two lobes followed by a read gap cannot seed a later third lobe.
+    for(int ms=0;ms<400;ms+=20)assert(wave(ms)==PetInteraction::kNone);
+    now+=160;
+    for(int ms=0;ms<200;ms+=20)assert(wave(ms)==PetInteraction::kNone);
+    for(int i=0;i<25;++i)assert(sample(0)==PetInteraction::kNone);
+    // Do not use any part of a trace while protection or own-motion settling
+    // owns the lane, including positive and negative peaks with servos on.
+    for(int i=0;i<8;++i)assert(sample(0,true,true)==PetInteraction::kNone);
+    for(int ms=0;ms<600;ms+=20)assert(wave(ms,true)==PetInteraction::kNone);
+    for(int ms=600;ms<1280;ms+=20)assert(wave(ms)==PetInteraction::kNone);
+    bool shaken=false;
+    for(int ms=1280;ms<2600;ms+=20){
+        const auto event=wave(ms);
+        if(event==PetInteraction::kShaken){
+            shaken=true;
+            break;
+        }
+        assert(event==PetInteraction::kNone);
+    }
+    assert(shaken);
+}
+''')
+
+    def test_rejected_handling_expires_until_fresh_motion(self):
+        self.run_cpp(r'''
+#include <cassert>
+#include "wzh_posture_input.h"
+using namespace wzh;
+int main() {
+    PostureInput input;
+    uint32_t now=0;
+    auto sample=[&](int x,int z){return input.Update(x,0,z,false,false,now+=20);};
+    auto quiet=[&](int x,int z,int count){
+        for(int i=0;i<count;++i)
+            assert(sample(x,z)==PetInteraction::kNone);
+    };
+    quiet(0,1000,25);
+    // A moving sensor should confirm tilt only after the angle has settled.
+    for(int i=0;i<12;++i)
+        assert(sample(i%2?780:680,i%2?680:780)==PetInteraction::kNone);
+    bool flipped=false;
+    for(int i=0;i<12;++i)
+        flipped|=sample(700,700)==PetInteraction::kFlipped;
+    assert(flipped);
+    for(int i=0;i<40;++i)
+        sample(700,700); // Busy controller never acknowledges the candidate.
+    quiet(700,700,100);
+    assert(sample(0,1000)==PetInteraction::kNone);
+    quiet(700,700,25); // One upright sample is insufficient to re-arm.
+    quiet(0,1000,12);
+    for(int i=0;i<6;++i)
+        assert(sample(700,700)==PetInteraction::kNone);
+    assert(sample(700,700)==PetInteraction::kFlipped);
+    for(int i=0;i<40;++i)
+        sample(700,700);
+    quiet(0,1000,25);
+    assert(sample(0,1230)==PetInteraction::kNone);
+    assert(sample(0,1230)==PetInteraction::kNone);
+    assert(sample(0,1230)==PetInteraction::kPickedUp);
+    for(int i=0;i<40;++i)
+        sample(0,1230);
+    quiet(0,1230,100); // A steady offset never retries a pickup indefinitely.
+    quiet(0,1000,25);
+    quiet(0,1230,2);
+    assert(sample(0,1230)==PetInteraction::kPickedUp);
+    input.Accepted(now);
+    quiet(0,1000,85);
+    for(int i=0;i<4;++i)
+        assert(sample(i%2?220:-220,1000)==PetInteraction::kNone);
+    bool settled=false;
+    for(int i=0;i<40;++i)
+        settled|=sample(0,1000)==PetInteraction::kPutDown;
+    assert(settled);
+    for(int i=0;i<40;++i)
+        sample(0,1000);
+    quiet(0,1000,100);
+}
+''')
+
     def test_production_touch_routes_four_pads_and_handling_without_losing_fast_taps(self):
         harness = r'''
 #include <atomic>
@@ -127,6 +308,7 @@ int main() {
 #include <mutex>
 #include <vector>
 #include "wzh_pet_behavior.h"
+#include "wzh_conversation_touch.h"
 #include "wzh_sound_choreography.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
@@ -150,6 +332,11 @@ std::vector<Request> requests;
 int xQueueOverwrite(void*,const Request* request){requests.push_back(*request);return pdTRUE;}
 struct Output { bool locked=false;bool blocked(){return locked;}bool powered(){return false;}unsigned faults(){return locked?1:0;} };
 struct Audio { struct Data{bool playing=false;};Data GetTtsMotionData(){return {};} };
+struct Application {
+    static Application& GetInstance(){static Application app;return app;}
+    std::vector<std::string> touches;
+    void QueueTouchConversationInput(std::string text){if(!text.empty())touches.push_back(std::move(text));}
+};
 inline unsigned esp_random(){return 0;}
 struct Controller {
     using ActionRequest=Request;
@@ -157,7 +344,7 @@ struct Controller {
     wzh::PetBehavior pet_;Output servo_output_;
     wzh::AutoplayCadence autoplay_;
     Audio* audio_=nullptr;
-    std::atomic<bool> shutdown_requested_{false},request_active_{false},speaking_{false};
+    std::atomic<bool> shutdown_requested_{false},request_active_{false},speaking_{false},conversation_active_{false};
     std::atomic<int> pending_expression_{-1};
     std::atomic<uint32_t> expression_since_{0},intent_generation_{0};
     std::atomic<int64_t> last_request_us_{0};
@@ -167,9 +354,10 @@ struct Controller {
     wzh::PetMode pet_mode(){return pet_.Get(clock_us/1000).mode;}
     bool TriggerAction(Action,bool,wzh::PetPriority,bool=false){return true;}
     bool QueueRequest(ActionRequest,wzh::PetPriority);
-    bool QueueInteraction(wzh::PetInteraction, uint8_t = 0);
+    bool QueueInteraction(wzh::PetInteraction, uint8_t = 0,
+                          wzh::PetPriority = wzh::PetPriority::kExplicit);
     bool HandleSensorEvent(int);
-    void HandleTouch(uint8_t);
+    void HandleTouch(uint8_t,bool allow_contact_start=true);
     void PollInteraction(uint32_t);
 };
 '''
@@ -189,8 +377,12 @@ int main(){
     c.HandleTouch(2);c.HandleTouch(0);clock_us+=100000;c.HandleTouch(2);c.HandleTouch(0);
     assert(requests.size()==6); // Repeated deliberate touches are not coalesced for 1.2 seconds.
     clock_us+=2000000;
+    assert(!c.HandleSensorEvent(int(wzh::Sensors::Event::kShaken)));
+    assert(requests.size()==6); // The pending explicit touch keeps priority.
+    clock_us+=500000;
     assert(c.HandleSensorEvent(int(wzh::Sensors::Event::kShaken)));
     assert(requests.back().interaction==wzh::PetInteraction::kShaken);
+    assert(requests.back().priority==wzh::PetPriority::kSensor);
     assert(c.pet_.Get(clock_us/1000).gentle);
     assert(c.pet_.CanPlayInteractionSound(clock_us/1000));
     c.pet_.InteractionSoundStarted(clock_us/1000);
@@ -212,6 +404,26 @@ int main(){
     Controller blocked;blocked.servo_output_.locked=true;
     assert(!blocked.HandleSensorEvent(int(wzh::Sensors::Event::kShaken)));
     assert(!blocked.pet_.Get(clock_us/1000).gentle); // A rejected event cannot shrink the next motion.
+    auto& touches=Application::GetInstance().touches;
+    assert(touches.empty());
+    Controller online;online.conversation_active_=true;
+    auto before=requests.size();
+    online.HandleTouch(1);clock_us+=2000000;online.PollInteraction(clock_us/1000);
+    online.HandleTouch(3);online.HandleTouch(2);clock_us+=10000000;
+    online.PollInteraction(clock_us/1000);online.HandleTouch(0);
+    assert(requests.size()==before+1);
+    assert(touches.size()==1&&touches.front().find("摸了你的头")!=std::string::npos);
+    online.HandleTouch(1,false); // The tutorial consumed this press.
+    online.HandleTouch(2);online.HandleTouch(0);
+    assert(requests.size()==before+1&&touches.size()==1);
+    online.HandleTouch(1);
+    assert(requests.size()==before+2&&touches.size()==2);
+    Controller attached_late;
+    attached_late.HandleTouch(3,false); // The hardware had already confirmed an earlier contact.
+    assert(requests.size()==before+2);
+    attached_late.HandleTouch(0,false);
+    attached_late.HandleTouch(1,true);
+    assert(requests.size()==before+3);
 }
 '''
         for board, stem, cls in [('wzh_crawlPanda','panda','PandaController'),
@@ -379,7 +591,10 @@ int main(){
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <thread>
 #include <vector>
+#include "wzh_prompt_audio_gate.h"
 #include "wzh_sound_score.h"
 using namespace wzh;
 int64_t fake_time=1000000;
@@ -398,8 +613,10 @@ std::atomic<unsigned>* generation_ptr=nullptr;
 int stop_after_packets=0;bool stop_during_admission=false;
 struct Service {
     bool idle=true;int packets=0;
+    uint32_t generation=7;
+    std::atomic<unsigned> generation_reads{0};
     bool IsPlaybackIdle(){if(stop_during_admission){stop_during_admission=false;++*generation_ptr;}return idle;}
-    uint32_t GetPlaybackGeneration(){return 7;}
+    uint32_t GetPlaybackGeneration(){auto value=generation;++generation_reads;return value;}
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet,bool,uint32_t generation){
         assert(generation==7);
         assert(packet->sample_rate==24000&&packet->frame_duration==60&&!packet->payload.empty());
@@ -435,6 +652,7 @@ struct AudioPlayer {
     std::array<char,64>current_name_{};
     struct PlayRequest {int index;unsigned generation;AudioFileInfo file;};
     AudioStore store;AudioStore* store_=&store;std::mutex playback_mutex_;
+    std::optional<uint32_t> active_decoder_generation_;
     std::atomic<unsigned> playback_generation_{1};
     std::atomic<int> motion_sound_index_{-1};
     std::atomic<const SoundScore*> motion_score_{nullptr};
@@ -454,11 +672,23 @@ struct AudioPlayer {
 int main(){
     AudioPlayer p;generation_ptr=&p.playback_generation_;
     AudioPlayer::PlayRequest request{3,1,{}};
-    assert(p.PlayFile(request));
+    auto& app=Application::GetInstance();
+    for(bool replaced:{true,false}){
+        app.service.generation_reads=0;
+        std::unique_lock<std::mutex> gate(wzh::PromptAudioGate());
+        bool played=false;
+        std::thread worker([&] { played=p.PlayFile(request); });
+        while(app.service.generation_reads==0)std::this_thread::yield();
+        if(replaced)++app.service.generation;
+        gate.unlock();
+        worker.join();
+        assert(played==!replaced);
+        if(replaced){assert(reads.empty()&&!p.is_playing_);app.service.generation=7;}
+    }
     assert(reads.size()==2&&reads[0].first==131072+777&&reads[0].second==4096);
     assert(reads[1].first==131072+777+4096&&reads[1].second==904);
     assert(p.motion_sound_index_==3&&p.motion_duration_ms_==6000&&!p.is_playing_);
-    reads.clear();auto& app=Application::GetInstance();
+    reads.clear();
     for(auto state:{kDeviceStateConnecting,kDeviceStateListening,kDeviceStateSpeaking}){
         app.state=state;assert(!p.PlayFile(request));assert(reads.empty());
     }
@@ -484,6 +714,7 @@ int main(){
 #include <cassert>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 struct Done{};
 constexpr int pdTRUE=1,portMAX_DELAY=0;
 struct PlayRequest { int index;uint32_t generation; };
@@ -500,6 +731,7 @@ struct AudioPlayer{
     std::atomic<uint32_t> playback_generation_{1};
     std::atomic<bool> is_playing_{false};
     std::mutex playback_mutex_;bool playback_pending_=true;
+    std::optional<uint32_t> active_decoder_generation_;
     void* play_queue_=this;
     void Task();
     void PlayFile(const PlayRequest& request){
@@ -558,8 +790,9 @@ int i2c_master_transmit_receive(void*,uint8_t* reg,size_t,uint8_t* bytes,size_t 
     if((*reg&0x7f)==0x28){
         if(clock_ms>=6100&&clock_ms<6180){++read_errors;return -1;}
         std::memset(bytes,0,size);
-        int x=((clock_ms>=7000&&clock_ms<8000)||(clock_ms>=9000&&clock_ms<9100))
-                  ?(clock_ms/20%2?1500:-1500):0;
+        int x=(clock_ms>=7000&&clock_ms<8000)?(clock_ms/20%2?1500:-1500):0;
+        if(clock_ms>=9000)
+            x=static_cast<int>(190*std::sin((clock_ms-9000)*.012566371f));
         int z=1000;
         if(clock_ms>=7600&&clock_ms<7680)x=z=0;
         const int values[]={x,0,z};
@@ -620,6 +853,59 @@ int main(){
 }
 '''
         self.run_cpp(program)
+
+
+    def test_only_accepted_posture_events_count_as_interaction_on_each_board(self):
+        fixture = r'''
+#include <cassert>
+#include <functional>
+#include <utility>
+constexpr int HUMAN_SENSOR_GPIO=41,POSTURE_I2C_SDA_GPIO=43,POSTURE_I2C_SCL_GPIO=44;
+bool capture_motion=false;
+int idle_notifications=0,motion_notifications=0;
+namespace wzh {
+enum class OnboardingEvent{kMotion};
+bool CaptureOnboardingInteraction(OnboardingEvent){return capture_motion;}
+void NotifyOnboarding(OnboardingEvent){++motion_notifications;}
+void NotifyIdleInteraction(){++idle_notifications;}
+struct Sensors {
+    enum class Event{kHuman,kPickedUp,kShaken,kFlipped,kPutDown};
+    std::function<bool(Event)> hook;
+    void Initialize(int,int,int,int*,std::function<bool(Event)> callback){
+        hook=std::move(callback);
+    }
+    void RegisterMcpTools(const char*){}
+};
+}
+struct Controller {
+    int output=0,calls=0;bool accept=false;
+    int& servo_output(){return output;}
+    bool HandleSensorEvent(int){++calls;return accept;}
+};
+struct Board {
+    Controller controller_;wzh::Sensors sensors_;
+'''
+        exercise = r'''
+};
+int main() {
+    Board board;board.InitializeSensors();
+    auto& emit=board.sensors_.hook;
+    using Event=wzh::Sensors::Event;
+    assert(!emit(Event::kPickedUp)&&!emit(Event::kShaken));
+    assert(idle_notifications==0&&motion_notifications==0);
+    capture_motion=true;const int calls=board.controller_.calls;
+    assert(emit(Event::kShaken)&&board.controller_.calls==calls);
+    assert(idle_notifications==1&&motion_notifications==0);
+    capture_motion=false;board.controller_.accept=true;
+    assert(emit(Event::kFlipped)&&emit(Event::kPutDown)&&emit(Event::kPickedUp));
+    assert(idle_notifications==4&&motion_notifications==1);
+}
+'''
+        for board in ('wzh_dinosaur', 'wzh_crawlPanda', 'wzh_tailRedPanda'):
+            with self.subTest(board=board):
+                source = (ROOT / 'main/boards' / board / (board + '.cc')).read_text()
+                method = queue_function(source, 'void InitializeSensors()')
+                self.run_cpp(fixture + method + exercise)
 
 
 if __name__=='__main__': unittest.main()

@@ -18,6 +18,7 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_mac.h>
+#include <esp_ota_ops.h>
 #include <esp_random.h>
 #include <esp_timer.h>
 #include <esp_wifi.h>
@@ -28,6 +29,7 @@
 #include "application.h"
 #include "audio_codec.h"
 #include "board.h"
+#include "system_info.h"
 #include "wifi_manager.h"
 #include "wzh_flash.h"
 
@@ -149,6 +151,8 @@ void WebConsole::Configure(Options options) {
 }
 
 bool WebConsole::Start() {
+    if (options_.hub)
+        options_.hub->StartLanDiscovery();
     if (started_.exchange(true)) {
         return true;
     }
@@ -191,10 +195,6 @@ void WebConsole::StartTask() {
     }
     if (persistent)
         ap_ssid_ = WifiManager::GetInstance().GetApSsid();
-    if (options_.hub != nullptr) {
-        // NVS/Wi-Fi are initialized by now; load server/token for the status page.
-        options_.hub->EnsureInitialized();
-    }
     if (!StartHttpServer()) {
         DestroyAp();
         started_.store(false);
@@ -374,30 +374,33 @@ bool WebConsole::StartHttpServer() {
         return httpd_register_uri_handler(server_, &entry) == ESP_OK;
     };
 
-    const bool ok = add("/", HTTP_GET, HandleRoot) && add("/api/status", HTTP_GET, HandleStatus) &&
-                    add("/api/audio", HTTP_GET, HandleAudio) &&
-                    add("/api/audio/play", HTTP_POST, HandlePlay) &&
-                    add("/api/audio/stop", HTTP_POST, HandleStop) &&
-                    add("/api/chat/toggle", HTTP_POST, HandleChat) &&
-                    add("/api/hub/status", HTTP_GET, HandleHubStatus) &&
-                    add("/api/hub/check", HTTP_POST, HandleHubCheck) &&
-                    add("/api/hub/diff", HTTP_GET, HandleHubDiff) &&
-                    add("/api/hub/update", HTTP_POST, HandleHubUpdate) &&
-                    add("/api/developer/login", HTTP_POST, HandleDeveloperLogin) &&
-                    add("/api/developer/logout", HTTP_POST, HandleDeveloperLogout) &&
-                    add("/api/developer/status", HTTP_GET, HandleDeveloperStatus) &&
-                    add("/api/developer/volume", HTTP_POST, HandleDeveloperVolume) &&
-                    add("/api/developer/ota", HTTP_GET, HandleDeveloperOta) &&
-                    add("/api/developer/ota", HTTP_POST, HandleDeveloperOta) &&
-                    add("/api/developer/factory-reset", HTTP_GET, HandleDeveloperFactoryReset) &&
-                    add("/api/developer/factory-reset", HTTP_POST, HandleDeveloperFactoryReset) &&
-                    add("/api/developer/voice-config", HTTP_POST, HandleDeveloperVoiceConfig) &&
-                    add("/api/developer/voice-manage", HTTP_POST, HandleDeveloperVoiceManage) &&
-                    add("/api/developer/voice-upload", HTTP_POST, HandleDeveloperVoiceUpload) &&
-                    add("/api/developer/center", HTTP_POST, HandleDeveloperCenter) &&
-                    add("/api/developer/demo", HTTP_POST, HandleDeveloperDemo) &&
-                    add("/api/developer/flash/erase", HTTP_POST, HandleDeveloperErase) &&
-                    add("/*", HTTP_GET, HandleAsset);
+    const bool ok =
+        add("/", HTTP_GET, HandleRoot) && add("/api/status", HTTP_GET, HandleStatus) &&
+        add("/api/audio", HTTP_GET, HandleAudio) && add("/api/audio/play", HTTP_POST, HandlePlay) &&
+        add("/api/audio/stop", HTTP_POST, HandleStop) &&
+        add("/api/chat/toggle", HTTP_POST, HandleChat) &&
+        add("/api/hub/status", HTTP_GET, HandleHubStatus) &&
+        add("/api/hub/check", HTTP_POST, HandleHubCheck) &&
+        add("/api/hub/diff", HTTP_GET, HandleHubDiff) &&
+        add("/api/hub/update", HTTP_POST, HandleHubUpdate) &&
+        add("/api/developer/login", HTTP_POST, HandleDeveloperLogin) &&
+        add("/api/developer/logout", HTTP_POST, HandleDeveloperLogout) &&
+        add("/api/developer/status", HTTP_GET, HandleDeveloperStatus) &&
+        add("/api/developer/volume", HTTP_POST, HandleDeveloperVolume) &&
+        (!options_.set_touch_sw4_isolated ||
+         add("/api/developer/touch/sw4", HTTP_POST, HandleDeveloperTouchSw4)) &&
+        add("/api/developer/ota", HTTP_GET, HandleDeveloperOta) &&
+        add("/api/developer/ota", HTTP_POST, HandleDeveloperOta) &&
+        add("/api/developer/factory-reset", HTTP_GET, HandleDeveloperFactoryReset) &&
+        add("/api/developer/factory-reset", HTTP_POST, HandleDeveloperFactoryReset) &&
+        add("/api/developer/voice-config", HTTP_POST, HandleDeveloperVoiceConfig) &&
+        add("/api/developer/voice-preview/status", HTTP_GET, HandleDeveloperVoicePreviewStatus) &&
+        add("/api/developer/voice-manage", HTTP_POST, HandleDeveloperVoiceManage) &&
+        add("/api/developer/voice-upload", HTTP_POST, HandleDeveloperVoiceUpload) &&
+        add("/api/developer/center", HTTP_POST, HandleDeveloperCenter) &&
+        add("/api/developer/demo", HTTP_POST, HandleDeveloperDemo) &&
+        add("/api/developer/flash/erase", HTTP_POST, HandleDeveloperErase) &&
+        add("/*", HTTP_GET, HandleAsset);
     if (!ok) {
         ESP_LOGE(TAG, "注册管理页路由失败");
         httpd_stop(server_);
@@ -470,6 +473,7 @@ esp_err_t WebConsole::SendError(httpd_req_t* req, int status, const char* code) 
 
 void WebConsole::AddStatus(cJSON* root) {
     auto& app = Application::GetInstance();
+    auto& board = Board::GetInstance();
     cJSON_AddStringToObject(root, "product", options_.product_name.c_str());
     cJSON_AddStringToObject(root, "build", options_.build_name.c_str());
     cJSON_AddStringToObject(root, "version", esp_app_get_description()->version);
@@ -482,7 +486,7 @@ void WebConsole::AddStatus(cJSON* root) {
     bool discharging = false;
     cJSON* battery = cJSON_AddObjectToObject(root, "battery");
     if (battery != nullptr) {
-        const bool available = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
+        const bool available = board.GetBatteryLevel(level, charging, discharging);
         cJSON_AddBoolToObject(battery, "available", available);
         if (available) {
             cJSON_AddNumberToObject(battery, "level", level);
@@ -491,17 +495,29 @@ void WebConsole::AddStatus(cJSON* root) {
         }
     }
     float temperature = 0.0f;
-    if (Board::GetInstance().GetTemperature(temperature)) {
+    if (board.GetTemperature(temperature)) {
         cJSON_AddNumberToObject(root, "temperature_c", temperature);
     }
 
     auto& wifi = WifiManager::GetInstance();
+    const bool wifi_connected = wifi.IsConnected();
+    const bool uses_cellular = board.UsesCellularNetwork();
+    const char* transport = board.IsNetworkProbing() ? "probing" : (uses_cellular ? "cellular" : "wifi");
+    cJSON_AddStringToObject(root, "transport", transport);
+    cJSON_AddBoolToObject(root, "network_available", board.IsNetworkAvailable());
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (uses_cellular) {
+        cJSON_AddBoolToObject(root, "cellular_server_connected", app.IsCellularServerConnected());
+    }
+#endif
     cJSON* wifi_json = cJSON_AddObjectToObject(root, "wifi");
     if (wifi_json != nullptr) {
-        cJSON_AddBoolToObject(wifi_json, "connected", wifi.IsConnected());
+        cJSON_AddBoolToObject(wifi_json, "connected", wifi_connected);
         cJSON_AddStringToObject(wifi_json, "ssid", wifi.GetSsid().c_str());
         cJSON_AddStringToObject(wifi_json, "ip", wifi.GetIpAddress().c_str());
         cJSON_AddNumberToObject(wifi_json, "rssi", wifi.GetRssi());
+        if (wifi_connected)
+            cJSON_AddNumberToObject(wifi_json, "channel", wifi.GetChannel());
         cJSON_AddStringToObject(wifi_json, "ap_ssid", ap_ssid_.c_str());
         cJSON_AddStringToObject(wifi_json, "ap_ip", "192.168.4.1");
         cJSON_AddNumberToObject(wifi_json, "ap_port", kConsolePort);
@@ -533,7 +549,7 @@ void WebConsole::AddStatus(cJSON* root) {
         cJSON_AddNumberToObject(audio, "attack", options_.player->GetTtsMotionData().attack);
     }
 
-    auto* codec = Board::GetInstance().GetAudioCodec();
+    auto* codec = board.GetAudioCodec();
     if (audio != nullptr && codec != nullptr) {
         cJSON_AddNumberToObject(audio, "volume", codec->output_volume());
         cJSON_AddBoolToObject(audio, "wake_running", app.GetAudioService().IsWakeWordRunning());
@@ -550,7 +566,6 @@ void WebConsole::AddStatus(cJSON* root) {
         cJSON_AddNumberToObject(audio, "queue_full_count", buffer.queue_full_count);
     }
     cJSON_AddBoolToObject(root, "maintenance", maintenance_active_.load());
-    AddHubStatus(root);
 
     if (options_.status_extra) {
         options_.status_extra(root);
@@ -563,13 +578,13 @@ void WebConsole::AddHubStatus(cJSON* root) {
         return;
     }
     auto* hub = options_.hub;
-    if (hub == nullptr) {
+    if (hub == nullptr || !hub->EnsureInitialized()) {
         cJSON_AddBoolToObject(hub_json, "available", false);
         return;
     }
     cJSON_AddBoolToObject(hub_json, "available", true);
     cJSON_AddStringToObject(hub_json, "status", AudioHub::StatusName(hub->status()));
-    cJSON_AddBoolToObject(hub_json, "manual", hub->manual());
+    cJSON_AddBoolToObject(hub_json, "manual", true);
     cJSON_AddBoolToObject(hub_json, "activated", hub->activated());
     cJSON_AddStringToObject(hub_json, "device_id", hub->device_id().c_str());
     cJSON_AddStringToObject(hub_json, "revision", hub->revision().c_str());
@@ -742,6 +757,8 @@ esp_err_t WebConsole::HandleChat(httpd_req_t* req) {
 
 esp_err_t WebConsole::HandleHubStatus(httpd_req_t* req) {
     auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
     cJSON* root = cJSON_CreateObject();
     if (root == nullptr) {
         return httpd_resp_send_500(req);
@@ -754,6 +771,8 @@ esp_err_t WebConsole::HandleHubStatus(httpd_req_t* req) {
 
 esp_err_t WebConsole::HandleHubCheck(httpd_req_t* req) {
     auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
     if (self->maintenance_active())
         return SendError(req, 409, "maintenance_active");
     if (self->options_.hub == nullptr || !self->options_.hub->RequestCheck()) {
@@ -771,6 +790,8 @@ esp_err_t WebConsole::HandleHubCheck(httpd_req_t* req) {
 
 esp_err_t WebConsole::HandleHubDiff(httpd_req_t* req) {
     auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
     cJSON* root = cJSON_CreateObject();
     if (root == nullptr) {
         return httpd_resp_send_500(req);
@@ -803,6 +824,8 @@ esp_err_t WebConsole::HandleHubDiff(httpd_req_t* req) {
 
 esp_err_t WebConsole::HandleHubUpdate(httpd_req_t* req) {
     auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
     if (self->maintenance_active())
         return SendError(req, 409, "maintenance_active");
     if (self->options_.hub == nullptr) {
@@ -931,10 +954,44 @@ esp_err_t WebConsole::HandleDeveloperStatus(httpd_req_t* req) {
     if (!out)
         return httpd_resp_send_500(req);
     self->AddStatus(out);
+    const auto* app_desc = esp_app_get_description();
     cJSON_AddNumberToObject(out, "heap_free", heap_caps_get_free_size(MALLOC_CAP_8BIT));
     cJSON_AddNumberToObject(out, "heap_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-    cJSON_AddStringToObject(out, "compiled", esp_app_get_description()->date);
-    cJSON_AddStringToObject(out, "compiled_time", esp_app_get_description()->time);
+    cJSON_AddNumberToObject(out, "heap_internal_min",
+                            heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(out, "heap_internal_largest",
+                            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    cJSON_AddStringToObject(out, "compiled", app_desc->date);
+    cJSON_AddStringToObject(out, "compiled_time", app_desc->time);
+    cJSON_AddStringToObject(out, "idf_version", app_desc->idf_ver);
+    cJSON_AddStringToObject(out, "chip", SystemInfo::GetChipModelName().c_str());
+    cJSON_AddStringToObject(out, "sta_mac", SystemInfo::GetMacAddress().c_str());
+    cJSON_AddNumberToObject(out, "flash_bytes", SystemInfo::GetFlashSize());
+    cJSON_AddNumberToObject(out, "psram_bytes", heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+    if (const auto* running = esp_ota_get_running_partition()) {
+        cJSON_AddStringToObject(out, "app_partition", running->label);
+        cJSON_AddNumberToObject(out, "app_partition_bytes", running->size);
+    }
+    nvs_stats_t nvs_stats = {};
+    if (nvs_get_stats(nullptr, &nvs_stats) == ESP_OK) {
+        cJSON_AddNumberToObject(out, "nvs_used_entries", nvs_stats.used_entries);
+        cJSON_AddNumberToObject(out, "nvs_total_entries", nvs_stats.total_entries);
+    }
+    auto* wifi = cJSON_GetObjectItemCaseSensitive(out, "wifi");
+    if (cJSON_IsObject(wifi)) {
+        wifi_config_t config = {};
+        if (esp_wifi_get_config(WIFI_IF_AP, &config) == ESP_OK) {
+            const char* security = "other";
+            if (config.ap.authmode == WIFI_AUTH_OPEN)
+                security = "open";
+            else if (config.ap.authmode == WIFI_AUTH_WPA2_PSK)
+                security = "WPA2-PSK";
+            cJSON_AddStringToObject(wifi, "ap_security", security);
+        }
+        wifi_sta_list_t clients = {};
+        if (esp_wifi_ap_get_sta_list(&clients) == ESP_OK)
+            cJSON_AddNumberToObject(wifi, "ap_clients", clients.num);
+    }
     if (self->options_.has_ali_key && self->options_.ali_voice) {
         cJSON_AddBoolToObject(out, "ali_key_configured", self->options_.has_ali_key());
         cJSON_AddStringToObject(out, "ali_voice_id", self->options_.ali_voice().c_str());
@@ -992,14 +1049,21 @@ esp_err_t WebConsole::HandleDeveloperVoiceManage(httpd_req_t* req) {
                  cJSON_IsString(action) && action->valuestring &&
                  (!id || (cJSON_IsString(id) && id->valuestring)) &&
                  (!name || (cJSON_IsString(name) && name->valuestring));
-    bool accepted =
-        valid && self->options_.voice_command(action->valuestring, id ? id->valuestring : "",
-                                              name ? name->valuestring : "");
+    auto* out = valid ? cJSON_CreateObject() : nullptr;
+    const auto ticket =
+        out ? self->options_.voice_command(action->valuestring, id ? id->valuestring : "",
+                                           name ? name->valuestring : "")
+            : 0;
     cJSON_Delete(body);
-    if (!accepted)
-        return SendError(req, 400, "voice_management_unavailable");
-    httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    if (!ticket) {
+        cJSON_Delete(out);
+        return SendError(req, valid ? 409 : 400, "voice_management_unavailable");
+    }
+    cJSON_AddBoolToObject(out, "ok", true);
+    cJSON_AddNumberToObject(out, "request", ticket);
+    const auto result = SendJson(req, out, "202 Accepted");
+    cJSON_Delete(out);
+    return result;
 }
 
 esp_err_t WebConsole::HandleDeveloperVoiceUpload(httpd_req_t* req) {
@@ -1054,6 +1118,20 @@ esp_err_t WebConsole::HandleDeveloperVoiceConfig(httpd_req_t* req) {
     bool valid = cJSON_IsObject(body) && fields == 2 && kinds == 1 && values == 1 &&
                  cJSON_IsString(kind) && cJSON_IsString(value) && kind->valuestring &&
                  value->valuestring && std::strlen(value->valuestring) <= 256;
+    if (valid && std::strcmp(kind->valuestring, "ali_preview") == 0 &&
+        value->valuestring[0] == '\0' && self->options_.preview_ali_voice) {
+        cJSON_Delete(body);
+        const auto voice = self->options_.ali_voice ? self->options_.ali_voice() : "";
+        if (voice.empty() || voice == "xiaozhi-native")
+            return SendError(req, 409, "voice_preview_native");
+        if (!self->options_.has_ali_key || !self->options_.has_ali_key())
+            return SendError(req, 409, "voice_preview_no_key");
+        if (!self->options_.preview_ali_voice())
+            return SendError(req, 409, "voice_preview_busy");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_status(req, HttpStatusText(202));
+        return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    }
     bool saved = false;
     if (valid && std::strcmp(kind->valuestring, "ali_key") == 0 && self->options_.save_ali_key)
         saved = self->options_.save_ali_key(value->valuestring);
@@ -1066,9 +1144,6 @@ esp_err_t WebConsole::HandleDeveloperVoiceConfig(httpd_req_t* req) {
     else if (valid && std::strcmp(kind->valuestring, "ali_restore") == 0 &&
              value->valuestring[0] == '\0' && self->options_.restore_ali_voice)
         saved = self->options_.restore_ali_voice();
-    else if (valid && std::strcmp(kind->valuestring, "ali_preview") == 0 &&
-             value->valuestring[0] == '\0' && self->options_.preview_ali_voice)
-        saved = self->options_.preview_ali_voice();
     else if (valid && std::strcmp(kind->valuestring, "voice_cancel") == 0 &&
              value->valuestring[0] == '\0' && self->options_.cancel_voice)
         saved = self->options_.cancel_voice();
@@ -1077,6 +1152,22 @@ esp_err_t WebConsole::HandleDeveloperVoiceConfig(httpd_req_t* req) {
         return SendError(req, 400, "voice_config_failed");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebConsole::HandleDeveloperVoicePreviewStatus(httpd_req_t* req) {
+    auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
+    if (!self->options_.voice_preview_status)
+        return SendError(req, 404, "voice_management_not_supported");
+    cJSON* out = cJSON_CreateObject();
+    if (!out)
+        return httpd_resp_send_500(req);
+    cJSON_AddBoolToObject(out, "ok", true);
+    cJSON_AddStringToObject(out, "phase", self->options_.voice_preview_status());
+    const auto result = SendJson(req, out);
+    cJSON_Delete(out);
+    return result;
 }
 
 esp_err_t WebConsole::HandleDeveloperVolume(httpd_req_t* req) {
@@ -1103,6 +1194,28 @@ esp_err_t WebConsole::HandleDeveloperVolume(httpd_req_t* req) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_status(req, "202 Accepted");
     return httpd_resp_send(req, "{\"accepted\":true}", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebConsole::HandleDeveloperTouchSw4(httpd_req_t* req) {
+    auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
+    if (!self->options_.set_touch_sw4_isolated)
+        return SendError(req, 404, "touch_isolation_unavailable");
+    cJSON* body = nullptr;
+    if (!ReadJsonBody(req, &body))
+        return SendError(req, 400, "invalid_json");
+    const auto* value = cJSON_GetObjectItemCaseSensitive(body, "isolated");
+    const bool valid = cJSON_IsBool(value);
+    const bool isolated = cJSON_IsTrue(value);
+    cJSON_Delete(body);
+    if (!valid)
+        return SendError(req, 400, "invalid_touch_isolation");
+    if (!self->options_.set_touch_sw4_isolated(isolated))
+        return SendError(req, 500, "touch_isolation_save_failed");
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, isolated ? "{\"isolated\":true}" : "{\"isolated\":false}",
+                           HTTPD_RESP_USE_STRLEN);
 }
 
 esp_err_t WebConsole::HandleDeveloperOta(httpd_req_t* req) {
@@ -1229,8 +1342,11 @@ esp_err_t WebConsole::HandleDeveloperErase(httpd_req_t* req) {
         return SendError(req, 409, "busy_or_conversation");
     int battery = 0;
     bool charging = false, discharging = false;
-    if (Board::GetInstance().GetBatteryLevel(battery, charging, discharging) && battery <= 15 &&
-        !charging)
+    const bool battery_available =
+        self->options_.live_battery_level
+            ? self->options_.live_battery_level(battery)
+            : Board::GetInstance().GetBatteryLevel(battery, charging, discharging);
+    if (battery_available && battery <= 15 && !charging)
         return SendError(req, 409, "low_battery");
     if (self->maintenance_active_.exchange(true))
         return SendError(req, 409, "maintenance_active");

@@ -134,8 +134,8 @@ struct Application {std::vector<std::function<void()>> pending;
  int state=kDeviceStateIdle,stops=0,resets=0;
  static Application& GetInstance(){static Application a;return a;}
  int GetDeviceState(){return state;}
- void StopInteraction(){Schedule([this]{++stops;});}
- void ResetProtocol(){Schedule([this]{++resets;});}
+ void PrepareConversationNetworkSwitch(){Schedule([this]{++stops;});}
+ void ResetProtocol(std::function<void()> next){Schedule([this,next]{++resets;next();});}
  void Schedule(std::function<void()> f){pending.push_back(std::move(f));}
  void Run(){auto work=std::move(pending);pending.clear();for(auto& f:work)f();}};
 namespace wzh { enum class OnboardingEvent{kNetworkLost}; void NotifyOnboarding(OnboardingEvent){} }

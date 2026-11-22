@@ -10,11 +10,23 @@ namespace wzh {
 namespace {
 constexpr char kNamespace[] = "onboarding";
 constexpr char kRecord[] = "progress";
-// v2 adds the "skipped" mask, so a step abandoned after three failures is
-// not replayed on every boot. v1 records still load (skipped = 0).
-constexpr uint8_t kVersion = 2;
+// v3 records completion after the online prompts actually play.
+constexpr uint8_t kVersion = 3;
+constexpr uint8_t kPreviousVersion = 2;
 constexpr uint8_t kLegacyVersion = 1;
 std::recursive_mutex store_mutex;
+
+bool RestoreOnlineIntroduction(uint8_t version, OnboardingProgress& progress) {
+    if (version != kPreviousVersion || !progress.Done())
+        return false;
+    // Version 2 used the same completion bits for played and skipped prompts.
+    constexpr uint8_t kOnlineIntroStep = 8;
+    progress.flags &= ~OnboardingProgress::kOnlineComplete;
+    progress.completed &= (1U << kOnlineIntroStep) - 1;
+    progress.step = kOnlineIntroStep;
+    progress.attempts = 0;
+    return true;
+}
 
 bool ReadLegacyComplete(bool& complete) {
     complete = false;
@@ -114,13 +126,14 @@ bool PeekOnboardingProgress(OnboardingProgress& progress) {
         bytes[3] >= OnboardingProgress::kMaxAttempts || (bytes[5] & 0xe0) != 0)
         return false;
     const bool legacy = bytes[0] == kLegacyVersion && size == 6;
-    if (!legacy && (bytes[0] != kVersion || size != 8))
+    if (!legacy && ((bytes[0] != kVersion && bytes[0] != kPreviousVersion) || size != 8))
         return false;
     progress.flags = bytes[1];
     progress.step = bytes[2];
     progress.attempts = bytes[3];
     progress.completed = static_cast<uint16_t>(bytes[4] | (uint16_t{bytes[5]} << 8));
     progress.skipped = legacy ? 0 : static_cast<uint16_t>(bytes[6] | (uint16_t{bytes[7]} << 8));
+    RestoreOnlineIntroduction(bytes[0], progress);
     return true;
 }
 
@@ -137,7 +150,7 @@ bool LoadOnboardingProgress(OnboardingProgress& progress) {
     }
     if (result != ESP_OK)
         return false;
-    // Read up to the v2 size; a v1 record is simply shorter.
+    // Versions 2 and 3 share the same size; a v1 record is shorter.
     std::array<uint8_t, 8> bytes{};
     size_t size = bytes.size();
     result = nvs_get_blob(handle, kRecord, bytes.data(), &size);
@@ -153,7 +166,7 @@ bool LoadOnboardingProgress(OnboardingProgress& progress) {
         bytes[3] >= OnboardingProgress::kMaxAttempts || (bytes[5] & 0xe0) != 0)
         return false;
     const bool legacy = bytes[0] == kLegacyVersion && size == 6;
-    if (!legacy && (bytes[0] != kVersion || size != 8))
+    if (!legacy && ((bytes[0] != kVersion && bytes[0] != kPreviousVersion) || size != 8))
         return false;
     progress.flags = bytes[1];
     progress.step = bytes[2];
@@ -168,6 +181,8 @@ bool LoadOnboardingProgress(OnboardingProgress& progress) {
              OnboardingProgress::kOnlineMask) ||
         (progress.skipped & ~uint16_t{0x1fff}) != 0 || (progress.completed & progress.skipped) != 0)
         return false;
+    if (RestoreOnlineIntroduction(bytes[0], progress))
+        return SaveOnboardingProgress(progress);
     progress.Resume();
     return true;
 }

@@ -78,12 +78,17 @@ struct Keyframe {
     int16_t right_arm;
 };
 
+constexpr uint8_t kHeadAxis = 1 << 0, kLeftPawAxis = 1 << 1, kRightPawAxis = 1 << 2;
+constexpr uint8_t kPawAxes = kLeftPawAxis | kRightPawAxis;
+constexpr uint8_t kAllAxes = kHeadAxis | kPawAxes;
+
 struct Clip {
     const char* name;
     const Keyframe* frames;
     uint8_t count;
     bool mirrorable;
     bool authored_dynamics = false;
+    uint8_t body_axes = 0;
 };
 
 // 行为族与旧工程 crawlPanda 保持一致。PandaAction 会先映射到行为族，
@@ -124,7 +129,7 @@ public:
     void SetConversationActive(bool active);
     void SetSpeaking(bool speaking);
     void SetMaintenance(bool blocked);
-    void HandleTouch(uint8_t code);
+    void HandleTouch(uint8_t code, bool allow_contact_start);
     bool TriggerOnboardingFeedback(uint8_t step);
     bool IsOnboardingFeedbackPending() const { return tutorial_feedback_pending_.load(); }
     bool HandleSensorEvent(int event);
@@ -183,7 +188,8 @@ private:
     };
 
     bool QueueRequest(ActionRequest request, wzh::PetPriority priority);
-    bool QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step = 0);
+    bool QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step = 0,
+                          wzh::PetPriority priority = wzh::PetPriority::kExplicit);
     bool React(wzh::PetReaction reaction, wzh::PetPriority priority, bool speech_bound = false);
 
     PandaAudio* audio_ = nullptr;
@@ -241,7 +247,6 @@ private:
     wzh::SoundChoreography sound_motion_;
     wzh::AutoplayCadence autoplay_;
     wzh::IdleCadence idle_life_;
-    bool idle_breathing_ = false;
     bool autonomous_playback_ = false;
     bool tutorial_motion_active_ = false;
     void ParkForShutdown();

@@ -119,9 +119,9 @@ struct Output { unsigned flags=wzh::kBatteryPending;void SetFault(wzh::MotionFau
 struct Power {
  int adc_=0;void* battery_adc_cali_=this;Output output;std::atomic<Output*> servo_output_{&output};
  wzh::FastBatteryStart fast_battery;wzh::StableBatteryProtection battery_protection_;
- wzh::BatteryRestVoltage battery_rest_voltage_;bool battery_settled=false;
+ wzh::BatteryRestVoltage battery_rest_voltage_;wzh::BatteryDisplayLevel battery_display_level_;bool battery_settled=false;
  uint32_t last_fast_battery_sample_ms=0,last_fast_battery_log_ms=0,last_battery_sample_ms=0;
- std::atomic<int> battery_live_mv_{0},battery_protection_mv_{0},battery_level_{0};std::atomic<bool> battery_sample_valid_{false};
+ std::atomic<int> battery_live_mv_{0},battery_protection_mv_{0},battery_level_{-1};std::atomic<bool> battery_sample_valid_{false};
  void Tick(uint32_t now){
 ''' + branch + r'''
  }
@@ -137,6 +137,7 @@ int main(){
  Power near_empty;raw_value=1650;
  for(uint32_t t=1200;t<15000;t+=20)near_empty.Tick(t);
  assert(!near_empty.battery_settled&&(near_empty.output.flags&wzh::kBatteryPending));
+ assert(near_empty.battery_level_==-1);
  Power sufficient;raw_value=1711;sufficient.Tick(1200);
  assert(sufficient.battery_settled&&sufficient.battery_protection_.ready());
  assert(!(sufficient.output.flags&wzh::kBatteryPending));

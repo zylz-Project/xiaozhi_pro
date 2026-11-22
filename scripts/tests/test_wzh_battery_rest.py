@@ -39,12 +39,16 @@ int main(){
     BatteryRestVoltage f;f.ObserveLoad(false,0);
     assert(!f.RestReady(1199)&&!f.Update(4100,1199));
     assert(f.RestReady(1200)&&!f.Update(3800,1200));
+    assert(f.DisplayMillivolts(1200,3200,0)==3200);
+    assert(f.DisplayMillivolts(1200,3200,3750)==3750);
     assert(!f.Update(4090,2200));assert(f.Update(3800,3200));
     assert(f.millivolts()==3800); // One high second cannot jump the display.
     for(unsigned t=4000;t<7000;t+=20){
         f.ObserveLoad(true,t);
         assert(!f.Update(3200,t)&&f.millivolts()==3800);
     }
+    assert(f.DisplayMillivolts(33200,3200,3750)==3800);
+    assert(f.DisplayMillivolts(33201,3200,3750)==3750);
     f.ObserveLoad(false,7000);assert(!f.RestReady(8199));
     // Short motion wholly between the one-second voltage reads resets rest.
     f.ObserveLoad(true,8000);f.ObserveLoad(false,8020);
@@ -54,6 +58,7 @@ int main(){
     assert(f.Update(3700,12000)&&f.millivolts()<3800&&f.millivolts()>3700);
     const auto held=f.millivolts();f.Invalidate();
     assert(!f.RestReady(15000)&&f.millivolts()==held);
+    assert(f.DisplayMillivolts(15000,3600,3700)==3700);
     f.ObserveLoad(false,16000);
     assert(!f.Update(3600,18000)&&!f.Update(3600,19000));
     assert(f.Update(3600,20000));
@@ -66,6 +71,7 @@ int main(){
     assert(wrap.Update(3700,start+1200)==false);
     assert(!wrap.Update(3700,start+2200)&&wrap.Update(3700,start+3200));
     assert(wrap.millivolts()==3700);
+    assert(wrap.DisplayMillivolts(start+4000,3200,3500)==3700);
     std::array<int,32> raw;raw.fill(1900);
     for(unsigned i=0;i<4;++i){raw[i]=0;raw[i+4]=4095;}
     assert(BatteryRestVoltage::TrimmedRaw(raw)==1900);
@@ -102,6 +108,41 @@ int main(){
     StableBatteryProtection empty;
     for(int i=0;i<4;++i){empty.Update(3300,true,3300,3400,3000);assert(!empty.ready());}
     empty.Update(3300,true,3300,3400,3000);assert(empty.ready()&&empty.low());
+}
+''')
+
+    def test_display_moves_gradually_between_voltage_sources_and_holds_through_adc_dropouts(self):
+        self.run_cpp(r'''
+#include <cassert>
+#include "wzh_battery_voltage.h"
+using namespace wzh;
+int main(){
+    BatteryDisplayLevel display;
+    assert(display.OnMissingSample(0)==-1);
+    assert(display.Update(52,1000,true,false)==52);
+    assert(display.Update(34,2000,false,false)==52);
+    assert(display.Update(26,3000,false,false)==52);
+    assert(display.Update(54,4000,false,false)==52); // Load rebound does not show charging.
+    for(uint32_t t=5000;t<13000;t+=1000)
+        assert(display.Update(35,t,false,false)==52);
+    assert(display.Update(35,13000,false,false)==51);
+    for(uint32_t t=14000;t<18000;t+=1000)
+        assert(display.Update(56,t,true,false)==51);
+    assert(display.Update(56,18000,true,false)==52);
+    assert(display.OnMissingSample(19000)==52);
+    assert(display.Update(30,20000,false,false)==52);
+    assert(display.Update(10,21000,false,true)==10); // Protection is shown immediately.
+    assert(display.OnMissingSample(26000)==10);
+    assert(display.OnMissingSample(26001)==-1);
+    assert(display.Update(37,27000,true,false)==37);
+    assert(display.Update(15,28000,false,false)==37);
+    assert(display.Update(15,38000,false,false)==37); // A task gap cannot confirm the trend.
+    BatteryDisplayLevel wrap;
+    const uint32_t start=UINT32_MAX-2000;
+    assert(wrap.Update(41,start,true,false)==41);
+    for(uint32_t offset=1000;offset<5000;offset+=1000)
+        assert(wrap.Update(55,start+offset,true,false)==41);
+    assert(wrap.Update(55,start+5000,true,false)==42);
 }
 ''')
 
@@ -146,8 +187,9 @@ struct Power{
     Output out;std::atomic<Output*>servo_output_{&out};
     wzh::StableBatteryProtection battery_protection_;
     wzh::BatteryRestVoltage battery_rest_voltage_;
+    wzh::BatteryDisplayLevel battery_display_level_;
     wzh::BatteryWarningLevel battery_warning_;
-    std::atomic<int>battery_voltage_mv_{0},battery_live_mv_{0},battery_level_{0},battery_protection_mv_{0};
+    std::atomic<int>battery_voltage_mv_{0},battery_live_mv_{0},battery_level_{-1},battery_protection_mv_{0};
     std::atomic<bool>battery_sample_valid_{false},battery_load_active_{false},battery_rest_ready_{false};
     std::atomic<uint32_t>battery_rest_updated_ms_{0};
     void EmergencyShutdown(){++shutdowns;}
@@ -176,11 +218,14 @@ int main(){
         assert((invalid.out.flags&wzh::kBatteryPending)&&invalid.shutdowns==0);
     }
     // With a continuously powered idle servo there is no rested sample;
-    // the display uses the latest measured voltage without relaxing protection.
+    // the display falls back to the temporal median once it is available.
     Power loaded;loaded.battery_rest_voltage_.ObserveLoad(true,clock_ms);
     for(int i=0;i<5;++i){reading=1711;read_count=0;loaded.ReadBattery(clock_ms);clock_ms+=1000;}
     assert(loaded.battery_voltage_mv_==0&&loaded.battery_level_==22);
     assert(loaded.battery_live_mv_==3422&&loaded.battery_protection_.ready());
+    reading=1610;read_count=0;loaded.ReadBattery(clock_ms);clock_ms+=1000;
+    assert(loaded.battery_live_mv_==3220&&loaded.battery_level_==22);
+    reading=1711;read_count=0;loaded.ReadBattery(clock_ms);clock_ms+=1000;
     for(int i=0;i<5;++i){reading=1600;read_count=0;loaded.ReadBattery(clock_ms);clock_ms+=1000;}
     assert(loaded.out.flags&wzh::kLowBattery);
     Power p;assert(p.battery_sampling().rest_age_ms==-1);
@@ -190,9 +235,11 @@ int main(){
     assert(read_count==34&&p.out.flags==0&&p.battery_voltage_mv_==3800);
     assert(p.battery_level_==60&&p.battery_sampling().rest_age_ms==1000);
     p.battery_rest_voltage_.ObserveLoad(true,clock_ms);
-    sample(3200);assert(p.battery_level_==0);sample(3800);assert(p.battery_level_==60);assert(!(p.out.flags&wzh::kLowBattery));
+    sample(3200);assert(p.battery_live_mv_==3200&&p.battery_level_==60);
+    sample(3800);assert(p.battery_level_==60&&!(p.out.flags&wzh::kLowBattery));
     for(int i=0;i<5;++i)sample(3200);
     assert(p.out.flags&wzh::kLowBattery);assert(p.battery_voltage_mv_==3800);
+    assert(p.battery_level_<=10);
     assert(p.battery_protection_mv_==3200&&p.battery_live_mv_==3200);
     for(int i=0;i<10;++i)sample(3600);
     assert(p.out.flags&wzh::kLowBattery);
@@ -200,10 +247,13 @@ int main(){
     for(int i=0;i<5;++i)sample(3600);
     assert(!(p.out.flags&wzh::kLowBattery));
     const auto rest=p.battery_voltage_mv_.load();
+    const int before_error=p.battery_level_.load();
     fail_at=12;sample(3700);
     assert(!p.battery_sample_valid_&&p.battery_live_mv_==0&&(p.out.flags&wzh::kBatteryPending));
     assert(p.battery_voltage_mv_==rest&&p.battery_sampling().protection_mv==0);
-    fail_at=-1;sample(3700);sample(3700);sample(3700);sample(3700);
+    assert(p.battery_level_==before_error);
+    fail_at=-1;sample(3700);assert(p.battery_level_==before_error);
+    sample(3700);sample(3700);sample(3700);
     assert(p.out.flags&wzh::kBatteryPending);
     sample(3700);assert(!(p.out.flags&wzh::kBatteryPending));
     sample(2980);sample(2980);assert(p.shutdowns==0);

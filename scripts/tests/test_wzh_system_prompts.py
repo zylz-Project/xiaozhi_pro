@@ -235,6 +235,7 @@ int xTaskCreate(void(*callback)(void*),const char*,int,void*,int,void*){entry=ca
 void vTaskDelay(unsigned);
 constexpr int kDeviceStateIdle=0;
 struct Audio {
+ enum class PlaybackSource { kRegular,kShutdown };
  uint32_t generation=0,until=0,drained=0;int low=0,off=0,wifi=0,warning=0,resets=0;bool stalled=false;
  void settle(){if(!stalled&&until&&clock_ms>=until){++drained;until=0;}}
  void EnableWakeWordDetection(bool){}
@@ -243,8 +244,8 @@ struct Audio {
  uint32_t GetPlaybackDrainedCount(){settle();return drained;}
  bool IsPlaybackIdle(){settle();return until==0;}
  bool IsAudioProcessorRunning(){return false;}
- void ResetDecoder(){settle();++generation;++resets;until=0;}
- void PlaySound(std::string_view sound,std::optional<uint32_t> expected={}){
+ void ResetDecoder(std::optional<uint32_t> ={},PlaybackSource =PlaybackSource::kRegular){settle();++generation;++resets;until=0;}
+ void PlaySound(std::string_view sound,std::optional<uint32_t> expected={},PlaybackSource =PlaybackSource::kRegular){
   if(expected&&*expected!=generation)return;
   if(sound=="wifi"){++wifi;until=clock_ms+500;}
   else if(sound=="off"){
@@ -255,6 +256,7 @@ struct Audio {
   else{++low;until=clock_ms+500;}
  }
 };
+using AudioService=Audio;
 struct Application {
  int state=0;Audio audio;
  static Application& GetInstance(){static Application app;return app;}
@@ -262,10 +264,11 @@ struct Application {
  void Schedule(std::function<void()> callback){callback();}
 };
 struct Board {
- bool maintenance=false,network=false,cellular=false;
+ bool maintenance=false,network=false,cellular=false,local_pending=false;
  static Board& GetInstance(){static Board board;return board;}
  bool IsAudioMaintenanceActive(){return maintenance;}
  bool IsNetworkAvailable(){return network;}
+ bool IsLocalPlaybackPending(){return local_pending;}
  bool UsesCellularNetwork(){return cellular;}
 };
 namespace Lang{namespace Sounds{constexpr std::string_view OGG_POWER_ON="on",OGG_POWER_OFF="off",OGG_LOW_BATTERY="low",OGG_WIFICONFIG="wifi",OGG_EXCLAMATION="warning";}}
@@ -328,12 +331,14 @@ int main(){
  }
  // Offline Wi-Fi still gets the setup instruction.
  board.cellular=false;board.network=false;wzh::RequestWifiSetupPrompt();
- clock_ms+=600;run_worker();assert(audio.wifi==3);
+ board.local_pending=true;clock_ms+=600;run_worker();assert(audio.wifi==2);
+ board.local_pending=false;run_worker();assert(audio.wifi==3);
  clock_ms=0;audio.until=0;
  wzh::ObserveSystemPromptBattery(true,true);
  app.state=1;run_worker();assert(audio.low==0);
  app.state=0;Board::GetInstance().maintenance=true;run_worker();assert(audio.low==0);
  Board::GetInstance().maintenance=false;
+ board.local_pending=true;run_worker();assert(audio.low==0);board.local_pending=false;
  std::atomic<bool> held{false},release{false};
  std::thread other([&]{std::lock_guard<std::mutex> lock(wzh::PromptAudioGate());
   held=true;while(!release.load())std::this_thread::yield();});

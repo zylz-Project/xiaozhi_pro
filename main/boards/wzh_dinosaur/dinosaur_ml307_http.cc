@@ -51,6 +51,7 @@ constexpr int kSweepTimeoutMs = 1000;
 constexpr int kConfigTimeoutMs = 5000;
 constexpr int kRequestTimeoutMs = 8000;
 constexpr int kIndicatorTimeoutMs = 5000;
+constexpr int kTerminateTimeoutMs = 1500;
 constexpr int kCloseTimeoutMs = 3000;
 
 // +MHTTPCREATE does not identify the caller. Serialize allocation so only the
@@ -667,6 +668,10 @@ NetworkResult<> DinosaurMl307Http::Open(const std::string& method, const std::st
 
     const std::string request = "AT+MHTTPREQUEST=" + std::to_string(id) + "," +
                                 std::to_string(method_value) + ",0," + at_uart_->EncodeHex(path_);
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        request_started_ = true;
+    }
     if (!at_uart_->SendCommand(request, kRequestTimeoutMs))
         return fail_open("request submission", NetworkError::AtCommandFailed());
 
@@ -687,11 +692,13 @@ NetworkResult<> DinosaurMl307Http::Open(const std::string& method, const std::st
 void DinosaurMl307Http::Close() {
     cancelled_.store(true);
     int id = -1;
-    bool active = false;
+    bool terminate = false;
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
-        active = instance_active_.exchange(false);
+        instance_active_.store(false);
         id = http_id_.exchange(-1);
+        terminate = request_started_ && (!eof_ || (error_ && last_error_.load() < 0));
+        request_started_ = false;
         eof_ = true;
         error_ = false;
         body_.clear();
@@ -704,28 +711,36 @@ void DinosaurMl307Http::Close() {
         header_fragment_data_.clear();
         state_cv_.notify_all();
     }
-    if (active && id >= 0) {
-        const auto delete_result =
-            at_uart_->SendCommand("AT+MHTTPDEL=" + std::to_string(id), kCloseTimeoutMs);
-        if (!AtCommandSucceeded(delete_result)) {
-            if (AtCommandCme(delete_result) == 0) {
-                // The modem may still own this id. The next allocation must
-                // synchronise the parser and sweep it before creating a new
-                // slot, otherwise a delayed +MHTTPCREATE can be misassigned.
+    if (id >= 0) {
+        const std::string slot = std::to_string(id);
+        bool uart_ready = true;
+        if (terminate) {
+            // The modem supports aborting an unfinished transfer while keeping
+            // the instance allocated. Release that instance separately.
+            const auto result = at_uart_->SendCommand("AT+MHTTPTERM=" + slot, kTerminateTimeoutMs);
+            if (!result && result.error().code == AtErrc::Timeout)
+                uart_ready = RecoverMl307AtParser(*at_uart_, kSyncTimeoutMs);
+        }
+        if (uart_ready) {
+            const auto result = at_uart_->SendCommand("AT+MHTTPDEL=" + slot, kCloseTimeoutMs);
+            if (!result && AtCommandCme(result) == 0) {
+                // The next allocation must sweep the slot if the modem did
+                // not release it. Drain a late response before returning the
+                // shared UART to the caller, which may start MQTT immediately.
                 s_http_reconcile_required.store(true);
-                ESP_LOGW(kTag, "MHTTPDEL timed out for slot %d; next allocation will reconcile",
-                         id);
-                const auto& error = delete_result.error();
-                ESP_LOGW(kTag, "MHTTPDEL AT result: code=%d cme=%d esp=%d",
+                const auto& error = result.error();
+                ESP_LOGW(kTag, "HTTP slot %d delete failed (code=%d cme=%d esp=%d)", id,
                          static_cast<int>(error.code), error.cme, static_cast<int>(error.esp));
-            } else {
-                // A CME proves the modem answered and the slot is already idle.
-                ESP_LOGD(kTag, "MHTTPDEL rejected for idle slot %d", id);
+                if (error.code == AtErrc::Timeout)
+                    uart_ready = RecoverMl307AtParser(*at_uart_, kSyncTimeoutMs);
             }
         }
-    }
-    if (id >= 0)
+        if (!uart_ready) {
+            s_http_reconcile_required.store(true);
+            ESP_LOGW(kTag, "AT parser still unavailable after closing HTTP slot %d", id);
+        }
         UnregisterHttpId(id);
+    }
     ReleaseSlot();
 }
 
@@ -798,20 +813,18 @@ NetworkResult<int> DinosaurMl307Http::Write(const char* buffer, size_t buffer_si
 }
 
 bool DinosaurMl307Http::WaitForHeadersLocked(std::unique_lock<std::mutex>& lock) {
+    if (error_.load() || cancelled_.load())
+        return false;
     if (headers_received_)
         return true;
-    if (error_.load())
-        return false;
     const bool ready = state_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms_), [this] {
         return headers_received_ || error_ || cancelled_.load();
     });
-    return ready && headers_received_ && !error_.load();
+    return ready && headers_received_ && !error_.load() && !cancelled_.load();
 }
 
 NetworkResult<int> DinosaurMl307Http::GetStatusCode() {
     std::unique_lock<std::mutex> lock(state_mutex_);
-    if (status_code_ >= 0)
-        return status_code_;
     if (!WaitForHeadersLocked(lock)) {
         if (error_.load())
             return FailValue<int>(CurrentError());
@@ -842,9 +855,15 @@ std::string DinosaurMl307Http::ReadAll() {
     std::unique_lock<std::mutex> lock(state_mutex_);
     const bool ready = state_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms_),
                                           [this] { return eof_ || error_ || cancelled_.load(); });
-    if (!ready || error_.load() || body_.size() > kMaxReadAllBytes) {
-        if (ready && body_.size() > kMaxReadAllBytes)
-            ESP_LOGE(kTag, "HTTP response exceeded ReadAll limit");
+    if (!ready) {
+        ESP_LOGW(kTag, "Timed out waiting for complete HTTP response (received=%zu expected=%zu)",
+                 body_offset_, content_length_);
+        return {};
+    }
+    if (error_.load() || cancelled_.load())
+        return {};
+    if (body_.size() > kMaxReadAllBytes) {
+        ESP_LOGE(kTag, "HTTP response exceeded ReadAll limit");
         return {};
     }
     return body_;
@@ -868,6 +887,12 @@ void DinosaurMl307Http::FailLocked(int error) {
     header_fragment_length_ = 0;
     header_fragment_data_.clear();
     state_cv_.notify_all();
+}
+
+void DinosaurMl307Http::FailBodyLocked(const char* reason) {
+    ESP_LOGW(kTag, "Invalid HTTP body on slot %d: %s (received=%zu expected=%zu)", http_id_.load(),
+             reason, body_offset_, content_length_);
+    FailLocked(-1);
 }
 
 void DinosaurMl307Http::ResetResponseLocked() {
@@ -931,7 +956,7 @@ void DinosaurMl307Http::HandleUrc(const std::string& command,
 
     const std::string& type = arguments[0].string_value;
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (error_.load())
+    if (http_id_.load() != id || error_.load())
         return;
 
     if (type == "header") {
@@ -1014,15 +1039,12 @@ void DinosaurMl307Http::HandleUrc(const std::string& command,
 
     if (type == "content") {
         if (!headers_received_) {
-            FailLocked(-1);
+            FailBodyLocked("content before headers");
             return;
         }
-        if (arguments.size() != 5 && arguments.size() != 6) {
-            FailLocked(-1);
-            return;
-        }
-        if (!IsInt(arguments[2]) || !IsInt(arguments[3]) || !IsInt(arguments[4])) {
-            FailLocked(-1);
+        if ((arguments.size() != 5 && arguments.size() != 6) || !IsInt(arguments[2]) ||
+            !IsInt(arguments[3]) || !IsInt(arguments[4])) {
+            FailBodyLocked("malformed content URC");
             return;
         }
         const int content_length = arguments[2].int_value;
@@ -1034,7 +1056,7 @@ void DinosaurMl307Http::HandleUrc(const std::string& command,
                 body_offset_ + static_cast<size_t>(current_length) ||
             (!response_chunked_ && has_content_length_ &&
              static_cast<size_t>(received_length) > content_length_)) {
-            FailLocked(-1);
+            FailBodyLocked("inconsistent content length or offset");
             return;
         }
         std::string decoded;
@@ -1042,21 +1064,27 @@ void DinosaurMl307Http::HandleUrc(const std::string& command,
             if (arguments.size() != 6 || !IsHexValue(arguments[5]) ||
                 !IsHexString(arguments[5].string_value) ||
                 arguments[5].string_value.size() != static_cast<size_t>(current_length) * 2) {
-                FailLocked(-1);
+                FailBodyLocked("invalid hex payload");
                 return;
             }
             at_uart_->DecodeHexAppend(decoded, arguments[5].string_value.data(),
                                       arguments[5].string_value.size());
             if (decoded.size() != static_cast<size_t>(current_length)) {
-                FailLocked(-1);
+                FailBodyLocked("decoded payload length mismatch");
                 return;
             }
-        } else if (arguments.size() != 5) {
-            FailLocked(-1);
+        } else if (arguments.size() != 5 &&
+                   (!IsString(arguments[5]) || !arguments[5].string_value.empty())) {
+            FailBodyLocked("unexpected payload on terminator");
             return;
         }
         if (body_forbidden_ && current_length != 0) {
-            FailLocked(-1);
+            FailBodyLocked("response cannot carry a body");
+            return;
+        }
+        if (!body_forbidden_ && !response_chunked_ && has_content_length_ && current_length == 0 &&
+            body_offset_ < content_length_) {
+            FailBodyLocked("response ended before Content-Length");
             return;
         }
         if (!decoded.empty()) {

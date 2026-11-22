@@ -1,1 +1,1 @@
-if (!document.documentElement.classList.contains('embed')) PandaGuide.auto("manual");
+if (!document.documentElement.classList.contains('embed')) PandaGuide.auto('manual', {manualOnly: true});

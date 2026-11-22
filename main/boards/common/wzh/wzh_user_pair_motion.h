@@ -18,7 +18,7 @@ public:
         expression_.SetReferenceClip(clip);
     }
     void Begin(const UserPair* pair, const Pose& origin, const Pose& rest, unsigned variant = 0,
-               uint32_t seed = 0, SoundKind kind = SoundKind::kCall) {
+               uint32_t seed = 0, SoundKind kind = SoundKind::kCall, bool authored_roar = false) {
         pair_ = pair;
         tail_motion_.Cancel();
         origin_ = origin;
@@ -26,6 +26,7 @@ public:
         if (!pair_)
             return;
         kind_ = pair_->score ? pair_->score->kind : kind;
+        authored_roar_ = authored_roar;
         // Sparse cumulative index: avoid replaying all historical recorder
         // frames on every 20 ms tick. 128 bytes, no allocation on the audio path.
         block_stride_ = (pair_->frame_count + block_ends_.size() - 1) / block_ends_.size();
@@ -55,7 +56,7 @@ public:
         entry_ms_ = std::min<uint32_t>(
             body_ms_ / 2, std::clamp<uint32_t>(std::ceil(entry_travel * (tail ? 8 : 10)),
                                                tail ? 750 : 600, 1200));
-        if (pair_->axes == 5 && kind_ == SoundKind::kRoar) {
+        if (pair_->axes == 5 && kind_ == SoundKind::kRoar && !authored_roar_) {
             const Pose sky{0, 90, 90, 150, 90};
             float travel = 0;
             for (unsigned a = 0; a < 5; ++a)
@@ -117,7 +118,8 @@ public:
             return last;
         }
         Pose out = Filtered(time);
-        out = expression_.Apply(out, time);
+        if (!authored_roar_)
+            out = expression_.Apply(out, time);
         // End at the user's final landmark with zero velocity/acceleration,
         // so the separate return never starts with a position discontinuity.
         const uint32_t end_window =
@@ -129,7 +131,7 @@ public:
             for (unsigned a = 0; a < pair_->axes; ++a)
                 out[a] += (last[a] - out[a]) * blend;
         }
-        if (pair_->axes == 5 && kind_ == SoundKind::kRoar) {
+        if (pair_->axes == 5 && kind_ == SoundKind::kRoar && !authored_roar_) {
             // Match the reference's front-facing skyward onset before the
             // recorded neck/head/tail lateral details unfold. One shared
             // progress owns all changing axes; no staggered servo clocks.
@@ -154,7 +156,7 @@ private:
             pose[a] = pair_->frames[index].angles[a];
         if (pair_->axes == 3)
             pose[0] = PandaHeadTarget(pose[0]);
-        if (pair_->axes == 5)
+        if (pair_->axes == 5 && !authored_roar_)
             pose[0] = DinosaurContentTilt(pose[0], kind_);
         if (kind_ != SoundKind::kSleep && kind_ != SoundKind::kAmbient) {
             const bool dino = pair_->axes == 5, tail = !dino && rest_[2] == 150;
@@ -254,6 +256,7 @@ private:
     }
     const UserPair* pair_ = nullptr;
     SoundKind kind_ = SoundKind::kCall;
+    bool authored_roar_ = false;
     SoundExpression expression_;
     std::array<uint32_t, 32> block_ends_{};
     unsigned block_stride_ = 1, block_count_ = 0;

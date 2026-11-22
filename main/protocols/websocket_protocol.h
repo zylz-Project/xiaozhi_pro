@@ -26,6 +26,7 @@ private:
     std::unique_ptr<WebSocket> websocket_;
     int version_ = 1;
 
+    void HandleBinaryAudio(const char* data, size_t len);
     void ParseServerHello(const cJSON* root);
     bool SendText(const std::string& text) override;
     std::string GetHelloMessage();

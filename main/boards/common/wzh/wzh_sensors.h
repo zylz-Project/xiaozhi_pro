@@ -8,6 +8,8 @@
 
 #include "wzh_servo_output.h"
 
+struct cJSON;
+
 namespace wzh {
 
 class Sensors {
@@ -16,6 +18,7 @@ public:
     using EventHook = std::function<bool(Event)>;
     bool Initialize(gpio_num_t human, gpio_num_t sda, gpio_num_t scl, ServoOutput* output,
                     EventHook hook);
+    void AddStatus(cJSON* result);
     void RegisterMcpTools(const char* product);
 
 private:

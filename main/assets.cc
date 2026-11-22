@@ -488,6 +488,8 @@ bool Assets::EmoteStrategy::Apply(Assets* assets, bool refresh_display_theme) {
 bool Assets::Download(std::string url,
                       std::function<void(int progress, size_t speed)> progress_callback) {
     ESP_LOGI(TAG, "Downloading new version of assets from %s", url.c_str());
+    if (partition_ == nullptr)
+        return false;
 
     auto network = Board::GetInstance().GetNetwork();
     if (network == nullptr) {
@@ -531,8 +533,8 @@ bool Assets::Download(std::string url,
 
     constexpr size_t HEADER_SIZE = 12;
 
-    if (content_length < HEADER_SIZE) {
-        ESP_LOGE(TAG, "Content length (%u) is smaller than header size (%u)", content_length,
+    if (content_length <= HEADER_SIZE) {
+        ESP_LOGE(TAG, "Content length (%u) has no payload after header (%u)", content_length,
                  HEADER_SIZE);
         return false;
     }
@@ -547,9 +549,6 @@ bool Assets::Download(std::string url,
         ESP_LOGE(TAG, "Failed to allocate buffer");
         return false;
     }
-
-    // Unapply the partition
-    UnApplyPartition();
 
     size_t sectors_to_erase = (content_length + SECTOR_SIZE - 1) / SECTOR_SIZE;
     size_t total_erase_size = sectors_to_erase * SECTOR_SIZE;
@@ -568,16 +567,21 @@ bool Assets::Download(std::string url,
     size_t header_collected = 0;
     bool success = false;
     while (true) {
-        auto ret = http->Read(buffer.get(), SECTOR_SIZE);
+        const size_t remaining = content_length - header_collected - total_written;
+        if (remaining == 0) {
+            success = true;
+            break;
+        }
+        const size_t requested = std::min(remaining, SECTOR_SIZE);
+        auto ret = http->Read(buffer.get(), requested);
         if (!ret) {
             ESP_LOGE(TAG, "Failed to read HTTP data: %s", ret.error().ToString().c_str());
             break;
         }
         int read_size = *ret;
 
-        if (read_size == 0) {
-            // End of data
-            success = true;
+        if (read_size <= 0 || static_cast<size_t>(read_size) > requested) {
+            ESP_LOGE(TAG, "Assets transfer ended early or exceeded the requested length");
             break;
         }
 
@@ -594,6 +598,8 @@ bool Assets::Download(std::string url,
 
         // Write payload
         if ((size_t)read_size > buf_pos) {
+            if (current_sector == 0)
+                UnApplyPartition();
             size_t write_len = (size_t)read_size - buf_pos;
             size_t write_end_offset = HEADER_SIZE + total_written + write_len;
             size_t needed_sectors = (write_end_offset + SECTOR_SIZE - 1) / SECTOR_SIZE;

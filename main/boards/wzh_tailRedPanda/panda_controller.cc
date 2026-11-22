@@ -1,8 +1,9 @@
 #include "panda_controller.h"
 #include "wzh_body_commands.h"
-#include "wzh_pet_feedback.h"
-#include "wzh_onboarding.h"
+#include "wzh_conversation_touch.h"
 #include "wzh_idle_power.h"
+#include "wzh_onboarding.h"
+#include "wzh_pet_feedback.h"
 #include "wzh_startup_greeting.h"
 #include "wzh_system_prompts.h"
 
@@ -337,6 +338,10 @@ enum ClipId {
     C_TAIL_WAG_FAST,
     C_TAIL_WAG_TICK_TOCK,
     C_TAIL_WAG_BURST,
+    STORY_TRACK_AND_LISTEN,
+    STORY_HIGH_TAIL_ACKNOWLEDGMENT,
+    STORY_BAMBOO_DOUBLE_CHECK,
+    STORY_INVITE_TAIL_CURL,
     C_COUNT,
 };
 
@@ -478,6 +483,14 @@ constexpr Clip kClips[C_COUNT] = {
     {"tail_wag_fast", kTailWagFast, std::size(kTailWagFast), true},
     {"tail_wag_tick_tock", kTailWagTickTock, std::size(kTailWagTickTock), true},
     {"tail_wag_burst", kTailWagBurst, std::size(kTailWagBurst), true},
+    {"story_track_and_listen", story_motion::kTrackAndListen,
+     std::size(story_motion::kTrackAndListen), true, true},
+    {"story_high_tail_acknowledgment", story_motion::kHighTailAcknowledgment,
+     std::size(story_motion::kHighTailAcknowledgment), true, true},
+    {"story_bamboo_double_check", story_motion::kBambooDoubleCheck,
+     std::size(story_motion::kBambooDoubleCheck), true, true},
+    {"story_invite_tail_curl", story_motion::kInviteTailCurl,
+     std::size(story_motion::kInviteTailCurl), true, true},
 };
 
 constexpr int8_t kFamily[kBehaviourCount][wzh_panda::kFamilyWidth] = {
@@ -490,23 +503,25 @@ constexpr int8_t kFamily[kBehaviourCount][wzh_panda::kFamilyWidth] = {
      STORY_TAIL_QUESTION, STORY_TAIL_PERISCOPE, STORY_PEEK_THEN_FLAG, STORY_TAIL_COMPASS,
      STORY_CURLED_LISTENING, STORY_QUESTION_ANSWER, -1},
     {C_EAT_SEARCH, C_EAT_CHEW, C_EAT_DELIGHT, REF_EAT_SEARCH, REF_EAT_CHEW, REF_EAT_LOOK_UP,
-     STORY_TASTE_AND_SHARE, STORY_BAMBOO_BALANCE, STORY_FOOD_PEEK, -1, -1, -1, -1, -1, -1, -1},
+     STORY_TASTE_AND_SHARE, STORY_BAMBOO_BALANCE, STORY_FOOD_PEEK, STORY_BAMBOO_DOUBLE_CHECK, -1,
+     -1, -1, -1, -1, -1},
     {C_BABY_SEEK, C_BABY_WIGGLE, C_BABY_COMFORT, REF_BABY_SEEK, REF_BABY_WIGGLE, REF_BABY_COMFORT,
      STORY_HIDE_AND_SEEK, STORY_TAIL_PEEK, STORY_PEEK_THEN_FLAG, STORY_HEAD_FIRST_GREETING,
      STORY_QUESTION_ANSWER, -1, -1, -1, -1, -1},
     {C_PROUD_DISPLAY, C_PROUD_PATROL, C_PROUD_CALL, REF_PROUD_DISPLAY, REF_PROUD_PATROL,
      REF_PROUD_CALL, STORY_TAIL_FAN, STORY_HIGH_TAIL_SALUTE, STORY_TAIL_COMPASS,
-     STORY_LEFT_RIGHT_INVITATION, -1, -1, -1, -1, -1, -1},
+     STORY_LEFT_RIGHT_INVITATION, STORY_HIGH_TAIL_ACKNOWLEDGMENT, -1, -1, -1, -1, -1},
     {C_NUZZLE, C_SHY_APPROACH, C_SOFT_CURL, C_AFFECTION_TAIL_WRAP, C_AFFECTION_PEEK,
      REF_AFFECTION_NUZZLE, REF_AFFECTION_SHY, REF_AFFECTION_CURL, STORY_CHEEK_TAIL_HUG,
-     STORY_TAIL_GIFT, STORY_CURLED_LISTENING, STORY_HEAD_FIRST_GREETING, STORY_PEEK_THEN_FLAG, -1,
-     -1, -1},
+     STORY_TAIL_GIFT, STORY_CURLED_LISTENING, STORY_HEAD_FIRST_GREETING, STORY_PEEK_THEN_FLAG,
+     STORY_INVITE_TAIL_CURL, -1, -1},
     {C_PLAY_WAG, C_PLAY_CHASE, C_PLAY_EIGHT, C_PLAYFUL_RIBBON, C_PLAYFUL_WELCOME, REF_PLAYFUL_WAG,
      REF_PLAYFUL_CHASE, REF_PLAYFUL_FIGURE8, REF_PLAYFUL_HIGH_SWEEP, STORY_RIBBON_EIGHT,
      STORY_TAIL_RAINBOW, STORY_RIBBON_BOW, STORY_LEFT_RIGHT_INVITATION, STORY_HEAD_FIRST_GREETING,
      STORY_QUESTION_ANSWER, -1},
     {C_AMBIENT_LISTEN, C_AMBIENT_RAIN, C_AMBIENT_SCENT, C_AMBIENT_STRETCH, REF_AMBIENT_LISTEN,
-     REF_AMBIENT_RAIN, REF_AMBIENT_SCENT, REF_AMBIENT_STRETCH, -1, -1, -1, -1, -1, -1, -1, -1},
+     REF_AMBIENT_RAIN, REF_AMBIENT_SCENT, REF_AMBIENT_STRETCH, STORY_TRACK_AND_LISTEN, -1, -1, -1,
+     -1, -1, -1, -1},
     {C_SETTLE, REF_SETTLE, STORY_CURL_GOODNIGHT, STORY_TAIL_NEST, -1, -1, -1, -1, -1, -1, -1, -1,
      -1, -1, -1, -1},
     {C_STARTLED, STORY_BRAVE_RETURN, STORY_TAIL_REASSURE, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -661,35 +676,52 @@ enum BodyClipId {
     BODY_COUNT,
 };
 constexpr Clip kBodyClips[BODY_COUNT] = {
-    {"body_shake_head", kBodyShakeHead, std::size(kBodyShakeHead), true},
-    {"body_look_left", kBodyLookLeft, std::size(kBodyLookLeft), false},
-    {"body_look_right", kBodyLookRight, std::size(kBodyLookRight), false},
-    {"body_wag_tail", kBodyWagTail, std::size(kBodyWagTail), true},
-    {"body_twist_neck", kBodyTwistNeck, std::size(kBodyTwistNeck), true},
-    {"body_head_center", kJointHeadCenterFrames, std::size(kJointHeadCenterFrames), false, true},
+    {"body_shake_head", kBodyShakeHead, std::size(kBodyShakeHead), true, false,
+     wzh_panda::kHeadAxis},
+    {"body_look_left", kBodyLookLeft, std::size(kBodyLookLeft), false, false, wzh_panda::kHeadAxis},
+    {"body_look_right", kBodyLookRight, std::size(kBodyLookRight), false, false,
+     wzh_panda::kHeadAxis},
+    {"body_wag_tail", kBodyWagTail, std::size(kBodyWagTail), true, false, wzh_panda::kTailAxes},
+    {"body_twist_neck", kBodyTwistNeck, std::size(kBodyTwistNeck), true, false,
+     wzh_panda::kHeadAxis},
+    {"body_head_center", kJointHeadCenterFrames, std::size(kJointHeadCenterFrames), false, true,
+     wzh_panda::kHeadAxis},
     {"body_head_sway_left", kJointHeadSwayLeftFrames, std::size(kJointHeadSwayLeftFrames), false,
-     true},
+     true, wzh_panda::kHeadAxis},
     {"body_head_sway_right", kJointHeadSwayRightFrames, std::size(kJointHeadSwayRightFrames), false,
-     true},
-    {"body_head_scan", kJointHeadScanFrames, std::size(kJointHeadScanFrames), false, true},
-    {"body_center", kJointCenterFrames, std::size(kJointCenterFrames), false, true},
-    {"body_tail_up", kJointTailUpFrames, std::size(kJointTailUpFrames), false, true},
-    {"body_tail_down", kJointTailDownFrames, std::size(kJointTailDownFrames), false, true},
-    {"body_tail_left", kJointTailLeftFrames, std::size(kJointTailLeftFrames), false, true},
-    {"body_tail_right", kJointTailRightFrames, std::size(kJointTailRightFrames), false, true},
-    {"body_tail_center", kJointTailCenterFrames, std::size(kJointTailCenterFrames), false, true},
-    {"body_tail_level", kJointTailLevelFrames, std::size(kJointTailLevelFrames), false, true},
+     true, wzh_panda::kHeadAxis},
+    {"body_head_scan", kJointHeadScanFrames, std::size(kJointHeadScanFrames), false, true,
+     wzh_panda::kHeadAxis},
+    {"body_center", kJointCenterFrames, std::size(kJointCenterFrames), false, true,
+     wzh_panda::kAllAxes},
+    {"body_tail_up", kJointTailUpFrames, std::size(kJointTailUpFrames), false, true,
+     wzh_panda::kTailHeightAxis},
+    {"body_tail_down", kJointTailDownFrames, std::size(kJointTailDownFrames), false, true,
+     wzh_panda::kTailHeightAxis},
+    {"body_tail_left", kJointTailLeftFrames, std::size(kJointTailLeftFrames), false, true,
+     wzh_panda::kTailSideAxis},
+    {"body_tail_right", kJointTailRightFrames, std::size(kJointTailRightFrames), false, true,
+     wzh_panda::kTailSideAxis},
+    {"body_tail_center", kJointTailCenterFrames, std::size(kJointTailCenterFrames), false, true,
+     wzh_panda::kTailAxes},
+    {"body_tail_level", kJointTailLevelFrames, std::size(kJointTailLevelFrames), false, true,
+     wzh_panda::kTailHeightAxis},
     {"body_tail_sway_left", kJointTailSwayLeftFrames, std::size(kJointTailSwayLeftFrames), false,
-     true},
+     true, wzh_panda::kTailSideAxis},
     {"body_tail_sway_right", kJointTailSwayRightFrames, std::size(kJointTailSwayRightFrames), false,
-     true},
-    {"body_tail_circle", kJointTailCircleFrames, std::size(kJointTailCircleFrames), false, true},
-    {"body_tail_eight", kJointTailEightFrames, std::size(kJointTailEightFrames), false, true},
-    {"body_tail_curl", kJointTailCurlFrames, std::size(kJointTailCurlFrames), false, true},
-    {"body_wag_tail_slow", kJointWagTailSlowFrames, std::size(kJointWagTailSlowFrames), false,
-     true},
-    {"body_tail_fan", kJointTailFanFrames, std::size(kJointTailFanFrames), false, true},
-    {"body_tail_bounce", kJointTailBounceFrames, std::size(kJointTailBounceFrames), false, true},
+     true, wzh_panda::kTailSideAxis},
+    {"body_tail_circle", kJointTailCircleFrames, std::size(kJointTailCircleFrames), false, true,
+     wzh_panda::kTailAxes},
+    {"body_tail_eight", kJointTailEightFrames, std::size(kJointTailEightFrames), false, true,
+     wzh_panda::kTailAxes},
+    {"body_tail_curl", kJointTailCurlFrames, std::size(kJointTailCurlFrames), false, true,
+     wzh_panda::kTailHeightAxis},
+    {"body_wag_tail_slow", kJointWagTailSlowFrames, std::size(kJointWagTailSlowFrames), false, true,
+     wzh_panda::kTailAxes},
+    {"body_tail_fan", kJointTailFanFrames, std::size(kJointTailFanFrames), false, true,
+     wzh_panda::kTailAxes},
+    {"body_tail_bounce", kJointTailBounceFrames, std::size(kJointTailBounceFrames), false, true,
+     wzh_panda::kTailHeightAxis},
 };
 
 // Dedicated short acknowledgements: fixed pad identity, no random mirroring.
@@ -917,9 +949,20 @@ void PandaController::OutputPose(const wzh_panda::Pose& requested) {
         wzh::ExpressiveAngle(target.head, 90.0f, wzh::kPandaHeadMin, wzh::kPandaHeadMax, gain);
     target.tail_lr = wzh::ExpressiveAngle(target.tail_lr, 90.0f, 6.0f, 174.0f, gain);
     target.tail_ud = wzh::ExpressiveAngle(target.tail_ud, 150.0f, 0.0f, 180.0f, gain);
-    const float servo_ud = wzh::TailServoUd(target.tail_ud);
+    const auto axes = clip_active_ && clip_ ? clip_->body_axes : 0;
+    if (axes) {
+        if (!(axes & wzh_panda::kHeadAxis))
+            target.head = last_output_pose_.head;
+        if (!(axes & wzh_panda::kTailSideAxis))
+            target.tail_lr = last_output_pose_.tail_lr;
+        if (!(axes & wzh_panda::kTailHeightAxis))
+            target.tail_ud = last_output_pose_.tail_ud;
+    }
     const float last_servo_ud =
         wzh::g_tail_ud_remap ? wzh::g_tail_servo_ud : last_output_pose_.tail_ud;
+    const float servo_ud = axes && !(axes & wzh_panda::kTailHeightAxis)
+                               ? last_servo_ud
+                               : wzh::TailServoUd(target.tail_ud);
     const uint32_t elapsed =
         last_output_ms_ == 0 ? kTickMs : std::min<uint32_t>(now - last_output_ms_, 50);
     const float allowed = wzh::kPetServoSpeed * elapsed / 1000.0f;
@@ -1154,14 +1197,15 @@ wzh_panda::Pose PandaController::ApplyAudioMotion(const wzh_panda::Pose& pose,
     const auto offset =
         voice_motion_.Update(wzh::VoiceMechanism::kTail, audio.playing && !body_control,
                              audio.level, audio.attack, now_ms, speech_intent_.load());
-    const bool reserve = audio.playing && (!request_active_.load() ||
-                                           running_priority_.load() != wzh::PetPriority::kExplicit);
+    const bool reserve =
+        audio.playing && !body_control &&
+        (!request_active_.load() || running_priority_.load() != wzh::PetPriority::kExplicit);
     if (reserve) {
-        // Keep most of the clip's own large pose during speech; the voice
-        // offsets are layered on top instead of replacing the gesture.
-        base = {90 + (pose.head - 90) * .45f * std::max(0.f, 1 - std::abs(offset[0]) / 82),
-                90 + (pose.tail_lr - 90) * .35f * std::max(0.f, 1 - std::abs(offset[1]) / 84),
-                150 + (pose.tail_ud - 150) * .20f * std::max(0.f, 1 - std::abs(offset[2]) / 136)};
+        // Keep a small expression bias so the speaking tail can return to its
+        // sitting angle even when an emotion clip was already lifting it.
+        base = {90 + (pose.head - 90) * .25f * std::max(0.f, 1 - std::abs(offset[0]) / 60),
+                90 + (pose.tail_lr - 90) * .24f * std::max(0.f, 1 - std::abs(offset[1]) / 84),
+                150 + (pose.tail_ud - 150) * .08f * std::max(0.f, 1 - std::abs(offset[2]) / 136)};
     }
     if (reserve)
         return {std::clamp(base.head + offset[0], 9.f, 171.f),
@@ -1322,7 +1366,6 @@ void PandaController::Task() {
         if (!startup.Pending() && !startup_sound_pending && !startup_sound_started && !clip_active_)
             wzh::MarkStartupGreetingComplete();
         if (servo_output_.blocked() || !pet_state.motion) {
-            idle_breathing_ = false;
             CancelSoundMotion();
             autoplay_.Busy(now_ms, esp_random());
             autonomous_playback_ = false;
@@ -1396,9 +1439,9 @@ void PandaController::Task() {
 
         // Keep the tutorial demonstration while its selected audio plays.
         const bool local_motion = tutorial_motion_active_ ? false : UpdateSoundMotion(now_ms);
-        autoplay_.ObservePlayback(now_ms,
-                                  local_motion || (audio_ != nullptr && audio_->Playing()),
-                                  esp_random());
+        autoplay_.ObservePlayback(
+            now_ms, clip_active_ || local_motion || (audio_ != nullptr && audio_->Playing()),
+            esp_random());
         if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
             autonomous_playback_ = false;
         // Wait for the power-on prompt to drain before the startup gesture.
@@ -1435,10 +1478,9 @@ void PandaController::Task() {
         }
         if (autoplay_.Due(now_ms,
                           offline && pet_state.local_sound && !wzh::IsOnboardingActive() &&
-                              wzh::StartupGreetingAudioReady() &&
-                              !startup.Pending() && !startup_sound_pending &&
-                              (!servo_output_.powered() || idle_breathing_) &&
-                              !clip_active_ && !request_active_.load() && !local_motion &&
+                              wzh::StartupGreetingAudioReady() && !startup.Pending() &&
+                              !startup_sound_pending && !servo_output_.powered() && !clip_active_ &&
+                              !request_active_.load() && !local_motion &&
                               (audio_ == nullptr || !audio_->Playing()),
                           esp_random())) {
             // No queued sound is accumulated while AudioService or Audio Hub is busy.
@@ -1450,7 +1492,6 @@ void PandaController::Task() {
             autoplay_.Busy(now_ms, esp_random());
         }
         if (local_motion) {
-            idle_breathing_ = false;
             quiet_center_.Reset();
             request_active_.store(false);  // A touch can immediately take over an autonomous show.
             last_motion_ms_ = now_ms;
@@ -1478,15 +1519,12 @@ void PandaController::Task() {
         if (offline && !tutorial_voice) {
             motion = {};  // Offline gestures own their finite choreography.
         }
-        // Idle filler clips only run in the legacy fallback phase; during the
-        // opening burst the exhibitions own the output and the wait is
-        // breathing-only.
-        const bool idle_eligible = !conversation_active_.load() && pet_state.motion &&
-                                   !request_active_.load() && !clip_active_ && !motion.playing &&
-                                   !local_motion && (!servo_output_.powered() || idle_breathing_) &&
-                                   (audio_ == nullptr || !audio_->Playing()) &&
-                                   !startup.Pending() && !startup_sound_pending &&
-                                   !wzh::IsOnboardingActive();
+        // Standalone clips remain available in legacy silent mode.
+        const bool idle_eligible =
+            !conversation_active_.load() && pet_state.motion && !request_active_.load() &&
+            !clip_active_ && !motion.playing && !local_motion && !servo_output_.powered() &&
+            (audio_ == nullptr || !audio_->Playing()) && !startup.Pending() &&
+            !startup_sound_pending && !wzh::IsOnboardingActive();
         if (idle_life_.Due(now_ms, idle_eligible && autoplay_.Legacy() && !pet_state.local_sound,
                            esp_random())) {
             static constexpr Behaviour kIdleFamilies[] = {Behaviour::kIdle, Behaviour::kCurious,
@@ -1502,25 +1540,11 @@ void PandaController::Task() {
             running_speech_bound_ = false;
         }
         Pose expressive = pose_;
-        idle_breathing_ = offline && pet_state.motion && !request_active_.load() &&
-                          !clip_active_ && !motion.playing && !local_motion &&
-                          !startup.Pending() && !startup_sound_pending &&
-                          wzh::StartupGreetingAudioReady() && !wzh::IsOnboardingActive() &&
-                          Application::GetInstance().GetAudioService().IsPlaybackIdle();
         if (clip_active_ && !motion.playing) {
             AddMicroMotion(expressive, now_ms, 1.0f);
-        } else if (idle_breathing_) {
-            // A gentle gaze and phase-offset tail motion add attention without
-            // starting a separate clip during the breathing-only wait.
-            const float phase = static_cast<float>(now_ms % 12000U) / 12000.f;
-            const float breath = 0.5f - 0.5f * std::cos(phase * 6.2831853f);
-            const float gaze = std::sin(static_cast<float>(now_ms % 28000U) * (6.2831853f / 28000.f));
-            const float tail = std::sin(static_cast<float>(now_ms % 22000U) * (6.2831853f / 22000.f));
-            expressive = {90.f + 3.0f * gaze, 90.f + 2.0f * tail,
-                          150.f - breath * 2.5f};
         }
-        const wzh_panda::Pose out = ApplyAudioMotion(expressive, motion, now_ms);
-        if (clip_active_ || motion.playing || idle_breathing_) {
+        const Pose out = ApplyAudioMotion(expressive, motion, now_ms);
+        if (clip_active_ || motion.playing) {
             quiet_center_.Reset();
             last_motion_ms_ = now_ms;
             OutputPose(out);
@@ -1779,6 +1803,7 @@ void PandaController::SetConversationActive(bool active) {
     if (!changed) {
         return;
     }
+    pet_.ResetTouch();
     ESP_LOGI(TAG, "Mode changed to %s",
              active ? "online/conversation" : "offline/interaction-wait");
     if (!active) {
@@ -2076,7 +2101,8 @@ bool PandaController::TriggerOnboardingFeedback(uint8_t step) {
     return false;
 }
 
-bool PandaController::QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step) {
+bool PandaController::QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step,
+                                       wzh::PetPriority priority) {
     PandaBodyAction body = PandaBodyAction::kShakeHead;
     switch (interaction) {
         case wzh::PetInteraction::kTouch1:
@@ -2112,7 +2138,7 @@ bool PandaController::QueueInteraction(wzh::PetInteraction interaction, uint8_t 
     ActionRequest request{static_cast<PandaAction>(body), false, true};
     request.interaction = interaction;
     request.tutorial_step = tutorial_step;
-    const bool accepted = QueueRequest(request, wzh::PetPriority::kExplicit);
+    const bool accepted = QueueRequest(request, priority);
     if (accepted) {
         ESP_LOGD(TAG, "Interaction=%s accepted", wzh::InteractionName(interaction));
     } else {
@@ -2123,14 +2149,11 @@ bool PandaController::QueueInteraction(wzh::PetInteraction interaction, uint8_t 
     return accepted;
 }
 
-void PandaController::HandleTouch(uint8_t code) {
+void PandaController::HandleTouch(uint8_t code, bool allow_contact_start) {
     const uint32_t now = esp_timer_get_time() / 1000;
-    pet_.Touch(code, now);
-    // A confirmed press is play: restart the two-minute exhibition burst.
-    // Release events (code 0) only feed the held/tap state machine.
-    if (code != 0)
-        autoplay_.Engage(now, esp_random());
-    PollInteraction(now);
+    pet_.Touch(code, now, allow_contact_start);
+    if (code != 0 && code != 0xFF)
+        PollInteraction(now);
 }
 
 bool PandaController::HandleSensorEvent(int event) {
@@ -2159,7 +2182,7 @@ bool PandaController::HandleSensorEvent(int event) {
                              : kind == wzh::Sensors::Event::kFlipped
                                  ? wzh::PetInteraction::kFlipped
                                  : wzh::PetInteraction::kPutDown;
-    const bool accepted = QueueInteraction(interaction);
+    const bool accepted = QueueInteraction(interaction, 0, wzh::PetPriority::kSensor);
     if (accepted) {
         pet_.Gentle(now, kind == wzh::Sensors::Event::kPutDown ? 1800 : 3500);
         autoplay_.Engage(now, esp_random());
@@ -2215,7 +2238,12 @@ bool PandaController::React(wzh::PetReaction reaction, wzh::PetPriority priority
 void PandaController::PollInteraction(uint32_t now) {
     const auto touch = pet_.PollTouchEvent(now);
     if (touch.response != wzh::TouchResponse::kNone) {
-        QueueInteraction(touch.interaction());
+        if (conversation_active_.load()) {
+            Application::GetInstance().QueueTouchConversationInput(
+                wzh::ConversationTouchText(touch, {"头", "背", "肚子", "尾巴"}));
+        }
+        if (QueueInteraction(touch.interaction()))
+            autoplay_.Engage(now, esp_random());
     }
     int expression = pending_expression_.load();
     if (expression >= 0 && now - expression_since_.load() >= 2500) {

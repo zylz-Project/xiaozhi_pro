@@ -6,14 +6,15 @@
 #include <string_view>
 
 namespace wzh {
-// HTTP-task owned. Password follows the requested exhibition configuration;
-// writes require a random, expiring token rather than a browser-only UI flag.
+inline constexpr std::string_view kDeveloperPassword = "zeyuanlingzhi";
+
+// HTTP-task owned. Developer writes require a random, expiring token.
 class DeveloperSession {
 public:
     bool Unlock(std::string_view password, const std::array<uint8_t, 16>& random, uint32_t now) {
         if (IsLocked(now))
             return false;
-        if (password != "1") {
+        if (password != kDeveloperPassword) {
             if (++failures_ >= 5) {
                 failures_ = 0;
                 lock_started_ = now;

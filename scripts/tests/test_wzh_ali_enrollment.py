@@ -128,7 +128,10 @@ int main(){
             (path / 'freertos').mkdir()
             (path / 'mbedtls').mkdir()
             (path / 'esp_crt_bundle.h').write_text('inline void esp_crt_bundle_attach() {}\n')
-            (path / 'esp_log.h').write_text('#define ESP_LOGW(...) ((void)0)\n#define ESP_LOGI(...) ((void)0)\n')
+            (path / 'esp_log.h').write_text(
+                'void log_warning(const char*, const char*, ...);\n'
+                '#define ESP_LOGW(...) log_warning(__VA_ARGS__)\n'
+                '#define ESP_LOGI(...) ((void)0)\n')
             (path / 'esp_timer.h').write_text('#include <cstdint>\ninline int64_t esp_timer_get_time(){return 0;}\n')
             (path / 'esp_heap_caps.h').write_text('#include <cstdlib>\n#define MALLOC_CAP_SPIRAM 1\n#define MALLOC_CAP_8BIT 2\nextern bool fail_scratch;\ninline void* heap_caps_malloc(size_t n,int){return fail_scratch?nullptr:malloc(n);}\n')
             (path / 'freertos/FreeRTOS.h').write_text('#define pdMS_TO_TICKS(x) (x)\n')
@@ -155,6 +158,8 @@ bool esp_http_client_is_complete_data_received(esp_http_client*);
             (path / 'test.cc').write_text(r'''
 #include <algorithm>
 #include <cassert>
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -166,12 +171,21 @@ std::vector<std::string> bodies;
 int next_status=200;
 bool fail_scratch=false;
 bool list_mode=false;
+std::string failed_response,warning;
+void log_warning(const char* tag,const char* format,...){
+ assert(std::strcmp(tag,"AliEnrollment")==0);
+ char line[256];
+ va_list args;
+ va_start(args,format);std::vsnprintf(line,sizeof(line),format,args);va_end(args);
+ warning=line;
+}
 esp_http_client* esp_http_client_init(const esp_http_client_config_t* c){assert(c->disable_auto_redirect);return new esp_http_client;}
 void esp_http_client_cleanup(esp_http_client* p){delete p;}
 int esp_http_client_set_header(esp_http_client*,const char*,const char*){return 0;}
 int esp_http_client_open(esp_http_client* p,int n){p->expected=n;return 0;}
 int esp_http_client_write(esp_http_client* p,const char* data,int n){n=std::min(n,101);p->body.append(data,n);return n;}
 int esp_http_client_fetch_headers(esp_http_client* p){assert(p->body.size()==p->expected);bodies.push_back(p->body);
+ if(!failed_response.empty()){p->response=failed_response;return p->response.size();}
  if(list_mode) {if(p->body.find("list_voice")!=std::string::npos && p->body.find("\"page_index\":1")!=std::string::npos) p->response="{\"output\":{\"voice_list\":[]}}";
  else if(p->body.find("list_voice")!=std::string::npos) p->response="{\"output\":{\"voice_list\":[{\"voice_id\":\"qwen-audio-3.1-tts-flash-device1234-abc\"},{\"voice_id\":\"qwen-audio-3.1-tts-flash-other-xyz\"}]}}";
  else {p->response="{\"output\":{},\"request_id\":\"x\"}";} return p->response.size();}
@@ -219,6 +233,16 @@ int main(){
  assert(voice_tts::DeleteAliVoice("test-key","device1234",voices[0],[]{return false;}));
  assert(bodies.size()==before+1 && bodies.back().find("delete_voice")!=std::string::npos);
  assert(!voice_tts::ListAliVoices("test-key","bad!",[]{return false;},voices));
+ next_status=400;
+ failed_response=R"({"code":"InvalidParameter","message":"private submission detail"})";
+ assert(!voice_tts::ListAliVoices("test-key","device1234",[]{return false;},voices));
+ assert(voices.empty()&&warning=="Request failed: action=list_voice HTTP=400 code=InvalidParameter");
+ failed_response=R"({"code":"InvalidParameter\nprivate detail"})";
+ assert(!voice_tts::ListAliVoices("test-key","device1234",[]{return false;},voices));
+ assert(warning=="Request failed: action=list_voice HTTP=400 code=unavailable");
+ failed_response=R"({"code":"InvalidParameter","padding":")"+std::string(1100,'x')+"\"}";
+ assert(!voice_tts::ListAliVoices("test-key","device1234",[]{return false;},voices));
+ assert(warning=="Request failed: action=list_voice HTTP=400 code=unavailable");
 }
 ''')
             obj = path / 'json.o'

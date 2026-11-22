@@ -234,6 +234,7 @@ struct DinosaurController{
  struct Pose{float neck_tilt,neck_lean,head_turn,tail_ud,tail_lr;};
  std::atomic<bool>request_active_{false};std::atomic<wzh::PetPriority>running_priority_{wzh::PetPriority::kEmotion};
  bool servo_test_active_=true,stalled=false;unsigned polls=0;
+ uint8_t active_body_axes_=0;
  uint32_t interrupt_at=UINT32_MAX;std::vector<uint32_t>times;std::vector<Pose>poses;
  void PollInteraction(uint32_t){if(stalled&&++polls==7)clock_ms+=95;}
  bool MotionInterrupted(){return clock_ms>=interrupt_at;}

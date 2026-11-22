@@ -1,19 +1,59 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-device-detail>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<script src="js/viewport.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6eadc">
 <title>爬爬熊猫 · 设备详情</title>
-<script src="js/theme.js"></script>
-<script src="js/product.js"></script>
+<script>
+  (() => {
+    const url = new URL(location.href);
+    const retryKey = '_assets_retry';
+    let failed = false;
+    window.addEventListener('error', event => {
+      const asset = event.target;
+      const source = asset.tagName === 'SCRIPT' ? asset.src
+        : asset.tagName === 'LINK' && asset.rel === 'stylesheet' ? asset.href : '';
+      if (failed || !source || new URL(source).origin !== url.origin) return;
+      failed = true;
+      const recover = () => {
+        document.getElementById('portalLoadError').hidden = false;
+        if (url.searchParams.has(retryKey)) return;
+        url.searchParams.set(retryKey, '1');
+        setTimeout(() => location.replace(url.href), 400);
+      };
+      if (document.readyState === 'loading')
+        document.addEventListener('DOMContentLoaded', recover, {once: true});
+      else
+        recover();
+    }, true);
+    window.addEventListener('load', () => {
+      if (!failed && url.searchParams.has(retryKey)) {
+        url.searchParams.delete(retryKey);
+        history.replaceState(history.state, '', url.href);
+      }
+    }, {once: true});
+    document.addEventListener('DOMContentLoaded', () => window.PandaGuide?.auto('detail'));
+  })();
+</script>
 <link rel="stylesheet" href="css/index.css">
 <link rel="stylesheet" href="css/guide.css">
 <link rel="stylesheet" href="css/deploy.css">
+<script defer src="js/theme.js"></script>
+<script defer src="js/product.js"></script>
+<script defer src="js/editor-focus.js"></script>
+<script defer src="js/voice-actions.js"></script>
+<script defer src="js/device-detail.js"></script>
+<script defer src="js/index-app.js"></script>
+<script defer src="js/index-view.js"></script>
+<script defer src="js/guide-config.js?v=2"></script>
+<script defer src="js/guide.js"></script>
 <style>.notes,.statebar{display:none!important}</style>
 </head>
 <body>
+<div id="portalLoadError" role="alert" hidden style="position:fixed;z-index:10000;inset:8px 8px auto;padding:12px;background:#fff4d6;color:#322412;border-radius:8px;text-align:center">
+  页面资源加载中断。<a href="/">重新打开设备页面</a>
+</div>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M9 21h6"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
@@ -53,7 +93,7 @@
           <span class="status-pill"><i class="status-dot"></i><span class="status-text">在线</span></span>
         </div>
         <div class="brand">
-          <img class="brand-mark" src="assets/zeyuan-logo.webp" alt="泽元灵智" width="100" height="29">
+          <img class="brand-mark" data-src="assets/zeyuan-logo.webp" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="泽元灵智" width="100" height="29" fetchpriority="low" decoding="async">
           <div class="brand-copy"><b data-p-name>爬爬熊猫</b><span data-p-en>CRAWL PANDA</span></div>
         </div>
         <div class="orb-wrap">
@@ -104,6 +144,7 @@
               <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chev"></use></svg>
             </div>
             <button class="primary" type="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mic"></use></svg><span class="cta-label">开始对话</span></button>
+            <p id="chatNotice" class="portal-hint" role="status" hidden></p>
           </div>
           <div class="sheet-more console" data-layout="c" data-console>
             <div class="con-head">
@@ -189,6 +230,7 @@
                   </div>
                 </div>
 
+                <p id="voiceServiceNotice" class="portal-hint" role="status" hidden></p>
                 <div class="voice-lab" data-clone-lab>
                   <div class="lab-card lab-record">
                     <div class="lab-record-top">
@@ -199,7 +241,7 @@
                       <div class="lab-copy">
                         <span class="lab-kicker">VOICE LAB</span>
                         <b class="lab-title">复刻声音</b>
-                        <small class="lab-sub">录 10 秒，留住家人的声音</small>
+                        <small class="lab-sub">靠近设备录音，或上传已有录音</small>
                       </div>
                     </div>
                     <div class="lab-steps" aria-label="复刻流程">
@@ -291,10 +333,10 @@
         <div class="manual-sheet" role="dialog" aria-modal="true" aria-label="使用说明书" aria-hidden="true">
           <button class="manual-close manual-close-float" type="button" aria-label="关闭说明书"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
           <div class="manual-body manual-body-full">
-            <iframe class="manual-frame" src="/manual?embed=1" title="完整使用说明书" loading="lazy"></iframe>
+            <iframe class="manual-frame" title="完整使用说明书"></iframe>
           </div>
         </div>
-        <div class="panda-modal voice-modal" data-voice-modal role="dialog" aria-modal="true" aria-label="音色管理" aria-hidden="true">
+        <div class="panda-modal voice-modal" data-voice-modal role="dialog" aria-modal="true" aria-label="音色管理" aria-hidden="true" inert>
           <div class="modal-card">
             <div class="modal-head">
               <div class="modal-head-copy">
@@ -306,6 +348,7 @@
             </div>
             <div class="modal-body">
               <div class="vm-cap">我的音色 <b data-vm-count>6</b>/10</div>
+              <p class="field-hint" data-voice-operation-status role="status"></p>
               <div class="vm-hero">
                 <span class="vm-hero-avatar" data-vm-current-avatar>欢</span>
                 <span class="vm-hero-copy"><small>当前音色</small><b data-vm-current>龙安欢</b></span>
@@ -359,13 +402,13 @@
           </div>
         </div>
 
-        <div class="panda-modal audio-modal" data-audio-modal role="dialog" aria-modal="true" aria-label="新建复刻音色" aria-hidden="true">
+        <div class="panda-modal audio-modal" data-audio-modal role="dialog" aria-modal="true" aria-label="新建复刻音色" aria-hidden="true" inert>
           <div class="modal-card">
             <div class="modal-head">
               <div class="modal-head-copy">
                 <span class="modal-kicker">VOICE LAB · NEW</span>
                 <b>新建复刻音色</b>
-                <small>录 10 秒，或上传 5–20 秒人声</small>
+                <small>录制或上传 5–20 秒的清晰人声</small>
               </div>
               <button class="modal-close" type="button" data-close-audio aria-label="关闭新建复刻音色"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><use href="#i-close"></use></svg></button>
             </div>
@@ -379,7 +422,7 @@
                   <button class="record-puck" type="button" data-record-puck aria-label="开始录音"><span class="record-ring"></span><span class="record-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mic"></use></svg></span></button>
                   <div class="record-readout">
                     <b data-record-time>00:00</b>
-                    <small data-record-status>点击麦克风开始，安静环境下读 10 秒</small>
+                    <small data-record-status>点击麦克风开始，听到提示后再说话</small>
                   </div>
                 </div>
                 <div class="record-track" aria-hidden="true"><i data-record-progress></i></div>
@@ -387,17 +430,19 @@
                 <div class="record-steps"><span class="is-on"><i>1</i>录制</span><span class="lab-line"></span><span><i>2</i>生成</span><span class="lab-line"></span><span><i>3</i>保存</span></div>
               </div>
               <div class="upload-panel" data-upload-panel hidden>
-                <input class="audio-file-input" id="audio-file-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac" aria-label="选择要上传的音频">
-                <label class="audio-file" for="audio-file-input">
+                <label class="audio-file">
                   <span class="audio-file-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-upload"></use></svg></span>
                   <span class="audio-file-copy"><b data-audio-file>点击选择音频文件</b><small>支持 MP3 / WAV，5–20 秒人声</small></span>
                   <span class="audio-file-cta">选择</span>
+                  <input class="audio-file-input" id="audio-file-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac" aria-label="选择要上传的音频">
                 </label>
+                <p class="audio-hint" data-audio-browser-help hidden>若选择窗口未弹出，请保持连接设备热点，在 Chrome 地址栏打开 192.168.4.1。</p>
                 <div class="audio-wave" data-audio-wave aria-hidden="true"></div>
                 <div class="audio-trim"><span>0:00</span><input type="range" min="0" max="9" value="1" data-audio-trim aria-label="截取起点"><span data-audio-trim-end>0:15</span></div>
               </div>
-              <label class="field"><span>音色名称</span><input type="text" maxlength="8" value="我的音色" data-audio-name-input autocomplete="off"></label>
-              <p class="audio-hint" data-audio-hint>录完 10 秒后生成；建议用平常说话的音量。</p>
+              <label class="field"><span>音色名称</span><input type="text" maxlength="8" value="我的音色" data-audio-name-input autocomplete="off" inputmode="none" data-edit-on-tap></label>
+              <p class="audio-hint" data-audio-hint>请用平常说话的音量。录音会发送至音色服务生成音色。</p>
+              <p class="audio-hint" data-voice-operation role="status"></p>
             </div>
             <div class="modal-foot">
               <div class="modal-actions">
@@ -408,7 +453,7 @@
           </div>
         </div>
 
-        <div class="panda-modal reset-modal" data-reset-modal role="dialog" aria-modal="true" aria-label="恢复出厂设置" aria-hidden="true">
+        <div class="panda-modal reset-modal" data-reset-modal role="dialog" aria-modal="true" aria-label="恢复出厂设置" aria-hidden="true" inert>
           <div class="modal-card">
             <div class="modal-head">
               <div class="modal-head-copy">
@@ -423,9 +468,10 @@
                 <h4>恢复后需要重新配网</h4>
               <p>会清除 Wi-Fi 和本机创建的复刻音色；页面密码、小智绑定、预置语音 Key 保留。</p>
               </div>
-              <div class="reset-warning">先删除云端复刻音色，再清除 Wi-Fi。任一步失败都会中止并保留网络，不会留下半完成状态。</div>
-              <label class="field"><span>请输入确认语</span><input type="text" data-reset-input placeholder="确定恢复出厂设置" autocomplete="off"></label>
+              <div class="reset-warning">有待清理的复刻音色时，需要联网删除云端音色。Wi-Fi 凭据最后清除。</div>
+              <label class="field"><span>请输入确认语</span><input type="text" data-reset-input placeholder="确定恢复出厂设置" autocomplete="off" inputmode="none" data-edit-on-tap></label>
               <p class="field-hint">完整输入“确定恢复出厂设置”后按钮才会可用。</p>
+              <p class="field-hint" data-reset-status role="status"></p>
             </div>
             <div class="modal-foot">
               <div class="modal-actions">
@@ -442,11 +488,5 @@
       </main>
 </div>
 
-<script src="js/device-detail.js"></script>
-<script src="js/index-app.js"></script>
-<script src="js/guide-config.js?v=2"></script>
-<script src="js/guide.js"></script>
-<script src="js/index-auto.js"></script>
-<script src="js/index-view.js"></script>
 </body>
 </html>

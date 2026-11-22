@@ -16,6 +16,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
+| [三款产品语音口令](audio/voice_commands.md) | 离线动作说法、待机唤醒词和回答时的打断词 |
 | [音色复刻与管理](audio/voice_cloning.md) | 三款产品的对话／页面入口、录音、切换、试听与取消 |
 | [本地播报制作](audio/system_prompts.md) · [试听页面](audio/system_prompts_preview.html) | 现有固定音包的来源、生成、导入与验证 |
 | [响度恢复](audio/wzh_loudness_recovery_2026-11-07.md) | 针对音量100仍偏小的补偿及保护方案 |

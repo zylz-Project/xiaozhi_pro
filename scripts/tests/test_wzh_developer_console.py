@@ -34,6 +34,7 @@ class WzhDeveloperConsoleTest(unittest.TestCase):
             'esp_err_t WebConsole::SendJson(', 'esp_err_t WebConsole::SendError(',
             'bool WebConsole::RequireDeveloper(', 'esp_err_t WebConsole::HandleDeveloperLogin(',
             'esp_err_t WebConsole::HandleDeveloperLogout(', 'esp_err_t WebConsole::HandleDeveloperVolume(',
+            'esp_err_t WebConsole::HandleDeveloperTouchSw4(',
             'esp_err_t WebConsole::HandleDeveloperVoiceConfig(',
             'esp_err_t WebConsole::HandleDeveloperCenter(', 'esp_err_t WebConsole::HandleDeveloperErase(',
             'esp_err_t WebConsole::HandleStop(', 'void WebConsole::StartErase(',
@@ -104,7 +105,9 @@ int main(){
     auto locked=call("{\"volume\":30}",false);assert(locked.status=="403 Forbidden");
     auto bad=Request(console,"{\"password\":\"wrong\"}",false);
     WebConsole::HandleDeveloperLogin(&bad);assert(bad.status=="403 Forbidden");
-    auto login=Request(console,"{\"password\":\"1\"}",false);login.chunk=2;
+    auto old_login=Request(console,"{\"password\":\"1\"}",false);
+    WebConsole::HandleDeveloperLogin(&old_login);assert(old_login.status=="403 Forbidden");
+    auto login=Request(console,"{\"password\":\"zeyuanlingzhi\"}",false);login.chunk=2;
     WebConsole::HandleDeveloperLogin(&login);assert(login.status=="200 OK"&&login.cursor==login.content_len);
     assert(std::strlen(console.developer_.token())==32);
     for(auto body:{"[]","{}junk","{\"volume\":1.5}","{\"volume\":101}","{\"volume\":-1}"}){
@@ -118,12 +121,29 @@ int main(){
 }
 ''')
 
+    def test_sw4_isolation_requires_auth_and_reports_only_successful_saves(self):
+        self.run_cpp(self.console()+r'''
+int main(){
+    WebConsole console;bool isolated=true,save=true;int writes=0;
+    std::array<uint8_t,16> random{};assert(console.developer_.Unlock("zeyuanlingzhi",random,clock_us/1000));
+    console.options_.set_touch_sw4_isolated=[&](bool next){++writes;if(save) isolated=next;return save;};
+    auto call=[&](const char* body,bool auth=true){
+        auto r=Request(console,body,auth);WebConsole::HandleDeveloperTouchSw4(&r);return r;
+    };
+    assert(call("{\"isolated\":false}",false).status=="403 Forbidden"&&writes==0);
+    assert(call("{\"isolated\":1}").status=="400 Bad Request"&&writes==0);
+    assert(call("{\"isolated\":false}").status=="200 OK"&&!isolated&&writes==1);
+    save=false;
+    assert(call("{\"isolated\":true}").status=="500 Internal Server Error"&&!isolated&&writes==2);
+}
+''')
+
     def test_developer_device_record_requires_auth_and_forwards_name(self):
         self.run_cpp(self.console()+r'''
 int main(){
     WebConsole console; bool called=false; std::string name;
     console.options_.voice_device_record=[&](const std::string& value){called=true;name=value;return true;};
-    std::array<uint8_t,16> random{};assert(console.developer_.Unlock("1",random,clock_us/1000));
+    std::array<uint8_t,16> random{};assert(console.developer_.Unlock("zeyuanlingzhi",random,clock_us/1000));
     auto locked=Request(console,"{\"kind\":\"device_record\",\"value\":\"妈妈\"}",false);
     WebConsole::HandleDeveloperVoiceConfig(&locked);assert(locked.status=="403 Forbidden"&&!called);
     auto ok=Request(console,"{\"kind\":\"device_record\",\"value\":\"妈妈\"}",true);
@@ -139,7 +159,7 @@ int main(){
     WebConsole console;AudioStore store;AudioPlayer player;AudioHub hub;
     console.options_.store=&store;console.options_.player=&player;console.options_.hub=&hub;
     bool motion=false;console.options_.maintenance=[&](bool enabled){motion=enabled;};
-    std::array<uint8_t,16> random{};assert(console.developer_.Unlock("1",random,clock_us/1000));
+    std::array<uint8_t,16> random{};assert(console.developer_.Unlock("zeyuanlingzhi",random,clock_us/1000));
     auto erase=[&](std::string body="{\"confirm\":\"ERASE\"}",bool auth=true){
         auto r=Request(console,body,auth);WebConsole::HandleDeveloperErase(&r);return r;
     };

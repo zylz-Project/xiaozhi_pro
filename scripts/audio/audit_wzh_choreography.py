@@ -28,7 +28,7 @@ def audit():
 using namespace wzh;
 enum class MotionEase {kSmooth,kFastOut,kLinear};
 struct Keyframe {int neck_tilt,neck_lean,head_turn,tail_ud,tail_lr;uint16_t duration_ms;MotionEase ease;};
-struct MotionClip {const char* name;const Keyframe* frames;uint8_t count;};
+struct MotionClip {const char* name;const Keyframe* frames;uint8_t count;bool authored_dynamics=false;};
 __ROAR_DATA__
 int main(){
     struct Case{const char* name;PetMechanism mechanism;};
@@ -49,16 +49,17 @@ int main(){
                 const unsigned count=sound.duration_ms<=1700?3:4;
                 const unsigned clip_index=set[(score->seed+variant)%count];
                 player.SetRoarClip(kSkyRoarClips[clip_index],kCompactRoarTailAngles[clip_index]);
-                // All seven borrowed paths must still fit physical constraints,
-                // including paths not selected for the eight exported previews.
+                // Check every available roar clip, including authored spatial
+                // paths outside the classic phrase-variation previews above.
                 std::set<int> compact_tails;
                 for(unsigned clip_id=0;clip_id<std::size(kSkyRoarClips);++clip_id){
                     SoundChoreography candidate;
-                    candidate.SetRoarClip(kSkyRoarClips[clip_id],kCompactRoarTailAngles[clip_id]);
+                    const auto& clip=kSkyRoarClips[clip_id];
+                    candidate.SetRoarClip(clip,kCompactRoarTailAngles[clip_id],clip.authored_dynamics);
                     candidate.Begin(sound,item.mechanism,rest);
                     assert(candidate.duration()<=sound.duration_ms+6500);
                     SoundPose before=rest;bool on=false;
-                    if(sound.duration_ms<2100){
+                    if(sound.duration_ms<2100&&!clip.authored_dynamics){
                         SoundPose peak{};float best=999;
                         for(unsigned probe=0;probe<=candidate.duration();probe+=5){
                             auto q=candidate.Sample(probe,on);

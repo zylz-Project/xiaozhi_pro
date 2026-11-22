@@ -143,6 +143,7 @@ struct AudioService {
   Codec codec; Codec* codec_=&codec; std::mutex audio_queue_mutex_;
   std::condition_variable audio_queue_cv_; std::atomic<bool> service_stopped_{false};
   uint32_t playback_generation_=7; bool decode_in_flight_=false, playback_drained_notified_=true;
+  bool shutdown_playback_=false;
   size_t max_playback_tasks_=2; Queue audio_playback_queue_;
   bool PushPcmToPlaybackQueue(std::vector<int16_t>,int,uint32_t,bool);
 };

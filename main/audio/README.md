@@ -104,6 +104,14 @@ short-term RMS guard trims dense music by up to 4 dB while leaving speech
 untouched, and a 1 ms look-ahead peak limiter holds peaks around -1.5 dBFS
 before the codec DAC. Other boards keep the untouched stream.
 
+2026-11-20 WZH loudness adjustment: the large and red panda profiles use 27 dB
+of makeup before limiting. The dinosaur profile uses 30 dB. Each gains 6 dB
+at low signal levels. A digital comparison of 12 bundled prompts measured
+an increase of 0.7 to 1.2 LU with a maximum sample magnitude of 27524. The
+0.84 PCM peak ceiling, RMS guard and existing DAC volume curve protect the
+output as the level rises. Device tests still need to cover loudness,
+distortion and speech interruption over speaker echo.
+
 2026-11-07 WZH maximum-volume correction: the V4-2.2 NS4150 input resistors
 R35/R37 are 30 kohm, giving 20 dB PA gain. WZH now passes that gain to ES8311's
 existing hardware compensation and used a -3 dB maximum route target, with the

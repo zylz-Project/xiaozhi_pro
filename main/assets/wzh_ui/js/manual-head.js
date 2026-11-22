@@ -1,1 +1,2 @@
-if (location.search.indexOf('embed=1') > -1) document.documentElement.classList.add('embed');
+if (new URLSearchParams(location.search).get('embed') === '1')
+  document.documentElement.classList.add('embed');

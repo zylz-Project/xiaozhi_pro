@@ -64,6 +64,7 @@ class WzhMotionClipsTest(unittest.TestCase):
         resolver = resolver.replace("return;", "return nullptr;")
         target = function_body(source, "Pose TargetPose(")
         choose = function_body(source, "int PandaController::ChooseClip(")
+        crawl = board == "wzh_crawlPanda"
         program = r'''
 #include <algorithm>
 #include <array>
@@ -76,6 +77,8 @@ class WzhMotionClipsTest(unittest.TestCase):
 #include "wzh_pet_behavior.h"
 #define ESP_LOGW(...) ((void)0)
 '''
+        if crawl:
+            program += '#include "wzh_sound_choreography.h"\n'
         program += types + "\nusing namespace wzh_panda;\n"
         program += "constexpr int kBehaviourCount = static_cast<int>(Behaviour::kCount);\n"
         program += tables + "\n" + target
@@ -88,8 +91,12 @@ int irnd(int count) {static uint32_t rng=1234567;rng^=rng<<13;rng^=rng>>17;rng^=
 struct PandaController {
     ShuffleBag bags_[kBehaviourCount];int last_clip_=-1;
     int ChooseClip(Behaviour);
+    __SHORT_SELECTOR__
 };
 '''+choose+"\n"
+        if crawl:
+            program += "unsigned esp_random(){return irnd(256);}\n"
+            program += function_body(source, "int PandaController::ChooseOfflineSoundClip(") + "\n"
         program += r'''
 int main() {
     PandaController chooser;
@@ -107,7 +114,8 @@ int main() {
         }
         for(auto id:kFamily[family])if(id>=0)assert(seen[id]);
     }
-    for(bool seen:reachable)assert(seen); // Newly added stories are actually selected.
+    __SHORT_REACHABILITY__
+    for(bool seen:reachable)assert(seen); // Every clip has a production selection path.
     assert(Resolve(-1) == nullptr);
     assert(Resolve(C_COUNT + BODY_COUNT + std::size(kInteractionClips)) == nullptr);
     for (int i = 0; i < C_COUNT; ++i) assert(Resolve(i) == &kClips[i]);
@@ -170,6 +178,27 @@ int main() {
             tail_assert = 'if(std::strncmp(clip.name,"body_",5)!=0)assert(max_lr-min_lr>=30||max_ud-min_ud>=30);' 
         program += "}}\n" + tail_assert + "\n}}\n"
         program = program.replace("__CLIP_METRICS__", metrics)
+        program = program.replace("__SHORT_SELECTOR__", r'''
+    wzh::SoundChoreography sound_motion_;
+    Behaviour sound_family_=Behaviour::kCurious;
+    Behaviour ClassifySound(int)const{return sound_family_;}
+    int ChooseOfflineSoundClip(int,wzh::SoundKind,uint32_t);
+''' if crawl else "")
+        program = program.replace("__SHORT_REACHABILITY__", r'''
+    // Audio-only compact clips use their file's shuffle in the compact pool.
+    for(int family=0;family<kBehaviourCount;++family){
+        chooser.sound_family_=static_cast<Behaviour>(family);
+        const auto& choices=kShortSoundFamily[family];
+        bool seen[C_COUNT]={};
+        for(unsigned draw=0;draw<std::size(choices);++draw){
+            const int id=chooser.ChooseOfflineSoundClip(family,wzh::SoundKind::kCall,1800);
+            assert(id>=0&&id<C_COUNT&&!seen[id]);
+            assert(std::find(std::begin(choices),std::end(choices),id)!=std::end(choices));
+            seen[id]=reachable[id]=true;
+        }
+        for(auto id:choices)assert(id>=0&&id<C_COUNT&&seen[id]);
+    }
+''' if crawl else "")
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             cpp = directory / "clips.cc"

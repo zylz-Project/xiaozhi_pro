@@ -56,6 +56,7 @@ void ObserveStartupProtection(StartupProtectionNotice notice);
 const char* StartupProtectionMessage();
 void ObserveSystemPromptBattery(bool ready, bool low);
 void BeginSystemPromptShutdown();
+bool IsSystemPromptShutdownActive();
 // Power task only; bounded wait includes production AND final PCM drain. The
 // callback maintains battery protection while the power task waits for speech.
 bool PlayShutdownPromptAndWait(const std::function<void()>& check_battery);

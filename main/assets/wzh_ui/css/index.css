@@ -980,7 +980,7 @@
   }
   .phone.expanded .scrim { opacity: 1; pointer-events: auto; }
   .phone.expanded .sheet { top: 56px; border-radius: 34px; }
-  .phone.expanded .brand { opacity: 0; filter: blur(4px); }
+  .phone.expanded .brand { opacity: 0; filter: blur(4px); pointer-events: none; }
   .phone.expanded .statusbar { opacity: .20; filter: blur(1.5px); }
   .phone.expanded .orb-wrap { opacity: .18; filter: blur(3px); }
   .phone.expanded .orb-wrap { transform: scale(.96); }
@@ -1299,6 +1299,7 @@
     backdrop-filter: blur(12px);
     box-shadow: 0 8px 22px -14px rgba(60,36,20,.46);
   }
+  .phone.manual-open { overflow: clip; }
   .phone.manual-open .manual-sheet { display: flex; }
   .phone.manual-open .sheet { filter: blur(3px); opacity: .42; }
   .phone.manual-open .scrim { opacity: 1; pointer-events: auto; }
@@ -3070,10 +3071,11 @@
     -webkit-backdrop-filter: blur(7px);
     backdrop-filter: blur(7px);
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
     transition: opacity .2s ease;
   }
-  .panda-modal.show { opacity: 1; pointer-events: auto; }
+  .panda-modal.show { opacity: 1; visibility: visible; pointer-events: auto; }
   .voice-modal { z-index: 20; }
   .reset-modal { z-index: 22; }
   .audio-modal { z-index: 24; }
@@ -4316,25 +4318,24 @@
 .phone .modal-close { flex: 0 0 40px !important; }
 .phone .modal-actions .modal-btn { width: auto !important; margin-top: 0 !important; }
 
-/* 4. 上传音频：真实 file input（sr-only 渲染，iOS 才会弹资源库） */
+/* The native file input must receive the tap across the whole upload card. */
 .phone .audio-file-input {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 .phone .audio-file {
+  position: relative;
   cursor: pointer;
   touch-action: manipulation;
   transition: transform .14s ease, background .18s ease;
 }
 .phone .audio-file:active { transform: scale(.99); }
+.phone .audio-file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .phone .audio-file-cta {
   flex: 0 0 auto;
   display: inline-flex;

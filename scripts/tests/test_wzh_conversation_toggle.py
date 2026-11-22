@@ -28,6 +28,16 @@ APP_HARNESS = r'''
 #define ESP_LOGD(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
+#define CONFIG_WZH_SYSTEM_PROMPTS 1
+namespace wzh {
+bool tutorial_pending=false;
+std::function<void(bool)> tutorial_resume;
+bool DeferOnboardingConversation(std::function<void(bool)> fn) {
+    if (!tutorial_pending) return false;
+    tutorial_resume=std::move(fn);
+    return true;
+}
+}
 enum DeviceState{kDeviceStateIdle,kDeviceStateConnecting,kDeviceStateListening,kDeviceStateSpeaking,
     kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateActivating,kDeviceStateUpgrading,kDeviceStateAudioTesting};
 using ListeningMode=int;
@@ -82,12 +92,13 @@ struct Board{
     Display* GetDisplay(){return &display;}
 };
 struct Protocol{
-    bool opened=false,open_succeeds=true,deferred_close=false;int opens=0,closes=0,listens=0;
+    bool opened=false,open_succeeds=true,deferred_close=false,reconnecting=false;int opens=0,closes=0,listens=0;
     std::vector<std::function<void()>>delayed_closes;
-    std::function<void()> during_open,closed;
+    std::function<void()> during_open,closed,resume;
     std::function<void(std::unique_ptr<AudioStreamPacket>)>audio;
     bool IsAudioChannelOpened(){return opened;}
     bool OpenAudioChannel(){++opens;if(during_open)during_open();opened=open_succeeds;return opened;}
+    bool DeferUntilReconnectFinishes(std::function<void()> fn){if(!reconnecting)return false;resume=std::move(fn);return true;}
     void CloseAudioChannel(){opened=false;++closes;if(closed){if(deferred_close)delayed_closes.push_back(closed);else closed();}}
     void DeliverCloses(){auto work=std::move(delayed_closes);delayed_closes.clear();for(auto&f:work)f();}
     void SendStartListening(int){++listens;}
@@ -102,6 +113,7 @@ void xEventGroupSetBits(void*,unsigned bits){pending_bits|=bits;}
 class Application{
 public:
     DeviceState state=kDeviceStateIdle;
+    bool IsShuttingDown()const{return false;}
     Audio audio_service_;
     Protocol protocol;
     Protocol*protocol_=&protocol;
@@ -137,6 +149,7 @@ public:
     void Drain(){while(!scheduled.empty()){auto work=std::move(scheduled);scheduled.clear();for(auto&f:work)f();}}
     void ConfigureWakeWordForListening(){audio_service_.wake=true;}
     void AbortSpeaking(int){++aborts;}
+    bool IsConversationRecovering() const{return false;}
     void ToggleConversation();void HandleToggleConversationEvent();
     void ContinueOpenAudioChannel(ListeningMode);void StartListeningAudio();void SetListeningMode(ListeningMode);
     void FlushEarlyAudio();void ClearEarlyAudio();
@@ -164,6 +177,30 @@ __METHODS__
 APP_HARNESS = ('#include "' + str(ROOT/'main/audio/external_tts.h') + '"\n' +
                '#include "' + str(ROOT/'main/audio/voice_enrollment.h') + '"\n' +
                '#include <cstdint>\nint64_t esp_timer_get_time(){return 10000000;}\n' + APP_HARNESS)
+
+PREVIEW_HARNESS = r'''
+struct Preview : ExternalTts {
+    std::function<void(bool)> completion;
+    std::string voice;
+    int begins=0,cancels=0;
+    bool Ready() override{return false;}
+    bool ReadyForVoice(const std::string&) override{return true;}
+    bool Begin(uint32_t,std::function<void(bool)>) override{return false;}
+    bool BeginWithVoice(uint32_t,const std::string& selected,std::function<void(bool)> done) override{
+        ++begins;voice=selected;completion=std::move(done);return true;
+    }
+    bool Enqueue(const std::string& text) override{return !text.empty();}
+    void Finish() override{}
+    void Cancel() override{++cancels;}
+};
+std::string Status(const Application& app){return app.ExternalVoicePreviewStatus();}
+void InstallPreview(Application& app,Preview& external){
+    Board::GetInstance().external=&external;
+    app.Install();app.protocol.opened=true;app.state=kDeviceStateListening;
+    app.interaction_stopped_=false;app.listening_mode_=kListeningModeRealtime;
+    app.audio_service_.voice=true;app.audio_service_.wake=true;
+}
+'''
 
 
 class WzhConversationToggleTest(unittest.TestCase):
@@ -212,7 +249,7 @@ int main(){
  board.enrollment=nullptr;
 }
 ''')
-    def application(self):
+    def application(self, preview=False):
         source=(ROOT/'main/application.cc').read_text()
         methods='\n'.join(queue_function(source,'void Application::'+name+'(') for name in [
             'ToggleConversation','HandleToggleConversationEvent','ContinueOpenAudioChannel',
@@ -230,10 +267,104 @@ int main(){
         listening=source[begin:end]
         begin=source.index('        case kDeviceStateSpeaking:',handle)
         end=source.index('        case kDeviceStateStarting:',begin)
-        return (APP_HARNESS.replace('__METHODS__',methods).replace('__AUDIO_CALLBACK__',audio+')')
+        harness = APP_HARNESS
+        if preview:
+            methods += '\n' + '\n'.join(queue_function(source, signature) for signature in (
+                'const char* Application::ExternalVoicePreviewStatus(',
+                'bool Application::RequestExternalVoicePreview(',
+                'void Application::ServiceExternalVoicePreview(',
+            ))
+            harness = (harness.replace('return 10000000;', 'return clock_us;').replace(
+                'int64_t esp_timer_get_time()', 'int64_t clock_us=10000000;int64_t esp_timer_get_time()').replace(
+                'ExternalTts* GetExternalTts(){return nullptr;}',
+                'ExternalTts* external=nullptr;ExternalTts* GetExternalTts(){return external;}\n'
+                '    bool IsLocalPlaybackPending(){return false;}bool UsesCellularNetwork(){return false;}').replace(
+                'bool IsAudioProcessorRunning(){return processor_running;}',
+                'bool IsAudioProcessorRunning(){return voice;}bool IsVoiceDetected(){return false;}').replace(
+                '    void SendStartListening',
+                '    int sent=0;bool SendAudio(std::unique_ptr<AudioStreamPacket>){++sent;return true;}\n'
+                '    void SendStartListening').replace(
+                '    void Install()', r'''
+    struct VoicePreviewRequest{std::string voice;uint32_t request,generation;int64_t deadline_us;};
+    std::atomic<uint32_t> external_voice_preview_request_{0};
+    std::optional<VoicePreviewRequest> pending_voice_preview_;
+    const char* ExternalVoicePreviewStatus() const;
+    bool RequestExternalVoicePreview(const std::string&);
+    void ServiceExternalVoicePreview();
+    static constexpr unsigned MAIN_EVENT_SEND_AUDIO=2;
+    void SendAudioDuringPreview(){
+        const unsigned bits=MAIN_EVENT_SEND_AUDIO;
+        __UPLINK__
+    }
+    void Install()''').replace('__UPLINK__', queue_function(source, 'if ((bits & MAIN_EVENT_SEND_AUDIO)')))
+        return (harness.replace('__METHODS__',methods).replace('__AUDIO_CALLBACK__',audio+')')
             .replace('__CLOSE_CALLBACK__',closed+')').replace('__TTS_BRANCH__',tts)
             .replace('__LISTENING_CASE__',listening)
             .replace('__SPEAKING_CASE__',source[begin:end]))
+
+    def test_listening_preview_mutes_input_and_resumes_same_channel_on_success_or_failure(self):
+        self.run_cpp(self.application(preview=True)+PREVIEW_HARNESS+r'''
+int main(){
+    Application app;Preview external;InstallPreview(app,external);
+    app.audio_service_.send_packets=2;
+    assert(app.RequestExternalVoicePreview("voice-a")&&Status(app)=="queued");
+    assert(!app.RequestExternalVoicePreview("voice-b"));
+    app.Drain();
+    assert(Status(app)=="playing"&&app.state==kDeviceStateSpeaking&&external.voice=="voice-a");
+    assert(!app.audio_service_.voice&&!app.audio_service_.wake&&app.audio_service_.send_packets==0);
+    app.SpeakingStateEvent();app.audio_service_.send_packets=1;app.SendAudioDuringPreview();
+    assert(app.protocol.sent==0&&app.audio_service_.send_packets==0&&!app.audio_service_.wake);
+    auto complete=external.completion;complete(true);app.Drain();app.ListeningStateEvent();
+    assert(Status(app)=="complete"&&app.state==kDeviceStateListening&&app.audio_service_.voice);
+    assert(app.protocol.opened&&app.protocol.opens==0&&app.protocol.closes==0);
+    assert(app.listening_mode_==kListeningModeRealtime);
+    assert(app.RequestExternalVoicePreview("voice-b"));app.Drain();
+    external.completion(false);app.Drain();app.ListeningStateEvent();
+    assert(Status(app)=="failed"&&app.state==kDeviceStateListening&&app.audio_service_.voice);
+}
+''')
+
+    def test_preview_waits_for_reply_and_never_replaces_a_fresh_cloud_answer(self):
+        self.run_cpp(self.application(preview=True)+PREVIEW_HARNESS+r'''
+int main(){
+    Application app;Preview external;InstallPreview(app,external);
+    app.Tts(R"({"type":"tts","state":"start"})");app.Drain();app.SpeakingStateEvent();
+    assert(app.RequestExternalVoicePreview("voice-a"));app.Drain();
+    assert(Status(app)=="queued"&&external.begins==0);
+    app.audio_service_.playback_idle=false;
+    app.Tts(R"({"type":"tts","state":"stop"})");app.Drain();app.ServiceExternalVoicePreview();
+    assert(Status(app)=="queued"&&external.begins==0);
+    app.audio_service_.MarkDrained();app.ServiceExternalVoicePreview();
+    assert(Status(app)=="playing"&&external.begins==1);
+    auto old_completion=external.completion;
+    app.Tts(R"({"type":"tts","state":"start"})");
+    assert(Status(app)=="cancelled"&&external.cancels==1);
+    app.protocol.audio(std::make_unique<AudioStreamPacket>());
+    old_completion(true);app.Drain();
+    assert(app.state==kDeviceStateSpeaking&&Status(app)=="cancelled"&&app.audio_service_.packets==1);
+}
+''')
+
+    def test_preview_close_stop_and_queue_timeout_do_not_resume_capture(self):
+        self.run_cpp(self.application(preview=True)+PREVIEW_HARNESS+r'''
+int main(){
+    Application app;Preview external;InstallPreview(app,external);
+    assert(app.RequestExternalVoicePreview("voice-a"));app.Drain();
+    auto completion=external.completion;
+    app.protocol.CloseAudioChannel();app.Drain();completion(true);app.Drain();
+    assert(Status(app)=="cancelled"&&app.state==kDeviceStateIdle&&!app.audio_service_.voice);
+    InstallPreview(app,external);
+    assert(app.RequestExternalVoicePreview("voice-b"));app.Drain();
+    completion=external.completion;
+    app.Button();app.Drain();completion(true);app.Drain();
+    assert(Status(app)=="cancelled"&&app.state==kDeviceStateIdle&&!app.audio_service_.voice);
+    InstallPreview(app,external);
+    app.state=kDeviceStateSpeaking;assert(app.RequestExternalVoicePreview("voice-c"));app.Drain();
+    assert(Status(app)=="queued");
+    clock_us+=20000000;app.ServiceExternalVoicePreview();
+    assert(Status(app)=="failed"&&app.state==kDeviceStateSpeaking&&external.begins==2);
+}
+''')
 
     def test_retired_protocol_audio_and_close_cannot_change_replacement(self):
         self.run_cpp(self.application()+r'''
@@ -275,6 +406,36 @@ int main(){
     }
     Application open;open.Install();open.protocol.opened=true;open.Button();open.Drain();
     assert(open.local_stops==1&&open.protocol.opens==0&&open.state==kDeviceStateListening);
+}
+''')
+
+    def test_toggle_during_wifi_reconnect_resumes_unless_cancelled(self):
+        self.run_cpp(self.application()+r'''
+int main(){
+    for(bool cancel:{false,true}){
+        Application app;app.Install();app.protocol.reconnecting=true;
+        app.Button();app.Drain();
+        assert(app.state==kDeviceStateConnecting&&app.protocol.opens==0&&app.protocol.resume);
+        if(cancel){app.Button();app.Drain();}
+        app.protocol.reconnecting=false;app.protocol.resume();app.Drain();
+        assert(app.state==(cancel?kDeviceStateIdle:kDeviceStateListening));
+        assert(app.protocol.opens==(cancel?0:1));
+    }
+}
+''')
+
+    def test_first_double_click_starts_listening_only_after_intro_finishes(self):
+        self.run_cpp(self.application()+r'''
+int main(){
+    for(int outcome=0;outcome<3;++outcome){
+        Application app;app.Install();wzh::tutorial_pending=true;
+        app.Button();app.Drain();
+        assert(app.state==kDeviceStateConnecting&&app.protocol.opens==0&&!app.audio_service_.voice);
+        if(outcome==2)app.Button();
+        wzh::tutorial_pending=false;wzh::tutorial_resume(outcome!=1);app.Drain();
+        assert(app.state==(outcome==0?kDeviceStateListening:kDeviceStateIdle));
+        assert(app.protocol.opens==(outcome==0?1:0));
+    }
 }
 ''')
 
@@ -485,9 +646,8 @@ int main(){
 #define ESP_LOGI(...) ((void)0)
 enum DeviceState{kDeviceStateIdle,kDeviceStateStarting,kDeviceStateWifiConfiguring,kDeviceStateConnecting,
  kDeviceStateListening,kDeviceStateSpeaking,kDeviceStateUpgrading,kDeviceStateFatalError,kDeviceStateAudioTesting};
-namespace wzh{enum class PetControl{kWake};bool onboarding_block=false;int prepared=0;
+namespace wzh{enum class PetControl{kWake};bool onboarding_block=false;
  bool OnboardingBlocksConversation(){return onboarding_block;}
- void PrepareOnboardingDoubleClick(){++prepared;}
  void NotifyIdleInteraction(){}}
 struct Controller{
  int wakes=0;bool active=false,speaking=false;
@@ -513,8 +673,8 @@ __MODE__
 int main(){
  Board b;b.InitializeButton();b.InitializeConversationMode();auto&app=Application::GetInstance();
  b.boot_button_.click();assert(app.toggles==0&&b.configs==0);
- b.boot_button_.double_click();b.boot_button_.double_click();assert(app.toggles==2&&wzh::prepared==2);
- wzh::onboarding_block=true;b.boot_button_.double_click();assert(app.toggles==2&&wzh::prepared==2);
+ b.boot_button_.double_click();b.boot_button_.double_click();assert(app.toggles==2);
+ wzh::onboarding_block=true;b.boot_button_.double_click();assert(app.toggles==2);
  wzh::onboarding_block=false;
  app.state=kDeviceStateWifiConfiguring;b.boot_button_.click();assert(b.configs==1&&app.toggles==2);
  app.listener(kDeviceStateIdle,kDeviceStateConnecting);assert(b.controller_.wakes==1&&b.controller_.active);
@@ -542,14 +702,16 @@ struct OggDemuxer{
  void Process(const uint8_t*p,size_t n){for(int i=0;i<5;++i)callback(p,16000,n);}
 };
 struct AudioService{
+ enum class PlaybackSource { kRegular,kShutdown };
  uint32_t generation=7;int accepted=0,rejected=0;bool cancel=false;
  uint32_t GetPlaybackGeneration(){return generation;}
- bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket>p,bool wait,uint32_t expected){
+ bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket>p,bool wait,uint32_t expected,PlaybackSource){
   assert(wait&&p->sample_rate==16000&&p->frame_duration==60&&!p->payload.empty());
   if(expected!=generation){++rejected;return false;}
   ++accepted;if(cancel)++generation;return true;
  }
- void PlaySound(const std::string_view&,std::optional<uint32_t> expected=std::nullopt);
+ void PlaySound(const std::string_view&,std::optional<uint32_t> expected=std::nullopt,
+                PlaybackSource source=PlaybackSource::kRegular);
 };
 '''+method+r'''
 int main(){

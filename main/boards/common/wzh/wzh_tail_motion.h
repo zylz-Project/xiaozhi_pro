@@ -9,12 +9,13 @@ namespace wzh {
 class TailMotion {
 public:
     using Pose = std::array<float, 5>;
+    static constexpr uint32_t kCompactMaxSoundMs = 2000;
     void Cancel() { active_ = false; }
     bool active() const { return active_; }
     uint32_t duration() const { return active_ ? body_ms_ + exit_ms_ : 0; }
     uint32_t body_duration() const { return active_ ? body_ms_ : 0; }
     void Begin(uint32_t duration_ms, const Pose& origin, SoundKind kind, unsigned variant,
-               uint32_t seed) {
+               uint32_t seed, bool match_short_recording = false) {
         active_ = true;
         origin_ = origin;
         kind_ = kind;
@@ -22,15 +23,20 @@ public:
         direction_ = ((seed & 1U) ^ (variant & 1U)) ? 1.f : -1.f;
         centers_ = {90, 90, 150, 0, 0};
         radii_.fill(0);
-        const auto first = Target(0, 3000);
+        const bool compact =
+            match_short_recording && duration_ms > 0 && duration_ms <= kCompactMaxSoundMs;
+        const float recording_size = float(duration_ms) / kCompactMaxSoundMs;
+        compact_scale_ = compact ? .25f + .22f * recording_size : 1.f;
+        const uint32_t minimum_phrase =
+            compact ? 1000 + static_cast<uint32_t>(500 * recording_size) : 3100;
+        const auto first = Target(0, compact ? minimum_phrase : 3000);
         float travel = 0;
         for (unsigned a = 0; a < 3; ++a)
             travel = std::max(travel, std::abs(first[a] - origin_[a]));
-        entry_ms_ = std::max<uint32_t>(750, std::ceil(travel * 1875 / 350));
-        // Complete both sides at full travel, even for very short recordings.
-        // The larger vertical sweep needs a complete, slower arc rather than
-        // asking the output slew limiter to flatten its two-cycle variants.
-        body_ms_ = std::max(duration_ms, entry_ms_ + 3100);
+        entry_ms_ = std::max<uint32_t>(compact ? 390 : 750, std::ceil(travel * 1875 / 350));
+        // Recorded pairs and long calls use the original full sweep. A short
+        // unpaired call can fit both sides in a smaller arc at a natural speed.
+        body_ms_ = std::max(duration_ms, entry_ms_ + minimum_phrase);
         const auto last = Target(1, body_ms_ - entry_ms_);
         exit_ms_ = SettlingDuration(std::abs(150 - last[2]), kind == SoundKind::kSleep ? 65 : 130);
     }
@@ -87,6 +93,11 @@ private:
             p[0] = 90 + (p[0] - 90) * .90f;
             p[2] = 150 + (p[2] - 150) * .97f;
         }
+        if (compact_scale_ < 1.f) {
+            p[0] = 90 + (p[0] - 90) * compact_scale_;
+            p[1] = 90 + (p[1] - 90) * compact_scale_;
+            p[2] = 150 + (p[2] - 150) * compact_scale_;
+        }
         return {p[0], p[1], p[2], 0, 0};
     }
     bool active_ = false;
@@ -94,6 +105,7 @@ private:
     SoundKind kind_ = SoundKind::kCall;
     unsigned variant_ = 0;
     float direction_ = 1;
+    float compact_scale_ = 1;
     uint32_t entry_ms_ = 750, body_ms_ = 3300, exit_ms_ = 900;
 };
 }  // namespace wzh

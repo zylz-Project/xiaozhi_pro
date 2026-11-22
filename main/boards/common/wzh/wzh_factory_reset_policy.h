@@ -11,7 +11,7 @@ class FactoryResetPolicy {
 public:
     enum class Phase {
         kChecking,
-        kDeletingVoices,
+        kCheckingVoiceRecords,
         kClearingOnboarding,
         kClearingWifi,
         kDone,
@@ -23,7 +23,7 @@ public:
     };
     struct Operations {
         std::function<bool()> validate;
-        std::function<bool()> reset_voices;
+        std::function<const char*()> reset_voices;
         std::function<bool()> clear_onboarding;
         std::function<bool()> clear_wifi;
         std::function<void(const Progress&)> report;
@@ -43,10 +43,12 @@ public:
         update();
         if (!operations.validate || !operations.validate())
             return fail("RESET_NOT_ALLOWED");
-        progress.phase = Phase::kDeletingVoices;
+        progress.phase = Phase::kCheckingVoiceRecords;
         update();
-        if (!operations.reset_voices || !operations.reset_voices())
-            return fail("RESET_VOICE_FAILED");
+        if (!operations.reset_voices)
+            return fail("RESET_VOICE_SAVE_FAILED");
+        if (const auto* error = operations.reset_voices())
+            return fail(error);
         progress.phase = Phase::kClearingOnboarding;
         update();
         if (!operations.clear_onboarding || !operations.clear_onboarding())

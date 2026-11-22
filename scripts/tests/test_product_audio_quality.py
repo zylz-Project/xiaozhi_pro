@@ -150,6 +150,7 @@ struct AudioService{
  void*event_group_=nullptr;std::mutex audio_queue_mutex_;std::condition_variable audio_queue_cv_;
  std::deque<std::unique_ptr<Packet>>audio_decode_queue_,audio_testing_queue_;
  bool playback_drained_notified_=true;
+ bool shutdown_playback_=false;
  void EnableAudioTesting(bool);
 };
 '''+queue_function(source,'void AudioService::EnableAudioTesting(')+r'''
@@ -162,6 +163,8 @@ int main(){
  assert(!service.playback_drained_notified_);
  for(int i=0;i<166;++i){auto&p=service.audio_decode_queue_[i];
   assert(p->value==i&&p->stream.start==(i==0)&&p->stream.end==(i==165));}
+ service.shutdown_playback_=true;service.EnableAudioTesting(false);
+ assert(service.audio_decode_queue_.size()==166);
 }
 '''
         self.run_cpp(program)
@@ -235,6 +238,7 @@ struct AudioService{
  bool decode_in_flight_=false,output_in_flight_=false,playback_drained_notified_=true;
  std::atomic<uint32_t> playback_drained_count_{0};
  bool finish_requested_=false,cancel_fade_requested_=false;
+ bool shutdown_playback_=false;
  uint32_t playback_generation_=7;
  void FinishPlayback(std::optional<uint32_t> expected_generation=std::nullopt);bool IsPlaybackDrainedLocked()const;bool MarkPlaybackDrainedLocked();
 };
@@ -262,6 +266,8 @@ int main(){
  service.audio_playback_queue_.clear();
  service.decode_in_flight_=false;service.finish_requested_=false;
  assert(service.MarkPlaybackDrainedLocked());
+ service.shutdown_playback_=true;service.FinishPlayback();
+ assert(!service.finish_requested_&&service.IsPlaybackDrainedLocked());
 }
 '''
         self.run_cpp(program)

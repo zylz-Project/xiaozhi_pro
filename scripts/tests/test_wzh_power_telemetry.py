@@ -42,12 +42,12 @@ int main(){
 using namespace wzh;
 const cJSON* item(const cJSON* parent,const char* key){return cJSON_GetObjectItemCaseSensitive(parent,key);}
 int main(){
-    AddPowerTelemetry(nullptr,3738,true,1,210);
+    AddPowerTelemetry(nullptr,3738,1,210);
     const int voltages[]={0,210,380,570,750,950,1170,1390,1590,1790,1990,2210,2410,2610,2810,3010};
     for(int code=0;code<16;++code){
         auto* root=cJSON_CreateObject();auto* battery=cJSON_AddObjectToObject(root,"battery");
         cJSON_AddNumberToObject(battery,"level",53);
-        AddPowerTelemetry(root,3738,true,code,voltages[code]);
+        AddPowerTelemetry(root,3738,code,voltages[code]);
         assert(item(battery,"voltage_mv")->valueint==3738&&item(battery,"level")->valueint==53);
         const auto* touch=item(root,"touch");
         assert(cJSON_IsTrue(item(touch,"available"))&&cJSON_IsTrue(item(touch,"valid")));
@@ -58,7 +58,7 @@ int main(){
     const int unknown_mv[]={-1,3300,4095};
     for(int mv:unknown_mv){
         auto* root=cJSON_CreateObject();auto* battery=cJSON_AddObjectToObject(root,"battery");
-        AddPowerTelemetry(root,0,true,15,mv); // Old stable contact must not mask an invalid current sample.
+        AddPowerTelemetry(root,0,15,mv); // Old stable contact must not mask an invalid current sample.
         assert(cJSON_IsNull(item(battery,"voltage_mv")));
         const auto* touch=item(root,"touch");
         assert(cJSON_IsFalse(item(touch,"valid"))&&item(touch,"code")->valueint==-1);
@@ -67,10 +67,16 @@ int main(){
         cJSON_Delete(root);
     }
     auto* root=cJSON_CreateObject();
-    AddPowerTelemetry(root,4000,false,0,210); // Stable confirmation is still pending.
+    AddPowerTelemetry(root,4000,-1,210); // Stable confirmation is still pending.
     const auto* touch=item(root,"touch");
     assert(!item(root,"battery")&&cJSON_IsFalse(item(touch,"valid")));
     assert(item(touch,"code")->valueint==-1&&item(touch,"raw_code")->valueint==1);
+    cJSON_Delete(root);
+    root=cJSON_CreateObject();
+    AddPowerTelemetry(root,4000,5,1590); // An unconfirmed raw change must not replace SW1 + SW3.
+    touch=item(root,"touch");
+    assert(cJSON_IsTrue(item(touch,"valid")));
+    assert(item(touch,"code")->valueint==5&&item(touch,"raw_code")->valueint==8);
     cJSON_Delete(root);
 }
 ''')

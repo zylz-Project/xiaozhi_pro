@@ -118,9 +118,9 @@ bool Sensors::Initialize(gpio_num_t human, gpio_num_t sda, gpio_num_t scl, Servo
         kTag,
         "WZH feedback-v2; expected SC7A20H accelerometer, I2C1 SDA=%d SCL=%d, addresses=0x18/0x19",
         sda, scl);
-    status_.accelerometer = InitializeAccelerometer(sda, scl);
+    const bool ready = InitializeAccelerometer(sda, scl);
     ESP_LOGI(kTag, "Human IO%d; SC7A20H on I2C1 IO%d/IO%d: %s", human, sda, scl,
-             status_.accelerometer ? "ready" : "unavailable");
+             ready ? "ready" : "unavailable");
     return xTaskCreate([](void* arg) { static_cast<Sensors*>(arg)->Task(); }, "wzh_sensors", 4096,
                        this, 1, nullptr) == pdPASS;
 }
@@ -150,10 +150,6 @@ void Sensors::Task() {
             const bool ready = InitializeAccelerometer(sda_, scl_);
             if (ready)
                 read_failures = 0;
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                status_.accelerometer = ready;
-            }
             if (!ready)
                 ESP_LOGW(kTag,
                          "SC7A20H unavailable: no valid response on I2C1 IO%d/%d; retry in 5s",
@@ -178,7 +174,7 @@ void Sensors::Task() {
                     status_.y_mg = y;
                     status_.z_mg = z;
                     status_.angles_valid = angles_valid;
-                    status_.orientation = Orientation(x, y, z);
+                    status_.orientation = angles_valid ? Orientation(x, y, z) : -1;
                     if (angles_valid) {
                         status_.pitch = std::atan2(-x, std::sqrt(float(y * y + z * z))) * 57.29578f;
                         status_.roll = std::atan2(float(y), float(z)) * 57.29578f;
@@ -224,6 +220,7 @@ void Sensors::Task() {
                     std::lock_guard<std::mutex> lock(mutex_);
                     status_.accelerometer = false;
                     status_.angles_valid = false;
+                    status_.orientation = -1;
                 }
                 posture.Invalidate();
                 fall_samples = safe_samples = 0;
@@ -243,25 +240,40 @@ void Sensors::Task() {
     }
 }
 
+void Sensors::AddStatus(cJSON* result) {
+    Status status;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        status = status_;
+    }
+    cJSON_AddBoolToObject(result, "human", status.human);
+    if (output_ != nullptr) {
+        cJSON_AddBoolToObject(result, "servo_powered", output_->powered());
+        cJSON_AddNumberToObject(result, "motion_faults", output_->faults());
+    }
+    cJSON_AddBoolToObject(result, "accelerometer_valid", status.accelerometer);
+    cJSON_AddBoolToObject(result, "angles_valid", status.angles_valid);
+    cJSON_AddNumberToObject(result, "x_mg", status.x_mg);
+    cJSON_AddNumberToObject(result, "y_mg", status.y_mg);
+    cJSON_AddNumberToObject(result, "z_mg", status.z_mg);
+    if (status.accelerometer) {
+        const int x = status.x_mg, y = status.y_mg, z = status.z_mg;
+        cJSON_AddNumberToObject(result, "magnitude_mg", std::sqrt(float(x * x + y * y + z * z)));
+    }
+    cJSON_AddNumberToObject(result, "pitch", status.pitch);
+    cJSON_AddNumberToObject(result, "roll", status.roll);
+    cJSON_AddNumberToObject(result, "orientation", status.orientation);
+}
+
 void Sensors::RegisterMcpTools(const char* product) {
     McpServer::GetInstance().AddTool(
         std::string("self.") + product + ".get_sensors",
         "Read human presence and SC7A20H acceleration, pitch/roll and validity. Orientation "
         "0..5 means +X/-X/+Y/-Y/+Z/-Z, -1 means tilted. Angles are valid only near 1g.",
         PropertyList(), [this](const PropertyList&) -> ReturnValue {
-            std::lock_guard<std::mutex> lock(mutex_);
             auto* result = cJSON_CreateObject();
-            cJSON_AddBoolToObject(result, "human", status_.human);
-            cJSON_AddBoolToObject(result, "servo_powered", output_->powered());
-            cJSON_AddNumberToObject(result, "motion_faults", output_->faults());
-            cJSON_AddBoolToObject(result, "accelerometer_valid", status_.accelerometer);
-            cJSON_AddBoolToObject(result, "angles_valid", status_.angles_valid);
-            cJSON_AddNumberToObject(result, "x_mg", status_.x_mg);
-            cJSON_AddNumberToObject(result, "y_mg", status_.y_mg);
-            cJSON_AddNumberToObject(result, "z_mg", status_.z_mg);
-            cJSON_AddNumberToObject(result, "pitch", status_.pitch);
-            cJSON_AddNumberToObject(result, "roll", status_.roll);
-            cJSON_AddNumberToObject(result, "orientation", status_.orientation);
+            if (result != nullptr)
+                AddStatus(result);
             return result;
         });
 }

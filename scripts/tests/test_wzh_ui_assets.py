@@ -29,6 +29,23 @@ def pack(source, work, product=None):
 
 
 class AssetPackTest(unittest.TestCase):
+    def test_detail_bundles_its_scripts_and_reuses_shared_login_assets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = ROOT / 'main/assets/wzh_ui'
+            revision, files, _, _ = pack(source, Path(tmp), 'dinosaur')
+            page = files['index.html']
+            bundle = files['js/detail.js']
+            self.assertIn(f'<script defer src="js/detail.js?v={revision}"></script>'.encode(), page)
+            for name in ('device-detail', 'index-app', 'index-view'):
+                self.assertNotIn(f'js/{name}.js', files)
+                self.assertNotIn(f'js/{name}.js'.encode(), page)
+            self.assertLess(bundle.index(b'Device-backed actions'), bundle.index(b'var states ='))
+            self.assertLess(bundle.index(b'var states ='), bundle.index(b'params.get("view")'))
+            for name in ('js/theme.js', 'js/product.js', 'js/editor-focus.js', 'js/guide.js'):
+                url = f'{name}?v={revision}'.encode()
+                self.assertIn(url, page)
+                self.assertIn(url, files['login.html'])
+
     def test_setup_page_contains_no_demo_network_rows(self):
         page = (ROOT / 'main/assets/wzh_ui/setup.html').read_text()
         for fake in ('Home', 'PandaLab', 'Xiaomi_2.4G', 'TP-LINK_5G'):
@@ -61,17 +78,19 @@ class AssetPackTest(unittest.TestCase):
             (source / 'assets/crawlPanda_正面.webp').write_bytes(b'panda')
             (source / 'assets/tailRedPanda_front.webp').write_bytes(b'red')
             (source / 'assets/zeyuan-logo.webp').write_bytes(b'logo')
-            (source / 'index.html').write_text('<img src="assets/dinosaur_front.webp">')
+            (source / 'index.html').write_text('<html lang="zh-CN"><img src="assets/dinosaur_front.webp">')
             _, files, _, _ = pack(source, base, 'dinosaur')
             self.assertIn('assets/dinosaur_front.webp', files)
             self.assertNotIn('assets/crawlPanda_正面.webp', files)
             self.assertNotIn('assets/tailRedPanda_front.webp', files)
+            self.assertIn(b'data-build-product="dinosaur"', files['index.html'])
             # Shared brand assets ship for every product.
             self.assertIn('assets/zeyuan-logo.webp', files)
             # No product argument keeps every image so tooling/others stay intact.
             _, everything, _, _ = pack(source, base)
             self.assertIn('assets/crawlPanda_正面.webp', everything)
             self.assertIn('assets/tailRedPanda_front.webp', everything)
+            self.assertNotIn(b'data-build-product', everything['index.html'])
 
     @unittest.skipUnless(shutil.which('g++'), 'g++ required')
     def test_device_only_caches_matching_versioned_static_assets(self):

@@ -46,7 +46,7 @@ public:
     void Stop();
     // Start a scan without blocking. Returns true when a scan is already in
     // progress or was accepted by the driver.
-    bool RequestScan();
+    bool RequestScan(const wifi_scan_config_t* config = nullptr);
     bool IsConnected();
     bool WaitForConnected(int timeout_ms = 10000);
     int8_t GetRssi();

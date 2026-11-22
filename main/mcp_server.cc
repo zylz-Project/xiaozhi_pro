@@ -148,6 +148,7 @@ void McpServer::AddUserOnlyTools() {
             return true;
         });
 
+#if CONFIG_ENABLE_ONLINE_UPDATES
     // Firmware upgrade
     AddUserOnlyTool("self.upgrade_firmware", "Upgrade firmware from a specific URL. This will download and install the firmware, then reboot the device.",
         PropertyList({
@@ -167,6 +168,7 @@ void McpServer::AddUserOnlyTools() {
             
             return true;
         });
+#endif
 
     // Display control
 #ifdef HAVE_LVGL
@@ -346,7 +348,7 @@ void McpServer::AddUserOnlyTools() {
     }
 #endif // HAVE_LVGL
 
-    // Assets download url (always registered — Settings storage works regardless of partition layout)
+#if CONFIG_ENABLE_ONLINE_UPDATES
     AddUserOnlyTool("self.assets.set_download_url", "Set the download url for the assets",
             PropertyList({
                 Property("url", kPropertyTypeString)
@@ -357,6 +359,7 @@ void McpServer::AddUserOnlyTools() {
                 settings.SetString("download_url", url);
                 return true;
             });
+#endif
 }
 
 void McpServer::AddTool(McpTool* tool) {

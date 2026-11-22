@@ -153,10 +153,12 @@ void WifiStation::Start() {
                                                             &WifiStation::IpEventHandler, this,
                                                             &instance_lost_ip_));
     }
-    ESP_ERROR_CHECK(esp_wifi_set_mode(persistent_ap_ ? WIFI_MODE_APSTA : WIFI_MODE_STA));
-    // The persistent portal already started the shared APSTA driver.
-    if (!persistent_ap_)
+    // The persistent portal already configured and started APSTA. Leave the
+    // radio alone while a phone may be associating with the hotspot.
+    if (!persistent_ap_) {
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_start());
+    }
 
     if (max_tx_power_ != 0) {
         ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(max_tx_power_));
@@ -176,13 +178,22 @@ void WifiStation::Start() {
         .name = "WiFiScanTimer",
         .skip_unhandled_events = false};
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &timer_handle_));
-    if (persistent_ap_) {
+    if (persistent_ap_ && !SsidManager::GetInstance().GetSsidList().empty()) {
         // STA_START may have fired before this handler was registered.
-        RequestScan();
+        // With no saved network, wait until the phone requests a scan from
+        // the portal. Sweeping channels now can interrupt its first join.
+        // On returning devices give the hotspot more airtime during the first
+        // background scan. Scheduled retries still use the driver's defaults.
+        wifi_scan_config_t scan{};
+        scan.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+        scan.scan_time.active.min = 15;
+        scan.scan_time.active.max = 70;
+        scan.home_chan_dwell_time = 60;
+        RequestScan(&scan);
     }
 }
 
-bool WifiStation::RequestScan() {
+bool WifiStation::RequestScan(const wifi_scan_config_t* config) {
     if (scan_running_.load()) {
         const auto started = scan_started_us_.load();
         // A driver error can leave the SCAN_DONE event unpaired. Do not let the
@@ -198,7 +209,7 @@ bool WifiStation::RequestScan() {
         return true;
     }
     scan_started_us_.store(esp_timer_get_time());
-    const esp_err_t err = esp_wifi_scan_start(nullptr, false);
+    const esp_err_t err = esp_wifi_scan_start(config, false);
     if (err == ESP_OK) {
         // Do not invoke on_scan_begin_ here. Start() is called from
         // WifiManager::StartStation() while its mutex is held, and the
@@ -393,6 +404,10 @@ void WifiStation::SetScanIntervalRange(int min_interval_seconds, int max_interva
 }
 
 void WifiStation::SetPowerSaveLevel(WifiPowerSaveLevel level) {
+    // Keep the upstream link responsive while the local portal shares the radio.
+    if (persistent_ap_ && level == WifiPowerSaveLevel::LOW_POWER)
+        level = WifiPowerSaveLevel::BALANCED;
+
     wifi_ps_type_t ps_type;
     switch (level) {
         case WifiPowerSaveLevel::LOW_POWER:
@@ -428,7 +443,7 @@ void WifiStation::WifiEventHandler(void* arg, esp_event_base_t event_base, int32
     auto* this_ = static_cast<WifiStation*>(arg);
     if (event_id == WIFI_EVENT_STA_START) {
         if (this_->persistent_ap_)
-            return;  // Start() scans after creating the retry timer.
+            return;  // Start() handles automatic scans for saved networks.
         this_->RequestScan();
         if (this_->on_scan_begin_)
             this_->on_scan_begin_();

@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 #include "cJSON.h"
@@ -80,17 +81,8 @@ bool Write(esp_http_client_handle_t client, const void* bytes, size_t count,
     }
     return !cancelled();
 }
-Json Response(esp_http_client_handle_t client, const std::function<bool()>& cancelled,
-              int* http_status) {
-    if (cancelled() || esp_http_client_fetch_headers(client) < 0)
-        return {};
-    const int status = esp_http_client_get_status_code(client);
-    if (http_status)
-        *http_status = status;
-    if (status != 200) {
-        ESP_LOGW("AliEnrollment", "Request failed: HTTP=%d", status);
-        return {};
-    }
+Json ReadJsonResponse(esp_http_client_handle_t client, const std::function<bool()>& cancelled,
+                      size_t limit) {
     std::string body;
     char buf[512];
     while (!cancelled()) {
@@ -99,7 +91,7 @@ Json Response(esp_http_client_handle_t client, const std::function<bool()>& canc
             return {};
         if (!n)
             break;
-        if (body.size() + n > 8192)
+        if (body.size() + n > limit)
             return {};
         body.append(buf, n);
     }
@@ -110,6 +102,41 @@ Json Response(esp_http_client_handle_t client, const std::function<bool()>& canc
     if (!result || end != body.c_str() + body.size())
         return {};
     return result;
+}
+[[maybe_unused]] const char* ProviderErrorCode(const cJSON* response) {
+    const auto* code = cJSON_GetObjectItemCaseSensitive(response, "code");
+    const char* value = cJSON_GetStringValue(code);
+    if (!value || *value < 'A' || *value > 'Z' || std::strlen(value) > 64)
+        return "unavailable";
+    for (const unsigned char c : std::string_view(value)) {
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+              c == '.' || c == '_' || c == '-'))
+            return "unavailable";
+    }
+    return value;
+}
+Json Response(esp_http_client_handle_t client, const std::function<bool()>& cancelled,
+              [[maybe_unused]] const char* action, int* http_status = nullptr) {
+    if (cancelled())
+        return {};
+    const auto length = esp_http_client_fetch_headers(client);
+    if (length < 0)
+        return {};
+    const int status = esp_http_client_get_status_code(client);
+    if (http_status)
+        *http_status = status;
+    if (status == 200)
+        return ReadJsonResponse(client, cancelled, 8192);
+
+    // Only read small, fixed-length error responses. Never log the provider's
+    // descriptive message because it can contain the submitted data.
+    constexpr int kErrorBodyLimit = 1024;
+    const auto error = length > 0 && length <= kErrorBodyLimit
+                           ? ReadJsonResponse(client, cancelled, kErrorBodyLimit)
+                           : Json{};
+    ESP_LOGW("AliEnrollment", "Request failed: action=%s HTTP=%d code=%s", action, status,
+             ProviderErrorCode(error.get()));
+    return {};
 }
 void Put16(uint8_t* p, uint16_t v) {
     p[0] = v & 255;
@@ -196,7 +223,7 @@ bool CreateAliVoice(const std::string& key, const int16_t* samples, size_t count
     ESP_LOGI("AliEnrollment", "Reference upload complete: bytes=%u elapsed_ms=%u",
              static_cast<unsigned>(raw_bytes),
              static_cast<unsigned>((upload_end - upload_start) / 1000));
-    Json response = Response(client.get(), cancelled, http_status);
+    Json response = Response(client.get(), cancelled, "create_voice", http_status);
     ESP_LOGI("AliEnrollment", "Create response: elapsed_ms=%u valid=%d",
              static_cast<unsigned>((esp_timer_get_time() - upload_end) / 1000),
              response != nullptr);
@@ -224,7 +251,7 @@ bool CreateAliVoice(const std::string& key, const int16_t* samples, size_t count
         client = Open(key, std::strlen(payload.get()));
         if (!client || !Write(client.get(), payload.get(), std::strlen(payload.get()), cancelled))
             return false;
-        response = Response(client.get(), cancelled, http_status);
+        response = Response(client.get(), cancelled, "query_voice", http_status);
         output = response ? cJSON_GetObjectItemCaseSensitive(response.get(), "output") : nullptr;
         auto* status = output ? cJSON_GetObjectItemCaseSensitive(output, "status") : nullptr;
         if (!cJSON_IsString(status) || !status->valuestring)
@@ -267,7 +294,7 @@ bool ListAliVoices(const std::string& key, const std::string& prefix,
         Client client = Open(key, std::strlen(payload.get()));
         if (!client || !Write(client.get(), payload.get(), std::strlen(payload.get()), cancelled))
             return false;
-        Json response = Response(client.get(), cancelled, nullptr);
+        Json response = Response(client.get(), cancelled, "list_voice");
         auto* output =
             response ? cJSON_GetObjectItemCaseSensitive(response.get(), "output") : nullptr;
         auto* list = output ? cJSON_GetObjectItemCaseSensitive(output, "voice_list") : nullptr;
@@ -314,7 +341,7 @@ bool DeleteAliVoice(const std::string& key, const std::string& prefix, const std
     Client client = Open(key, std::strlen(payload.get()), timeout_ms);
     if (!client || !Write(client.get(), payload.get(), std::strlen(payload.get()), cancelled))
         return false;
-    Json response = Response(client.get(), cancelled, nullptr);
+    Json response = Response(client.get(), cancelled, "delete_voice");
     return response && !cJSON_GetObjectItemCaseSensitive(response.get(), "code") &&
            cJSON_IsObject(cJSON_GetObjectItemCaseSensitive(response.get(), "output"));
 }

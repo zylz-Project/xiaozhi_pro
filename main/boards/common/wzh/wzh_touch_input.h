@@ -14,9 +14,22 @@ public:
         int code;
         int previous_code;
         int voltage_mv;
+        uint32_t stable_ms;
+
+        bool StartsContact() const { return previous_code == 0 && code > 0; }
     };
 
     explicit TouchInputFilter(int stable_samples) : stable_samples_(stable_samples) {}
+
+    bool SetIgnoredMask(uint8_t mask) {
+        if (ignored_mask_ == mask)
+            return false;
+        ignored_mask_ = mask;
+        candidate_code_ = published_code_ = kUninitialized;
+        candidate_count_ = 0;
+        armed_ = false;
+        return true;
+    }
 
     static int Median3(int first, int second, int third) {
         if (first > second) {
@@ -47,20 +60,27 @@ public:
         return -1;
     }
 
-    // 仅在某个编码连续 stable_samples 次出现且与上次发布值不同时返回 true。
-    bool Update(int voltage_mv, Event& event) {
-        const int code = DecodeMillivolts(voltage_mv);
-        if (code != candidate_code_) {
+    // Presses keep the normal debounce. A longer zero level is required to
+    // re-arm so that a brief dropout on a held input cannot make a new press.
+    bool Update(int voltage_mv, uint32_t now, Event& event) {
+        const int raw_code = DecodeMillivolts(voltage_mv);
+        const int code = raw_code < 0 ? raw_code : raw_code & ~ignored_mask_;
+        const bool sample_gap = candidate_count_ != 0 && now - last_sample_ms_ > kMaxSampleGapMs;
+        last_sample_ms_ = now;
+        if (code != candidate_code_ || sample_gap) {
             candidate_code_ = code;
+            candidate_since_ms_ = now;
             candidate_count_ = 1;
         } else if (candidate_count_ < stable_samples_) {
             ++candidate_count_;
         }
 
-        if (candidate_count_ < stable_samples_ || code == published_code_) {
+        const uint32_t stable_ms = now - candidate_since_ms_;
+        if (candidate_count_ < stable_samples_ || code == published_code_ ||
+            (code == 0 && stable_ms < kReleaseMs)) {
             return false;
         }
-        event = {code, published_code_, voltage_mv};
+        event = {code, published_code_, voltage_mv, stable_ms};
         published_code_ = code;
         return true;
     }
@@ -85,10 +105,15 @@ private:
     };
 
     static constexpr int kUninitialized = -2;
+    static constexpr uint32_t kReleaseMs = 400;
+    static constexpr uint32_t kMaxSampleGapMs = 120;
     const int stable_samples_;
     int candidate_code_ = kUninitialized;
     int candidate_count_ = 0;
+    uint32_t candidate_since_ms_ = 0;
+    uint32_t last_sample_ms_ = 0;
     int published_code_ = kUninitialized;
+    uint8_t ignored_mask_ = 0;
     bool armed_ = false;
 };
 

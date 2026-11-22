@@ -84,7 +84,10 @@ void AudioPlayer::StopPlayback() {
     tts_updated_us_.store(0);
     tts_level_.store(0.0f);
     tts_attack_.store(0.0f);
-    Application::GetInstance().GetAudioService().ResetDecoder();
+    if (active_decoder_generation_) {
+        Application::GetInstance().GetAudioService().ResetDecoder(active_decoder_generation_);
+        active_decoder_generation_.reset();
+    }
 }
 
 void AudioPlayer::SetMaintenance(bool enabled) {
@@ -367,6 +370,7 @@ void AudioPlayer::Task() {
             if (request.generation == playback_generation_.load()) {
                 playback_pending_ = false;
                 is_playing_.store(false);
+                active_decoder_generation_.reset();
             }
         }
     }
@@ -380,16 +384,21 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
         return false;
     }
     auto& app = Application::GetInstance();
+    const auto decoder_generation = app.GetAudioService().GetPlaybackGeneration();
+    // QueueFile briefly holds the same gate. Wait on the producer task, then
+    // reject the request if a prompt replaced its decoder session meanwhile.
+    std::unique_lock<std::mutex> reservation(PromptAudioGate());
     const auto state = app.GetDeviceState();
     if (state == kDeviceStateConnecting || state == kDeviceStateListening ||
-        state == kDeviceStateSpeaking || !app.GetAudioService().IsPlaybackIdle()) {
+        state == kDeviceStateSpeaking ||
+        decoder_generation != app.GetAudioService().GetPlaybackGeneration() ||
+        !app.GetAudioService().IsPlaybackIdle()) {
         return false;
     }
     const auto* score = pair && pair->score ? pair->score : FindSoundScore(file.name);
     const uint32_t duration_ms = file.duration_ms ? file.duration_ms
                                  : score          ? score->duration_ms
                                                   : 0;
-    uint32_t decoder_generation = 0;
     {
         // Stop may have run after the initial idle check. Publish metadata and
         // reserve the decoder session atomically with respect to StopPlayback.
@@ -407,8 +416,9 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
         motion_level_.store(0.0f);
         motion_attack_.store(0.0f);
         is_playing_.store(true);
-        decoder_generation = app.GetAudioService().GetPlaybackGeneration();
+        active_decoder_generation_ = decoder_generation;
     }
+    reservation.unlock();
 
     // OggDemuxer 只拆出 Opus 包；真正的解码和 I2S 输出仍由 AudioService 完成。
     bool ok = true;
@@ -520,6 +530,7 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
     // the last PCM buffer has actually drained. Never reset a newer generation.
     const int64_t drain_deadline = esp_timer_get_time() + 10000000;
     while (playback_generation_.load() == generation && !store_->IsWriting() &&
+           app.GetAudioService().GetPlaybackGeneration() == decoder_generation &&
            !app.GetAudioService().IsPlaybackIdle() && esp_timer_get_time() < drain_deadline) {
         vTaskDelay(pdMS_TO_TICKS(20));
     }

@@ -21,12 +21,13 @@ int main(){
  for(int failure=0;failure<=4;++failure){
   std::vector<std::string> calls;Policy::Progress result;Policy::Operations op;
   op.validate=[&](){calls.push_back("validate");return failure!=1;};
-  op.reset_voices=[&](){calls.push_back("voices");return failure!=2;};
+  op.reset_voices=[&](){calls.push_back("voices");return failure==2?"RESET_VOICE_OFFLINE":nullptr;};
   op.clear_onboarding=[&](){calls.push_back("onboarding");return failure!=3;};
   op.clear_wifi=[&](){calls.push_back("wifi");return failure!=4;};
   op.report=[&](const auto& p){result=p;};
   const bool ok=Policy::Run(op);assert(ok==(failure==0));
   if(failure>=1&&failure<=3) for(auto& c:calls)assert(c!="wifi");
+  if(failure==2) assert(result.error=="RESET_VOICE_OFFLINE");
   if(failure==3) assert(result.error=="RESET_ONBOARDING_FAILED");
   if(failure==0){assert(calls.size()==4&&calls[1]=="voices"&&calls[2]=="onboarding"&&calls[3]=="wifi");assert(result.phase==Policy::Phase::kDone);}
   else assert(result.phase==Policy::Phase::kFailed&&!result.error.empty());

@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 
 #include "audio_service.h"
@@ -69,8 +70,13 @@ public:
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
+    bool HasConversationServiceConfiguration() const { return conversation_configured_.load(); }
     bool IsVoiceEnrollmentActive() const { return voice_enrollment_active_.load(); }
     bool RequestDeviceVoiceEnrollment(const std::string& name);
+    bool RequestCancelDeviceVoiceEnrollment(uint32_t request);
+    uint32_t DeviceVoiceEnrollmentRequest() const {
+        return device_voice_enrollment_generation_.load();
+    }
     const char* DeviceVoiceEnrollmentStatus() const;
     bool RequestExternalVoicePreview(const std::string& voice = {});
     bool IsExternalVoicePreviewActive() const { return external_voice_preview_active_.load(); }
@@ -104,6 +110,8 @@ public:
     void AbortSpeaking(AbortReason reason);
     // Safe from board callbacks: cancel speech/listening on the application task.
     void StopInteraction(bool play_exit_sound = false);
+    void PrepareConversationNetworkSwitch();
+    bool IsConversationRecovering() const;
 
     // Complete session toggle: also exits while connecting or speaking.
     // Unlike ToggleChatState(), it never starts provisioning audio tests.
@@ -129,9 +137,12 @@ public:
 
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);
+#if CONFIG_ENABLE_ONLINE_UPDATES
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
+#endif
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
+    void QueueTouchConversationInput(std::string text);
     size_t GetMcpWireOverhead() const;
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);
     void SetAecMode(AecMode mode);
@@ -147,7 +158,7 @@ public:
      * Can be called from any task to release resources allocated after network connected
      * This includes closing audio channel, resetting protocol and ota objects
      */
-    void ResetProtocol();
+    void ResetProtocol(std::function<void()> after_reset = {});
 
 private:
     Application();
@@ -158,6 +169,17 @@ private:
     // A reconnect worker retains the protocol until its pending handshake ends.
     std::shared_ptr<Protocol> protocol_;
     std::atomic<uint32_t> protocol_generation_{0};
+    struct TouchConversationInput {
+        std::string text;
+        uint32_t interaction_generation = 0;
+        uint32_t protocol_generation = 0;
+        int64_t received_us = 0;
+    };
+    std::mutex touch_input_mutex_;
+    TouchConversationInput pending_touch_input_;
+    std::atomic<int64_t> last_listening_voice_edge_us_{0};
+    int64_t next_touch_input_us_ = 0;  // Main task only.
+    void SendPendingTouchConversationInput();
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
     std::atomic<bool> cellular_server_connected_{false};
     std::atomic<bool> conversation_transport_disconnected_{false};
@@ -229,11 +251,21 @@ private:
     std::atomic<bool> voice_enrollment_active_{false};
     std::atomic<int> device_voice_enrollment_status_{0};
     std::atomic<uint32_t> device_voice_enrollment_generation_{0};
+    bool device_voice_enrollment_from_chat_ = false;
     // Block late server speech for a local voice-selection turn until the next user transcript.
     std::atomic<bool> voice_selection_reply_guard_{false};
     std::atomic<bool> external_voice_preview_active_{false};
-    // 0 idle, 1 requested/playing, 2 complete, 3 failed, 4 cancelled.
+    // 0 idle, 1 queued, 2 complete, 3 failed, 4 cancelled, 5 playing.
     std::atomic<int> external_voice_preview_status_{0};
+    struct VoicePreviewRequest {
+        std::string voice;
+        uint32_t request;
+        uint32_t generation;
+        int64_t deadline_us;
+    };
+    std::atomic<uint32_t> external_voice_preview_request_{0};
+    std::optional<VoicePreviewRequest> pending_voice_preview_;
+    void ServiceExternalVoicePreview();
     std::atomic<bool> voice_enrollment_reconnecting_{false};
     std::atomic<bool> barge_in_reconnecting_{false};
     // A delayed server goodbye may arrive immediately after enrollment ends.
@@ -250,7 +282,12 @@ private:
     // Wake-word and other original XiaoZhi entry paths keep their behavior.
     bool entry_prompt_before_listening_ = false;
     int clock_ticks_ = 0;
-    TaskHandle_t activation_task_handle_ = nullptr;
+    bool activation_running_ = false;
+    std::atomic<bool> activation_protocol_ready_{false};
+    std::atomic<bool> conversation_configured_{false};
+    std::atomic<uint32_t> network_resume_generation_{0};
+    std::atomic<int64_t> network_resume_deadline_us_{0};
+    bool activation_network_ready_pending_ = false;
 
     // Event handlers
     void HandleStateChangedEvent();
@@ -259,6 +296,9 @@ private:
     void HandleStartListeningEvent();
     void HandleStopListeningEvent();
     void HandleNetworkConnectedEvent();
+    void SuspendConversationForNetworkLoss(int64_t recovery_us);
+    void ServiceConversationNetworkRecovery();
+    bool IsShuttingDown() const;
     void HandleNetworkDisconnectedEvent();
     void HandleActivationDoneEvent();
     void HandleWakeWordDetectedEvent();
@@ -281,7 +321,7 @@ private:
     // Helper methods
     void CheckAssetsVersion();
     void CheckNewVersion();
-    void InitializeProtocol();
+    bool InitializeProtocol();
     void ShowActivationCode(const std::string& code, const std::string& message);
     void SetListeningMode(ListeningMode mode);
     ListeningMode GetDefaultListeningMode() const;

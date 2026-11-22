@@ -40,6 +40,155 @@ void MatchReference(wzh::SoundChoreography& player,const wzh::SoundPlayback& sou
 
 
 class WzhReferenceExpressionTest(unittest.TestCase):
+    def test_authored_roar_reaches_both_sides_and_low_poses_with_flash_and_paired_audio(self):
+        folder=ROOT/'main/boards/wzh_dinosaur'
+        source=(folder/'dinosaur_controller.cc').read_text()
+        start=source.index('constexpr Keyframe kRoarFrontFrames[]')
+        end=source.index('constexpr Keyframe kSoundEatNibbleFrames[]',start)
+        motion_tests.WzhFluentMotionTest.run_cpp(self,
+            '#include "'+str(folder/'wzh_user_pairs_catalog.inc')+'"\n'+
+            reference_adapter()+r'''
+#include <cassert>
+using namespace wzh;
+using namespace wzh_dino;
+constexpr unsigned kMaxClipFrames=16;
+constexpr int SERVO_TAIL_UD_MIN=55,SERVO_TAIL_UD_MAX=180;
+'''+source[start:end]+r'''
+int main(){
+    RegisterUserPairs(wzh_user_assets::kPairs,std::size(wzh_user_assets::kPairs));
+    constexpr SoundPose rest{70,90,90,90,90};
+    SoundPlayback shortest,medium,longest;
+    shortest.duration_ms=UINT32_MAX;
+    for(unsigned file=0;file<user_pair_count;++file){
+        const auto& pair=user_pairs[file];
+        if(pair.score->kind!=SoundKind::kRoar)continue;
+        SoundPlayback sound;
+        sound.kind=SoundKind::kRoar;sound.duration_ms=pair.audio_ms;
+        sound.sound_index=kUserPairIndexBase+file;sound.score=pair.score;
+        if(sound.duration_ms<shortest.duration_ms)shortest=sound;
+        if(sound.duration_ms>longest.duration_ms)longest=sound;
+        if(sound.duration_ms==3680)medium=sound;
+    }
+    assert(shortest.duration_ms<1500&&medium.duration_ms==3680&&longest.duration_ms>=4500);
+    SoundChoreography player;
+    for(const bool paired:{false,true}){
+        auto sound=shortest;
+        if(!paired)sound.sound_index=0;
+        bool powered=false;
+        for(unsigned clip=12;clip<=14;++clip){
+            player.SetRoarClip(kSkyRoarClips[clip],0,true);
+            player.Begin(sound,PetMechanism::kDinosaur,rest);
+            const auto onset=player.Sample(clip==14?750:600,powered);
+            assert(powered);
+            if(clip==12)assert(onset[1]<=78&&onset[2]<=66);
+            if(clip==13)assert(onset[1]>=103&&onset[2]>=115);
+            if(clip==14)assert(onset[0]>=95);
+        }
+        sound=medium;
+        if(!paired)sound.sound_index=0;
+        for(unsigned clip:{15U,18U}){
+            player.SetRoarClip(kSkyRoarClips[clip],0,true);
+            player.Begin(sound,PetMechanism::kDinosaur,rest);
+            bool deep=false,lean_left=false,lean_right=false;
+            for(uint32_t t=0;t<sound.duration_ms;t+=10){
+                const auto p=player.Sample(t,powered);
+                deep|=p[0]>=135;
+                lean_left|=p[1]>=108&&p[2]>=117;
+                lean_right|=p[1]<=72&&p[2]<=70;
+            }
+            assert(lean_left&&lean_right);
+            if(clip==15)assert(deep);
+        }
+        sound=longest;
+        if(!paired)sound.sound_index=0;
+        player.SetRoarClip(kSkyRoarClips[16],0,true);
+        player.Begin(sound,PetMechanism::kDinosaur,rest);
+        bool high=false,low=false,left=false,right=false;
+        auto before=player.Sample(0,powered);
+        assert(before==rest);
+        for(uint32_t t=10;t<player.duration();t+=10){
+            const auto p=player.Sample(t,powered);
+            if(t<sound.duration_ms){
+                high|=p[0]<=48;low|=p[0]>=94;
+                left|=p[2]>=113;right|=p[2]<=65;
+            }
+            for(unsigned a=0;a<p.size();++a){
+                assert(p[a]>=(a==3?55:0)&&p[a]<=180);
+                assert(std::abs(p[a]-before[a])<=3);
+            }
+            before=p;
+        }
+        assert(high&&low&&left&&right);
+        assert(player.Sample(player.duration(),powered)==rest&&!powered);
+    }
+
+    // Distinct recorded attacks move the same authored landmark within a
+    // bounded window. A silent score keeps the duration-only timing.
+    std::array<uint8_t,36> early{},late{};
+    early[12]=200;late[14]=200;
+    const SoundScore early_score{"early",SoundKind::kRoar,3600,0,early.data(),early.size()};
+    const SoundScore late_score{"late",SoundKind::kRoar,3600,0,late.data(),late.size()};
+    SoundPlayback cue;cue.kind=SoundKind::kRoar;cue.duration_ms=3600;
+    cue.score=&early_score;
+    player.Begin(cue,PetMechanism::kDinosaur,rest);
+    bool powered=false;
+    assert(std::abs(player.Sample(1200,powered)[2]-147)<.01f);
+    cue.score=&late_score;
+    player.Begin(cue,PetMechanism::kDinosaur,rest);
+    assert(player.Sample(1200,powered)[2]<146);
+    assert(std::abs(player.Sample(1400,powered)[2]-147)<.01f);
+}
+''', optimize=True)
+
+    def test_dinosaur_flash_roars_keep_authored_sweeps_in_short_and_medium_recordings(self):
+        motion_tests.WzhFluentMotionTest.run_cpp(self, reference_adapter()+r'''
+#include <cassert>
+using namespace wzh;
+int main(){
+    constexpr wzh_dino::Keyframe frames[]={
+        {0,90,90,155,90,900,wzh_dino::MotionEase::kSmooth},
+        {0,90,90,155,90,300,wzh_dino::MotionEase::kLinear},
+        {8,124,145,160,118,650,wzh_dino::MotionEase::kSmooth},
+        {18,56,35,146,66,1050,wzh_dino::MotionEase::kSmooth},
+        {22,90,90,131,90,650,wzh_dino::MotionEase::kSmooth},
+    };
+    const wzh_dino::MotionClip clip{"test-sweep",frames,std::size(frames)};
+    constexpr SoundPose rest{70,90,90,90,90};
+    SoundPlayback sound;
+    sound.kind=SoundKind::kRoar;
+    sound.sound_index=0;
+    SoundChoreography player;
+    for(uint32_t duration:{1600U,2300U,3800U}){
+        sound.duration_ms=duration;
+        for(unsigned run=0;run<SoundChoreography::kVariantCount;++run){
+            player.SetRoarClip(clip);
+            player.Begin(sound,PetMechanism::kDinosaur,rest,run*7919U);
+            bool powered=false,up=false,left=false,right=false;
+            for(uint32_t at=0;at<player.duration();at+=10){
+                const auto pose=player.Sample(at,powered);
+                up|=pose[0]<1&&std::abs(pose[1]-90)<1&&std::abs(pose[2]-90)<1;
+                if(up&&pose[0]<=42){
+                    left|=pose[2]<=65;
+                    right|=pose[2]>=115;
+                }
+            }
+            assert(up&&(left||right));
+            if(duration>=2300)assert(left&&right);
+            assert(player.Sample(player.duration(),powered)==rest&&!powered);
+        }
+    }
+    sound.kind=SoundKind::kSearch;
+    sound.duration_ms=2000;
+    for(unsigned run=0;run<8;++run){
+        player.Begin(sound,PetMechanism::kDinosaur,rest,run*7919U);
+        bool powered=false,observed_ground=false;
+        for(uint32_t at=0;at<player.duration();at+=20)
+            observed_ground|=player.Sample(at,powered)[0]>=125;
+        assert(observed_ground);
+    }
+}
+''', optimize=True)
+
     def test_paired_roars_face_sky_before_details_and_chewing_stays_by_the_food(self):
         motion_tests.WzhFluentMotionTest.run_cpp(self,
             '#include "'+str(ROOT/'main/boards/wzh_dinosaur/wzh_user_pairs_catalog.inc')+'"\n'+

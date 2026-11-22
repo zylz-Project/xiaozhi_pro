@@ -5,11 +5,18 @@
 
 #include <esp_log.h>
 #include <arpa/inet.h>
+#include <freertos/task.h>
 #include <charconv>
 #include <cstring>
+#include <new>
+#include <utility>
 #include "assets/lang_config.h"
 
 #define TAG "MQTT"
+
+namespace {
+constexpr int kLinkResumeRetryMs = 250;
+}
 
 MqttProtocol::MqttProtocol() {
     event_group_handle_ = xEventGroupCreate();
@@ -26,7 +33,7 @@ MqttProtocol::MqttProtocol() {
                     ESP_LOGI(TAG, "Reconnecting to MQTT server");
                     auto alive = protocol->alive_;  // Capture alive flag
                     app.Schedule([protocol, alive]() {
-                        if (!*alive)
+                        if (!*alive || protocol->reconnect_running_)
                             return;
                         {
                             std::unique_lock<std::mutex> lock(protocol->mqtt_mutex_,
@@ -45,9 +52,8 @@ MqttProtocol::MqttProtocol() {
                             !board.IsNetworkAvailable() || board.IsAudioMaintenanceActive()) {
                             esp_timer_start_once(protocol->reconnect_timer_,
                                                  MQTT_DEFERRED_RETRY_MS * 1000);
-                        } else if (!protocol->StartMqttClient(false)) {
-                            esp_timer_start_once(protocol->reconnect_timer_,
-                                                 MQTT_RECONNECT_INTERVAL_MS * 1000);
+                        } else {
+                            protocol->StartReconnectTask();
                         }
                     });
                 } else {
@@ -108,11 +114,77 @@ bool MqttProtocol::Start() {
     const bool connected = StartMqttClient(false);
     if (!connected) {
         const auto& board = Board::GetInstance();
-        const int delay_ms =
-            !board.IsNetworkAvailable() ? MQTT_DEFERRED_RETRY_MS : MQTT_RECONNECT_INTERVAL_MS;
+        const int delay_ms = !board.IsNetworkAvailable() || board.UsesCellularNetwork()
+                                 ? MQTT_DEFERRED_RETRY_MS
+                                 : MQTT_RECONNECT_INTERVAL_MS;
         esp_timer_start_once(reconnect_timer_, delay_ms * 1000);
     }
     return connected;
+}
+
+void MqttProtocol::OnNetworkLost() {
+    link_generation_.fetch_add(1);
+    mqtt_connected_.store(false);
+}
+
+void MqttProtocol::OnNetworkReady() {
+    esp_timer_stop(reconnect_timer_);
+    esp_timer_start_once(reconnect_timer_, kLinkResumeRetryMs * 1000);
+}
+
+bool MqttProtocol::DeferUntilReconnectFinishes(std::function<void()> resume) {
+    if (!reconnect_running_)
+        return false;
+    reconnect_completion_ = std::move(resume);
+    return true;
+}
+
+void MqttProtocol::StartReconnectTask() {
+    if (reconnect_running_)
+        return;
+    reconnect_running_ = true;
+    // DNS, TLS and modem commands can take several seconds.
+    auto* owner = new (std::nothrow) std::shared_ptr<MqttProtocol>(weak_from_this().lock());
+    if (owner && *owner &&
+        xTaskCreate(
+            [](void* arg) {
+                {
+                    std::unique_ptr<std::shared_ptr<MqttProtocol>> request(
+                        static_cast<std::shared_ptr<MqttProtocol>*>(arg));
+                    auto protocol = std::move(*request);
+                    auto& board = Board::GetInstance();
+                    auto& app = Application::GetInstance();
+                    const auto link_generation = protocol->link_generation_.load();
+                    int delay_ms = MQTT_DEFERRED_RETRY_MS;
+                    if (board.IsNetworkAvailable() && !board.IsAudioMaintenanceActive() &&
+                        app.GetDeviceState() == kDeviceStateIdle) {
+                        delay_ms = protocol->StartMqttClient() ? 0 : MQTT_RECONNECT_INTERVAL_MS;
+                    }
+                    app.Schedule([protocol = std::move(protocol), delay_ms, link_generation]() {
+                        auto& board = Board::GetInstance();
+                        int next_retry_ms = delay_ms;
+                        if (!board.IsNetworkAvailable())
+                            next_retry_ms = MQTT_DEFERRED_RETRY_MS;
+                        else if (link_generation != protocol->link_generation_.load())
+                            next_retry_ms = kLinkResumeRetryMs;
+                        if (next_retry_ms > 0) {
+                            esp_timer_start_once(protocol->reconnect_timer_, next_retry_ms * 1000);
+                        }
+                        protocol->reconnect_running_ = false;
+                        auto resume = std::exchange(protocol->reconnect_completion_, {});
+                        if (resume)
+                            resume();
+                    });
+                }
+                vTaskDelete(nullptr);
+            },
+            "mqtt_reconnect", 4096, owner, 2, nullptr) == pdPASS) {
+        return;
+    }
+    delete owner;
+    reconnect_running_ = false;
+    ESP_LOGW(TAG, "Cannot start MQTT reconnect task");
+    esp_timer_start_once(reconnect_timer_, MQTT_DEFERRED_RETRY_MS * 1000);
 }
 
 bool MqttProtocol::StartMqttClient(bool report_error) {
@@ -127,7 +199,8 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
         return false;
     }
     if (mqtt_ != nullptr) {
-        ESP_LOGW(TAG, "Mqtt client already started");
+        if (IsMqttConnectedLocked())
+            return true;
         mqtt_connected_.store(false);
         mqtt_.reset();
     }
@@ -150,6 +223,7 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
 
     auto network = board.GetNetwork();
     mqtt_transport_cellular_ = board.UsesCellularNetwork();
+    mqtt_link_generation_ = link_generation_.load();
     mqtt_ = network ? network->CreateMqtt(0) : nullptr;
     if (!mqtt_) {
         ESP_LOGE(TAG, "Failed to create MQTT client");
@@ -196,7 +270,13 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
         esp_timer_start_once(reconnect_timer_, MQTT_RECONNECT_INTERVAL_MS * 1000);
     });
 
-    mqtt_->OnConnected([this]() {
+    mqtt_->OnConnected([this, cellular = mqtt_transport_cellular_,
+                        link_generation = mqtt_link_generation_]() {
+        auto& board = Board::GetInstance();
+        if (link_generation != link_generation_.load() || !board.IsNetworkAvailable() ||
+            board.UsesCellularNetwork() != cellular) {
+            return;
+        }
         mqtt_connected_.store(true);
         if (on_connected_ != nullptr) {
             on_connected_();
@@ -292,6 +372,12 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
         return false;
     }
 
+    if (mqtt_link_generation_ != link_generation_.load() || !board.IsNetworkAvailable() ||
+        board.UsesCellularNetwork() != mqtt_transport_cellular_) {
+        mqtt_connected_.store(false);
+        mqtt_->Disconnect();
+        return false;
+    }
     ESP_LOGI(TAG, "Connected to endpoint");
     return true;
 }
@@ -314,10 +400,10 @@ bool MqttProtocol::IsMqttConnectedLocked() {
     // Connection events already update this cache; actual Publish failures
     // invalidate it so a later open can reconnect instead of trusting it.
     auto& board = Board::GetInstance();
-    if (board.UsesCellularNetwork() != mqtt_transport_cellular_)
+    if (!board.IsNetworkAvailable() || board.UsesCellularNetwork() != mqtt_transport_cellular_ ||
+        mqtt_link_generation_ != link_generation_.load())
         return false;
-    return board.UsesCellularNetwork() ? board.IsNetworkAvailable() && mqtt_connected_.load()
-                                       : mqtt_->IsConnected();
+    return mqtt_transport_cellular_ ? mqtt_connected_.load() : mqtt_->IsConnected();
 }
 
 void MqttProtocol::ScheduleCellularRecheck() {

@@ -85,16 +85,15 @@ int main(int argc, char** argv) {
         pet.Touch(3, 150);
         assert(pet.PollTouch(150) == TouchResponse::kNone);
         assert(pet.PollTouch(1299) == TouchResponse::kNone);
-        assert(pet.PollTouch(1300) == TouchResponse::kHeld);
-        assert(pet.Get(1300).gentle && !pet.Get(1300).local_sound);
+        assert(pet.PollTouch(1300) == TouchResponse::kNone);
+        assert(!pet.Get(1300).gentle && pet.Get(1300).local_sound);
         assert(pet.PollTouch(10000) == TouchResponse::kNone);
-        assert(pet.Get(10000).gentle);
-        // A very long hold still gets a soft acknowledgement every 9 seconds.
-        assert(pet.PollTouch(10300) == TouchResponse::kHeld);
-        assert(pet.Get(10300).gentle);
+        pet.Touch(1, 10300); // One pad of the contact went low.
+        assert(pet.PollTouch(10300) == TouchResponse::kNone);
         pet.Touch(0, 10400);
-        assert(pet.PollTouch(10400) == TouchResponse::kReleased);
-        assert(!pet.Get(15000).gentle);
+        assert(pet.PollTouch(10400) == TouchResponse::kNone);
+        pet.Touch(1, 10600);
+        assert(pet.PollTouch(10600) == TouchResponse::kAffection);
         PetBehavior taps;
         for (uint32_t i = 0; i < 3; ++i) {
             taps.Touch(1, 100 + i * 400);
@@ -216,7 +215,7 @@ int main(int argc, char** argv) {
     def test_negation_and_comfort(self): self.run_case(0)
     def test_rest_stop_and_maintenance_are_independent(self): self.run_case(1)
     def test_explicit_commands_win_and_priority_expires(self): self.run_case(2)
-    def test_touch_hold_release_and_repeated_taps(self): self.run_case(3)
+    def test_touch_only_responds_to_fresh_contact(self): self.run_case(3)
     def test_presence_requires_a_fresh_arrival_and_acceptance(self): self.run_case(4)
     def test_large_travel_preserves_limits_and_bounds_peak_speed(self): self.run_case(5)
     def test_gentleness_wraparound_and_long_wait(self): self.run_case(6)

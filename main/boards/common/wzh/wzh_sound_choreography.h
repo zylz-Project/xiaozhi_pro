@@ -10,20 +10,15 @@
 
 namespace wzh {
 
-// Exhibition cycle: an opening burst of back-to-back Flash sounds with their
-// choreography (~1.8-2.4 s between clips) for kShowMs, then a breathing-only
-// wait of kWaitMinMs..kWaitMaxMs. Any real interaction (touch, pickup, presence,
-// wake, offline command) restarts the burst via Engage(); conversation,
-// maintenance and protection merely pause it without consuming the burst.
-// After the wait expires with no interaction the pet falls back to the legacy
-// sparse exhibition cadence (one show every 2-3 minutes) until someone plays
-// with it again.
+// The first two minutes use short rests between shows. From minute two to
+// minute five use 30-second rests, then fall back to one show every 2-3 minutes.
+// An interaction restarts the cycle. Conversation and protection pause it.
 class AutoplayCadence {
 public:
-    static constexpr uint32_t kShowMs = 120000;      // opening burst: 2 minutes
-    static constexpr uint32_t kWaitMinMs = 120000;   // breathing wait: 2-5 minutes
-    static constexpr uint32_t kWaitSpreadMs = 180000;
-    static constexpr uint32_t kLegacyMinGapMs = 120000;  // legacy sparse show
+    static constexpr uint32_t kShowMs = 120000;
+    static constexpr uint32_t kExhibitionMs = 300000;
+    static constexpr uint32_t kSpacedGapMs = 30000;
+    static constexpr uint32_t kLegacyMinGapMs = 120000;
     static constexpr uint32_t kLegacyGapSpreadMs = 60000;
 
     // A real interaction (re)starts the burst. Products may include the
@@ -52,51 +47,30 @@ public:
             paused_ = false;
         }
     }
-private:
-    void EngageLocked(uint32_t now, uint32_t random) {
-        mode_ = Mode::kShow;
-        // The burst clock starts once the interaction's own clip has finished,
-        // not at the touch: otherwise its playback time silently eats into the
-        // two minutes of exhibitions. Until that clip ends, phase_start_ stays
-        // unset and Due() holds off on advancing the phase.
-        phase_pending_ = true;
-        phase_start_ = now;
-        since_ = now;
-        delay_ = 1800 + random % 600;
-        armed_ = true;
-        if (paused_) pause_started_ = now;
-    }
-public:
     // A showcase owns the lane through both its audio and its finishing
-    // choreography. The short gap starts when that complete performance ends.
+    // choreography. The rest starts when that complete performance ends.
     void ObservePlayback(uint32_t now, bool playing, uint32_t random = 0) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!playing && phase_pending_ && mode_ == Mode::kShow && armed_ && !paused_ &&
-            static_cast<int32_t>(now - since_) >= 0)
-            phase_start_ = now;  // the interaction clip drained; start the clock
-        phase_pending_ = playing && phase_pending_;
-        if (playback_active_ && !playing && armed_ && !paused_ &&
-            static_cast<int32_t>(now - since_) >= 0) {
-            since_ = now;
-            delay_ = mode_ == Mode::kShow ? 1800 + random % 600
-                                          : kLegacyMinGapMs + random % kLegacyGapSpreadMs;
+        if (armed_ && !paused_ && !playing && static_cast<int32_t>(now - since_) >= 0) {
+            if (phase_pending_) {
+                phase_start_ = now;
+                phase_pending_ = false;
+            }
+            UpdatePhaseLocked(now, random);
+            if (playback_active_) {
+                since_ = now;
+                delay_ = Gap(random);
+            }
         }
         playback_active_ = playing;
     }
-    // Completion/busy hook: the previous clip finished or the pet is busy.
-    // During the burst this yields the short ~2 s gap; in wait/legacy modes it
-    // only re-arms the sparse legacy interval and never extends the burst.
     void Busy(uint32_t now, uint32_t random = 0) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!armed_ || paused_ || static_cast<int32_t>(now - since_) < 0)
             return;
-        if (mode_ == Mode::kShow) {
-            delay_ = 1800 + random % 600;
-        } else {
-            delay_ = kLegacyMinGapMs + random % kLegacyGapSpreadMs;
-        }
+        UpdatePhaseLocked(now, random);
+        delay_ = Gap(random);
         since_ = now;
-        armed_ = true;
     }
     bool Due(uint32_t now, bool eligible, uint32_t random) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -109,48 +83,53 @@ public:
         }
         if (static_cast<int32_t>(now - phase_start_) < 0 || static_cast<int32_t>(now - since_) < 0)
             return false;
-        // The interaction's clip has not drained yet: its playback time must not
-        // count against the burst, so phase progression waits for it.
-        if (phase_pending_ && mode_ == Mode::kShow)
-            return false;
-        if (mode_ == Mode::kShow && now - phase_start_ >= kShowMs) {
-            mode_ = Mode::kWait;
-            phase_start_ = now;
-            wait_delay_ = kWaitMinMs + random % kWaitSpreadMs;
-        }
-        if (mode_ == Mode::kWait && now - phase_start_ >= wait_delay_) {
-            mode_ = Mode::kLegacy;
-            // The first sparse performance may start as the wait ends; each
-            // subsequent performance is spaced from its completion.
-            since_ = now - kLegacyMinGapMs;
-            delay_ = kLegacyMinGapMs;
-        }
-        if (!eligible) {
-            // Temporary ineligibility alone does not pause the phase clock.
-            // Conversation and protection explicitly use SetPaused().
-            if (mode_ != Mode::kShow) {
-                since_ = now;
-                delay_ = kLegacyMinGapMs + random % kLegacyGapSpreadMs;
-            }
-            return false;
-        }
-        if (mode_ == Mode::kWait)
-            return false;
-        return now - since_ >= delay_;
+        UpdatePhaseLocked(now, random);
+        return eligible && !phase_pending_ && !playback_active_ && now - since_ >= delay_;
     }
     bool InShow() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return mode_ == Mode::kShow;
     }
-    // Legacy sparse mode: the only phase where idle filler clips may run, so
-    // the burst stays dense and the wait stays breathing-only.
+    // Idle filler clips for silent mode use the legacy cadence.
     bool Legacy() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return mode_ == Mode::kLegacy;
     }
 
 private:
-    enum class Mode : uint8_t { kShow, kWait, kLegacy };
+    enum class Mode : uint8_t { kShow, kSpaced, kLegacy };
+    uint32_t Gap(uint32_t random) const {
+        if (mode_ == Mode::kShow)
+            return 2000 + random % 1001;
+        if (mode_ == Mode::kSpaced)
+            return kSpacedGapMs;
+        return kLegacyMinGapMs + random % kLegacyGapSpreadMs;
+    }
+    void EngageLocked(uint32_t now, uint32_t random) {
+        mode_ = Mode::kShow;
+        // Some products count the interaction itself. Otherwise start the
+        // exhibition clock once its first audio or motion has finished.
+        phase_pending_ = true;
+        phase_start_ = since_ = now;
+        delay_ = Gap(random);
+        armed_ = true;
+        if (paused_)
+            pause_started_ = now;
+    }
+    void UpdatePhaseLocked(uint32_t now, uint32_t random) {
+        if (phase_pending_)
+            return;
+        const uint32_t elapsed = now - phase_start_;
+        const auto next = elapsed >= kExhibitionMs ? Mode::kLegacy
+                          : elapsed >= kShowMs     ? Mode::kSpaced
+                                                   : Mode::kShow;
+        if (next == mode_)
+            return;
+        mode_ = next;
+        if (mode_ == Mode::kSpaced && static_cast<int32_t>(since_ - (phase_start_ + kShowMs)) < 0)
+            since_ = phase_start_ + kShowMs;
+        delay_ = Gap(random);
+    }
     Mode mode_ = Mode::kShow;
     bool armed_ = false;
     bool paused_ = false;
@@ -158,13 +137,10 @@ private:
     bool phase_pending_ = false;
     uint32_t pause_started_ = 0;
     mutable std::mutex mutex_;
-    uint32_t phase_start_ = 0, wait_delay_ = kWaitMinMs;
-    uint32_t since_ = 0, delay_ = 2100;
+    uint32_t phase_start_ = 0, since_ = 0, delay_ = 0;
 };
 
-// Idle motion clip cadence. The continuous breathing/gaze micro-motion keeps
-// the pet alive between clips, so a full idle clip every 2-3 minutes is enough;
-// anything denser competes with the exhibition cadence above.
+// Keep occasional standalone motions in the legacy phase when sound is off.
 class IdleCadence {
 public:
     static constexpr uint32_t kMinGapMs = 120000;
@@ -206,6 +182,7 @@ public:
     }
     template <class Clip>
     void SetReferenceClip(const Clip& clip) {
+        authored_roar_ = false;
         expression_.SetReferenceClip(clip);
         user_motion_.SetReferenceClip(clip);
     }
@@ -213,11 +190,10 @@ public:
         return sound.playing && sound.audible && sound.sequence != suppressed_ &&
                (!active_ || sound.sequence != sequence_);
     }
-    // The dinosaur owns the seven sky-roar stories. Borrow their authored path,
-    // then fit spatial landmarks to the actual recording instead of running an
-    // unrelated fixed-length performance. Other mechanisms never call this.
+    // The dinosaur opts into the authored timing for its spatial roars.
     template <class Clip>
-    void SetRoarClip(const Clip& clip, float compact_tail = 0) {
+    void SetRoarClip(const Clip& clip, float compact_tail = 0, bool authored = false) {
+        authored_roar_ = authored;
         compact_roar_tail_ = compact_tail > 0 ? std::clamp(compact_tail, 55.f, 180.f) : 0;
         roar_count_ = std::min<size_t>(clip.count, roar_poses_.size());
         SoundPose pose{70, 90, 90, 90, 90};
@@ -229,6 +205,7 @@ public:
                     pose[a] = std::clamp<float>(axes[a], a == 3 ? 55 : 0, 180);
             }
             roar_poses_[i] = pose;
+            roar_spans_[i] = std::max<uint16_t>(1, f.duration_ms);
         }
     }
     void Cancel(uint32_t sequence) {
@@ -266,10 +243,10 @@ public:
     }
 
     uint32_t duration() const {
-        return tail_motion_.active()   ? tail_motion_.duration()
-               : user_motion_.active() ? user_motion_.duration()
-               : count_                ? frames_[count_ - 1].end
-                                       : 0;
+        if (tail_motion_.active())
+            return tail_motion_.duration();
+        const uint32_t path = count_ ? frames_[count_ - 1].end : 0;
+        return user_motion_.active() ? std::max(path, user_motion_.duration()) : path;
     }
     uint32_t body_duration() const {
         return tail_motion_.active()   ? tail_motion_.body_duration()
@@ -288,6 +265,9 @@ public:
                                                      : SoundPose{90, 90, 90, 0, 0};
         count_ = 0;
         tail_motion_.Cancel();
+        const bool dino = mechanism == PetMechanism::kDinosaur;
+        const bool roar = dino && sound.kind == SoundKind::kRoar;
+        const bool authored_roar = roar && authored_roar_ && roar_count_ >= 2;
         const unsigned variant = variant_ =
             variants_.Draw(sound, random, kVariantCount, mechanism == PetMechanism::kTail ? 4 : 1);
         auto seed = sound.score ? sound.score->seed : 0xabc123U;
@@ -296,11 +276,15 @@ public:
             seed = (seed & ~1U) | (unsigned(tail_leading_side_) ^ (variant & 1U));
         }
         user_motion_.Begin(UserPairAtIndex(sound.sound_index), origin_, rest_, variant, seed,
-                           sound.kind);
+                           sound.kind, authored_roar);
+        if (authored_roar) {
+            BuildAuthoredRoar(sound);
+            return;
+        }
         if (user_motion_.active())
             return;
         if (mechanism == PetMechanism::kTail && sound.kind != SoundKind::kAmbient) {
-            tail_motion_.Begin(sound.duration_ms, origin, sound.kind, variant, seed);
+            tail_motion_.Begin(sound.duration_ms, origin, sound.kind, variant, seed, true);
             return;
         }
         const bool ambient = sound.kind == SoundKind::kAmbient;
@@ -310,7 +294,6 @@ public:
         const uint32_t length = ambient ? std::max<uint32_t>(sound.duration_ms, 300)
                                         : std::max<uint32_t>(sound.duration_ms, min_length);
         const float direction = ((seed & 1U) ^ (variant & 1U)) ? 1.f : -1.f;
-        const bool dino = mechanism == PetMechanism::kDinosaur;
         expression_.Begin(mechanism_, sound.score, sound.kind, length, variant, seed, false);
         if (ambient) {
             // Observe, settle, then relax. Four frames per 12-second scene fit
@@ -332,7 +315,7 @@ public:
         }
         // Budget the quintic's 1.875x peak: long-neck gestures remain below
         // 210 deg/s and the other products below 400 deg/s at the source.
-        const uint32_t beat = dino ? (sound.kind == SoundKind::kRoar ? 700 : 1100)
+        const uint32_t beat = dino                              ? (roar ? 700 : 1100)
                               : sound.kind == SoundKind::kSteps ? 600
                               : sound.kind == SoundKind::kSleep ? 1800
                                                                 : 520;
@@ -358,23 +341,22 @@ public:
             const uint32_t at = i + 1 == n ? length
                                            : static_cast<uint32_t>(static_cast<uint64_t>(length) *
                                                                    cumulative / weight_sum);
-            SoundPose target = Target(sound, at, i, direction, variant);
-            if (!(dino && sound.kind == SoundKind::kRoar))
+            SoundPose target = Target(sound, at, i, direction, variant, n);
+            if (!roar)
                 target = expression_.Apply(target, at);
-            if (dino && sound.kind == SoundKind::kRoar && i == 0) {
+            if (roar && i == 0) {
                 target = Broaden(roar_count_ ? roar_poses_[0] : SoundPose{0, 90, 90, 140, 90},
                                  sound.kind);
-                // A short recording has only lift/return time. Preserve its
-                // skyward onset while keeping the board's compact tail story
-                // visible; otherwise different borrowed clips collapse to one.
+                // Compact recordings use the authored tail accent on entry.
                 if (n == 2 && compact_roar_tail_ > 0)
                     target[3] = compact_roar_tail_;
-            } else if (i > 0 && next_rhythm() % 100 < 18) {
+            } else if (!roar && i > 0 && next_rhythm() % 100 < 18) {
                 // Let the pose wait for one beat instead of moving on every grid
                 // line. The next beat still starts from this held pose.
                 target = previous_pose;
             }
-            Append(target, at - previous_at, false);
+            const uint32_t span = at - previous_at;
+            Append(target, roar && i == 0 ? std::max<uint32_t>(900, span) : span, false);
             previous_at = at;
             previous_pose = target;
         }
@@ -393,9 +375,27 @@ public:
             return tail_motion_.Sample(time);
         }
         if (user_motion_.active()) {
+            auto result = user_motion_.Sample(time);
             powered = time < user_motion_.duration();
-            return user_motion_.Sample(time);
+            if (count_) {
+                bool path_powered = false;
+                const auto authored = SamplePath(time, path_powered);
+                powered = powered || path_powered;
+                // Retain the original timing and pose detail under the new
+                // arc. Both paths start at the current pose and finish at rest.
+                // Opposite pitch landmarks can cancel a bow or lift. Keep
+                // the recorded pitch detail within a smooth 13-degree offset.
+                result[0] = authored[0] + 13.f * std::tanh((result[0] - authored[0]) / 52.f);
+                for (size_t axis = 1; axis < result.size(); ++axis)
+                    result[axis] += (authored[axis] - result[axis]) * .75f;
+            }
+            return result;
         }
+        return SamplePath(time, powered);
+    }
+
+private:
+    SoundPose SamplePath(uint32_t time, bool& powered) const {
         SoundPose from = origin_;
         uint32_t start = 0;
         for (size_t i = 0; i < count_; ++i) {
@@ -423,7 +423,6 @@ public:
         return rest_;
     }
 
-private:
     struct Frame {
         SoundPose pose{};
         uint32_t end = 0;
@@ -432,8 +431,10 @@ private:
     };
     std::array<Frame, 128> frames_{};
     std::array<SoundPose, 16> roar_poses_{};
+    std::array<uint16_t, 16> roar_spans_{};
     size_t roar_count_ = 0;
     float compact_roar_tail_ = 0;
+    bool authored_roar_ = false;
     size_t count_ = 0;
     PetMechanism mechanism_ = PetMechanism::kCrawl;
     SoundPose origin_{}, rest_{};
@@ -492,8 +493,76 @@ private:
         ++count_;
     }
 
+    void BuildAuthoredRoar(const SoundPlayback& sound) {
+        // Start promptly, then budget the remaining authored beats against
+        // the audio clock. Append still enforces travel and settling limits.
+        Append(roar_poses_[0], roar_spans_[0], false);
+        const uint32_t onset_ms = frames_[0].end;
+        uint32_t authored_ms = 0;
+        for (size_t i = 1; i < roar_count_; ++i)
+            authored_ms += roar_spans_[i];
+        const uint32_t remaining = sound.duration_ms > onset_ms ? sound.duration_ms - onset_ms : 0;
+        const uint32_t budget = std::clamp(remaining, authored_ms * 3 / 4, authored_ms * 2);
+        uint32_t authored_elapsed = 0;
+        for (size_t i = 1; i < roar_count_; ++i) {
+            authored_elapsed += roar_spans_[i];
+            uint32_t at = onset_ms + uint64_t(budget) * authored_elapsed / authored_ms;
+            const uint32_t from = frames_[count_ - 1].end;
+            if (sound.score && i + 1 < roar_count_ && at > from + 360)
+                at = RoarAccentTime(*sound.score, at);
+            Append(roar_poses_[i], at > from ? at - from : 0, false);
+        }
+        const uint32_t end = frames_[count_ - 1].end;
+        if (sound.duration_ms > end + 400)
+            Append(roar_poses_[roar_count_ - 1],
+                   std::min<uint32_t>(700, sound.duration_ms - end - 400), false);
+        Append(rest_, 900, true);
+    }
+
+    static uint32_t RoarAccentTime(const SoundScore& score, uint32_t nominal_ms) {
+        // Scores have 100 ms bins. Snap a landmark only to a nearby, distinct
+        // attack, so quiet passages and recordings without scores keep their rhythm.
+        uint32_t best_ms = nominal_ms;
+        int best_attack = 15;
+        for (size_t bin = std::max<size_t>(1, (nominal_ms - 150 + 99) / 100);
+             bin < score.count && bin * 100 <= nominal_ms + 150; ++bin) {
+            const auto at = static_cast<uint32_t>(bin * 100);
+            const int attack = int(score.envelope[bin]) - int(score.envelope[bin - 1]) -
+                               std::abs(int(at) - int(nominal_ms)) / 20;
+            if (attack > best_attack) {
+                best_attack = attack;
+                best_ms = at;
+            }
+        }
+        return best_ms;
+    }
+
+    size_t RoarLandmark(unsigned frame, unsigned beats) const {
+        if (frame == 0 || roar_count_ <= 1)
+            return 0;
+        const auto lateral = [this](size_t index) {
+            return std::abs(roar_poses_[index][1] - 90.f) + std::abs(roar_poses_[index][2] - 90.f);
+        };
+        if (beats <= 2) {
+            size_t peak = 1;
+            for (size_t i = 2; i < roar_count_; ++i)
+                if (lateral(i) > lateral(peak))
+                    peak = i;
+            return peak;
+        }
+        size_t first = 1, last = roar_count_ - 1;
+        while (first < last && lateral(first) < 18.f)
+            ++first;
+        // With only two post-entry beats, retain both sides of an arc in
+        // place of a final centered keyframe. Longer paths keep that ending.
+        if (beats == 3)
+            while (last > first && lateral(last) < 18.f)
+                --last;
+        return first + (frame - 1) * (last - first) / (beats - 2);
+    }
+
     SoundPose Target(const SoundPlayback& sound, uint32_t at, unsigned frame, float direction,
-                     unsigned variant) const {
+                     unsigned variant, unsigned beats = 0) const {
         const uint32_t seed = sound.score ? sound.score->seed : 19;
         float energy = .6f;
         if (sound.score && sound.score->count) {
@@ -642,9 +711,7 @@ private:
         float lr = 90 - answer * (56 + 28 * e) + orbit_cross * 22 * (.4f + .6f * e);
         if (sound.kind == SoundKind::kRoar) {
             if (roar_count_) {
-                const size_t landmark =
-                    std::min<size_t>(roar_count_ - 1, uint64_t(at) * roar_count_ /
-                                                          std::max<uint32_t>(1, sound.duration_ms));
+                const size_t landmark = RoarLandmark(frame, beats);
                 auto pose = roar_poses_[landmark];
                 pose[3] = std::min(180.f, pose[3] + 8.f * energy);
                 // Keep the skyward onset unchanged. Later phrases fan out into
@@ -667,6 +734,12 @@ private:
             lean = 90 + side * 22;
             turn = 90 + side * 24;
             ud = 105;
+        } else if (sound.kind == SoundKind::kSearch) {
+            tilt = frame & 1 ? 112.f + 8.f * e : 132.f + 14.f * e;
+            lean = 90 + side * 20 * detail;
+            turn = 90 - side * 25 * detail;
+            ud = 108;
+            lr = 90 + side * 20 * e;
         } else if (sound.kind == SoundKind::kSteps) {
             tilt = frame & 1 ? 46 : 90;
             lean = 90 + side * 42;

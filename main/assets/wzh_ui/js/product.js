@@ -8,7 +8,7 @@
   var PRODUCTS = {
     crawlPanda: {
       id: 'crawlPanda', axes: '三轴', name: '爬爬熊猫', short: '熊猫', english: 'CRAWL PANDA', code: 'PANDA',
-      ap: 'CrawlPanda', hot: '1A2B', role: '小华', wake: '小华小华', model: 'WZH-CP01',
+      ap: 'CrawlPanda', role: '小华', wake: '你好小安', model: 'WZH-CP01',
       theme: 'milk', voice: true,
       assets: { front: 'assets/crawlPanda_正面.webp', side: 'assets/crawlPanda_侧面.webp', head: 'assets/crawlPanda_icon.webp', face: 'assets/crawlPanda_icon.webp', icon: 'assets/crawlPanda_icon.webp' },
       parts: [
@@ -20,7 +20,7 @@
         ['扬声器', '对话与本地音效']
       ],
       intro: '一只会转头、会挥爪、会听你说话的桌面小伙伴。',
-      motion: '空闲时会轻轻呼吸、凝视、摆动前肢；被触摸、听到声音或对话时，会做出对应动作。',
+      motion: '可以挥爪、转头和爬行，表演结束后停在默认姿态。',
       specAction: '头部 1 路 + 双前肢 2 路舵机',
       pose: '双爪搭在窗台上',
       action: '转头看你',
@@ -30,7 +30,7 @@
     },
     dinosaur: {
       id: 'dinosaur', axes: '五轴', name: '小恐龙', short: '恐龙', english: 'LITTLE DINO', code: 'DINO',
-      ap: 'Dino', hot: '6C3F', role: '小威', wake: '小威小威', model: 'WZH-DN01',
+      ap: 'Dino', role: '小威', wake: '小龙小龙', model: 'WZH-DN01',
       theme: 'bamboo', voice: true,
       assets: { front: 'assets/dinosaur_front.webp', side: 'assets/dinosaur_side.webp', head: 'assets/dinosaur_icon.webp', face: 'assets/dinosaur_icon.webp', icon: 'assets/dinosaur_icon.webp' },
       parts: [
@@ -52,7 +52,7 @@
     },
     redpanda: {
       id: 'redpanda', axes: '三轴', name: '摇尾小熊猫', short: '小熊猫', english: 'TAIL RED PANDA', code: 'RED PANDA',
-      ap: 'RedPanda', hot: '9D2E', role: '小武', wake: '小武小武', model: 'WZH-RP01',
+      ap: 'RedPanda', role: '小武', wake: '你好星宝', model: 'WZH-RP01',
       theme: 'berry', voice: true,
       assets: { front: 'assets/tailRedPanda_front.webp', side: 'assets/tailRedPanda_side.webp', head: 'assets/tailRedPanda_icon.webp', face: 'assets/tailRedPanda_icon.webp', icon: 'assets/tailRedPanda_icon.webp' },
       parts: [
@@ -64,7 +64,7 @@
         ['扬声器', '对话与本地音效']
       ],
       intro: '一只会转头、会摇大尾巴、会听你说话的桌面小伙伴。',
-      motion: '三轴关节让大尾巴连续画弧：开心时高高翘起，听到声音时左右轻摆，安静时停在半空。',
+      motion: '可以转头、翘尾和摇尾，表演结束后停在默认姿态。',
       specAction: '头部 1 路 + 尾巴 2 路舵机',
       pose: '大尾巴搭在坐垫上',
       action: '摇摇大尾巴',
@@ -79,8 +79,10 @@
   }
 
   var ALIASES = { panda: 'crawlPanda', crawlPanda: 'crawlPanda', dinosaur: 'dinosaur', redpanda: 'redpanda', tailRedPanda: 'redpanda', wzh_tailRedPanda: 'redpanda' };
+  var buildProduct = document.documentElement.getAttribute('data-build-product');
 
   function pick() {
+    if (buildProduct) return buildProduct;
     var raw = param('toy');
     var asked = ALIASES[raw] || raw;
     if (asked && PRODUCTS[asked]) {
@@ -137,7 +139,6 @@
     text('[data-p-model]', P.model);
     text('[data-p-ap]', P.ap + '-XXXX');
     text('[data-p-hot]', P.ap + '-XXXX');
-    text('[data-p-pass]', 'zylz + 热点名称后四位');
     text('[data-p-version]', '--');
     text('[data-p-intro]', P.intro);
     text('[data-p-motion]', P.motion);
@@ -150,7 +151,6 @@
     var ap = deviceStatus && deviceStatus.wifi && deviceStatus.wifi.ap_ssid;
     if (ap) {
       text('[data-p-ap], [data-p-hot]', ap);
-      text('[data-p-pass]', 'zylz' + ap.slice(-4));
     }
     if (deviceStatus) text('[data-p-version]', deviceStatus.version || '--');
     (P.motionActions || []).forEach(function (v, i) { each('[data-p-action-' + (i + 1) + ']', function (el) { el.textContent = v; }); });
@@ -193,6 +193,7 @@
   }
 
   function set(id, go) {
+    if (buildProduct) id = buildProduct;
     if (!PRODUCTS[id]) return;
     try { localStorage.setItem(KEY, id); } catch (e) {}
     if (!go) {
@@ -215,6 +216,18 @@
     window.location.href = url.toString();
   }
 
+  function updateDeviceStatus(s) {
+    var id = s && {'wzh-dinosaur': 'dinosaur', 'wzh-tailredpanda': 'redpanda', 'wzh-crawlpanda': 'crawlPanda'}[s.build];
+    if (!id) return;
+    var previous = deviceStatus;
+    deviceStatus = s;
+    if (previous && currentId === id && previous.version === s.version &&
+        (previous.wifi || {}).ap_ssid === (s.wifi || {}).ap_ssid) return;
+    var applyDevice = function () { set(id, false); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyDevice);
+    else applyDevice();
+  }
+
   window.PandaProduct = {
     data: P,
     id: P.id,
@@ -222,19 +235,17 @@
     get: function () { return P; },
     set: set,
     apply: apply,
+    updateDeviceStatus: updateDeviceStatus,
     key: KEY
   };
 
-  fetch('/api/status', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(s){
-    var id = {'wzh-dinosaur': 'dinosaur', 'wzh-tailredpanda': 'redpanda', 'wzh-crawlpanda': 'crawlPanda'}[s.build];
-    if (!id) return;
-    deviceStatus = s;
-    var applyDevice = function () {
-      set(id, false);
-    };
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyDevice);
-    else applyDevice();
-  }).catch(function(){});
+  if (!document.documentElement.matches('[data-device-detail],[data-device-status-owner]')) {
+    var statusController = new AbortController();
+    var statusTimeout = setTimeout(function () { statusController.abort(); }, 4000);
+    fetch('/api/status', {cache:'no-store', signal:statusController.signal})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(updateDeviceStatus).catch(function(){}).finally(function(){clearTimeout(statusTimeout);});
+  }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', apply);
