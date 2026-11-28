@@ -41,7 +41,148 @@ class FirmwareRuntimeOptimizationsTest(unittest.TestCase):
                                     text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_cellular_uplink_yields_to_main_events_and_rearms_pending_audio(self):
+    def test_opus_work_buffer_reused_without_retaining_capacity_in_queued_packets(self):
+        source = (AUDIO / 'audio_service.cc').read_text()
+        worker = queue_function(source, 'void AudioService::OpusCodecTask(')
+        encode = queue_function(worker, 'if (!audio_encode_queue_.empty())')
+        scratch = next(line for line in worker.splitlines() if ' encode_scratch;' in line)
+        program = r'''
+#include "esp_log.h"
+#include "fixed_queue.h"
+#include <algorithm>
+#include <cassert>
+#include <condition_variable>
+#include <cstdint>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <vector>
+
+constexpr int OPUS_FRAME_DURATION_MS = 60, ESP_AUDIO_ERR_OK = 0;
+struct esp_audio_enc_in_frame_t { uint8_t* buffer; uint32_t len; };
+struct esp_audio_enc_out_frame_t { uint8_t* buffer; uint32_t len; uint32_t encoded_bytes; };
+int esp_opus_enc_process(void*, const esp_audio_enc_in_frame_t*, esp_audio_enc_out_frame_t*);
+struct AudioStreamPacket {
+    int frame_duration, sample_rate;
+    uint32_t timestamp;
+    std::vector<uint8_t> payload;
+};
+enum TaskType { kAudioTaskTypeEncodeToSendQueue, kAudioTaskTypeEncodeToTestingQueue };
+struct EncodeTask {
+    TaskType type;
+    uint32_t timestamp, capture_generation = 42;
+    std::vector<int16_t> pcm;
+};
+struct AudioService {
+    std::mutex audio_queue_mutex_;
+    std::condition_variable audio_queue_cv_;
+    std::deque<EncodeTask> audio_encode_queue_;
+    FixedQueue<std::unique_ptr<AudioStreamPacket>, 3> audio_send_queue_, audio_testing_queue_;
+    static constexpr size_t kTestingPacketCapacity = 3;
+    int encoder_frame_size_ = 2, encoder_outbuf_size_ = 340;
+    void* opus_encoder_ = this;
+    struct { unsigned encode_count = 0; } debug_statistics_;
+    struct { std::function<void()> on_send_queue_available; } callbacks_;
+    void QueueVoicePacket(std::unique_ptr<AudioStreamPacket> packet, uint32_t generation) {
+        assert(generation == 42);
+        audio_send_queue_.push_back(std::move(packet));
+    }
+    void EncodeBatch() {
+''' + scratch + r'''
+        while (!audio_encode_queue_.empty()) {
+            std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+''' + encode + r'''
+        }
+    }
+};
+
+uint8_t* workspace = nullptr;
+unsigned sdk_calls = 0;
+
+int main() {
+    AudioService service;
+    unsigned notified = 0;
+    service.callbacks_.on_send_queue_available = [&] { ++notified; };
+    service.audio_encode_queue_ = {
+        {kAudioTaskTypeEncodeToSendQueue, 11, 42, {1, 0}},
+        {kAudioTaskTypeEncodeToTestingQueue, 12, 42, {2, 0}},
+        {kAudioTaskTypeEncodeToSendQueue, 13, 42, {3, 0}},
+        {kAudioTaskTypeEncodeToSendQueue, 14, 42, {4, 0}},
+        {kAudioTaskTypeEncodeToSendQueue, 15, 42, {5, 0}},
+        {kAudioTaskTypeEncodeToSendQueue, 16, 42, {1}},
+    };
+    service.EncodeBatch();
+    assert(sdk_calls == 5 && service.debug_statistics_.encode_count == 3);
+    assert(service.audio_send_queue_.size() == 2 && service.audio_testing_queue_.size() == 1);
+    const auto& small = *service.audio_send_queue_[0];
+    assert(small.timestamp == 11 && small.frame_duration == 60 && small.sample_rate == 16000);
+    assert(small.payload == std::vector<uint8_t>(3, 0xa1) && small.payload.capacity() == 3);
+    const auto& full = *service.audio_testing_queue_[0];
+    assert(full.timestamp == 12 && full.payload == std::vector<uint8_t>(340, 0xa2));
+    const auto& empty = *service.audio_send_queue_[1];
+    assert(empty.timestamp == 13 && empty.payload.empty() && empty.payload.capacity() == 0);
+#if CONFIG_USE_VOICE_BARGE_IN
+    assert(notified == 0);
+#else
+    assert(notified == 2);
+#endif
+    service.encoder_outbuf_size_ = -1;
+    service.audio_encode_queue_.push_back({kAudioTaskTypeEncodeToSendQueue, 17, 42, {1, 0}});
+    service.EncodeBatch();
+    assert(sdk_calls == 5 && service.audio_send_queue_.size() == 2);
+}
+
+int esp_opus_enc_process(void*, const esp_audio_enc_in_frame_t* in,
+                         esp_audio_enc_out_frame_t* out) {
+    assert(in->len == 4 && out->len == 340);
+    if (++sdk_calls == 1)
+        workspace = out->buffer;
+    assert(workspace == out->buffer);
+    const auto kind = reinterpret_cast<const int16_t*>(in->buffer)[0];
+    if (kind == 4) {
+        out->encoded_bytes = 341;
+        return ESP_AUDIO_ERR_OK;
+    }
+    if (kind == 5)
+        return -1;
+    out->encoded_bytes = kind == 1 ? 3 : kind == 2 ? 340 : 0;
+    std::fill_n(out->buffer, out->encoded_bytes, static_cast<uint8_t>(0xa0 + kind));
+    return ESP_AUDIO_ERR_OK;
+}
+'''
+        for barge_in in (0, 1):
+            with self.subTest(barge_in=barge_in):
+                self.run_cpp(f'#define CONFIG_USE_VOICE_BARGE_IN {barge_in}\n' + program)
+
+    def test_wake_word_encoder_is_only_started_when_upload_is_enabled(self):
+        source = (AUDIO / 'audio_service.cc').read_text()
+        encode = queue_function(source, 'void AudioService::EncodeWakeWord(')
+        program = r'''
+#include <cassert>
+struct Engine {
+    unsigned starts = 0;
+    void EncodeWakeWordData() { ++starts; }
+};
+struct AudioService {
+    Engine* audio_engine_ = nullptr;
+    void EncodeWakeWord();
+};
+''' + encode + r'''
+int main() {
+    AudioService service;
+    service.EncodeWakeWord();
+    Engine engine;
+    service.audio_engine_ = &engine;
+    service.EncodeWakeWord();
+    assert(engine.starts == CONFIG_SEND_WAKE_WORD_DATA);
+}
+'''
+        for enabled in (0, 1):
+            with self.subTest(enabled=enabled):
+                self.run_cpp(f'#define CONFIG_SEND_WAKE_WORD_DATA {enabled}\n' + program)
+
+    def test_cellular_uplink_dispatches_to_worker_and_wifi_drains_inline(self):
         source = (ROOT / 'main/application.cc').read_text()
         block = queue_function(source, 'if ((bits & MAIN_EVENT_SEND_AUDIO)')
         self.run_cpp(r'''
@@ -49,8 +190,8 @@ class FirmwareRuntimeOptimizationsTest(unittest.TestCase):
 #include <cassert>
 #include <deque>
 #include <memory>
+#define CONFIG_BOARD_TYPE_WZH_DINOSAUR 1
 constexpr unsigned MAIN_EVENT_SEND_AUDIO=1;
-void xEventGroupSetBits(unsigned& events,unsigned bits){events|=bits;}
 struct Board{bool cellular=true;
  static Board& GetInstance(){static Board board;return board;}
  bool UsesCellularNetwork(){return cellular;}};
@@ -59,31 +200,28 @@ struct Audio{std::deque<int> queue;
   if(queue.empty())return {};
   queue.pop_front();return std::make_unique<int>(1);
  }};
-struct Protocol{Audio* audio;int sent=0;bool ok=true,refill=false;
- bool SendAudio(std::unique_ptr<int>){++sent;if(refill)audio->queue.push_back(1);return ok;}};
+struct Protocol{int sent=0;bool ok=true;
+ bool SendAudio(std::unique_ptr<int>){++sent;return ok;}};
 struct Application{
- Audio audio_service_;Protocol transport{&audio_service_};Protocol* protocol_=&transport;
+ Audio audio_service_;Protocol transport;Protocol* protocol_=&transport;
  std::atomic<bool> barge_in_reconnecting_{false},interaction_stopped_{false},voice_enrollment_active_{false};
  std::atomic<int> external_voice_preview_status_{0};
- unsigned event_group_=0;
+ int cellular_dispatches=0;
+ void QueueCellularAudioSend(){++cellular_dispatches;}
  void RunSend(unsigned bits){
 ''' + block + r'''
  }
 };
 int main(){
- Application app;app.audio_service_.queue={1,2,3};app.transport.refill=true;
+ Application app;app.audio_service_.queue={1,2,3};
  app.RunSend(MAIN_EVENT_SEND_AUDIO);
- assert(app.transport.sent==1&&app.audio_service_.queue.size()==3);
- assert(app.event_group_==MAIN_EVENT_SEND_AUDIO);
- app.transport.refill=false;app.event_group_=0;app.RunSend(MAIN_EVENT_SEND_AUDIO);
- assert(app.transport.sent==2&&app.audio_service_.queue.size()==2);
- assert(app.event_group_==MAIN_EVENT_SEND_AUDIO);
- Board::GetInstance().cellular=false;app.event_group_=0;
+ assert(app.cellular_dispatches==1&&app.transport.sent==0&&app.audio_service_.queue.size()==3);
+ Board::GetInstance().cellular=false;
  app.RunSend(MAIN_EVENT_SEND_AUDIO);
- assert(app.transport.sent==4&&app.audio_service_.queue.empty()&&app.event_group_==0);
- Board::GetInstance().cellular=true;app.audio_service_.queue={1,2,3};app.transport.ok=false;
+ assert(app.cellular_dispatches==1&&app.transport.sent==3&&app.audio_service_.queue.empty());
+ app.audio_service_.queue={1,2,3};app.transport.ok=false;
  app.RunSend(MAIN_EVENT_SEND_AUDIO);
- assert(app.transport.sent==5&&app.audio_service_.queue.empty()&&app.event_group_==0);
+ assert(app.transport.sent==4&&app.audio_service_.queue.empty());
 }
 ''')
 
@@ -119,6 +257,100 @@ int main(){
 }
 ''')
 
+    def test_wifi_board_json_preserves_ssid_quotes_and_backslashes(self):
+        source = (ROOT / 'main/boards/common/wifi_board.cc').read_text()
+        self.run_cpp(r'''
+#include <cassert>
+#include <memory>
+#include <string>
+#include "cJSON.h"
+#define BOARD_TYPE "board"
+#define BOARD_NAME "device"
+#define BOARD_MANUFACTURER "vendor"
+struct WifiManager {
+ bool configuring=false;
+ static WifiManager& GetInstance(){static WifiManager wifi;return wifi;}
+ bool IsConfigMode() const {return configuring;}
+ std::string GetSsid() const {return "home\"Wi-Fi\\2\n";}
+ int GetRssi() const {return -62;}
+ int GetChannel() const {return 11;}
+ std::string GetIpAddress() const {return "192.168.1.20";}
+};
+struct SystemInfo {static std::string GetMacAddress(){return "00:00:00:00:00:00";}};
+struct WifiBoard {std::string GetBoardJson();};
+''' + queue_function(source, 'std::string WifiBoard::GetBoardJson(') + r'''
+int main(){
+ WifiBoard board;
+ auto& wifi=WifiManager::GetInstance();
+ auto* json=cJSON_Parse(board.GetBoardJson().c_str());
+ assert(cJSON_IsObject(json));
+ assert(cJSON_GetStringValue(cJSON_GetObjectItem(json,"ssid"))==wifi.GetSsid());
+ assert(cJSON_GetObjectItem(json,"rssi")->valueint==-62);
+ assert(cJSON_GetObjectItem(json,"channel")->valueint==11);
+ cJSON_Delete(json);
+ wifi.configuring=true;
+ json=cJSON_Parse(board.GetBoardJson().c_str());
+ assert(cJSON_IsObject(json)&&!cJSON_GetObjectItem(json,"ssid"));
+ assert(cJSON_IsString(cJSON_GetObjectItem(json,"mac")));
+ cJSON_Delete(json);
+}
+''', use_json=True)
+
+    def test_protocol_session_snapshot_survives_concurrent_updates(self):
+        source = (ROOT / 'main/protocols/protocol.cc').read_text()
+        methods = '\n'.join(queue_function(source, signature) for signature in (
+            'std::string Protocol::session_id()', 'void Protocol::SetSessionId(',
+            'void Protocol::SendMcpMessage(',
+        ))
+        methods += source[source.index('size_t Protocol::GetMcpWireOverhead()'):
+                          source.index('bool Protocol::IsTimeout()')]
+        self.run_cpp(r'''
+#include <atomic>
+#include <cassert>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <utility>
+const std::string first(128,'a'),second(256,'b');
+const std::string prefix="{\"session_id\":\"",suffix="\",\"type\":\"mcp\",\"payload\":{}}";
+struct Protocol {
+    std::string session_id() const;
+    void SetSessionId(std::string);
+    void SendMcpMessage(const std::string&);
+    size_t GetMcpWireOverhead() const;
+private:
+    mutable std::mutex session_mutex_;
+    std::string session_id_;
+    void SendText(const std::string& message) {
+        assert(message==prefix+first+suffix||message==prefix+second+suffix);
+        SetSessionId(first); // Simulate a transport callback updating session metadata.
+    }
+};
+''' + methods + r'''
+int main() {
+    Protocol protocol;
+    protocol.SetSessionId(first);
+    const auto snapshot=protocol.session_id();
+    protocol.SetSessionId(second);
+    assert(snapshot==first);
+    std::atomic<bool> stop=false;
+    std::thread receiver([&] {
+        while(!stop.load()) {
+            protocol.SetSessionId(first);
+            protocol.SetSessionId(second);
+        }
+    });
+    for(int i=0;i<1000;++i) {
+        protocol.SendMcpMessage("{}");
+        const auto overhead=protocol.GetMcpWireOverhead();
+        const auto fixed=prefix.size()+suffix.size()-2;
+        assert(overhead==fixed+first.size()||overhead==fixed+second.size());
+    }
+    stop.store(true);
+    receiver.join();
+}
+''')
+
     def test_websocket_hello_rejects_non_string_transport(self):
         source = (ROOT / 'main/protocols/websocket_protocol.cc').read_text()
         self.run_cpp(r'''
@@ -128,26 +360,172 @@ int main(){
 #include "cJSON.h"
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGI(...) ((void)0)
-constexpr unsigned WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT=1;
-void xEventGroupSetBits(unsigned* bits,unsigned value){*bits|=value;}
 struct WebsocketProtocol {
- unsigned bits=0;unsigned*event_group_handle_=&bits;
  std::string session_id_;int server_sample_rate_=16000,server_frame_duration_=60;
- void ParseServerHello(const cJSON*);
+ void SetSessionId(const std::string& id){session_id_=id;}
+ bool ParseServerHello(const cJSON*);
 };
-''' + queue_function(source, 'void WebsocketProtocol::ParseServerHello(') + r'''
+''' + queue_function(source, 'bool WebsocketProtocol::ParseServerHello(') + r'''
 int main(){
  for(const char* bad:{"{}","{\"transport\":null}","{\"transport\":5}",
                       "{\"transport\":true}","{\"transport\":{}}","{\"transport\":\"udp\"}"}){
   auto* json=cJSON_Parse(bad);assert(json);
-  WebsocketProtocol protocol;protocol.ParseServerHello(json);
-  assert(protocol.bits==0&&protocol.session_id_.empty());cJSON_Delete(json);
+  WebsocketProtocol protocol;assert(!protocol.ParseServerHello(json));
+  assert(protocol.session_id_.empty());cJSON_Delete(json);
  }
  auto*json=cJSON_Parse("{\"transport\":\"websocket\",\"session_id\":\"new\","
                         "\"audio_params\":{\"sample_rate\":24000,\"frame_duration\":20}}");
- WebsocketProtocol protocol;protocol.ParseServerHello(json);
- assert(protocol.bits==1&&protocol.session_id_=="new"&&protocol.server_sample_rate_==24000);
+ WebsocketProtocol protocol;assert(protocol.ParseServerHello(json));
+ assert(protocol.session_id_=="new"&&protocol.server_sample_rate_==24000);
  assert(protocol.server_frame_duration_==20);cJSON_Delete(json);
+}
+''', use_json=True)
+
+    def test_websocket_handshake_releases_failed_connections_and_clears_old_events(self):
+        source = (ROOT / 'main/protocols/websocket_protocol.cc').read_text()
+        methods = '\n'.join(queue_function(source, signature) for signature in (
+            'WebsocketProtocol::~WebsocketProtocol()',
+            'bool WebsocketProtocol::OpenAudioChannel()',
+            'bool WebsocketProtocol::IsAudioChannelOpened()',
+            'void WebsocketProtocol::CloseAudioChannel(',
+            'bool WebsocketProtocol::ParseServerHello(',
+        ))
+        self.run_cpp(r'''
+#include <atomic>
+#include <cassert>
+#include <chrono>
+#include <cstring>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include "cJSON.h"
+#define ESP_LOGE(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
+#define pdTRUE true
+#define pdFALSE false
+#define pdMS_TO_TICKS(value) (value)
+namespace Lang {namespace Strings {
+ constexpr auto SERVER_NOT_CONNECTED="offline", SERVER_TIMEOUT="timeout";
+}}
+using EventBits_t=unsigned;
+constexpr unsigned WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT=1,WEBSOCKET_PROTOCOL_DISCONNECTED_EVENT=2;
+bool events_deleted=false;
+std::function<void()> during_wait;
+void vEventGroupDelete(unsigned*){events_deleted=true;}
+void xEventGroupSetBits(unsigned* bits,unsigned mask){assert(!events_deleted);*bits|=mask;}
+void xEventGroupClearBits(unsigned* bits,unsigned mask){*bits&=~mask;}
+unsigned xEventGroupWaitBits(unsigned* bits,unsigned mask,bool,bool,int){
+ if(auto callback=std::exchange(during_wait,{});callback)callback();
+ auto result=*bits&mask;*bits&=~mask;return result;
+}
+enum class Outcome {Timeout, Disconnect, Success};
+Outcome outcome=Outcome::Timeout;
+int socket_count=0;
+struct WebSocket {
+ bool connected=false;
+ static inline WebSocket* current=nullptr;
+ std::function<void()> on_disconnect;
+ std::function<void(const char*,size_t,bool)> on_data;
+ struct ConnectResult {
+  explicit operator bool()const{return true;}
+  const ConnectResult& error()const{return *this;}
+  std::string ToString()const{return "failed";}
+ };
+ WebSocket(){++socket_count;assert(!current);current=this;}
+ ~WebSocket(){if(connected)on_disconnect();--socket_count;current=nullptr;}
+ void SetHeader(const char*,const char*){}
+ void OnData(decltype(on_data) cb){on_data=std::move(cb);}
+ void OnDisconnected(decltype(on_disconnect) cb){on_disconnect=std::move(cb);}
+ ConnectResult Connect(const char*){connected=true;return {};}
+ bool IsConnected()const{return connected;}
+ void ReceiveHello(){
+  const char* hello=R"({"type":"hello","transport":"websocket","session_id":"new"})";
+  on_data(hello,std::strlen(hello),false);
+ }
+ bool Send(const std::string& text){
+  assert(text=="hello");
+  const char* message=R"({"type":"mcp"})";
+  on_data(message,std::strlen(message),false);
+  on_data("sample",6,true);
+  if(outcome==Outcome::Disconnect){connected=false;on_disconnect();}
+  if(outcome==Outcome::Success){
+   ReceiveHello();
+   on_data(message,std::strlen(message),false);
+   on_data("sample",6,true);
+  }
+  return true;
+ }
+};
+struct Board {
+ static Board& GetInstance(){static Board board;return board;}
+ bool IsNetworkAvailable()const{return true;}bool IsAudioMaintenanceActive()const{return false;}
+ Board* GetNetwork(){return this;}
+ std::string GetUuid()const{return "uuid";}
+ std::unique_ptr<WebSocket> CreateWebSocket(int){return std::make_unique<WebSocket>();}
+};
+struct SystemInfo {static std::string GetMacAddress(){return "mac";}};
+struct Settings {
+ Settings(const char*,bool){}std::string GetString(const char*){return "wss://server";}
+ int GetInt(const char*){return 0;}
+};
+struct WebsocketProtocol {
+ unsigned events=0,*event_group_handle_=&events;
+ mutable std::mutex channel_mutex_;
+ std::mutex open_mutex_;
+ std::unique_ptr<WebSocket> websocket_;
+ bool closing_=false;
+ std::atomic<uint32_t> channel_generation_{0};
+ std::function<void(const cJSON*)> on_incoming_json_;
+ std::function<void()> on_audio_channel_opened_,on_audio_channel_closed_;
+ std::atomic<bool> channel_ready_{false};bool error_occurred_=false;
+ int version_=1,server_sample_rate_=24000,server_frame_duration_=60;
+ std::string session_id_,error;
+ void SetSessionId(const std::string& id){session_id_=id;}
+ std::chrono::steady_clock::time_point last_incoming_time_;
+ int received_audio=0;
+ ~WebsocketProtocol();bool OpenAudioChannel();bool IsAudioChannelOpened()const;
+ void CloseAudioChannel(bool);bool ParseServerHello(const cJSON*);
+ void HandleBinaryAudio(const char*,size_t){++received_audio;}
+ std::string GetHelloMessage(){return "hello";}
+ void SetError(const char* message){error_occurred_=true;error=message;}
+ bool IsTimeout()const{return false;}
+};
+''' + methods + r'''
+int main(){
+ int opens=0,closes=0,json=0;
+ {
+  WebsocketProtocol protocol;
+  protocol.on_audio_channel_opened_=[&]{assert(protocol.IsAudioChannelOpened());++opens;};
+  protocol.on_audio_channel_closed_=[&]{++closes;};
+  protocol.on_incoming_json_=[&](const cJSON*){++json;};
+  protocol.events=WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT;
+  protocol.session_id_="previous";
+  assert(!protocol.OpenAudioChannel()&&protocol.error=="timeout"&&protocol.session_id_.empty());
+  assert(!socket_count&&opens==0&&closes==0);
+  outcome=Outcome::Disconnect;
+  assert(!protocol.OpenAudioChannel()&&protocol.error=="offline");
+  assert(!socket_count&&opens==0&&closes==0);
+  outcome=Outcome::Timeout;
+  protocol.error.clear();
+  during_wait=[&]{
+   assert(!protocol.OpenAudioChannel()&&!protocol.IsAudioChannelOpened());
+   protocol.CloseAudioChannel(false);
+   assert(socket_count==1);
+   WebSocket::current->ReceiveHello();
+  };
+  assert(!protocol.OpenAudioChannel()&&protocol.error.empty()&&protocol.session_id_.empty());
+  assert(!socket_count&&opens==0&&closes==0&&json==0&&protocol.received_audio==0);
+  outcome=Outcome::Success;
+  assert(protocol.OpenAudioChannel()&&protocol.session_id_=="new"&&socket_count==1);
+  assert(json==1&&protocol.received_audio==1);
+  assert(protocol.OpenAudioChannel()&&opens==1);
+  protocol.CloseAudioChannel(false);
+  assert(!socket_count&&opens==1&&closes==1);
+  assert(protocol.OpenAudioChannel()&&socket_count==1&&opens==2);
+ }
+ assert(events_deleted&&!socket_count&&closes==1);
 }
 ''', use_json=True)
 
@@ -351,7 +729,8 @@ struct AudioService{
  void ResetDecoder(std::optional<uint32_t> expected={},PlaybackSource source=PlaybackSource::kRegular);
  bool SetDecodeSampleRate(int,int);
 };
-''' + queue_function(source, 'bool AudioService::SetDecodeSampleRate(')
+''' + queue_function(source, 'bool SupportsOpusDecodeFormat(')
+            + queue_function(source, 'bool AudioService::SetDecodeSampleRate(')
             + queue_function(source, 'void AudioService::ResetDecoder(') + r'''
 int main(){
  AudioService audio;

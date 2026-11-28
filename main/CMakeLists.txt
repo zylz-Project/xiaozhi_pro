@@ -181,6 +181,11 @@ if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_
     list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}")
     set(WZH_CONSOLE_FILES "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_pack.bin")
     set(WZH_CONVERSATION_SOUNDS "assets/wzh_sounds/conversation_exit.ogg")
+    if(CONFIG_BOARD_TYPE_WZH_DINOSAUR)
+        list(APPEND WZH_CONVERSATION_SOUNDS
+            "assets/wzh_sounds/cellular_to_wifi.ogg"
+            "assets/wzh_sounds/cellular_unavailable.ogg")
+    endif()
 endif()
 
 # Select one audio engine for each chip family
@@ -485,6 +490,7 @@ function(build_default_assets_bin)
     set(DEFAULT_ASSETS_DEPENDENCIES
         "${SDKCONFIG}"
         "${PROJECT_DIR}/scripts/build_default_assets.py"
+        "${PROJECT_DIR}/main/boards/common/wzh/wzh_body_phrases.inc"
     )
 
     # Prepare arguments for build script

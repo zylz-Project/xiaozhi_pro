@@ -1,6 +1,7 @@
 #include "wifi_configuration_ap.h"
 #include <esp_err.h>
 #include <esp_event.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp_netif.h>
@@ -11,7 +12,9 @@
 #include <lwip/ip_addr.h>
 #include <nvs.h>
 #include <nvs_flash.h>
+#include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #if !CONFIG_IDF_TARGET_ESP32P4
 #include <esp_smartconfig.h>
@@ -37,14 +40,57 @@ WifiConfigurationAp::WifiConfigurationAp() {
     remember_bssid_ = false;
 }
 
-void WifiConfigurationAp::UpdateAccessPoints(const std::vector<wifi_ap_record_t>& records) {
+void WifiConfigurationAp::UpdateAccessPoints(const wifi_ap_record_t* records, size_t count) {
     std::lock_guard<std::mutex> lock(mutex_);
-    ap_records_ = records;
+    if (!records || count == 0) {
+        portal_access_point_count_ = 0;
+        return;
+    }
+
+    // The station provides at most 32 records, in descending RSSI order.
+    constexpr size_t kPortalScanLimit = 32;
+    const size_t record_count = std::min(count, kPortalScanLimit);
+    if (record_count > portal_access_point_capacity_) {
+        auto* cache = static_cast<PortalAccessPoint*>(heap_caps_malloc_prefer(
+            record_count * sizeof(PortalAccessPoint), 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        if (!cache) {
+            ESP_LOGW(TAG, "Unable to allocate the portal Wi-Fi scan cache");
+            return;
+        }
+        portal_access_points_.reset(cache);
+        portal_access_point_capacity_ = record_count;
+    }
+
+    portal_access_point_count_ = 0;
+    for (size_t i = 0; i < record_count; ++i) {
+        const auto& record = records[i];
+        const auto* ssid = reinterpret_cast<const char*>(record.ssid);
+        const size_t length = strnlen(ssid, sizeof(record.ssid));
+        if (length == 0)
+            continue;
+        const auto* begin = portal_access_points_.get();
+        if (std::any_of(begin, begin + portal_access_point_count_, [&](const auto& point) {
+                return std::strlen(point.ssid) == length &&
+                       std::memcmp(point.ssid, ssid, length) == 0;
+            })) {
+            continue;
+        }
+        auto& point = portal_access_points_[portal_access_point_count_++];
+        std::memcpy(point.ssid, ssid, length);
+        point.ssid[length] = '\0';
+        point.rssi = record.rssi;
+        point.authmode = record.authmode;
+    }
 }
 
-std::vector<wifi_ap_record_t> WifiConfigurationAp::GetAccessPoints() {
+void WifiConfigurationAp::VisitAccessPoints(
+    const std::function<bool(const PortalAccessPoint&)>& visitor) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return ap_records_;
+    for (size_t i = 0; i < portal_access_point_count_; ++i) {
+        if (!visitor(portal_access_points_[i]))
+            break;
+    }
 }
 
 WifiConfigurationAp::~WifiConfigurationAp() {
@@ -235,7 +281,12 @@ void WifiConfigurationAp::StartWebServer() {
         config.keep_alive_count = 2;
     }
     config.uri_match_fn = httpd_uri_match_wildcard;
-    ESP_ERROR_CHECK(httpd_start(&server_, &config));
+    const auto err = httpd_start(&server_, &config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Unable to start portal HTTP server: %s", esp_err_to_name(err));
+        server_ = nullptr;
+        return;
+    }
     if (web_server_registrar_) {
         // The project portal owns every route on this server. Never expose the
         // legacy unguarded /submit or advanced configuration handlers.
@@ -856,7 +907,11 @@ void WifiConfigurationAp::WifiEventHandler(void* arg, esp_event_base_t event_bas
         esp_wifi_scan_get_ap_num(&ap_num);
 
         self->ap_records_.resize(ap_num);
-        esp_wifi_scan_get_ap_records(&ap_num, self->ap_records_.data());
+        if (!ap_num || esp_wifi_scan_get_ap_records(&ap_num, self->ap_records_.data()) != ESP_OK) {
+            ap_num = 0;
+            esp_wifi_clear_ap_list();
+        }
+        self->ap_records_.resize(ap_num);
 
         // 扫描完成，等待10秒后再次扫描
         esp_timer_start_once(self->scan_timer_, 10 * 1000000);

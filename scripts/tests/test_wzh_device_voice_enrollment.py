@@ -58,10 +58,11 @@ struct Application {
  std::atomic<bool> external_voice_preview_active_{false},voice_enrollment_active_{false},interaction_stopped_{false};
  std::atomic<long> voice_enrollment_resume_guard_until_us_{0}; Protocol protocol;Protocol* protocol_=&protocol;
  int aborted=0,cleared=0,resumed=0;
- bool device_voice_enrollment_from_chat_=false;
+ bool device_voice_enrollment_from_chat_=false,shutting_down=false;
  std::atomic<int> device_voice_enrollment_status_{0};std::atomic<unsigned> interaction_generation_{0},device_voice_enrollment_generation_{0};
  DeviceState state=kDeviceStateIdle; Audio audio_service_;std::vector<std::function<void()>> tasks;
  DeviceState GetDeviceState() const{return state;} void SetDeviceState(DeviceState v){state=v;}
+ bool IsShuttingDown() const{return shutting_down;}
  void AbortSpeaking(int){++aborted;} void ClearEarlyAudio(){++cleared;}
  void ResumeAfterVoiceEnrollment(unsigned){++resumed;voice_enrollment_active_.store(false);state=kDeviceStateListening;}
  void Schedule(std::function<void()> f){tasks.push_back(std::move(f));}
@@ -75,6 +76,11 @@ struct Application {
 int main() {
  Application app; auto& board=Board::GetInstance();
  assert(!app.RequestDeviceVoiceEnrollment(""));
+ app.shutting_down=true;assert(!app.RequestDeviceVoiceEnrollment("name"));
+ app.shutting_down=false;assert(app.RequestDeviceVoiceEnrollment("queued"));
+ app.shutting_down=true;app.Drain();
+ assert(!app.voice_enrollment_active_&&board.enrollment.name.empty()&&app.state==kDeviceStateIdle);
+ app.shutting_down=false;
  app.state=kDeviceStateConnecting;assert(!app.RequestDeviceVoiceEnrollment("name"));app.state=kDeviceStateIdle;
  assert(app.RequestDeviceVoiceEnrollment("妈妈"));assert(!std::strcmp(app.DeviceVoiceEnrollmentStatus(),"starting"));
  assert(!app.RequestDeviceVoiceEnrollment("other"));app.Drain();assert(board.enrollment.name=="妈妈");

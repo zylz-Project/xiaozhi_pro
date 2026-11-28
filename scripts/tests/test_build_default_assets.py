@@ -230,6 +230,44 @@ class BuildDefaultAssetsTest(unittest.TestCase):
         )
         self.assertTrue(all(entry["action"] == "wake" for entry in packaged))
 
+    def test_natural_wzh_phrases_keep_shared_and_board_specific_actions(self):
+        shared = {
+            "kai xin": "local:happy",
+            "yi qi wan ba": "local:happy",
+            "bao bao": "local:affection",
+            "gai chi fan le": "local:eat",
+            "xiu xi ba": "local:rest",
+            "ji xu wan ba": "local:wake",
+        }
+        body = {
+            "hui hui zuo shou": ("local:wave_left", {"crawl"}),
+            "hui hui you shou": ("local:wave_right", {"crawl"}),
+            "wang qian pa": ("local:crawl", {"crawl"}),
+            "shuai shuai wei ba": ("local:wag_tail", {"tail", "dinosaur"}),
+            "tai tai tou": ("local:look_up", {"dinosaur"}),
+            "di di tou": ("local:look_down", {"dinosaur"}),
+        }
+        for product in ("crawl", "tail", "dinosaur"):
+            with self.subTest(product=product):
+                commands = {entry["command"]: entry["text"]
+                            for entry in BUILD.wzh_offline_commands(product, True)}
+                for phrase, token in shared.items():
+                    self.assertEqual(commands.get(phrase), token)
+                for phrase, (token, products) in body.items():
+                    self.assertEqual(commands.get(phrase), token if product in products else None)
+
+    def test_shutdown_words_are_shared_without_rebinding_tail_commands(self):
+        expected = {"bai bai", "guan ji", "qing guan ji", "bai bai guan ji"}
+        for product in ("crawl", "tail", "dinosaur"):
+            with self.subTest(product=product):
+                commands = {entry["command"]: entry["text"]
+                            for entry in BUILD.wzh_offline_commands(product, True)}
+                self.assertEqual({phrase for phrase, token in commands.items()
+                                  if token == "local:shutdown"}, expected)
+                self.assertEqual(commands["wan an"], "local:rest")
+                if product != "crawl":
+                    self.assertEqual(commands["bai bai wei ba"], "local:wag_tail")
+
     def test_text_font_requires_bundle(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError):

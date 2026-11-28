@@ -5,10 +5,146 @@ import tempfile
 import unittest
 from pathlib import Path
 from test_wzh_action_queue import queue_function
+import test_firmware_runtime_optimizations as runtime_tests
 
 ROOT=Path(__file__).resolve().parents[2]
 
 class PortalNetworkTest(unittest.TestCase):
+    def test_portal_scan_cache_keeps_the_first_security_type_and_merges_saved_networks(self):
+        component = ROOT / 'project_components/esp-wifi-connect'
+        methods = (component / 'wifi_configuration_ap.cc').read_text()
+        record = queue_function((component / 'include/wifi_configuration_ap.h').read_text(),
+                                'struct PortalAccessPoint') + ';'
+        update = queue_function(methods, 'void WifiConfigurationAp::UpdateAccessPoints(')
+        visit = queue_function(methods, 'void WifiConfigurationAp::VisitAccessPoints(')
+        portal = (ROOT / 'main/boards/common/wzh/wzh_user_web.cc').read_text()
+        scan_route = queue_function(portal, 'if (path == "/scan")')
+        runtime_tests.FirmwareRuntimeOptimizationsTest.run_cpp(self, r'''
+#include "cJSON.h"
+#include "esp_log.h"
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <vector>
+
+constexpr int MALLOC_CAP_SPIRAM = 1, MALLOC_CAP_8BIT = 2, MALLOC_CAP_INTERNAL = 4;
+size_t bytes_allocated = 0;
+bool fail_allocation = false;
+void* heap_caps_malloc_prefer(size_t bytes, int count, int first, int second) {
+    assert(count == 2 && first == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    assert(second == (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (fail_allocation)
+        return nullptr;
+    bytes_allocated = bytes;
+    return std::malloc(bytes);
+}
+enum wifi_auth_mode_t { kOpen, kPersonal, kEnterprise };
+struct wifi_ap_record_t {
+    uint8_t ssid[33];
+    int8_t rssi;
+    wifi_auth_mode_t authmode;
+};
+struct WifiConfigurationAp {
+    ''' + record + r'''
+    std::mutex mutex_;
+    std::unique_ptr<PortalAccessPoint[], decltype(&std::free)> portal_access_points_{nullptr, std::free};
+    size_t portal_access_point_count_ = 0, portal_access_point_capacity_ = 0;
+    void UpdateAccessPoints(const wifi_ap_record_t*, size_t);
+    void VisitAccessPoints(const std::function<bool(const PortalAccessPoint&)>&);
+};
+''' + update + visit + r'''
+using Json = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
+struct httpd_req_t {
+    WifiConfigurationAp& portal;
+    Json response{nullptr, cJSON_Delete};
+};
+int httpd_resp_send_500(httpd_req_t*) { return 500; }
+int Error(httpd_req_t*, const char*, const char*, const char*) { return 401; }
+int JsonResponse(httpd_req_t* req, cJSON* object) {
+    // Nothing in the HTTP send path should hold the cache lock.
+    assert(req->portal.mutex_.try_lock());
+    req->portal.mutex_.unlock();
+    req->response.reset(cJSON_Duplicate(object, true));
+    return 200;
+}
+struct SsidItem { std::string ssid; };
+struct SsidManager {
+    static SsidManager& GetInstance() { static SsidManager manager; return manager; }
+    std::vector<SsidItem> GetSsidList() { return {{"Home"}, {"Saved elsewhere"}}; }
+};
+struct Wifi {
+    int scans = 0;
+    std::string GetSsid() const { return "Home"; }
+    bool RequestScan() { ++scans; return true; }
+};
+std::atomic<bool> setup_running_{false}, reset_running_{false};
+std::atomic<int64_t> last_scan_ms_{0};
+int Render(httpd_req_t* req, Wifi& wifi, int64_t now, bool session = true) {
+    const std::string_view path("/scan");
+    const bool local_accessible = true, have_saved = true, connected = true;
+    auto* portal_ = &req->portal;
+    ''' + scan_route + r'''
+    return 404;
+}
+wifi_ap_record_t AccessPoint(const std::string& name, int8_t rssi, wifi_auth_mode_t auth) {
+    wifi_ap_record_t record{};
+    std::memcpy(record.ssid, name.data(), std::min(name.size(), sizeof(record.ssid)));
+    record.rssi = rssi;
+    record.authmode = auth;
+    return record;
+}
+const cJSON* Field(const cJSON* object, const char* name) {
+    return cJSON_GetObjectItemCaseSensitive(object, name);
+}
+int main() {
+    static_assert(sizeof(WifiConfigurationAp::PortalAccessPoint) == 40);
+    WifiConfigurationAp portal;
+    Wifi wifi;
+    httpd_req_t request{portal};
+    const std::string full_name(32, 'x');
+    wifi_ap_record_t records[] = {AccessPoint("Home", -20, kEnterprise),
+        AccessPoint("", -22, kOpen), AccessPoint("Home", -45, kOpen),
+        AccessPoint(full_name, -60, kPersonal)};
+    portal.UpdateAccessPoints(records, 4);
+    assert(bytes_allocated == 160);
+    assert(Render(&request, wifi, 100, false) == 401 && wifi.scans == 0);
+    assert(Render(&request, wifi, 100) == 200 && wifi.scans == 1);
+    const auto* list = Field(request.response.get(), "aps");
+    assert(cJSON_GetArraySize(list) == 3);
+    const auto* strongest = cJSON_GetArrayItem(list, 0);
+    assert(std::string_view(Field(strongest, "ssid")->valuestring) == "Home");
+    assert(Field(strongest, "rssi")->valueint == -20);
+    assert(Field(strongest, "auth")->valueint == kEnterprise);
+    assert(cJSON_IsTrue(Field(strongest, "saved")) && cJSON_IsTrue(Field(strongest, "current")));
+    assert(Field(cJSON_GetArrayItem(list, 1), "ssid")->valuestring == full_name);
+    assert(cJSON_IsTrue(Field(cJSON_GetArrayItem(list, 2), "unavailable")));
+
+    // A new fetch uses the prior complete snapshot until an update arrives.
+    assert(Render(&request, wifi, 300) == 200 && wifi.scans == 1);
+    assert(cJSON_GetArraySize(Field(request.response.get(), "aps")) == 3);
+    wifi_ap_record_t larger[5]{};
+    fail_allocation = true;
+    portal.UpdateAccessPoints(larger, 5);
+    assert(Render(&request, wifi, 2100) == 200 && wifi.scans == 2);
+    assert(cJSON_GetArraySize(Field(request.response.get(), "aps")) == 3);
+
+    portal.UpdateAccessPoints(nullptr, 0);
+    assert(Render(&request, wifi, 2250) == 200);
+    list = Field(request.response.get(), "aps");
+    assert(cJSON_GetArraySize(list) == 2);
+    assert(cJSON_IsTrue(Field(cJSON_GetArrayItem(list, 0), "current")));
+    assert(cJSON_IsTrue(Field(cJSON_GetArrayItem(list, 1), "unavailable")));
+}
+''', use_json=True)
+
     def test_station_scan_request_does_not_reenter_manager_from_start_path(self):
         source = (ROOT / 'project_components/esp-wifi-connect/wifi_station.cc').read_text()
         method = queue_function(source, 'bool WifiStation::RequestScan(')
@@ -16,6 +152,105 @@ class PortalNetworkTest(unittest.TestCase):
         # RequestScan() runs from that path, so notifying through the manager
         # here would take the same mutex again and freeze every portal request.
         self.assertNotIn('on_scan_begin_()', method)
+
+    @unittest.skipUnless(shutil.which('g++'), 'g++ required')
+    def test_first_setup_releases_scan_buffer_and_coalesces_requests(self):
+        source = (ROOT / 'project_components/esp-wifi-connect/wifi_station.cc').read_text()
+        methods = '\n'.join(queue_function(source, marker) for marker in (
+            'bool WifiStation::RequestScan(', 'void WifiStation::HandleScanResult()'))
+        program = r'''
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+#define ESP_LOGI(...) ((void)0)
+#define ESP_LOGW(...) ((void)0)
+using esp_err_t = int;
+constexpr int ESP_OK = 0;
+int scans = 0, releases = 0, clears = 0;
+bool fetch_ok = true;
+const void* driver_buffer = nullptr;
+int64_t clock_us = 100;
+struct wifi_scan_config_t {};
+struct wifi_ap_record_t {
+    uint8_t ssid[33], bssid[6], primary, authmode;
+    int8_t rssi;
+};
+extern "C" void __real_free(void*);
+extern "C" void __wrap_free(void* data) {
+    if (data && data == driver_buffer) {
+        ++releases;
+        driver_buffer = nullptr;
+    }
+    __real_free(data);
+}
+int64_t esp_timer_get_time() { return clock_us; }
+int esp_wifi_scan_start(const wifi_scan_config_t*, bool) { ++scans; return ESP_OK; }
+void esp_wifi_scan_get_ap_num(uint16_t* count) { *count = 64; }
+void esp_wifi_clear_ap_list() { ++clears; }
+int esp_wifi_scan_get_ap_records(uint16_t* count, wifi_ap_record_t* records) {
+    assert(*count == 32);
+    driver_buffer = records;
+    records[0].rssi = -40;
+    return fetch_ok ? ESP_OK : -1;
+}
+void esp_timer_start_once(void*, int64_t) { assert(false); }
+struct SsidItem { std::string ssid, password; };
+struct SsidManager {
+    static SsidManager& GetInstance() { static SsidManager instance; return instance; }
+    std::vector<SsidItem> GetSsidList() { return {}; }
+};
+struct WifiApRecord {
+    std::string ssid, password;
+    uint8_t channel, authmode, bssid[6];
+};
+struct WifiStation {
+    std::atomic<int64_t> scan_started_us_{0};
+    bool persistent_ap_ = true, was_connected_ = false;
+    void* timer_handle_ = nullptr;
+    int scan_current_interval_microseconds_ = 0;
+    std::function<void(const wifi_ap_record_t*, size_t)> on_scan_results_;
+    std::vector<WifiApRecord> connect_queue_;
+    void UpdateScanInterval() { assert(false); }
+    void StartConnect() { assert(false); }
+    bool RequestScan(const wifi_scan_config_t* = nullptr);
+    void HandleScanResult();
+};
+''' + methods + r'''
+int main() {
+    WifiStation station;
+    int published = 0;
+    station.on_scan_results_ = [&](const wifi_ap_record_t* records, size_t count) {
+        assert(records == driver_buffer);
+        if (fetch_ok) assert(count == 32 && records[0].rssi == -40);
+        else assert(count == 0);
+        ++published;
+    };
+    assert(station.RequestScan() && station.RequestScan() && scans == 1);
+    station.HandleScanResult();
+    assert(published == 1 && releases == 1 && !driver_buffer);
+    fetch_ok = false;
+    ++clock_us;
+    assert(station.RequestScan() && scans == 2);
+    station.HandleScanResult();
+    assert(published == 2 && releases == 2 && clears == 1 && !driver_buffer);
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            cpp = Path(directory) / 'scan.cc'
+            binary = cpp.with_suffix('')
+            cpp.write_text(program)
+            result = subprocess.run(['g++', '-std=c++20', '-Wall', '-Wextra', '-Werror',
+                                     str(cpp), '-Wl,--wrap=free', '-o', str(binary)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            subprocess.run([str(binary)], check=True, timeout=5)
 
     def test_persistent_hotspot_leaves_radio_up_and_scans_on_demand_without_credentials(self):
         if not shutil.which('g++'):
@@ -56,7 +291,7 @@ int esp_timer_create(const esp_timer_create_args_t*,void**){return 0;}
 struct SsidManager{
     bool saved=false;
     static SsidManager& GetInstance(){static SsidManager db;return db;}
-    std::vector<int> GetSsidList()const{return saved?std::vector<int>{1}:std::vector<int>{};}
+    bool HasSavedNetworks()const{return saved;}
 };
 struct WifiStation{
     bool persistent_ap_=true;
@@ -100,7 +335,7 @@ int main(){
         source=(ROOT/'main/boards/common/wifi_board.cc').read_text()
         method='\n'.join(queue_function(source, name) for name in (
             'void WifiBoard::StartNetwork(', 'void WifiBoard::AnnounceMissingWifiCredentials(',
-            'void WifiBoard::CompleteDeferredWifiSetup('))
+            'void WifiBoard::CompleteDeferredWifiSetup(', 'void WifiBoard::OnWifiConnectTimeout('))
         program=r'''
 #include <cassert>
 #include <cstdint>
@@ -128,20 +363,22 @@ struct WifiManagerConfig{
  int station_scan_min_interval_seconds=0,station_scan_max_interval_seconds=0;
 };
 struct WifiManager{
- bool active=true;int station_starts=0;
+ bool active=true,connected=false;int station_starts=0,station_stops=0;
  static WifiManager& GetInstance(){static WifiManager w;return w;}
  void Initialize(const WifiManagerConfig&){}
  void SetEventCallback(std::function<void(WifiEvent,const std::string&)>){}
  void StartPersistentPortal(){}bool IsPersistentPortalActive(){return active;}
- void StartStation(){++station_starts;}bool IsConnected(){return false;}
+ void StartStation(){++station_starts;}void StopStation(){++station_stops;}
+ bool IsConnected(){return connected;}
  std::string GetApSsid(){return "pet";}std::string GetApWebUrl(){return "http://192.168.4.1";}
 };
 struct SsidManager{
  bool saved=false;static SsidManager& GetInstance(){static SsidManager s;return s;}
- std::vector<int> GetSsidList(){return saved?std::vector<int>{1}:std::vector<int>{};}
+ bool HasSavedNetworks()const{return saved;}
 };
-struct Board{bool cellular=false;int portal_ready=0;static Board& GetInstance(){static Board b;return b;}
- bool UsesCellularNetwork(){return cellular;}void OnLocalPortalReady(){++portal_ready;}};
+struct Board{bool cellular=false,probing=false;int portal_ready=0;static Board& GetInstance(){static Board b;return b;}
+ bool UsesCellularNetwork()const{return cellular;}bool IsNetworkProbing()const{return probing;}
+ void OnLocalPortalReady(){++portal_ready;}};
 constexpr int kDeviceStateIdle=1;
 struct Application{
  int state=0;static Application& GetInstance(){static Application a;return a;}
@@ -155,11 +392,13 @@ bool StartupOnboardingPending(){return onboarding_pending;}
 void RequestWifiSetupPrompt(){++prompts;}
 void MarkStartupNetworkReady(){++ready;}}
 struct WifiBoard{
- std::string wifi_ssid_prefix_="WZH";int prompts=0,fallbacks=0;bool deferred=false;void* connect_timer_=nullptr;
+ std::string wifi_ssid_prefix_="WZH";int prompts=0,fallbacks=0,legacy_portals=0;bool deferred=false;void* connect_timer_=nullptr;
  bool DeferWifiSetup(){return deferred;}
  void AnnounceMissingWifiCredentials();void CompleteDeferredWifiSetup();
  void OnNetworkEvent(NetworkEvent,const std::string& = ""){}
  void EnterWifiConfigMode(){++prompts;}void TryWifiConnect(){++fallbacks;}
+ void StartWifiConfigMode(){++legacy_portals;}
+ static void OnWifiConnectTimeout(void*);
  void StartNetwork();
 };
 '''+method+r'''
@@ -189,20 +428,28 @@ int main(){
  // First-time provisioning still needs the station: it is the sole owner
  // of the persistent portal's Wi-Fi scan cache.
  assert(WifiManager::GetInstance().station_starts==setup_scans+1);
- // A detected cellular module never announces Wi-Fi setup.
+ // Cellular handles its own offline fallback and announcements.
  Board::GetInstance().cellular=true;
  WifiBoard cell;cell.deferred=true;cell.StartNetwork();cell.CompleteDeferredWifiSetup();
- assert(wzh::prompts==3);
- // A tutorial that has not completed suppresses the cellular prompt, while a
- // second boot after the tutorial still asks for Wi-Fi credentials.
+ assert(wzh::prompts==2);
  wzh::onboarding_pending=true;
  WifiBoard first_cellular;first_cellular.deferred=true;first_cellular.StartNetwork();
- first_cellular.CompleteDeferredWifiSetup();assert(wzh::prompts==3);
+ first_cellular.CompleteDeferredWifiSetup();assert(wzh::prompts==2);
  wzh::onboarding_pending=false;
  // If the portal failed, a selected Wi-Fi fallback still starts provisioning.
  Board::GetInstance().cellular=false;WifiManager::GetInstance().active=false;
  WifiBoard no_portal;no_portal.deferred=true;no_portal.StartNetwork();
  assert(no_portal.fallbacks==0);no_portal.CompleteDeferredWifiSetup();assert(no_portal.fallbacks==1);
+ auto& wifi=WifiManager::GetInstance();auto& board=Board::GetInstance();
+ WifiBoard::OnWifiConnectTimeout(&no_portal);
+ assert(wifi.station_stops==1&&no_portal.legacy_portals==1);
+ wifi.active=true;
+ WifiBoard::OnWifiConnectTimeout(&configured);
+ assert(configured.prompts==1&&configured.legacy_portals==0&&wifi.station_stops==1);
+ board.cellular=true;WifiBoard::OnWifiConnectTimeout(&configured);
+ board.cellular=false;board.probing=true;WifiBoard::OnWifiConnectTimeout(&configured);
+ board.probing=false;wifi.connected=true;WifiBoard::OnWifiConnectTimeout(&configured);
+ assert(configured.prompts==1&&configured.legacy_portals==0&&wifi.station_stops==1);
 }
 '''
         with tempfile.TemporaryDirectory() as d:

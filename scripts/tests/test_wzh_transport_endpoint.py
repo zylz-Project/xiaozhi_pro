@@ -83,7 +83,8 @@ class TransportEndpointTest(unittest.TestCase):
         self.assertEqual(depth_at(self.source, post_pos), 0,
                          'POST half must sit at Handle() top level, not inside the GET block')
         self.assertIn('std::strcmp(transport, "cellular")', post_body)
-        self.assertIn('Ok(req', post_body)
+        self.assertIn('"202 Accepted"', post_body)
+        self.assertIn('AddNetworkTransportStatus(', post_body)
 
     def test_switch_does_not_require_an_online_transport(self):
         # The NET_OFFLINE gate exists for voice management; a transport switch is
@@ -106,8 +107,7 @@ class TransportEndpointTest(unittest.TestCase):
         block = self.source[status_start:status_end]
         self.assertNotIn('if (!session)', block,
                          '/api/status must answer transport polls without a session')
-        self.assertIn('"transport"', block)
-        self.assertIn('"transport_switchable"', block)
+        self.assertIn('AddNetworkTransportStatus(', block)
 
     def test_offline_dinosaur_routes_through_login(self):
         # A 4G to Wi-Fi switch can change the AP channel and invalidate the

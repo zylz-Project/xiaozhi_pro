@@ -185,12 +185,12 @@ void PandaPower::Shutdown() {
 
 void PandaPower::EmergencyShutdown() {
     shutting_down_.store(true);
-    ESP_LOGE(TAG, "Critical battery voltage: immediate shutdown without servo movement");
     if (auto* output = servo_output_.load()) {
         output->SetFault(wzh::kShutdown, true);
     }
     gpio_set_level(SERVO_POWER_GPIO, 0);
     gpio_set_level(POWER_CTRL_GPIO, 0);
+    ESP_LOGE(TAG, "Critical battery voltage: immediate shutdown without servo movement");
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -242,6 +242,10 @@ void PandaPower::ReadBattery(uint32_t now) {
     const bool previous_low = battery_protection_.low();
     battery_protection_.Update(battery_mv, battery_rest_voltage_.RestReady(now), BATTERY_LOW_MV,
                                BATTERY_RECOVER_MV, BATTERY_CRITICAL_MV);
+    if (battery_protection_.critical()) {
+        EmergencyShutdown();
+        return;
+    }
     battery_protection_mv_.store(battery_protection_.millivolts());
     if (previous_low != battery_protection_.low())
         ESP_LOGW(TAG, "Battery protection low=%d live=%dmV stable=%dmV ready=%d",
@@ -251,8 +255,6 @@ void PandaPower::ReadBattery(uint32_t now) {
         output->SetFault(wzh::kLowBattery, battery_protection_.low());
         output->SetFault(wzh::kBatteryPending, !battery_protection_.ready());
     }
-    if (battery_protection_.critical())
-        EmergencyShutdown();
     if (battery_rest_voltage_.Update(battery_mv, now)) {
         const int rest_mv = battery_rest_voltage_.millivolts();
         battery_voltage_mv_.store(rest_mv);
@@ -317,10 +319,7 @@ void PandaPower::Task() {
     uint32_t last_battery_log_ms = 0;
 
     while (true) {
-        if (auto_shutdown_requested_.load()) {
-            // 10 分钟无互动：这里直接走完整 Shutdown()，它在播完 OGG_POWER_OFF
-            // 后才断开电源锁存，与长按关机共用同一套顺序。
-            ESP_LOGI(TAG, "Auto shutdown after idle timeout");
+        if (shutdown_requested_.exchange(false)) {
             Shutdown();
         }
         if (auto* output = servo_output_.load()) {
@@ -342,7 +341,7 @@ void PandaPower::Task() {
         // The analog key crosses the gray band between pressed and released.
         // A lone transition sample neither advances the key nor cancels a tap.
         const bool gray_sample = !power_sample_valid && power_err == ESP_OK && !sample_gap;
-        const bool skip_gray_sample = gray_sample && !previous_gray_sample;
+        const bool skip_gray_sample = armed && gray_sample && !previous_gray_sample;
         previous_gray_sample = gray_sample;
         int hold_ms = 0;
 
@@ -361,14 +360,15 @@ void PandaPower::Task() {
             power_adc_fault = false;
             switch (state) {
                 case BtnState::kIdle:
-                    if (pressed) {
+                    if (pressed && armed) {
                         state = BtnState::kDebouncePress;
                         state_since_ms = now;
-                    } else if (!armed) {
-                        // 上电后第一次确认释放 → 武装长按关机。
-                        armed = true;
-                        boot_hold_logged = false;
-                        ESP_LOGI(TAG, "Power key released; long-press shutdown armed");
+                    } else if (!pressed && !armed) {
+                        state = BtnState::kDebounceRelease;
+                        state_since_ms = now;
+                    } else if (pressed && !boot_hold_logged) {
+                        boot_hold_logged = true;
+                        ESP_LOGI(TAG, "Power key held before stable release; press ignored");
                     }
                     break;
 
@@ -376,15 +376,6 @@ void PandaPower::Task() {
                     if (!pressed) {
                         state = BtnState::kIdle;  // 毛刺，复位
                     } else if (now - state_since_ms >= POWER_DEBOUNCE_MS) {
-                        if (!armed) {
-                            // 上电期间一直按着：不进入长按计时，等松开。
-                            if (!boot_hold_logged) {
-                                boot_hold_logged = true;
-                                ESP_LOGI(TAG, "Power key held during boot; long-press ignored");
-                            }
-                            state = BtnState::kIdle;
-                            break;
-                        }
                         state = BtnState::kPressed;  // 消抖确认按下
                         press_start_ms = now;
                         hold_tip = 0;
@@ -419,8 +410,16 @@ void PandaPower::Task() {
 
                 case BtnState::kDebounceRelease:
                     if (pressed) {
-                        state = BtnState::kPressed;  // 没松干净，回到按住
+                        state = armed ? BtnState::kPressed : BtnState::kIdle;
                     } else if (now - state_since_ms >= POWER_DEBOUNCE_MS) {
+                        if (!armed) {
+                            // 上电或采样故障后，确认稳定释放才允许长按关机。
+                            armed = true;
+                            boot_hold_logged = false;
+                            state = BtnState::kIdle;
+                            ESP_LOGI(TAG, "Power key released; long-press shutdown armed");
+                            break;
+                        }
                         const int dur =
                             press_start_ms != 0 ? static_cast<int>(now - press_start_ms) : 0;
                         ESP_LOGI(TAG, "Power key released (held %d ms)", dur);
@@ -471,7 +470,7 @@ void PandaPower::Task() {
             touch_code_.store(touch_event.code);
             const bool accept_interaction = touch_filter.AcceptInteraction(touch_event);
             if (touch_event.code < 0) {
-                ESP_LOGW(TAG, "[TOUCH] invalid voltage=%dmV; cancel contact until released",
+                ESP_LOGW(TAG, "[TOUCH] contact canceled until released (sample=%dmV)",
                          touch_event.voltage_mv);
                 if (touch_hook_ready_.load(std::memory_order_acquire) && touch_hook_)
                     touch_hook_(0xFF, false);
@@ -527,8 +526,8 @@ void PandaPower::Task() {
                     measured_mv);
             if (valid && measured_mv > 0 && measured_mv <= 4600) {
                 battery_live_mv_.store(measured_mv);
-                // Early readings below the motion threshold can still be biased
-                // by the divider settling. Publish the first percentage once qualified.
+                // Show a usable estimate early. Servo power still needs the
+                // separate qualification window below.
                 if (measured_mv > BATTERY_LOW_MV) {
                     const int target = wzh::BatteryLevelFromVoltage(
                         measured_mv, BATTERY_EMPTY_VOLTAGE_MV, BATTERY_FULL_VOLTAGE_MV);
@@ -539,25 +538,14 @@ void PandaPower::Task() {
                 battery_level_.store(battery_display_level_.OnMissingSample(now));
                 battery_sample_valid_.store(false);
             }
-            if (valid && measured_mv > BATTERY_LOW_MV && measured_mv <= 4600) {
-                if (auto* output = servo_output_.load()) {
-                    battery_protection_.InitializeFromStartupSample(
-                        measured_mv, BATTERY_LOW_MV, BATTERY_RECOVER_MV, BATTERY_CRITICAL_MV);
-                    battery_protection_mv_.store(battery_protection_.millivolts());
-                    output->SetFault(wzh::kLowBattery, false);
-                    output->SetFault(wzh::kBatteryPending, false);
-                    battery_settled = true;
-                    last_battery_sample_ms = now;
-                    ESP_LOGI(TAG, "Battery startup sample accepted: %d mV", measured_mv);
-                }
-            }
             if (now - last_fast_battery_log_ms >= 3000) {
                 last_fast_battery_log_ms = now;
                 ESP_LOGI(TAG,
                          "Fast battery probe: %lu ms calibration=%s valid=%s measured=%d mV "
-                         "motion_threshold=%d mV",
+                         "motion_threshold=%.0f mV",
                          static_cast<unsigned long>(now), battery_adc_cali_ ? "yes" : "no",
-                         valid ? "yes" : "no", measured_mv, BATTERY_LOW_MV);
+                         valid ? "yes" : "no", measured_mv,
+                         wzh::FastBatteryStart::RequiredMillivolts(now, BATTERY_RECOVER_MV));
             }
             if (!battery_settled &&
                 fast_battery.Observe(now, valid, measured_mv, BATTERY_RECOVER_MV)) {

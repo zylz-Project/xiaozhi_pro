@@ -13,6 +13,8 @@
 #include <cJSON.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <nvs.h>
+#include <sys/time.h>
 #ifdef SOC_HMAC_SUPPORTED
 #include <esp_hmac.h>
 #endif
@@ -20,10 +22,120 @@
 #include <algorithm>
 #include <charconv>
 #include <cstring>
+#include <limits>
 #include <sstream>
+#include <string_view>
 #include <vector>
 
 #define TAG "Ota"
+
+namespace {
+
+bool IsUsableProtocolAddress(std::string_view value, bool websocket) {
+    if (value.find_first_of(" \t\r\n") != std::string_view::npos)
+        return false;
+    if (websocket) {
+        const auto scheme_end = value.find("://");
+        if (scheme_end == std::string_view::npos || scheme_end == 0)
+            return false;
+        value.remove_prefix(scheme_end + 3);
+    } else if (value.find('/') != std::string_view::npos) {
+        return false;
+    }
+    return !value.empty() && value.front() != ':' && value.front() != '/';
+}
+
+bool StoreProtocolSettings(const char* name, const char* address_key, const cJSON* config) {
+    if (!cJSON_IsObject(config))
+        return false;
+
+    nvs_handle_t handle = 0;
+    esp_err_t result = nvs_open(name, NVS_READWRITE, &handle);
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "Cannot open %s settings: %s", name, esp_err_to_name(result));
+        return false;
+    }
+
+    // NVS permits up to 4000 bytes per string, including the terminator.
+    constexpr size_t kNvsStringSize = 4000;
+    bool wrote_setting = false;
+    const bool websocket = std::string_view(address_key) == "url";
+    const cJSON* item = nullptr;
+    cJSON_ArrayForEach (item, config) {
+        if (!item->string || item->string[0] == '\0' ||
+            std::strlen(item->string) >= NVS_KEY_NAME_MAX_SIZE) {
+            continue;
+        }
+        const bool address = std::strcmp(item->string, address_key) == 0;
+        if (cJSON_IsString(item) && std::strlen(item->valuestring) < kNvsStringSize) {
+            if (address && !IsUsableProtocolAddress(item->valuestring, websocket))
+                continue;
+            result = nvs_set_str(handle, item->string, item->valuestring);
+        } else if (!address && cJSON_IsNumber(item) && item->valuedouble == item->valueint) {
+            result = nvs_set_i32(handle, item->string, item->valueint);
+        } else {
+            continue;
+        }
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "Cannot write %s settings: %s", name, esp_err_to_name(result));
+            break;
+        }
+        wrote_setting = true;
+    }
+
+    bool usable = false;
+    if (wrote_setting) {
+        const auto commit = nvs_commit(handle);
+        if (commit != ESP_OK) {
+            ESP_LOGW(TAG, "Cannot commit %s settings: %s", name, esp_err_to_name(commit));
+        } else if (result == ESP_OK) {
+            // Partial responses can reuse an endpoint previously stored for
+            // this protocol. Empty sections must not select a protocol.
+            size_t length = 0;
+            if (nvs_get_str(handle, address_key, nullptr, &length) == ESP_OK && length > 1 &&
+                length <= kNvsStringSize) {
+                std::string address(length, '\0');
+                if (nvs_get_str(handle, address_key, address.data(), &length) == ESP_OK) {
+                    usable = IsUsableProtocolAddress(address.c_str(), websocket);
+                }
+            }
+        }
+    }
+    nvs_close(handle);
+    return usable;
+}
+
+bool ApplyServerTime(const cJSON* config) {
+    if (!cJSON_IsObject(config))
+        return false;
+
+    auto* timestamp = cJSON_GetObjectItem(config, "timestamp");
+    // Keep floating-point conversion and the offset calculation in range.
+    constexpr int64_t kMaxTimestampMs = 253402300799999LL;  // End of year 9999.
+    if (!cJSON_IsNumber(timestamp) ||
+        !(timestamp->valuedouble >= 0 && timestamp->valuedouble <= kMaxTimestampMs)) {
+        return false;
+    }
+
+    int64_t local_ms = static_cast<int64_t>(timestamp->valuedouble);
+    if (auto* offset = cJSON_GetObjectItem(config, "timezone_offset"); offset != nullptr) {
+        constexpr int kMinutesPerDay = 24 * 60;
+        if (!cJSON_IsNumber(offset) || offset->valuedouble != offset->valueint ||
+            offset->valueint < -kMinutesPerDay || offset->valueint > kMinutesPerDay) {
+            return false;
+        }
+        local_ms += static_cast<int64_t>(offset->valueint) * 60000;
+    }
+    if (local_ms < 0 || local_ms > kMaxTimestampMs ||
+        local_ms / 1000 > std::numeric_limits<time_t>::max()) {
+        return false;
+    }
+    const timeval time{.tv_sec = static_cast<time_t>(local_ms / 1000),
+                       .tv_usec = static_cast<suseconds_t>(local_ms % 1000) * 1000};
+    return settimeofday(&time, nullptr) == 0;
+}
+
+}  // namespace
 
 Ota::Ota() {
 #ifdef ESP_EFUSE_BLOCK_USR_DATA
@@ -77,6 +189,7 @@ std::unique_ptr<Http> Ota::SetupHttp() {
 
 esp_err_t Ota::FetchVersionResponse(const std::string& url, const std::string& payload,
                                     cJSON*& response) {
+    constexpr size_t kMaxConfigResponseSize = 16 * 1024;
     auto& board = Board::GetInstance();
     // ML307 can report a ready PDP context before the first DNS request works.
     // Retry transport failures briefly on the activation worker, before the
@@ -103,9 +216,28 @@ esp_err_t Ota::FetchVersionResponse(const std::string& url, const std::string& p
                          status.error().ToString().c_str());
             } else if (*status == 200) {
                 const size_t expected = http->GetBodyLength();
-                const auto data = http->ReadAll();
+                const size_t limit = expected == 0 ? kMaxConfigResponseSize : expected;
+                std::string data;
+                bool complete = false;
+                if (limit <= kMaxConfigResponseSize) {
+                    std::string buffer(512, '\0');
+                    while (true) {
+                        const size_t remaining = limit - data.size();
+                        const size_t requested = std::min(buffer.size(), remaining + 1);
+                        const auto count = http->Read(buffer.data(), requested);
+                        if (!count || *count < 0 || static_cast<size_t>(*count) > remaining ||
+                            static_cast<size_t>(*count) > requested) {
+                            break;
+                        }
+                        if (*count == 0) {
+                            complete = expected == 0 || data.size() == expected;
+                            break;
+                        }
+                        data.append(buffer.data(), static_cast<size_t>(*count));
+                    }
+                }
                 http->Close();
-                if (!data.empty() && (expected == 0 || data.size() == expected)) {
+                if (complete && !data.empty()) {
                     const char* end = nullptr;
                     auto* root = cJSON_ParseWithLengthOpts(data.c_str(), data.size() + 1, &end, 1);
                     if (cJSON_IsObject(root) && end == data.c_str() + data.size()) {
@@ -185,72 +317,13 @@ esp_err_t Ota::CheckVersion() {
         }
     }
 
-    has_mqtt_config_ = false;
-    cJSON* mqtt = cJSON_GetObjectItem(root, "mqtt");
-    if (cJSON_IsObject(mqtt)) {
-        Settings settings("mqtt", true);
-        cJSON* item = NULL;
-        cJSON_ArrayForEach (item, mqtt) {
-            if (cJSON_IsString(item)) {
-                if (settings.GetString(item->string) != item->valuestring) {
-                    settings.SetString(item->string, item->valuestring);
-                }
-            } else if (cJSON_IsNumber(item)) {
-                if (settings.GetInt(item->string) != item->valueint) {
-                    settings.SetInt(item->string, item->valueint);
-                }
-            }
-        }
-        has_mqtt_config_ = true;
-    } else {
-        ESP_LOGI(TAG, "No mqtt section found !");
-    }
+    has_mqtt_config_ = StoreProtocolSettings("mqtt", "endpoint", cJSON_GetObjectItem(root, "mqtt"));
+    has_websocket_config_ =
+        StoreProtocolSettings("websocket", "url", cJSON_GetObjectItem(root, "websocket"));
 
-    has_websocket_config_ = false;
-    cJSON* websocket = cJSON_GetObjectItem(root, "websocket");
-    if (cJSON_IsObject(websocket)) {
-        Settings settings("websocket", true);
-        cJSON* item = NULL;
-        cJSON_ArrayForEach (item, websocket) {
-            if (cJSON_IsString(item)) {
-                if (settings.GetString(item->string) != item->valuestring) {
-                    settings.SetString(item->string, item->valuestring);
-                }
-            } else if (cJSON_IsNumber(item)) {
-                if (settings.GetInt(item->string) != item->valueint) {
-                    settings.SetInt(item->string, item->valueint);
-                }
-            }
-        }
-        has_websocket_config_ = true;
-    } else {
-        ESP_LOGI(TAG, "No websocket section found!");
-    }
-
-    has_server_time_ = false;
-    cJSON* server_time = cJSON_GetObjectItem(root, "server_time");
-    if (cJSON_IsObject(server_time)) {
-        cJSON* timestamp = cJSON_GetObjectItem(server_time, "timestamp");
-        cJSON* timezone_offset = cJSON_GetObjectItem(server_time, "timezone_offset");
-
-        if (cJSON_IsNumber(timestamp)) {
-            // 设置系统时间
-            struct timeval tv;
-            double ts = timestamp->valuedouble;
-
-            // 如果有时区偏移，计算本地时间
-            if (cJSON_IsNumber(timezone_offset)) {
-                ts += (timezone_offset->valueint * 60 * 1000);  // 转换分钟为毫秒
-            }
-
-            tv.tv_sec = (time_t)(ts / 1000);                          // 转换毫秒为秒
-            tv.tv_usec = (suseconds_t)((long long)ts % 1000) * 1000;  // 剩余的毫秒转换为微秒
-            settimeofday(&tv, NULL);
-            has_server_time_ = true;
-        }
-    } else {
-        ESP_LOGW(TAG, "No server_time section found!");
-    }
+    has_server_time_ = ApplyServerTime(cJSON_GetObjectItem(root, "server_time"));
+    if (!has_server_time_)
+        ESP_LOGW(TAG, "Server time unavailable");
 
 #if CONFIG_ENABLE_ONLINE_UPDATES
     has_new_version_ = false;
@@ -518,7 +591,6 @@ std::string Ota::GetActivationPayload() {
     cJSON_free(json_str);
     cJSON_Delete(payload);
 
-    ESP_LOGI(TAG, "Activation payload: %s", json.c_str());
     return json;
 }
 
@@ -529,6 +601,10 @@ esp_err_t Ota::Activate() {
     }
 
     std::string url = GetCheckVersionUrl();
+    if (url.empty()) {
+        ESP_LOGW(TAG, "Activation URL unavailable");
+        return ESP_ERR_INVALID_ARG;
+    }
     if (url.back() != '/') {
         url += "/activate";
     } else {
@@ -557,8 +633,7 @@ esp_err_t Ota::Activate() {
         return ESP_ERR_TIMEOUT;
     }
     if (*status_code != 200) {
-        ESP_LOGE(TAG, "Failed to activate, code: %d, body: %s", *status_code,
-                 http->ReadAll().c_str());
+        ESP_LOGE(TAG, "Failed to activate, code: %d", *status_code);
         return ESP_FAIL;
     }
 

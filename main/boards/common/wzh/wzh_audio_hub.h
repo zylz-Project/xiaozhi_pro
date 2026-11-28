@@ -110,7 +110,6 @@ private:
     AudioStore* store_ = nullptr;
     std::function<bool()> interaction_busy_;
     std::string device_id_;
-    std::string server_;
     std::string api_token_;
     std::string claim_token_;
     std::string activation_code_;

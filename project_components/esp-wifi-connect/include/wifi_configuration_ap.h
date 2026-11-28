@@ -2,6 +2,7 @@
 #define _WIFI_CONFIGURATION_AP_H_
 
 #include <atomic>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -25,6 +26,12 @@
  */
 class WifiConfigurationAp {
 public:
+    struct PortalAccessPoint {
+        char ssid[sizeof(wifi_ap_record_t::ssid) + 1];
+        int8_t rssi;
+        wifi_auth_mode_t authmode;
+    };
+
     WifiConfigurationAp();
     ~WifiConfigurationAp();
 
@@ -39,7 +46,9 @@ public:
     void SetShowOtaConfig(bool show) { show_ota_config_ = show; }
     void SetShowSleepConfig(bool show) { show_sleep_config_ = show; }
     void SetPersistentMode(bool enabled) { persistent_mode_ = enabled; }
-    void UpdateAccessPoints(const std::vector<wifi_ap_record_t>& records);
+    void UpdateAccessPoints(const wifi_ap_record_t* records, size_t count);
+    // The visitor runs under the scan cache lock and must not perform network I/O.
+    void VisitAccessPoints(const std::function<bool(const PortalAccessPoint&)>& visitor);
     // Last disconnect reason observed while a portal credential trial was
     // running; 0 when the trial timed out or no reason was reported.
     int LastConnectFailureReason() const { return last_failure_reason_.load(); }
@@ -53,7 +62,6 @@ public:
 #endif
     bool ConnectToWifi(const std::string& ssid, const std::string& password);
     void Save(const std::string& ssid, const std::string& password);
-    std::vector<wifi_ap_record_t> GetAccessPoints();
     std::string GetSsid();
     std::string GetWebServerUrl();
 
@@ -79,6 +87,10 @@ private:
     bool persistent_mode_ = false;
     esp_netif_t* ap_netif_ = nullptr;
     std::vector<wifi_ap_record_t> ap_records_;
+    std::unique_ptr<PortalAccessPoint[], decltype(&std::free)> portal_access_points_{
+        nullptr, std::free};
+    size_t portal_access_point_count_ = 0;
+    size_t portal_access_point_capacity_ = 0;
 
     // 高级配置项
     std::string ota_url_;

@@ -17,19 +17,20 @@ namespace voice_tts {
 class VoiceWeb {
 public:
     uint32_t Command(const std::string& action, const std::string& id, const std::string& name);
-    // On success takes ownership of the PSRAM buffer; on failure caller keeps it.
-    bool Upload(uint8_t* data, size_t length);
+    // A nonzero request takes ownership of the PSRAM buffer. On failure the caller keeps it.
+    uint32_t Upload(uint8_t* data, size_t length);
     bool Cancel();
     bool Busy() const { return busy_.load(); }
     bool BusyWithMutation() {
         std::lock_guard<std::mutex> lock(mutex_);
         return busy_.load() && action_ != "list";
     }
-    void AddStatus(cJSON* out);
+    void AddStatus(cJSON* out, bool include_catalog = true);
 
 private:
     static void TaskEntry(void* context);
     void Run();
+    uint32_t TrackRequestLocked();
     std::mutex mutex_;
     std::atomic<bool> busy_{false};
     std::atomic<bool> cancelled_{false};

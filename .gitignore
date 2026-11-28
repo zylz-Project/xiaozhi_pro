@@ -4,7 +4,8 @@ components/*
 managed_components/
 build/
 dist/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 .devcontainer/
 sdkconfig.old
 sdkconfig

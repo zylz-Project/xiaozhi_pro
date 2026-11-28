@@ -132,6 +132,15 @@ void MqttProtocol::OnNetworkReady() {
     esp_timer_start_once(reconnect_timer_, kLinkResumeRetryMs * 1000);
 }
 
+void MqttProtocol::CloseTransport() {
+    alive_->store(false);
+    OnNetworkLost();
+    esp_timer_stop(reconnect_timer_);
+    CloseAudioChannel(false);
+    std::lock_guard<std::mutex> lock(mqtt_mutex_);
+    mqtt_.reset();
+}
+
 bool MqttProtocol::DeferUntilReconnectFinishes(std::function<void()> resume) {
     if (!reconnect_running_)
         return false;
@@ -301,9 +310,9 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
         if (strcmp(type->valuestring, "hello") == 0) {
             ParseServerHello(root);
         } else if (strcmp(type->valuestring, "goodbye") == 0) {
-            auto session_id = cJSON_GetObjectItem(root, "session_id");
+            auto id = cJSON_GetObjectItem(root, "session_id");
             ESP_LOGI(TAG, "Received goodbye message");
-            if (cJSON_IsString(session_id) && session_id_ == session_id->valuestring) {
+            if (cJSON_IsString(id) && session_id() == id->valuestring) {
                 std::weak_ptr<Udp> channel;
                 {
                     std::lock_guard<std::mutex> lock(channel_mutex_);
@@ -508,7 +517,7 @@ void MqttProtocol::CloseAudioChannel(bool send_goodbye) {
     // Don't send if server already sent goodbye (to avoid ping-pong)
     if (send_goodbye) {
         std::string message = "{";
-        message += "\"session_id\":\"" + session_id_ + "\",";
+        message += "\"session_id\":\"" + session_id() + "\",";
         message += "\"type\":\"goodbye\"";
         message += "}";
         SendText(message);
@@ -564,7 +573,7 @@ bool MqttProtocol::OpenAudioChannel() {
     }
 
     error_occurred_ = false;
-    session_id_ = "";
+    SetSessionId({});
     xEventGroupClearBits(event_group_handle_, MQTT_PROTOCOL_SERVER_HELLO_EVENT);
 
     auto message = GetHelloMessage();
@@ -719,7 +728,7 @@ void MqttProtocol::ParseServerHello(const cJSON* root) {
 
     auto session_id = cJSON_GetObjectItem(root, "session_id");
     if (cJSON_IsString(session_id)) {
-        session_id_ = session_id->valuestring;
+        SetSessionId(session_id->valuestring);
         ESP_LOGI(TAG, "Session established");
     }
 

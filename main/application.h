@@ -181,6 +181,19 @@ private:
     int64_t next_touch_input_us_ = 0;  // Main task only.
     void SendPendingTouchConversationInput();
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    struct CellularAudioSend {
+        std::shared_ptr<Protocol> protocol;
+        std::unique_ptr<AudioStreamPacket> packet;
+        uint32_t protocol_generation;
+        uint32_t interaction_generation;
+    };
+    TaskHandle_t cellular_audio_task_ = nullptr;
+    std::mutex cellular_audio_mutex_;
+    CellularAudioSend cellular_audio_send_{};
+    bool cellular_audio_in_flight_ = false;  // Main task only.
+    void QueueCellularAudioSend();
+    void RunCellularAudioSend();
+    void HandleCellularAudioSendFailure();
     std::atomic<bool> cellular_server_connected_{false};
     std::atomic<bool> conversation_transport_disconnected_{false};
     uint32_t disconnect_recovery_generation_ = 0;
@@ -278,6 +291,7 @@ private:
         false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ =
         false;  // Waiting for playback to drain before starting listening (auto mode)
+    bool wake_word_rearm_pending_ = false;  // Main task only.
     // Double-click entry only: play the ready prompt before opening the mic.
     // Wake-word and other original XiaoZhi entry paths keep their behavior.
     bool entry_prompt_before_listening_ = false;
@@ -302,6 +316,7 @@ private:
     void HandleNetworkDisconnectedEvent();
     void HandleActivationDoneEvent();
     void HandleWakeWordDetectedEvent();
+    void ServiceWakeWordRearm();
     void ContinueOpenAudioChannel(ListeningMode mode);
     void BeginWakeWordInvoke(const std::string& wake_word);
     void ContinueWakeWordInvoke(const std::string& wake_word);

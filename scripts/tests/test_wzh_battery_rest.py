@@ -180,7 +180,8 @@ int adc_oneshot_read(int,int channel,int* value){
 int AdcToMv(int,int raw){return raw;}
 struct Output{
     unsigned flags=wzh::kBatteryPending;
-    void SetFault(wzh::MotionFault f,bool on){if(on)flags|=f;else flags&=~unsigned(f);}
+    unsigned updates=0;
+    void SetFault(wzh::MotionFault f,bool on){++updates;if(on)flags|=f;else flags&=~unsigned(f);}
 };
 struct Power{
     int adc_=0,battery_adc_cali_=0,shutdowns=0;
@@ -257,7 +258,9 @@ int main(){
     assert(p.out.flags&wzh::kBatteryPending);
     sample(3700);assert(!(p.out.flags&wzh::kBatteryPending));
     sample(2980);sample(2980);assert(p.shutdowns==0);
+    const auto fault_updates=p.out.updates;
     sample(2980);assert(p.shutdowns==1);
+    assert(p.out.updates==fault_updates); // Emergency cutoff comes before ordinary fault publication.
 }
 ''')
 

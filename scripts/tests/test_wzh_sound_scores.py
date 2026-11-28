@@ -49,16 +49,36 @@ int main(){
     std::vector<File> files;
     for(int i=0;i<32;++i){File f{};std::snprintf(f.name,64,"file%02d",i);files.push_back(f);}
     wzh::SoundCoverage bag;
+    wzh::SoundCoverage<32> paired;
+    wzh::SoundCoverage<128,32> flash;
     for(int cycle=0;cycle<4;++cycle){
         std::vector<std::string> chosen;
         for(int i=0;i<32;++i){
-            int n=bag.Select(files,17U*i+unsigned(cycle));assert(n>=0);
+            const auto random=17U*i+unsigned(cycle);
+            int n=bag.Select(files,random);assert(n>=0);
+            assert(paired.Select(files,random)==n&&flash.Select(files,random)==n);
             const std::string name=files[n].name;
             assert(std::find(chosen.begin(),chosen.end(),name)==chosen.end());
             assert(bag.Select(files,17U*i+unsigned(cycle))==n); // rejected queue consumes nothing
             bag.Remember(files,files[n].name);chosen.push_back(name);
+            paired.Remember(files,files[n].name);
+            flash.Remember(files,files[n].name);
             std::reverse(files.begin(),files.end());
         }
+    }
+    // Flash replacement can accumulate history beyond the current 32 entries.
+    wzh::SoundCoverage original;
+    wzh::SoundCoverage<128,32> rotating_flash;
+    for(unsigned i=0;i<31;++i){
+        original.Remember(files,files[i].name);
+        rotating_flash.Remember(files,files[i].name);
+    }
+    for(unsigned i=0;i<110;++i){
+        std::snprintf(files.back().name,64,"replacement%03u",i);
+        const auto n=original.Select(files,17U*i);
+        assert(n>=0&&rotating_flash.Select(files,17U*i)==n);
+        original.Remember(files,files[n].name);
+        rotating_flash.Remember(files,files[n].name);
     }
     files={File{"call1"},File{"call2"},File{"long ambience",10,"ambient"}};
     wzh::SoundCoverage panda;

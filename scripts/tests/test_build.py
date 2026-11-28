@@ -40,29 +40,26 @@ class VersionTests(unittest.TestCase):
             build._version_matches((6, 0, 1), "~=6.0")
 
     def test_only_the_three_wzh_products_remain_buildable(self):
-        # This fork keeps only the three WZH toys; the upstream board matrix was
-        # deliberately removed. This pins that fact and the invariants that still
-        # matter: unique names, a resolvable Kconfig symbol, and a CMake branch.
+        expected_names = {
+            "wzh_crawlPanda": "wzh-crawlpanda",
+            "wzh_dinosaur": "wzh-dinosaur-270-servo",
+            "wzh_tailRedPanda": "wzh-tailredpanda",
+        }
         for idf_version in ((5, 5, 4), (6, 0, 1), (6, 1, 0)):
-            variants = build._collect_variants(idf_version=idf_version)
-            names = [variant["full_name"] for variant in variants]
-            self.assertEqual(len(names), len(set(names)), idf_version)
+            with self.subTest(idf_version=idf_version):
+                variants = build._collect_variants(idf_version=idf_version)
+                self.assertEqual(len(variants), len(expected_names))
+                self.assertEqual(
+                    {variant["board"]: variant["full_name"] for variant in variants},
+                    expected_names,
+                )
+                for variant in variants:
+                    self.assertEqual(
+                        build._select_variant(variant["board"], variants),
+                        expected_names[variant["board"]],
+                    )
 
         idf6 = build._collect_variants(idf_version=(6, 0, 1))
-        boards = {variant["board"] for variant in idf6}
-        self.assertEqual(
-            boards,
-            {"wzh_crawlPanda", "wzh_dinosaur", "wzh_tailRedPanda"},
-        )
-        idf6_names = {variant["full_name"] for variant in idf6}
-        for expected in (
-            "wzh-crawlpanda",
-            "wzh-crawlpanda-barge-in",
-            "wzh-dinosaur-270-servo",
-            "wzh-tailredpanda",
-            "wzh-tailredpanda-barge-in",
-        ):
-            self.assertIn(expected, idf6_names)
         self.assertEqual(
             {variant["type"] for variant in idf6},
             {"wzh-crawlpanda", "wzh-dinosaur", "wzh-tailredpanda"},
@@ -325,19 +322,6 @@ class BoardSelectionTests(unittest.TestCase):
             build._get_board_display_name("CONFIG_BOARD_TYPE_WZH_CRAWLPANDA"),
             "WZH Crawl Panda",
         )
-
-    def test_variant_name_disambiguates_shared_board_directory(self):
-        # Two variants share one board directory here too (barge-in vs. plain),
-        # and both must resolve to the same board symbol.
-        board = "wzh_crawlPanda"
-        for variant in ("wzh-crawlpanda", "wzh-crawlpanda-barge-in"):
-            with self.subTest(variant=variant):
-                self.assertEqual(
-                    build._resolve_board_config(
-                        board, "esp32s3", [], variant_name=variant
-                    ),
-                    "CONFIG_BOARD_TYPE_WZH_CRAWLPANDA",
-                )
 
     def test_wzh_board_directories_resolve_their_kconfig_symbols(self):
         cases = {

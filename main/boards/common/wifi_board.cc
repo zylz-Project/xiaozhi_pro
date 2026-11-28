@@ -15,6 +15,7 @@
 #include <esp_network.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <memory>
 #include <utility>
 
 #include <material_symbols.h>
@@ -159,7 +160,7 @@ void WifiBoard::StartNetwork() {
 void WifiBoard::AnnounceMissingWifiCredentials() {
 #if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
     CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
-    if (!SsidManager::GetInstance().GetSsidList().empty())
+    if (SsidManager::GetInstance().HasSavedNetworks())
         return;
 #if CONFIG_WZH_SYSTEM_PROMPTS
     Application::GetInstance().Schedule([]() {
@@ -179,24 +180,15 @@ void WifiBoard::AnnounceMissingWifiCredentials() {
 }
 
 void WifiBoard::CompleteDeferredWifiSetup() {
-    if (Board::GetInstance().UsesCellularNetwork()) {
-        // 4G can carry the cloud link while Wi-Fi credentials are still
-        // missing. Do not start the station beside the modem, but keep the
-        // first-time provisioning reminder for the next boot after the
-        // tutorial. The prompt worker gates it until startup audio is clear.
-        if (SsidManager::GetInstance().GetSsidList().empty() &&
-            !wzh::StartupOnboardingPending()) {
-            AnnounceMissingWifiCredentials();
-        }
+    if (Board::GetInstance().UsesCellularNetwork())
         return;
-    }
     if (WifiManager::GetInstance().IsPersistentPortalActive()) {
         // Probing deferred the station: Wi-Fi won, so start it now. The
         // persistent portal relies on the station as its single scan owner;
         // without this, a first-time setup page sees an empty network list.
         auto& wifi = WifiManager::GetInstance();
         wifi.StartStation();
-        if (SsidManager::GetInstance().GetSsidList().empty()) {
+        if (!SsidManager::GetInstance().HasSavedNetworks()) {
             AnnounceMissingWifiCredentials();
         } else {
             // StartStation() does not run the legacy connection timer. Without
@@ -212,7 +204,7 @@ void WifiBoard::CompleteDeferredWifiSetup() {
 
 void WifiBoard::TryWifiConnect() {
     auto& ssid_manager = SsidManager::GetInstance();
-    bool have_ssid = !ssid_manager.GetSsidList().empty();
+    bool have_ssid = ssid_manager.HasSavedNetworks();
 
     if (have_ssid) {
         // Start connection attempt with timeout
@@ -274,9 +266,27 @@ void WifiBoard::SetNetworkEventCallback(NetworkEventCallback callback) {
 
 void WifiBoard::OnWifiConnectTimeout(void* arg) {
     auto* board = static_cast<WifiBoard*>(arg);
+    auto& wifi = WifiManager::GetInstance();
+    if (wifi.IsConnected())
+        return;
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR || \
+    CONFIG_BOARD_TYPE_WZH_TAILREDPANDA
+    if (wifi.IsPersistentPortalActive()) {
+        // The portal is already open. Keep the station retrying saved networks
+        // so the product recovers when the router comes back.
+        Application::GetInstance().Schedule([board]() {
+            const auto& product = Board::GetInstance();
+            if (!product.UsesCellularNetwork() && !product.IsNetworkProbing() &&
+                !WifiManager::GetInstance().IsConnected()) {
+                board->EnterWifiConfigMode();
+            }
+        });
+        return;
+    }
+#endif
     ESP_LOGW(TAG, "WiFi connection timeout, entering config mode");
 
-    WifiManager::GetInstance().StopStation();
+    wifi.StopStation();
     board->StartWifiConfigMode();
 }
 
@@ -398,19 +408,24 @@ const char* WifiBoard::GetNetworkStateIcon() {
 
 std::string WifiBoard::GetBoardJson() {
     auto& wifi = WifiManager::GetInstance();
-    std::string json = R"({"type":")" + std::string(BOARD_TYPE) + R"(",)";
-    json += R"("name":")" + std::string(BOARD_NAME) + R"(",)";
-    json += R"("manufacturer":")" + std::string(BOARD_MANUFACTURER) + R"(",)";
+    auto root = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>(cJSON_CreateObject(), cJSON_Delete);
+    if (!root)
+        return "{}";
+    cJSON_AddStringToObject(root.get(), "type", BOARD_TYPE);
+    cJSON_AddStringToObject(root.get(), "name", BOARD_NAME);
+    cJSON_AddStringToObject(root.get(), "manufacturer", BOARD_MANUFACTURER);
 
     if (!wifi.IsConfigMode()) {
-        json += R"("ssid":")" + wifi.GetSsid() + R"(",)";
-        json += R"("rssi":)" + std::to_string(wifi.GetRssi()) + R"(,)";
-        json += R"("channel":)" + std::to_string(wifi.GetChannel()) + R"(,)";
-        json += R"("ip":")" + wifi.GetIpAddress() + R"(",)";
+        cJSON_AddStringToObject(root.get(), "ssid", wifi.GetSsid().c_str());
+        cJSON_AddNumberToObject(root.get(), "rssi", wifi.GetRssi());
+        cJSON_AddNumberToObject(root.get(), "channel", wifi.GetChannel());
+        cJSON_AddStringToObject(root.get(), "ip", wifi.GetIpAddress().c_str());
     }
 
-    json += R"("mac":")" + SystemInfo::GetMacAddress() + R"("})";
-    return json;
+    cJSON_AddStringToObject(root.get(), "mac", SystemInfo::GetMacAddress().c_str());
+    auto json = std::unique_ptr<char, decltype(&cJSON_free)>(cJSON_PrintUnformatted(root.get()),
+                                                             cJSON_free);
+    return json ? json.get() : "{}";
 }
 
 void WifiBoard::SetPowerSaveLevel(PowerSaveLevel level) {

@@ -264,8 +264,16 @@ int main(){
  // A failed task creation must allow a later retry in the same boot.
  store.clear();wifi_online=false;audio.played.clear();clock_ms=0;audio.until=0;wzh::started.store(false);
  wzh::stopping.store(false);fail_create=true;worker=nullptr;wzh::StartOnboarding();
- assert(!wzh::started.load()&&!wzh::worker_running.load());fail_create=false;
+ assert(!wzh::started.load()&&!wzh::worker_running.load());
+ assert(!wzh::OnboardingBlocksConversation()&&!wzh::IsOnboardingIntroPending());
+ fail_create=false;
  wzh::StartOnboarding();assert(worker);worker(nullptr);assert(audio.played.size()==13);
+ // A corrupt progress record cannot keep conversation disabled for this boot.
+ store[key(1,"progress")]={255,0,0,0,0,0,0,0};
+ wzh::started.store(false);worker=nullptr;
+ wzh::StartOnboarding();assert(worker&&wzh::OnboardingBlocksConversation());worker(nullptr);
+ assert(!wzh::OnboardingBlocksConversation()&&!wzh::IsOnboardingIntroPending());
+ assert(!wzh::IsOnboardingWorkerRunning()&&audio.played.size()==13);
  // Wi-Fi alone does not start the introduction or suppress idle behavior.
  store.clear();wifi_online=false;audio.played.clear();clock_ms=0;audio.until=0;press_double_click=false;stop_late_wait=true;
  idle_wait_checks=0;

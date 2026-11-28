@@ -75,6 +75,14 @@ public:
             ++candidate_count_;
         }
 
+        // An active contact cannot span an unobserved interval. Publish a
+        // cancellation before the new samples can extend it into a stroke.
+        if (sample_gap && published_code_ > 0) {
+            event = {-1, published_code_, voltage_mv, 0};
+            published_code_ = -1;
+            return true;
+        }
+
         const uint32_t stable_ms = now - candidate_since_ms_;
         if (candidate_count_ < stable_samples_ || code == published_code_ ||
             (code == 0 && stable_ms < kReleaseMs)) {

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <new>
 
 #include <esp_log.h>
 #include <esp_random.h>
@@ -623,16 +624,20 @@ bool AudioStore::EraseAll(std::string* error) {
 }
 
 bool AudioStore::EraseAllAsync(std::function<void(bool)> on_done) {
-    auto* args = new AsyncEraseArgs{this, std::move(on_done)};
+    auto* args = new (std::nothrow) AsyncEraseArgs{this, std::move(on_done)};
+    if (!args)
+        return false;
     auto trampoline = [](void* arg) {
-        std::unique_ptr<AsyncEraseArgs> ctx(static_cast<AsyncEraseArgs*>(arg));
-        std::string error;
-        const bool ok = ctx->self->EraseAll(&error);
-        if (!ok) {
-            ESP_LOGE(TAG, "后台全片擦除失败: %s", error.c_str());
-        }
-        if (ctx->on_done) {
-            ctx->on_done(ok);
+        {
+            std::unique_ptr<AsyncEraseArgs> ctx(static_cast<AsyncEraseArgs*>(arg));
+            std::string error;
+            const bool ok = ctx->self->EraseAll(&error);
+            if (!ok) {
+                ESP_LOGE(TAG, "后台全片擦除失败: %s", error.c_str());
+            }
+            if (ctx->on_done) {
+                ctx->on_done(ok);
+            }
         }
         vTaskDelete(nullptr);
     };

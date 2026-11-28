@@ -10,6 +10,64 @@ class WzhLivelyMotionTest(unittest.TestCase):
     def run_cpp(self, source):
         motion_tests.WzhFluentMotionTest.run_cpp(self, source)
 
+    def test_dinosaur_uses_sentence_style_before_emotion_and_clears_after_the_speech_tail(self):
+        main = Path(__file__).resolve().parents[2] / 'main'
+        board = main / 'boards/wzh_dinosaur'
+        source = (board / 'dinosaur_controller.cc').read_text()
+        methods = '\n'.join(queue_function(source, signature) for signature in (
+            'void DinosaurController::SetSpeaking(',
+            'void DinosaurController::ClearSpeechHints(',
+            'wzh::SpeechIntent DinosaurController::GetSpeechIntent(',
+            'void DinosaurController::HandleLlmEmotion(',
+            'void DinosaurController::HandleUserSpeechEmotion(',
+            'void DinosaurController::HandleAssistantSpeech(',
+        ))
+        self.run_cpp(f'#include "{board / "dinosaur_speech_intent.h"}"\n'
+                     f'#include "{main / "boards/common/wzh/voice_tts/voice_text_filter.h"}"\n' + r'''
+#include <atomic>
+#include <cassert>
+#include <cstring>
+#include "wzh_body_commands.h"
+using wzh::SpeechIntent;
+int64_t esp_timer_get_time() { return 1000000; }
+struct DinosaurController {
+    std::atomic<bool> conversation_active_{false}, speaking_{false}, speech_tail_{false};
+    std::atomic<int64_t> speech_started_us_{0};
+    std::atomic<SpeechIntent> sentence_intent_{SpeechIntent::kNeutral};
+    std::atomic<SpeechIntent> server_intent_{SpeechIntent::kNeutral};
+    std::atomic<SpeechIntent> user_intent_{SpeechIntent::kNeutral};
+    std::atomic<SpeechIntent> speech_tail_intent_{SpeechIntent::kNeutral};
+    bool HandlePetControl(wzh::PetControl) { return false; }
+    void SetSpeaking(bool);
+    void ClearSpeechHints();
+    SpeechIntent GetSpeechIntent() const;
+    void HandleLlmEmotion(const char*);
+    void HandleUserSpeechEmotion(const char*);
+    void HandleAssistantSpeech(const char*);
+};
+''' + methods + r'''
+int main() {
+    DinosaurController controller;
+    controller.HandleLlmEmotion("happy");
+    controller.conversation_active_ = true;
+    controller.HandleUserSpeechEmotion("今天我有点不开心。");
+    assert(controller.GetSpeechIntent() == SpeechIntent::kNeutral);
+    controller.SetSpeaking(true);
+    assert(controller.speech_started_us_ == 1000000);
+    assert(controller.GetSpeechIntent() == SpeechIntent::kComfort);
+    controller.HandleLlmEmotion("happy");
+    controller.HandleLlmEmotion("neutral");
+    assert(controller.GetSpeechIntent() == SpeechIntent::kJoy);
+    controller.HandleAssistantSpeech("你想听听看吗？");
+    controller.HandleAssistantSpeech("% search_music...");
+    assert(controller.GetSpeechIntent() == SpeechIntent::kQuestion);
+    controller.SetSpeaking(false);
+    assert(controller.GetSpeechIntent() == SpeechIntent::kQuestion);
+    controller.SetSpeaking(true);
+    assert(controller.GetSpeechIntent() == SpeechIntent::kNeutral);
+}
+''')
+
     def test_real_pcm_silence_keeps_the_phrase_alive_then_releases_without_twitching(self):
         source=(Path(__file__).resolve().parents[2]/'main/boards/common/wzh/wzh_audio_player.cc').read_text()
         methods='\n'.join(queue_function(source,marker) for marker in [
@@ -89,6 +147,47 @@ int main(){
         }
         assert(signatures.size()>=6);
     }
+}
+''')
+
+    def test_dinosaur_interprets_reply_style_without_matching_commands_or_question_words(self):
+        header = (motion_tests.ROOT /
+                  'main/boards/wzh_dinosaur/dinosaur_speech_intent.h')
+        self.run_cpp(f'#include "{header}"\n' + r'''
+#include <cassert>
+#include <string>
+using wzh::SpeechIntent;
+using wzh_dino::AssistantSpeechIntent;
+using wzh_dino::ServerSpeechIntent;
+
+int main() {
+    assert(AssistantSpeechIntent("太棒了，我们成功了！") == SpeechIntent::kJoy);
+    assert(AssistantSpeechIntent("我知道你今天不开心。") == SpeechIntent::kComfort);
+    assert(AssistantSpeechIntent("你并不高兴。") != SpeechIntent::kJoy);
+    assert(AssistantSpeechIntent("我没有那么开心。") == SpeechIntent::kComfort);
+    assert(AssistantSpeechIntent("你看起来没有开心起来。") == SpeechIntent::kComfort);
+    assert(AssistantSpeechIntent("别担心，我来给你讲个故事。") == SpeechIntent::kComfort);
+    assert(AssistantSpeechIntent("从前，一只难过的小熊想听故事。") == SpeechIntent::kStory);
+    assert(AssistantSpeechIntent("从前，有人问小熊：“你今天不开心吗？”") == SpeechIntent::kStory);
+    assert(AssistantSpeechIntent("这个故事好听吗？") == SpeechIntent::kQuestion);
+    assert(AssistantSpeechIntent("我来告诉你为什么会这样。") == SpeechIntent::kNeutral);
+    assert(AssistantSpeechIntent("我来说明该怎么做。") == SpeechIntent::kNeutral);
+    assert(AssistantSpeechIntent("那你知道答案吗 \n") == SpeechIntent::kQuestion);
+    assert(AssistantSpeechIntent("你想听哪一个？") == SpeechIntent::kQuestion);
+    assert(AssistantSpeechIntent("你好，我在呢。") == SpeechIntent::kGreeting);
+    assert(AssistantSpeechIntent("晚安，做个好梦。") == SpeechIntent::kSleep);
+    assert(AssistantSpeechIntent("将尾巴向左转，然后停下。") == SpeechIntent::kNeutral);
+    assert(AssistantSpeechIntent(std::string(1536, 'x') + "太棒了？") == SpeechIntent::kNeutral);
+
+    assert(ServerSpeechIntent("excited") == SpeechIntent::kJoy);
+    assert(ServerSpeechIntent("worried") == SpeechIntent::kComfort);
+    assert(ServerSpeechIntent("sleepy") == SpeechIntent::kSleep);
+    assert(ServerSpeechIntent("thinking") == SpeechIntent::kQuestion);
+    assert(ServerSpeechIntent("neutral") == SpeechIntent::kNeutral);
+    assert(ServerSpeechIntent("normal") == SpeechIntent::kNeutral);
+    assert(ServerSpeechIntent("warning") == SpeechIntent::kNeutral);
+    assert(ServerSpeechIntent("unhappy") == SpeechIntent::kNeutral);
+    assert(ServerSpeechIntent("") == SpeechIntent::kNeutral);
 }
 ''')
 

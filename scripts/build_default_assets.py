@@ -31,14 +31,19 @@ def wzh_offline_commands(product=None, keyword_barge=False):
     # numbered tone variants. Duplicating tones is invalid and wastes slots.
     phrases = [
         ('lai wan ba', 'happy'), ('pei wo wan', 'happy'), ('gen wo da zhao hu', 'happy'),
-        ('bao bao wo', 'affection'), ('guo lai bao bao', 'affection'),
+        ('kai xin', 'happy'), ('yi qi wan ba', 'happy'),
+        ('bao bao wo', 'affection'), ('guo lai bao bao', 'affection'), ('bao bao', 'affection'),
         ('chi fan la', 'eat'), ('chi yi kou', 'eat'), ('gei ni chi hao chi de', 'eat'),
-        ('shui jiao ba', 'sleepy'), ('wan an', 'rest'), ('xiu xi yi xia', 'rest'),
+        ('gai chi fan le', 'eat'),
+        ('shui jiao ba', 'sleepy'), ('wan an', 'rest'), ('xiu xi yi xia', 'rest'), ('xiu xi ba', 'rest'),
         ('an jing', 'quiet'), ('an jing yi dian', 'quiet'), ('xiao sheng yi dian', 'quiet'),
         ('xing xing', 'wake'), ('qi lai wan ba', 'wake'), ('zan men ji xu wan', 'wake'),
+        ('ji xu wan ba', 'wake'),
         ('ting', 'stop'), ('ting xia', 'stop'), ('bie dong', 'stop'), ('xian bie dong', 'stop'),
         ('ting zhi dong zuo', 'stop'), ('bu yao yao wei ba', 'stop'),
         ('bie yao tou', 'stop'), ('bu yao dong', 'stop'),
+        ('bai bai', 'shutdown'), ('guan ji', 'shutdown'), ('qing guan ji', 'shutdown'),
+        ('bai bai guan ji', 'shutdown'),
     ]
     masks = {'crawl': 1, 'tail': 2, 'dinosaur': 4, None: 7}
     if product not in masks:

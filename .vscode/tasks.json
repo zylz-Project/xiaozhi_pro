@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "WZH 选择产品并烧录现成固件",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "-c",
+        "source \"$1/export.sh\" && python \"$2\" \"$3\" --port \"$4\"",
+        "wzh-flash",
+        "${config:idf.currentSetup}",
+        "${workspaceFolder}/scripts/flash_prebuilt.py",
+        "${input:wzhFirmware}",
+        "${config:idf.port}"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "wzhFirmware",
+      "type": "pickString",
+      "description": "选择与 USB 设备同型号的固件，三款均有 USB 日志",
+      "options": [
+        { "label": "爬爬熊猫", "value": "wzh-crawlpanda" },
+        { "label": "摇尾小熊猫", "value": "wzh-tailredpanda" },
+        { "label": "小恐龙 4G（270° 舵机）", "value": "wzh-dinosaur-270-servo" }
+      ]
+    }
+  ]
+}

@@ -10,6 +10,7 @@
 #include "external_tts.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "voice_text_batch.h"
 
 namespace voice_tts {
 class VoiceSession final : public ExternalTts {
@@ -36,7 +37,7 @@ private:
         uint32_t generation = 0;
     };
     std::mutex mutex_;
-    std::deque<std::string> queue_;
+    std::deque<QueuedText> queue_;
     std::function<void(bool)> completion_;
     std::atomic<uint32_t> generation_{0};
     std::atomic<uint32_t> active_generation_{0};

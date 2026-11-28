@@ -27,6 +27,8 @@ struct BuiltinVoice {
     const char* id;
     const char* description;
 };
+inline constexpr char kNativeVoiceId[] = "xiaozhi-native";
+inline constexpr char kNativeVoiceName[] = "原声";
 // Qwen-Audio 3.1 TTS Flash, Beijing region, per Ali's model-specific list.
 inline constexpr BuiltinVoice kBuiltinVoices[] = {
     {"龙安欢", "longanhuan_v3.1", "活泼亲切"},      {"龙安灵心", "longanlingxin_v3.1", "温柔自然"},

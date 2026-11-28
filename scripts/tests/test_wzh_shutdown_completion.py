@@ -363,8 +363,12 @@ int main(){Board b;assert(!b.IsAudioMaintenanceActive());
                                  ('wzh_crawlPanda', 'panda', 'PandaPower'),
                                  ('wzh_dinosaur', 'dinosaur', 'DinosaurPower')]:
             with self.subTest(board=board):
-                source = (ROOT/'main/boards'/board/(stem+'_power.cc')).read_text()
+                folder = ROOT/'main/boards'/board
+                source = (folder/(stem+'_power.cc')).read_text()
                 shutdown = queue_function(source, 'void '+cls+'::Shutdown()')
+                request = queue_function((folder/(stem+'_power.h')).read_text(),
+                                         'void RequestShutdown()')
+                dispatch = queue_function(source, 'if (shutdown_requested_.exchange(false))')
                 program = r'''
 #include <atomic>
 #include <cassert>
@@ -390,20 +394,27 @@ namespace wzh{
 struct Application{static Application& GetInstance(){static Application a;return a;}
  void StopInteraction(){}};
 struct POWER_CLASS{
- std::atomic<bool> shutting_down_{false},shutdown_hook_ready_{false};
+ std::atomic<bool> shutting_down_{false},shutdown_hook_ready_{false},shutdown_requested_{false};
  std::atomic<Output*> servo_output_{nullptr};std::function<void()>shutdown_hook_;
+ REQUEST_METHOD
+ void ProcessRequests(){DISPATCH}
  void Shutdown();void ReadBattery(uint32_t now){++battery_checks;
   if(critical_at&&now>=critical_at){gpio_set_level(SERVO_POWER_GPIO,0);gpio_set_level(POWER_CTRL_GPIO,0);}}
 };
 SHUTDOWN_METHOD
 int main(){
- POWER_CLASS normal;try{normal.Shutdown();}catch(PowerCut&){}
+ POWER_CLASS normal;normal.ProcessRequests();
+ normal.RequestShutdown();normal.RequestShutdown();
+ assert(normal.shutdown_requested_.load()&&!normal.shutting_down_.load()&&clock_ms==0);
+ try{normal.ProcessRequests();}catch(PowerCut&){}
+ assert(!normal.shutdown_requested_.load());
  assert(normal.shutting_down_&&clock_ms==5500&&speech_calls==1&&battery_checks==5);
  clock_ms=0;critical_at=1000;battery_checks=speech_calls=0;servo_off=false;
  POWER_CLASS critical;try{critical.Shutdown();}catch(PowerCut&){}
  assert(clock_ms==1000&&speech_calls==0&&servo_off);
 }
-'''.replace('POWER_CLASS', cls).replace('SHUTDOWN_METHOD', shutdown)
+'''.replace('POWER_CLASS', cls).replace('SHUTDOWN_METHOD', shutdown).replace(
+    'REQUEST_METHOD', request).replace('DISPATCH', dispatch)
                 self.compile_run(program)
 
 

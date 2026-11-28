@@ -320,6 +320,7 @@ int main(){
 #include <vector>
 #define CONFIG_USE_AUDIO_DEBUGGER 0
 constexpr int TAG=0,AUDIO_POWER_CHECK_INTERVAL_MS=1000;
+constexpr int kRealtimeInputSamples=160;
 template<class...T>void Log(T...){ }
 #define ESP_LOGI(...) Log(__VA_ARGS__)
 #define ESP_LOGD(...) Log(__VA_ARGS__)
@@ -343,6 +344,7 @@ struct Codec{
 struct AudioService{
  Codec codec;Codec*codec_=&codec;int audio_power_timer_=0;
  void*input_resampler_=this;std::mutex input_resampler_mutex_,audio_queue_mutex_;
+ std::vector<int16_t>input_resample_scratch_;
  VoiceBargeIn voice_barge_in_;
  std::atomic<bool>voice_detected_{false};
  uint32_t reference_log_frames_=0,reference_active_frames_=0,reference_clipped_frames_=0;
@@ -551,7 +553,7 @@ int main(){
 }
 ''')
 
-    def test_current_product_builds_enable_keyword_interruption(self):
+    def test_current_product_builds_use_usb_logs_and_keyword_interruption(self):
         for board, identity, wake_word in [
             ('wzh_crawlPanda', 'wzh-crawlpanda', 'wn9_nihaoxiaoan_tts2'),
             ('wzh_dinosaur', 'wzh-dinosaur', 'wn9_xiaolongxiaolong_tts'),
@@ -565,7 +567,10 @@ int main(){
                     self.assertEqual(build['default_wake_word'],wake_word)
                     settings=build['sdkconfig_append']
                     self.assertEqual(len(settings),len({s.split('=',1)[0] for s in settings}))
-                    for setting in ['CONFIG_WZH_OFFLINE_COMMANDS=y',
+                    for setting in ['CONFIG_ESP_CONSOLE_NONE=n',
+                                    'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y',
+                                    'CONFIG_WZH_OFFLINE_COMMANDS=y',
+                                    'CONFIG_SR_MN_CN_MULTINET7_QUANT=y',
                                     'CONFIG_USE_AFE_WAKE_WORD=y',
                                     'CONFIG_USE_AUDIO_DEBUGGER=n',
                                     'CONFIG_VOICE_BARGE_IN_SHADOW=n']:
@@ -581,9 +586,6 @@ int main(){
                                 'CONFIG_SR_NSN_NSNET2=n', 'CONFIG_SR_NSN_WEBRTC=y']
                     for setting in expected:
                         self.assertIn(setting, build['sdkconfig_append'])
-                    if build['name'].endswith('-barge-in'):
-                        self.assertIn('CONFIG_ESP_CONSOLE_NONE=n', settings)
-                        self.assertIn('CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y', settings)
 
     def test_all_product_codecs_enable_reference_only_for_barge_in(self):
         for board in ['wzh_crawlPanda','wzh_dinosaur','wzh_tailRedPanda']:
@@ -727,7 +729,8 @@ int main(){
         program = program.replace('ExternalTts* GetExternalTts(){return nullptr;}',
                                   'bool HandleLocalVoiceCommand(const std::string&){return true;}\n    bool SupportsLocalInteraction(){return true;}\n    ExternalTts* GetExternalTts(){return nullptr;}')
         program = program.replace('void HandleVoiceInterruptionEvent();',
-                                  'void HandleVoiceInterruptionEvent();void HandleWakeWordDetectedEvent();')
+                                  'void HandleVoiceInterruptionEvent();void HandleWakeWordDetectedEvent();\n'
+                                  '    bool wake_word_rearm_pending_=false;')
         self.run_cpp('#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n'+program+wake+r'''
 int main(){
  Application app;app.Install();app.protocol.opened=true;app.state=kDeviceStateSpeaking;
@@ -787,6 +790,7 @@ struct Application{
  BargeInReplyGate barge_in_reply_gate_;std::atomic<bool>interaction_stopped_{false},local_assets_applied_{true},voice_enrollment_active_{false};
  std::atomic<uint32_t>interaction_generation_{17};
  bool entry_prompt_before_listening_=true,play_popup_on_listening_=false,pending_listening_start_=false;
+ bool wake_word_rearm_pending_=false;
  int aborts=0,invokes=0,mode_changes=0;
  DeviceState GetDeviceState(){return state;}void SetDeviceState(DeviceState next){state=next;}
  void ConfigureWakeWordForListening(){}int GetDefaultListeningMode(){return 0;}
@@ -823,7 +827,8 @@ int main(){
  Application local;board.consume_local=true;local.HandleWakeWordDetectedEvent();
  assert(local.invokes==0&&local.audio_service_.wake);board.consume_local=false;
  Application maintenance;board.maintenance=true;maintenance.HandleWakeWordDetectedEvent();
- assert(maintenance.invokes==0&&maintenance.audio_service_.enables==0);board.maintenance=false;
+ assert(maintenance.invokes==0&&maintenance.audio_service_.enables==0&&maintenance.wake_word_rearm_pending_);
+ board.maintenance=false;
 }
 '''
         for enabled in [0,1]:
@@ -989,6 +994,7 @@ constexpr int kAbortReasonNone=0,kAbortReasonWakeWordDetected=1;
 constexpr int kListeningModeRealtime=2,kListeningModeAutoStop=1;
 struct Protocol{
  std::string session_id_="session";std::vector<std::string>messages;
+ std::string session_id()const{return session_id_;}
  bool SendText(const std::string&s){messages.push_back(s);return true;}
  void SendAbortSpeaking(AbortReason);void SendStartListening(ListeningMode);
 };

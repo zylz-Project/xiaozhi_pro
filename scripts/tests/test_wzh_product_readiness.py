@@ -109,6 +109,7 @@ struct Controller{
     wzh::PetBehavior pet_;std::atomic<uint32_t>intent_generation_{0};std::atomic<int>pending_expression_{-1};
     std::atomic<bool>stop_audio_requested_{false},conversation_active_{false};Output servo_output_;int shows=0;
     wzh::AutoplayCadence autoplay_;
+    void ClearSpeechHints(){pending_expression_.store(-1);}
     bool TriggerAction(Action,bool,wzh::PetPriority){++shows;return true;}
     bool HandlePetControl(wzh::PetControl,bool respond=true);
 };
@@ -156,7 +157,8 @@ struct Controller{
 };
 struct Application{std::string word;static Application& GetInstance(){static Application a;return a;}
  void WakeWordInvoke(const std::string& s){word=s;}};
-struct TestBoard{Audio local_audio_;Controller controller_;
+struct Power{void RequestShutdown(){}};
+struct TestBoard{Audio local_audio_;Controller controller_;Power power_;
  bool HandleLocalVoiceCommand(const std::string& command);};
 __METHOD__
 int main(){
@@ -465,6 +467,76 @@ int main() {
 }
 ''')
 
+    def test_factory_hub_ignores_saved_server_and_preserves_credentials(self):
+        kconfig = (ROOT/'main/Kconfig.projbuild').read_text()
+        factory_config = kconfig.split('\nconfig WZH_AUDIO_SYNC_SERVER\n', 1)[1].split('\n\n', 1)[0]
+        self.assertEqual(factory_config.strip().splitlines()[0], 'string')
+        self.assertIn('default "http://192.168.1.111:9091"', factory_config)
+        source = (COMMON/'wzh_audio_hub.cc').read_text()
+        methods = '\n'.join(queue_function(source, signature) for signature in (
+            'bool AudioHub::InitializeClient(', 'std::string AudioHub::ServerUrl(',
+        ))
+        self.run_cpp(r'''
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <map>
+#include <string>
+
+constexpr char CONFIG_WZH_AUDIO_SYNC_SERVER[] = "http://192.168.1.111:9091";
+constexpr int ESP_MAC_WIFI_STA = 0, ESP_OK = 0;
+int esp_read_mac(uint8_t* result, int type) {
+    assert(type == ESP_MAC_WIFI_STA);
+    const uint8_t mac[] = {0xA0, 0x01, 0xB2, 0x03, 0xC4, 0x05};
+    std::memcpy(result, mac, sizeof(mac));
+    return ESP_OK;
+}
+std::map<std::string, std::map<std::string, std::string>> nvs{
+    {"audio_hub", {{"api_token", "bearer"}, {"claim_token", "claim"}, {"act_code", "2468"}}},
+    {"audio_sync", {{"revision", "product-r9"}}},
+    {"voice", {{"ali_key", "custom-key"}}},
+};
+struct Settings {
+    std::string scope;
+    Settings(const char* ns, bool writable = false) : scope(ns) { assert(!writable); }
+    std::string GetString(const char* key, const std::string& fallback = {}) {
+        assert(std::strcmp(key, "server") != 0);
+        const auto& keys = nvs.at(scope);
+        const auto found = keys.find(key);
+        return found == keys.end() ? fallback : found->second;
+    }
+};
+struct AudioHub {
+    std::string device_id_, api_token_, claim_token_, activation_code_, revision_;
+    std::mutex metadata_mutex_;
+    std::atomic<bool> activated_{false};
+    bool InitializeClient();
+    std::string ServerUrl() const;
+};
+''' + methods + r'''
+int main() {
+    auto verify = [] {
+        const auto stored = nvs;
+        AudioHub hub;
+        assert(hub.InitializeClient());
+        assert(hub.ServerUrl() == "http://192.168.1.111:9091");
+        assert(hub.device_id_ == "ZYLZ-A001B203C405" && hub.activated_);
+        assert(hub.api_token_ == "bearer" && hub.claim_token_ == "claim");
+        assert(hub.activation_code_ == "2468" && hub.revision_ == "product-r9");
+        assert(nvs == stored);
+    };
+    auto& hub_settings = nvs.at("audio_hub");
+    verify();
+    for (const auto* saved : {"http://192.168.1.7:5000", "http://192.168.1.7:5000/",
+                              "", "https://example.test/hub/"}) {
+        hub_settings["server"] = saved;
+        verify();
+    }
+}
+''')
+
     def test_factory_hub_serializes_manual_work_and_automatic_presence(self):
         source = (COMMON/'wzh_audio_hub.cc').read_text()
         methods = '\n'.join(queue_function(source, signature) for signature in (
@@ -480,6 +552,7 @@ int main() {
 #include <utility>
 #include <vector>
 
+constexpr char CONFIG_WZH_AUDIO_SYNC_SERVER[] = "http://192.168.1.111:9091";
 constexpr int pdPASS = 1;
 constexpr int64_t kPresenceRetryUs = 10000000;
 int64_t clock_us = 1;
@@ -528,7 +601,7 @@ struct AudioHub {
     void DoCheck() { assert(job_running_); ++checks; }
     void DoUpdate() { assert(job_running_ && update_names_ == std::vector<std::string>{"call"}); ++updates; }
     void DoPresence(const std::string& server) {
-        assert(job_running_ && server == "http://192.168.1.7:5000");
+        assert(job_running_ && server == CONFIG_WZH_AUDIO_SYNC_SERVER);
         ++announcements;
     }
 };
@@ -551,7 +624,13 @@ int main() {
     assert(hub.RequestUpdate({"call"}));
     run_pending_task();
     assert(hub.checks == 1 && hub.updates == 1 && !hub.job_running_ && released == created);
-    const std::string server = "http://192.168.1.7:5000";
+    const auto before_offers = created;
+    for (const auto* other_server : {"", "http://192.168.1.7:5000", "http://192.168.1.112:9091",
+                                     "http://192.168.1.111:5000"}) {
+        assert(!hub.RequestJob(AudioHub::Job::kPresence, {}, other_server));
+    }
+    assert(created == before_offers && hub.offered_server_.empty() && hub.next_presence_us_ == 0);
+    const std::string server = CONFIG_WZH_AUDIO_SYNC_SERVER;
     assert(hub.RequestJob(AudioHub::Job::kPresence, {}, server));
     assert(!hub.RequestCheck());
     run_pending_task();
@@ -681,6 +760,13 @@ int main(){
     auto sample=[&](Power& target,int mv,bool success,int count){
         voltage=mv;valid=success;for(int i=0;i<count;++i){clock_ms+=20;target.Step();}
     };
+    Power boot_held;
+    sample(boot_held,100,true,10);
+    sample(boot_held,3300,true,1); // One noisy release sample must not arm shutdown.
+    sample(boot_held,100,true,85);
+    assert(!boot_held.armed&&boot_held.shutdowns==0&&boot_held.feedbacks==0);
+    sample(boot_held,3300,true,3);
+    assert(boot_held.armed);
     Power p;
     sample(p,3300,true,10);sample(p,100,true,20); // A real press starts, then ADC becomes invalid.
     sample(p,0,false,100);sample(p,100,true,100); // Restored held-high input is not another press.
@@ -743,6 +829,7 @@ struct Controller{
     std::atomic<int>pending_expression_{-1};std::atomic<uint32_t>intent_generation_{0};
     wzh::PetBehavior pet_;
     Audio audio;Audio* audio_=&audio;int listens=0;
+    void ClearSpeechHints(){pending_expression_.store(-1);}
     void TriggerAction(Action,bool,wzh::PetPriority){++listens;}
     void SetConversationActive(bool);
 };

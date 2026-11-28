@@ -310,7 +310,7 @@ bool VoiceSession::Enqueue(const std::string& text) {
                  static_cast<unsigned>(queue_.size()), static_cast<unsigned>(queued_bytes_));
         return false;
     }
-    queue_.push_back(text);
+    queue_.push_back({text, esp_timer_get_time()});
     queued_bytes_ += text.size();
     had_text_ = true;
     xTaskNotifyGive(task_);
@@ -364,11 +364,11 @@ void VoiceSession::Run(uint32_t generation) {
             failed_ = true;
     }
     int64_t last_activity = esp_timer_get_time();
-    int64_t batch_started = 0;
     while (!cancelled() && ali_started) {
         std::string sentence;
         bool done = false;
-        bool wait_batch = false;
+        int64_t batch_delay_ms = 0;
+        int64_t text_queue_ms = 0;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (cancelled())
@@ -378,24 +378,21 @@ void VoiceSession::Run(uint32_t generation) {
                 queued_bytes_ = 0;
                 done = finished_;
             } else if (!queue_.empty()) {
-                if (!batch_started)
-                    batch_started = esp_timer_get_time();
-                wait_batch = cellular &&
-                             WaitForShortCellularBatch(
-                                 queue_, finished_, (esp_timer_get_time() - batch_started) / 1000);
-                if (!wait_batch) {
+                const auto now = esp_timer_get_time();
+                text_queue_ms = queue_.front().AgeMs(now);
+                if (cellular)
+                    batch_delay_ms = ShortCellularBatchWaitMs(queue_, finished_, now);
+                if (!batch_delay_ms) {
                     sentence = PopTextBatch(queue_, queued_bytes_, true);
-                    batch_started = 0;
                 }
             } else {
                 done = finished_;
-                batch_started = 0;
             }
         }
         if (done)
             break;
-        if (wait_batch) {
-            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+        if (batch_delay_ms) {
+            ulTaskNotifyTake(pdTRUE, std::max<TickType_t>(1, pdMS_TO_TICKS(batch_delay_ms)));
             continue;
         }
         if (sentence.empty()) {
@@ -459,7 +456,8 @@ void VoiceSession::Run(uint32_t generation) {
             };
         }
         Response response;
-        ESP_LOGI(kTag, "Requesting speech provider=%s", provider_.c_str());
+        ESP_LOGI(kTag, "Requesting speech provider=%s text_queue_ms=%u", provider_.c_str(),
+                 static_cast<unsigned>(text_queue_ms));
         auto result = provider.Synthesize(request, response);
         last_activity = esp_timer_get_time();
         if (result == Result::kOk && !cancelled()) {

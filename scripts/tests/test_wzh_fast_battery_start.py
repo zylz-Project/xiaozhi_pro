@@ -16,12 +16,12 @@ class FastBatteryStartupTest(unittest.TestCase):
 #include <cassert>
 using namespace wzh;
 int main(){
- for(int mv:{3900,4200}){
+ for(int mv:{3800,3900,4200}){
   FastBatteryStart gate;bool ready=false;uint32_t when=0;
-  for(uint32_t t=2000;t<15000;t+=200){
+  for(uint32_t t=2000;t<15000;t+=FastBatteryStart::kProbeIntervalMs){
    if(gate.Observe(t,true,mv,3400)){ready=true;when=t;break;}
   }
-  assert(ready&&when<10000);
+  assert(ready && when == (mv == 4200 ? 3500U : mv == 3900 ? 7700U : 10100U));
   StableBatteryProtection protection;
   assert(CommitFastBatteryStart(gate,protection,false,3300,3400,3000));
   assert(protection.ready()&&!protection.low()&&!protection.critical());
@@ -43,7 +43,7 @@ int main(){
  // over-reading: a battery below recovery voltage must never fast qualify.
  for(int actual=2800;actual<3400;actual+=10){
   FastBatteryStart gate;
-  for(unsigned t=2000;t<15000;t+=200){
+  for(unsigned t=2000;t<15000;t+=FastBatteryStart::kProbeIntervalMs){
    const float e=std::exp(-float(t)/6000.0f);
    const int observed=int(std::floor(actual+(4400-actual)*e+200));
    assert(!gate.Observe(t,true,observed,3400));
@@ -52,10 +52,16 @@ int main(){
  FastBatteryStart startup;
  // Fresh battery with an initially empty capacitor may read low; observation
  // never marks critical/low protection or cuts power before the slow path.
- for(unsigned t=2000;t<15000;t+=200){
+ bool healthy=false;
+ for(unsigned t=2000;t<15000;t+=FastBatteryStart::kProbeIntervalMs){
   const int observed=int(4200*(1-std::exp(-float(t)/3740.0f)));
-  if(startup.Observe(t,true,observed,3400))break;
+  if(startup.Observe(t,true,observed,3400)){
+   assert(t > 3500 && t < 11000); // Charging the divider still takes time.
+   healthy=true;
+   break;
+  }
  }
+ assert(healthy);
 }
 ''')
 
@@ -138,9 +144,19 @@ int main(){
  for(uint32_t t=1200;t<15000;t+=20)near_empty.Tick(t);
  assert(!near_empty.battery_settled&&(near_empty.output.flags&wzh::kBatteryPending));
  assert(near_empty.battery_level_==-1);
- Power sufficient;raw_value=1711;sufficient.Tick(1200);
- assert(sufficient.battery_settled&&sufficient.battery_protection_.ready());
- assert(!(sufficient.output.flags&wzh::kBatteryPending));
+ Power transient;raw_value=2100;transient.Tick(5000);
+ assert(!transient.battery_settled&&(transient.output.flags&wzh::kBatteryPending));
+ raw_value=1650;
+ for(uint32_t t=5200;t<15000;t+=200)transient.Tick(t);
+ assert(!transient.battery_settled&&!transient.battery_protection_.ready());
+ Power confirmed;raw_value=2100;
+ for(uint32_t t=5000;t<5400;t+=100){
+    confirmed.Tick(t);
+    assert(!confirmed.battery_settled&&(confirmed.output.flags&wzh::kBatteryPending));
+ }
+ confirmed.Tick(5400);
+ assert(confirmed.battery_settled&&confirmed.battery_protection_.ready());
+ assert(!(confirmed.output.flags&wzh::kBatteryPending));
 }
 ''')
 

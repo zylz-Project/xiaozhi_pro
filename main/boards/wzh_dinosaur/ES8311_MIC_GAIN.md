@@ -1,45 +1,7 @@
-# ES8311 麦克风增益参考
+# 恐龙 ES8311 麦克风增益
 
-## 有效范围（es8311_mic_gain_t 枚举）
+发布变体 `wzh-dinosaur-270-servo` 启用关键词确认打断和 DAC 播放参考。此时 `Es8311AudioCodec` 使用恐龙板的 `AUDIO_CODEC_REFERENCE_MIC_GAIN_DB`，当前为 12 dB。无播放参考的共用编解码器路径使用 36 dB。板级校准从 [config.h](config.h) 调整，构造及生效路径见[板级编解码器配置](wzh_dinosaur.cc)和[ES8311 封装](../../audio/codecs/es8311_audio_codec.cc)。
 
-定义位置：[managed_components/espressif__esp_codec_dev/device/es8311/es8311_reg.h:82-93](../../managed_components/espressif__esp_codec_dev/device/es8311/es8311_reg.h#L82-L93)
+驱动以 6 dB 为步长向下取档，最低 0 dB，最高 42 dB。例如 12–17 dB 选择 12 dB 档。`esp_codec_dev` 的 `device/es8311/es8311.c` 包含 `es8311_set_mic_gain()` 和对应寄存器写入。
 
-| 档位 | 枚举常量 | dB |
-|------|------|------|
-| 0 | `ES8311_MIC_GAIN_0DB`  | **0 dB** |
-| 1 | `ES8311_MIC_GAIN_6DB`  | **6 dB** |
-| 2 | `ES8311_MIC_GAIN_12DB` | **12 dB** |
-| 3 | `ES8311_MIC_GAIN_18DB` | **18 dB** |
-| 4 | `ES8311_MIC_GAIN_24DB` | **24 dB** |
-| 5 | `ES8311_MIC_GAIN_30DB` | **30 dB** |
-| 6 | `ES8311_MIC_GAIN_36DB` | **36 dB** |
-| 7 | `ES8311_MIC_GAIN_42DB` | **42 dB** |
-
-## 取值逻辑（向下取档）
-
-`esp_codec_dev_set_in_gain()` 内部实现位于 [es8311.c:415-442](../../managed_components/espressif__esp_codec_dev/device/es8311/es8311.c#L415-L442)，按区间向下取整：
-
-| 传参 `db` | 实际写入寄存器 |
-|------|------|
-| `< 6` | **0 dB** |
-| `≥6, <12` | **6 dB** |
-| `≥12, <18` | **12 dB** |
-| `≥18, <24` | **18 dB** |
-| `≥24, <30` | **24 dB** |
-| `≥30, <36` | **30 dB** |
-| `≥36, <42` | **36 dB** |
-| `≥42` | **42 dB** （上限） |
-
-## 当前项目增益
-
-| 文件 | 值 | 实际生效 |
-|------|------|------|
-| [es8311_audio_codec.cc:19](../audio/codecs/es8311_audio_codec.cc#L19) | `input_gain_ = 30` | **30 dB** |
-
-## 修改指南
-
-直接改 [es8311_audio_codec.cc:19](../audio/codecs/es8311_audio_codec.cc#L19) 中的 `input_gain_` 值：
-
-- **30** → 太小，改 36（下一档 +6dB）
-- **36** → 还小，改 42（最大增益）
-- **42** → 就是上限，破音需要回流硬件
+实机调整时使用相同音量分别记录近讲、远讲、播放中说话和舵机运动时的录音。检查削波、回声、唤醒和打断表现。保持 24 kHz 硬件时钟和单路 ES8311 音频服务。 [恐龙打断实机记录](../../../docs/wzh/audio/dinosaur_barge_in_research_2026-11-10.md)

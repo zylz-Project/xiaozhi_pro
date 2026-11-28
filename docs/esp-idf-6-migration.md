@@ -1,12 +1,10 @@
 # ESP-IDF 6.0 Migration and Board Compatibility Status
 
-> Last updated: 2026-07-24
-> Validated SDK: ESP-IDF v6.0.1
-> Scope: 138 board directories and 171 supported build variants defined by `main/boards/**/config.json`.
+> Upstream compatibility snapshot from 2026-07-24, verified on ESP-IDF v6.0.1. The 138 board directories and 171 variants below describe that snapshot. For the five variants in this fork, see [WZH builds and compatibility](wzh_migration.md).
 
-## Current Status
+## Upstream status at the time of migration
 
-The current release matrix contains 171 variants: 170 select on IDF 6.0.x, while the ESP32-S31 variant requires IDF 6.1 or later. The previous 157-variant baseline passed the latest complete GitHub Actions matrix on ESP-IDF 6.0.1. ESP-SR 2.4.7 adds IDF 6 support for ESP32-P4 Rev < 3, so the 14 unsuffixed Rev1 variants now join their existing `-p4x` Rev3 counterparts in the IDF 6 matrix. Component versions that use ranges are resolved from the Component Registry at build time; until per-target lock snapshots are committed, this is a source-reproducible build rather than a bit-for-bit dependency-reproducible build.
+The upstream release matrix at the snapshot contained 171 variants: 170 select on IDF 6.0.x, while the ESP32-S31 variant requires IDF 6.1 or later. The previous 157-variant baseline passed the latest complete GitHub Actions matrix on ESP-IDF 6.0.1. ESP-SR 2.4.7 adds IDF 6 support for ESP32-P4 Rev < 3, so the 14 unsuffixed Rev1 variants now join their existing `-p4x` Rev3 counterparts in the IDF 6 matrix. Component versions that use ranges are resolved from the Component Registry at build time; until per-target lock snapshots are committed, this is a source-reproducible build rather than a bit-for-bit dependency-reproducible build.
 
 | Status | Variants | Meaning |
 |---|---:|---|

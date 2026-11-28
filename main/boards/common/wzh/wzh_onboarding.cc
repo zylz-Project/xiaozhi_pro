@@ -187,22 +187,6 @@ bool SaveInterrupted(OnboardingProgress& progress) {
     return !stopping.load() && SaveOnboardingProgress(progress);
 }
 
-void FinishWorker() {
-    bool restart = false;
-    {
-        std::lock_guard<std::mutex> lock(lifecycle_mutex);
-        active.store(false);
-        worker_running.store(false);
-        if (restart_after_stop.exchange(false)) {
-            stopping.store(false);
-            started.store(false);
-            restart = true;
-        }
-    }
-    if (restart)
-        StartOnboarding();
-}
-
 void FinishIntro(uint32_t request, bool played = false) {
     std::function<void(bool)> resume;
     {
@@ -215,6 +199,28 @@ void FinishIntro(uint32_t request, bool played = false) {
     if (resume)
         Application::GetInstance().Schedule(
             [resume = std::move(resume), played]() { resume(played); });
+}
+
+void FinishWorker(bool played = false) {
+    bool restart = false;
+    uint32_t request = 0;
+    {
+        std::lock_guard<std::mutex> lock(lifecycle_mutex);
+        // A worker that cannot continue must release the conversation gate.
+        // The persisted step still determines where the next attempt begins.
+        current_step.store(OnboardingProgress::kStepCount);
+        active.store(false);
+        worker_running.store(false);
+        request = intro_request.load();
+        if (restart_after_stop.exchange(false)) {
+            stopping.store(false);
+            started.store(false);
+            restart = true;
+        }
+    }
+    FinishIntro(request, played);
+    if (restart)
+        StartOnboarding();
 }
 
 void Worker(void*) {
@@ -363,8 +369,7 @@ void Worker(void*) {
                      unsigned(progress.step + 1));
         current_step.store(progress.step);
     }
-    FinishIntro(intro_request.load(), progress.Done());
-    FinishWorker();
+    FinishWorker(progress.Done());
     vTaskDelete(nullptr);
 }
 #endif
@@ -381,6 +386,7 @@ void StartOnboarding() {
     active.store(true);
     worker_running.store(true);
     if (xTaskCreate(Worker, "wzh_onboarding", 4096, nullptr, 1, nullptr) != pdPASS) {
+        current_step.store(OnboardingProgress::kStepCount);
         active.store(false);
         worker_running.store(false);
         started.store(false);
@@ -462,7 +468,7 @@ bool IsOnboardingWorkerRunning() { return worker_running.load(); }
 bool IsOnboardingVoiceMotionActive() { return voice_motion_active.load(); }
 bool OnboardingBlocksConversation() {
 #if CONFIG_WZH_SYSTEM_PROMPTS
-    return !stopping.load() && current_step.load() < 8;
+    return !stopping.load() && current_step.load() < kFirstConversationStep;
 #else
     return false;
 #endif

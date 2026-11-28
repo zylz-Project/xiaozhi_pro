@@ -6,20 +6,19 @@
 #include "wzh_sound_score.h"
 namespace wzh {
 // Round-robin coverage over a sound pool. Every entry gets a turn before any
-// entry repeats, then the round resets. kSlots must be large enough to hold a
-// whole pool: the Flash TOC caps at 32 entries today, but paired packs and
-// future larger tables need headroom, otherwise the visited set rolls over
-// mid-round and the same few names come back within a minute or two.
+// entry repeats, then the round resets. PoolSize must hold a whole pool.
+// A mutable pool can keep history for names no longer in its current catalog.
 // Commit only after enqueue succeeds; stable filename hashes prevent
 // reordering from losing coverage or variety.
+template <unsigned HistorySize = 128, unsigned PoolSize = HistorySize>
 class SoundCoverage {
-public:
-    static constexpr unsigned kSlots = 128;
+    static_assert(PoolSize > 0 && HistorySize >= PoolSize);
 
+public:
     template <class Files>
     int Select(const Files& files, uint32_t random, bool include_ambient = true,
                bool ambient_only = false) const {
-        std::array<int, kSlots> unseen{}, all{};
+        std::array<int, PoolSize> unseen{}, all{};
         unsigned fresh = 0, count = 0;
         for (size_t i = 0; i < files.size() && count < all.size(); ++i) {
             const auto& f = files[i];
@@ -83,7 +82,7 @@ private:
             h = (h ^ static_cast<uint8_t>(*s)) * 16777619U;
         return h;
     }
-    std::array<uint32_t, kSlots> visited_{};
+    std::array<uint32_t, HistorySize> visited_{};
     unsigned used_ = 0;
     uint32_t last_ = 0;
 };

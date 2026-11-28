@@ -28,6 +28,7 @@ class WzhApplicationInteractionTest(unittest.TestCase):
         wake = wake[:wake.index("    if (!protocol_)")] + "}\n"
         stop = function(source, "void Application::StopInteraction(")
         resume = function(source, "void Application::SetListeningMode(")
+        rearm = function(source, "void Application::ServiceWakeWordRearm()")
         program = r'''
 #include <atomic>
 #include <cassert>
@@ -49,6 +50,7 @@ struct Audio {
     int resets = 0;
     std::string GetLastWakeWord() { return "local:happy"; }
     void EnableWakeWordDetection(bool enabled) { wake = enabled; }
+    bool IsWakeWordRunning() const { return wake; }
     bool IsAfeWakeWord() { return afe; }
     void ResetDecoder() { ++resets; }
     void EnableVoiceProcessing(bool enabled) { voice = enabled; }
@@ -67,8 +69,9 @@ struct Board {
     bool maintenance=false;bool IsAudioMaintenanceActive(){return maintenance;}
     std::string_view GetConversationExitSound() const{return {};}
     bool local = true;
+    int local_commands = 0;
     static Board& GetInstance() { static Board board; return board; }
-    bool HandleLocalVoiceCommand(const std::string&) { return true; }
+    bool HandleLocalVoiceCommand(const std::string&) { ++local_commands; return true; }
     bool SupportsLocalInteraction() { return local; }
 };
 struct Application {
@@ -83,18 +86,24 @@ struct Application {
     std::atomic<int64_t> voice_enrollment_resume_guard_until_us_{0};
     std::atomic<bool> interaction_stopped_{false};
     std::atomic<unsigned> interaction_generation_{0};
+    std::atomic<bool> local_assets_applied_{true};
+    bool wake_word_rearm_pending_ = false, shutting_down = false;
     bool play_popup_on_listening_=false,pending_listening_start_=false;
     bool entry_prompt_before_listening_=false;
     int aborted = 0;
     ListeningMode listening_mode_ = 0;
     std::vector<std::function<void()>> scheduled;
     DeviceState GetDeviceState() { return state; }
+    bool IsShuttingDown() const { return shutting_down; }
     void SetDeviceState(DeviceState next) { state = next; }
-    void ConfigureWakeWordForListening() { audio_service_.wake = false; }
+    void ConfigureWakeWordForListening() {
+        audio_service_.wake = Board::GetInstance().local && audio_service_.afe;
+    }
     void AbortSpeaking(int) { ++aborted; }
     void ClearEarlyAudio() {}
     void Schedule(std::function<void()> callback) { scheduled.push_back(callback); }
     void HandleWakeWordDetectedEvent();
+    void ServiceWakeWordRearm();
     void StopInteraction(bool play_exit_sound=false);
     void SetListeningMode(ListeningMode mode);
     void Drain() { auto work = std::move(scheduled); for (auto& item : work) item(); }
@@ -104,10 +113,45 @@ struct Application {
         wake = wake.replace("    auto state = GetDeviceState();\n", "")
         program = ('#include "' + str(ROOT/'main/audio/external_tts.h') + '"\n' +
                    '#include "' + str(ROOT/'main/audio/voice_enrollment.h') + '"\n' + program)
-        program += wake + stop + resume
+        program += wake + stop + resume + rearm
         program += r'''
 int main() {
     Application app;
+    auto& board = Board::GetInstance();
+    board.maintenance = true;
+    app.HandleWakeWordDetectedEvent();
+    assert(app.wake_word_rearm_pending_ && !app.audio_service_.wake && board.local_commands == 0);
+    app.ServiceWakeWordRearm();
+    assert(!app.audio_service_.wake && app.wake_word_rearm_pending_);
+    board.maintenance = false;
+    app.ServiceWakeWordRearm();
+    assert(app.audio_service_.wake && !app.wake_word_rearm_pending_ && app.audio_service_.resets == 0);
+    assert(board.local_commands == 0);
+    app.HandleWakeWordDetectedEvent();
+    assert(board.local_commands == 1);
+
+    app.state = kDeviceStateListening;
+    app.audio_service_.wake = false;
+    board.maintenance = true;
+    app.HandleWakeWordDetectedEvent();
+    board.maintenance = false;
+    app.interaction_stopped_ = true;
+    app.ServiceWakeWordRearm();
+    assert(!app.audio_service_.wake && app.wake_word_rearm_pending_);
+    app.interaction_stopped_ = false;
+    app.ServiceWakeWordRearm();
+    assert(app.audio_service_.wake && !app.wake_word_rearm_pending_);
+
+    app.state = kDeviceStateIdle;
+    app.audio_service_.wake = false;
+    board.maintenance = true;
+    app.HandleWakeWordDetectedEvent();
+    board.maintenance = false;
+    app.shutting_down = true;
+    app.ServiceWakeWordRearm();
+    assert(!app.audio_service_.wake && !app.wake_word_rearm_pending_);
+    app.shutting_down = false;
+
     for (auto state : {kDeviceStateStarting, kDeviceStateIdle, kDeviceStateWifiConfiguring,
                        kDeviceStateActivating, kDeviceStateSpeaking, kDeviceStateListening}) {
         app.state = state;
@@ -122,7 +166,7 @@ int main() {
         app.HandleWakeWordDetectedEvent();
         assert(!app.audio_service_.wake);
     }
-    Board::GetInstance().local = false;
+    board.local = false;
     app.state = kDeviceStateListening;
     app.HandleWakeWordDetectedEvent();
     assert(!app.audio_service_.wake);

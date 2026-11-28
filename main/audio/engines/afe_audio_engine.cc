@@ -2,8 +2,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
-#include <sstream>
+#include <string_view>
 
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -271,15 +272,19 @@ bool AfeAudioEngine::InitializeWakeWordDetectors(char* wakenet_model_name,
             ESP_LOGE(TAG, "Configured WakeNet model is missing from assets");
             return false;
         }
-        auto words = esp_srmodel_get_wake_words(models_, wakenet_model_name);
-        if (words != nullptr) {
-            std::stringstream stream(words);
-            std::string word;
-            while (std::getline(stream, word, ';')) {
-                if (!word.empty()) {
-                    wake_words_.push_back(word);
-                }
-            }
+        // ESP-SR allocates this metadata string. Split it directly so a
+        // delimiter scan does not link the iostream and locale machinery.
+        const std::unique_ptr<char, decltype(&std::free)> words(
+            esp_srmodel_get_wake_words(models_, wakenet_model_name), &std::free);
+        std::string_view remaining = words ? words.get() : "";
+        while (!remaining.empty()) {
+            const auto separator = remaining.find(';');
+            const auto word = remaining.substr(0, separator);
+            if (!word.empty())
+                wake_words_.emplace_back(word);
+            if (separator == std::string_view::npos)
+                break;
+            remaining.remove_prefix(separator + 1);
         }
         if (wake_words_.empty()) {
             ESP_LOGE(TAG, "WakeNet model has no wake words");
@@ -528,18 +533,29 @@ void AfeAudioEngine::ProcessingTask() {
 }
 
 void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
-    if (wake_detector_ == WakeDetector::kMultiNet || IsLocalCommandCapture()) {
+    using CommandMode = CustomWakeWord::CommandMode;
+    const bool has_pcm = result->data != nullptr && result->data_size > 0 &&
+                         result->data_size % sizeof(int16_t) == 0;
+    const size_t samples = has_pcm ? result->data_size / sizeof(int16_t) : 0;
+    const bool local_command_capture = IsLocalCommandCapture();
+    if (wake_detector_ == WakeDetector::kMultiNet || local_command_capture) {
         // While capturing a conversation, WakeNet must not interrupt a partial
         // MultiNet command. Also handle a WakeNet result already queued by AFE.
-        custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t));
+        if (has_pcm) {
+            custom_wake_word_->FeedMono(
+                result->data, samples,
+                local_command_capture ? CommandMode::kInterruption : CommandMode::kAll);
+        }
         return;
     }
 
 #if CONFIG_SEND_WAKE_WORD_DATA
-    wake_word_audio_cache_.Store(result->data, result->data_size / sizeof(int16_t));
+    if (has_pcm) {
+        wake_word_audio_cache_.Store(result->data, samples);
+    }
 #endif
     if (result->wakeup_state != WAKENET_DETECTED) {
-        if (custom_wake_word_ != nullptr) {
+        if (custom_wake_word_ != nullptr && has_pcm) {
 #if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND || CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
             // The secondary recognizer serves offline commands. Running it
             // alongside full-duplex neural capture exhausted the S3 fetch task.
@@ -556,14 +572,16 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
             }
 #endif
             // A short reply-only keyword can be a prefix of the formal WakeNet phrase.
-            custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t), false);
+            custom_wake_word_->FeedMono(
+                result->data, samples, CommandMode::kStandby,
+                kUseAfeForVoiceProcessing && result->vad_state == VAD_SILENCE);
         }
         return;
     }
 
-    int model_index = result->wakenet_model_index - 1;
-    if (model_index < 0 || model_index >= static_cast<int>(wake_words_.size())) {
-        ESP_LOGE(TAG, "Invalid WakeNet model index: %d", result->wakenet_model_index);
+    const int word_index = result->wake_word_index;
+    if (word_index < 1 || word_index > static_cast<int>(wake_words_.size())) {
+        ESP_LOGE(TAG, "Invalid WakeNet word index: %d", word_index);
         return;
     }
 
@@ -572,7 +590,7 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
     if (custom_wake_word_ != nullptr) {
         custom_wake_word_->Stop();
     }
-    HandleDetectedWakeWord(wake_words_[model_index]);
+    HandleDetectedWakeWord(wake_words_[word_index - 1]);
 }
 
 void AfeAudioEngine::HandleDetectedWakeWord(const std::string& wake_word) {

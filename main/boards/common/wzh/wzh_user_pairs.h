@@ -31,9 +31,10 @@ struct UserPair {
 inline const UserPair* user_pairs = nullptr;
 inline size_t user_pair_count = 0;
 constexpr int kUserPairIndexBase = 32;
+inline constexpr size_t kMaxUserPairs = 32;
 inline void RegisterUserPairs(const UserPair* pairs, size_t count) {
     user_pairs = pairs;
-    user_pair_count = std::min<size_t>(count, 32);
+    user_pair_count = std::min(count, kMaxUserPairs);
 }
 inline const UserPair* UserPairAtIndex(int index) {
     const int offset = index - kUserPairIndexBase;

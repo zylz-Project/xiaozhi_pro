@@ -1,13 +1,13 @@
 #include <driver/i2c_master.h>
 #include <esp_log.h>
 #include <esp_timer.h>
-#include <esp_wifi.h>
 #include <cJSON.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <material_symbols.h>
 
 #include <cstring>
+#include <mutex>
 #include <utility>
 
 #include "application.h"
@@ -20,6 +20,7 @@
 #include "dinosaur_power.h"
 #include "display/display.h"
 #include "settings.h"
+#include "ssid_manager.h"
 #include "wifi_board.h"
 #include "wifi_manager.h"
 #include "wzh_audio_hub.h"
@@ -48,8 +49,8 @@ public:
         controller_.HandleLlmEmotion(emotion);
     }
 
-    // 服务端 llm.emotion 经常缺失，这里拦截用户转写文本做一次本地兜底
-    // 情绪判断，让“我今天考试考了满分”这类明显情绪立刻驱动身体语言。
+    // 句子文本提供当前回复的动作语气。用户转写提供兜底提示，
+    // 真正播出语音时才由动作任务使用。
     void SetChatMessage(const char* role, const char* content) override {
         NoDisplay::SetChatMessage(role, content);
         if (role != nullptr && std::strcmp(role, "user") == 0 && content != nullptr) {
@@ -154,7 +155,7 @@ public:
         WifiManager::GetInstance().SetBeforeConfigApHook([this]() { web_console_.Stop(); });
         InitializeConversationMode();
         InitializeButton();
-        wzh::StartIdlePower([this]() { power_.RequestAutoShutdown(); });
+        wzh::StartIdlePower([this]() { power_.RequestShutdown(); });
     }
 
     AudioCodec* GetAudioCodec() override {
@@ -277,6 +278,10 @@ public:
             ESP_LOGD(TAG, "Cloud conversation owns joint commands via MCP");
             return true;
         }
+        if (name == "shutdown") {
+            power_.RequestShutdown();
+            return true;
+        }
         // Deliver the spoken command even while the cloud conversation owns
         // joint control: the tutorial deliberately waits for a real "摇摇头".
         if (name == "shake_head") {
@@ -311,57 +316,18 @@ public:
 
 #if DINOSAUR_ENABLE_4G
     void StartNetwork() override {
-        // The modem must be registered and have PDP before it wins the boot
-        // selection. A separate deadline keeps a stuck AT command bounded.
-        if (!cellular_.Start(
-                [this](NetworkEvent event, const std::string& data) {
-                    if (power_.IsShuttingDown())
-                        return;
-                    if (network_choice_.load() == NetworkChoice::kProbing &&
-                        event == NetworkEvent::Connected) {
-                        SelectNetwork(true);
-                        return;
-                    }
-                    // Failed setup falls back to Wi-Fi without showing a modem error.
-                    if (network_choice_.load() == NetworkChoice::kProbing &&
-                        event == NetworkEvent::ModemErrorInitFailed)
-                        return;
-                    if (network_choice_.load() != NetworkChoice::kCellular)
-                        return;
-                    if (event == NetworkEvent::Disconnected) {
-                        cellular_connected_reported_.store(false);
-                        wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
-                        controller_.SetConversationActive(false);
-                    } else if (event == NetworkEvent::Connected && cloud_network_callback_ &&
-                               cellular_connected_reported_.exchange(true)) {
-                        return;
-                    }
-                    if (cloud_network_callback_)
-                        cloud_network_callback_(event, data);
-                },
-                [this](bool detected) {
-                    if (!detected) {
-                        SelectNetwork(false);
-                        return;
-                    }
-                    // Release STA memory while registration is in progress;
-                    // the portal AP remains available. Recheck the choice in
-                    // the main task so a late probe cannot stop fallback Wi-Fi.
-                    Application::GetInstance().Schedule([this]() {
-                        if (!power_.IsShuttingDown() &&
-                            network_choice_.load() == NetworkChoice::kProbing)
-                            WifiManager::GetInstance().StopStation();
-                    });
-                })) {
-            SelectNetwork(false);
-        }
-        // The portal starts immediately; STA is deferred until Wi-Fi wins.
+        const bool prefer_wifi =
+            LoadTransportPreference() == "wifi" && SsidManager::GetInstance().HasSavedNetworks();
+        // Reserve the modem task's stack before the portal starts allocating.
+        // A Wi-Fi preference still allows detection, without registration.
+        if (prefer_wifi)
+            cellular_.SetPaused(true);
+        const bool started = StartCellularDetection(0);
+        // Always bring up the local portal, even before we know which radio
+        // can provide the cloud connection.
         WifiBoard::StartNetwork();
-        if (LoadTransportPreference() == "wifi") {
-            SelectNetwork(false);
-        } else if (network_choice_.load() == NetworkChoice::kProbing) {
-            StartBootNetworkDeadline();
-        }
+        if (prefer_wifi || !started || !ArmModemProbeDeadline(0))
+            SelectBootNetwork(NetworkChoice::kWifi);
     }
 
     NetworkInterface* GetNetwork() override {
@@ -382,93 +348,28 @@ public:
     bool IsNetworkProbing() const override {
         return network_choice_.load() == NetworkChoice::kProbing;
     }
-    bool HasModemTransport() const override {
-        // Keep the control available even after a failed probe, so an attached
-        // modem can be detected again from the portal.
-        return network_choice_.load() != NetworkChoice::kProbing;
+    bool CanSwitchNetworkTransport() const override { return true; }
+    bool HasModemTransport() const override { return cellular_.HasDetectedModem(); }
+    NetworkTransportSwitchStatus GetNetworkTransportSwitchStatus() const override {
+        std::lock_guard<std::mutex> lock(network_switch_mutex_);
+        return network_switch_;
     }
     bool SelectNetworkTransport(bool cellular) override {
-        if (!cellular)
-            cellular_probe_requested_.store(false);
-        auto current = network_choice_.load();
-        if (current == NetworkChoice::kProbing)
-            return false;  // Wait for the boot probe to pick a transport.
-        const auto target = cellular ? NetworkChoice::kCellular : NetworkChoice::kWifi;
-        if (current == target)
-            return true;
-        auto& app = Application::GetInstance();
-        if (app.GetDeviceState() == kDeviceStateActivating ||
-            app.GetDeviceState() == kDeviceStateUpgrading)
+        if (!CanStartNetworkSwitch())
             return false;
-        if (cellular && cellular_.Absent()) {
-            // The modem was never detected, or the probe task already ended.
-            // Only a successful re-probe can commit the requested switch.
-            cellular_probe_requested_.store(true);
-            if (!cellular_.Start(
-                    [this](NetworkEvent event, const std::string& data) {
-                        if (power_.IsShuttingDown() || !UsesCellularNetwork())
-                            return;
-                        if (event == NetworkEvent::Disconnected) {
-                            cellular_connected_reported_.store(false);
-                            wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
-                            controller_.SetConversationActive(false);
-                        } else if (event == NetworkEvent::Connected && cloud_network_callback_ &&
-                                   cellular_connected_reported_.exchange(true)) {
-                            return;
-                        }
-                        if (cloud_network_callback_)
-                            cloud_network_callback_(event, data);
-                    },
-                    [this](bool detected) {
-                        Application::GetInstance().Schedule([this, detected]() {
-                            if (cellular_probe_requested_.exchange(false) && detected &&
-                                !power_.IsShuttingDown())
-                                SelectNetworkTransport(true);
-                        });
-                    })) {
-                cellular_probe_requested_.store(false);
+        NetworkTransportSwitchStatus request;
+        {
+            std::lock_guard<std::mutex> lock(network_switch_mutex_);
+            if (network_switch_.state == SwitchState::kPending)
+                return network_switch_.cellular == cellular;
+            if (IsNetworkProbing())
                 return false;
-            }
-            ESP_LOGW("Dinosaur", "Cellular selected; restarting modem probe");
-            return false;  // The endpoint reports 409; the page re-polls status.
+            uint32_t id = network_switch_.id + 1;
+            if (id == 0)
+                ++id;
+            network_switch_ = request = {SwitchState::kPending, cellular, id};
         }
-        if (!network_choice_.compare_exchange_strong(current, NetworkChoice::kProbing))
-            return false;
-        SaveTransportPreference(cellular ? "cellular" : "wifi");
-        ESP_LOGI("Dinosaur", "Transport switched to %s", cellular ? "4G" : "Wi-Fi");
-        // Close the old conversation and protocol before changing radios.
-        // Probing blocks new clients while these main-task jobs are pending.
-        app.PrepareConversationNetworkSwitch();
-        app.ResetProtocol([this, cellular, target]() {
-            if (power_.IsShuttingDown())
-                return;
-            network_choice_.store(target);
-            cellular_.SetPaused(!cellular);
-            if (cellular) {
-                // Reclaim the station before the modem owns the cloud link. A
-                // pending station event may have reconnected the stale STA
-                // configuration while the station was stopped, so disconnect
-                // again; the portal AP keeps running (APSTA) for local pages.
-                auto& wifi = WifiManager::GetInstance();
-                wifi.StopStation();
-                esp_wifi_disconnect();
-                wifi_connected_reported_.store(false);
-                // Registration may have completed while the transport was
-                // still probing. Publish that transition once after the
-                // switch so Application can leave the offline state.
-                if (cellular_.IsReady() && cloud_network_callback_ &&
-                    !cellular_connected_reported_.exchange(true))
-                    cloud_network_callback_(NetworkEvent::Connected, "4G");
-            } else {
-                cellular_connected_reported_.store(false);
-                // Re-arm the station for saved credentials; probing suppressed it.
-                auto& wifi = WifiManager::GetInstance();
-                wifi.StartStation();
-                if (wifi.IsConnected() && !wifi_connected_reported_.exchange(true) &&
-                    cloud_network_callback_)
-                    cloud_network_callback_(NetworkEvent::Connected, wifi.GetSsid());
-            }
-        });
+        Application::GetInstance().Schedule([this, request]() { StartRequestedSwitch(request); });
         return true;
     }
     void RequestNetworkRecheck() override {
@@ -518,7 +419,8 @@ public:
         WifiBoard::SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
             if (event == NetworkEvent::Connected)
                 web_console_.Start();
-            else if (event == NetworkEvent::WifiConfigModeEnter)
+            else if (event == NetworkEvent::WifiConfigModeEnter &&
+                     !WifiManager::GetInstance().IsPersistentPortalActive())
                 web_console_.Stop();
             if (network_choice_.load() != NetworkChoice::kWifi || power_.IsShuttingDown())
                 return;
@@ -556,33 +458,12 @@ public:
 private:
 #if DINOSAUR_ENABLE_4G
     enum class NetworkChoice : uint8_t { kProbing, kWifi, kCellular };
-    void StartBootNetworkDeadline() {
-        esp_timer_create_args_t args{};
-        args.callback = [](void* arg) {
-            auto* self = static_cast<WzhDinosaur*>(arg);
-            Application::GetInstance().Schedule([self]() {
-                if (self->boot_selection_pending_.load() && !self->power_.IsShuttingDown() &&
-                    self->network_choice_.load() == NetworkChoice::kProbing) {
-                    ESP_LOGW(TAG, "4G boot deadline expired; falling back to Wi-Fi");
-                    self->SelectNetwork(false);
-                }
-            });
-        };
-        args.arg = this;
-        args.name = "dino_net_boot";
-        const auto created = esp_timer_create(&args, &boot_network_timer_);
-        if (created != ESP_OK || esp_timer_start_once(boot_network_timer_, 5000000) != ESP_OK) {
-            if (created == ESP_OK) {
-                esp_timer_delete(boot_network_timer_);
-                boot_network_timer_ = nullptr;
-            }
-            ESP_LOGW(TAG, "Cannot start 4G boot deadline; selecting Wi-Fi");
-            SelectNetwork(false);
-        }
-    }
+    using SwitchState = NetworkTransportSwitchStatus::State;
+    static constexpr int64_t kModemProbeUs = 8000000;
+    static constexpr int64_t kCellularRecoveryUs = 15000000;
+
     bool DeferWifiSetup() const override { return wifi_setup_deferred_.load(); }
-    // Explicit user preference ("wifi" / "cellular"), stored in NVS. Absent
-    // means the boot probe decides: registered PDP → 4G, else Wi-Fi.
+
     static constexpr const char* kTransportNvs = "network";
     static constexpr const char* kTransportNamespace = "dino_net";
     void SaveTransportPreference(const char* value) {
@@ -593,69 +474,283 @@ private:
         Settings settings(kTransportNamespace, false);
         return settings.GetString(kTransportNvs, "");
     }
-    void SelectNetwork(bool detected) {
-        if (!boot_selection_pending_.load())
-            return;
-        NetworkChoice expected = NetworkChoice::kProbing;
-        // A saved preference outranks hardware detection — except when the
-        // 4G did not become ready: fall back to Wi-Fi for this boot while
-        // keeping the preference for the next boot.
-        const auto saved = LoadTransportPreference();
-        const auto choice = saved == "wifi" ? NetworkChoice::kWifi
-                            : saved == "cellular"
-                                ? (detected ? NetworkChoice::kCellular : NetworkChoice::kWifi)
-                                : (detected ? NetworkChoice::kCellular : NetworkChoice::kWifi);
-        if (!network_choice_.compare_exchange_strong(expected, choice))
-            return;
-        boot_selection_pending_.store(false);
-        ESP_LOGI("Dinosaur", "Selected network: %s (saved=%s 4g_ready=%s)",
-                 choice == NetworkChoice::kCellular ? "4G" : "Wi-Fi", saved.c_str(),
-                 detected ? "yes" : "no");
-        if (saved == "cellular" && !detected)
-            ESP_LOGW("Dinosaur", "4G preferred but not ready; falling back to Wi-Fi this boot");
-        if (choice == NetworkChoice::kWifi) {
-            // Also pause an in-flight probe: a late detection must not start
-            // cellular registration after the deadline selected Wi-Fi.
-            cellular_.SetPaused(true);
+    bool CanStartNetworkSwitch() const {
+        const auto state = Application::GetInstance().GetDeviceState();
+        return !power_.IsShuttingDown() && state != kDeviceStateActivating &&
+               state != kDeviceStateUpgrading && state != kDeviceStateFatalError;
+    }
+    bool StartDeadline(esp_timer_handle_t& timer, const char* name, void (*callback)(void*),
+                       int64_t delay_us) {
+        if (timer == nullptr) {
+            esp_timer_create_args_t args{};
+            args.arg = this;
+            args.name = name;
+            args.callback = callback;
+            if (esp_timer_create(&args, &timer) != ESP_OK) {
+                ESP_LOGE(TAG, "Unable to create network deadline %s", name);
+                return false;
+            }
         }
-        Application::GetInstance().Schedule([this, choice]() {
-            if (power_.IsShuttingDown())
+        if (esp_timer_start_once(timer, delay_us) == ESP_OK)
+            return true;
+        ESP_LOGE(TAG, "Unable to start network deadline %s", name);
+        return false;
+    }
+    bool ArmModemProbeDeadline(uint32_t request_id) {
+        const auto deadline = esp_timer_get_time() + kModemProbeUs;
+        if (!StartDeadline(
+                modem_probe_timer_, "dino_probe",
+                [](void* arg) {
+                    auto* self = static_cast<WzhDinosaur*>(arg);
+                    Application::GetInstance().Schedule(
+                        [self]() { self->CheckModemProbeDeadline(); });
+                },
+                kModemProbeUs)) {
+            return false;
+        }
+        modem_probe_deadline_us_ = deadline;
+        modem_probe_request_id_ = request_id;
+        return true;
+    }
+    void CancelModemProbeDeadline() {
+        if (modem_probe_deadline_us_ != 0) {
+            modem_probe_deadline_us_ = 0;
+            esp_timer_stop(modem_probe_timer_);
+        }
+    }
+    void CheckModemProbeDeadline() {
+        if (modem_probe_deadline_us_ == 0 || esp_timer_get_time() < modem_probe_deadline_us_)
+            return;
+        ESP_LOGW(TAG, "ML307 hardware probe deadline expired");
+        ReportModemDetection(modem_probe_request_id_, cellular_.HasDetectedModem());
+    }
+
+    bool StartCellularDetection(uint32_t request_id) {
+        return cellular_.Start(
+            [this](NetworkEvent event, const std::string& data) {
+                Application::GetInstance().Schedule(
+                    [this, event, data]() { HandleCellularEvent(event, data); });
+            },
+            [this, request_id](bool detected) {
+                Application::GetInstance().Schedule(
+                    [this, request_id, detected]() { ReportModemDetection(request_id, detected); });
+            });
+    }
+    void ReportModemDetection(uint32_t request_id, bool detected) {
+        if (power_.IsShuttingDown())
+            return;
+        if (request_id == 0) {
+            if (wifi_setup_deferred_.load())
+                SelectBootNetwork(detected ? NetworkChoice::kCellular : NetworkChoice::kWifi);
+            return;
+        }
+        const auto active = GetNetworkTransportSwitchStatus();
+        if (active.state != SwitchState::kPending || active.id != request_id)
+            return;
+        CancelModemProbeDeadline();
+        if (!detected || !CanStartNetworkSwitch() ||
+            !BeginNetworkSwitch(NetworkChoice::kCellular, request_id)) {
+            CompleteTransportRequest(request_id, false);
+        }
+    }
+
+    void SelectBootNetwork(NetworkChoice choice) {
+        if (power_.IsShuttingDown() || !wifi_setup_deferred_.exchange(false))
+            return;
+        CancelModemProbeDeadline();
+        ESP_LOGI(TAG, "Boot transport selected: %s",
+                 choice == NetworkChoice::kCellular ? "4G" : "Wi-Fi");
+        ApplyNetworkChoice(choice, true);
+    }
+    void StartRequestedSwitch(NetworkTransportSwitchStatus request) {
+        if (!CanStartNetworkSwitch() || IsNetworkProbing()) {
+            CompleteTransportRequest(request.id, false);
+            return;
+        }
+        const auto target = request.cellular ? NetworkChoice::kCellular : NetworkChoice::kWifi;
+        if (network_choice_.load() == target) {
+            // Persist the explicit choice even if this boot already selected it.
+            SaveTransportPreference(request.cellular ? "cellular" : "wifi");
+            if (request.cellular && !cellular_.IsReady()) {
+                cellular_.RequestRecheck();
+                ArmCellularFallbackDeadline();
+            }
+            CompleteTransportRequest(request.id, true);
+            return;
+        }
+        if (request.cellular && !cellular_.HasDetectedModem()) {
+            // Probe while the current Wi-Fi connection and conversation remain
+            // available. A negative result never tears down the old route.
+            if (ArmModemProbeDeadline(request.id) && StartCellularDetection(request.id))
                 return;
-            wifi_setup_deferred_.store(false);
-            // The portal must stay up for configuration, but the station must
-            // not run alongside cellular: the STA driver, its scan task and the
-            // lwIP buffers it keeps push internal SRAM below what the ML307 AT
-            // ring (12 x 512 B) needs, and every AT command then times out.
-            if (choice == NetworkChoice::kCellular) {
-                WifiManager::GetInstance().StopStation();
-                wifi_connected_reported_.store(false);
-                CompleteDeferredWifiSetup();
-                // The modem can finish registration before the boot probe
-                // commits the transport. Its Connected event is intentionally
-                // suppressed while network_choice_ is still kProbing, so
-                // replay it once here.
-                if (cellular_.IsReady() && cloud_network_callback_ &&
-                    !cellular_connected_reported_.exchange(true))
-                    cloud_network_callback_(NetworkEvent::Connected, "4G");
+            CancelModemProbeDeadline();
+            CompleteTransportRequest(request.id, false);
+            return;
+        }
+        if (!BeginNetworkSwitch(target, request.id))
+            CompleteTransportRequest(request.id, false);
+    }
+    bool BeginNetworkSwitch(NetworkChoice target, uint32_t request_id) {
+        {
+            std::lock_guard<std::mutex> lock(network_switch_mutex_);
+            if (IsNetworkProbing() ||
+                (request_id == 0 && network_switch_.state == SwitchState::kPending))
+                return false;
+            network_choice_.store(NetworkChoice::kProbing);
+        }
+        CancelCellularFallbackDeadline();
+        if (target == NetworkChoice::kWifi)
+            cellular_.SetPaused(true);
+        auto& app = Application::GetInstance();
+        app.PrepareConversationNetworkSwitch();
+        app.ResetProtocol([this, target, request_id]() {
+            if (power_.IsShuttingDown()) {
+                CompleteTransportRequest(request_id, false);
                 return;
             }
-            cellular_connected_reported_.store(false);
-            CompleteDeferredWifiSetup();
-            // Wi-Fi may have connected while its events were suppressed during
-            // probing. Publish that connection once after choosing Wi-Fi.
-            auto& wifi = WifiManager::GetInstance();
-            if (wifi.IsConnected() && !wifi_connected_reported_.exchange(true) &&
-                cloud_network_callback_)
-                cloud_network_callback_(NetworkEvent::Connected, wifi.GetSsid());
+            if (request_id == 0 && !SsidManager::GetInstance().HasSavedNetworks()) {
+                // The saved configuration can be cleared while the old
+                // protocol is closing. Leave the modem selected in that case.
+                ApplyNetworkChoice(NetworkChoice::kCellular, false);
+                CancelCellularFallbackDeadline();
+                AnnounceCellularFailure(false);
+                return;
+            }
+            if (request_id != 0)
+                SaveTransportPreference(target == NetworkChoice::kCellular ? "cellular" : "wifi");
+            if (request_id == 0)
+                AnnounceCellularFailure(true);
+            ApplyNetworkChoice(target, false);
+            CompleteTransportRequest(request_id, true);
+            ESP_LOGI(TAG, "Transport switched to %s",
+                     target == NetworkChoice::kCellular ? "4G" : "Wi-Fi");
         });
+        return true;
     }
+    void CompleteTransportRequest(uint32_t request_id, bool success) {
+        if (request_id == 0)
+            return;
+        std::lock_guard<std::mutex> lock(network_switch_mutex_);
+        if (network_switch_.id == request_id && network_switch_.state == SwitchState::kPending)
+            network_switch_.state = success ? SwitchState::kSucceeded : SwitchState::kFailed;
+    }
+
+    void ApplyNetworkChoice(NetworkChoice choice, bool boot) {
+        auto& wifi = WifiManager::GetInstance();
+        const bool cellular = choice == NetworkChoice::kCellular;
+        // Keep the portal AP up. Reclaim STA memory before registration or
+        // transport use because the ML307 AT ring needs that internal SRAM.
+        if (cellular) {
+            wifi.StopStation();
+            wifi_connected_reported_.store(false);
+        } else {
+            cellular_.SetPaused(true);
+            cellular_connected_reported_.store(false);
+        }
+        network_choice_.store(choice);
+        if (cellular)
+            cellular_.SetPaused(false);
+        if (boot)
+            CompleteDeferredWifiSetup();
+        else if (!cellular)
+            wifi.StartStation();
+        if (cellular) {
+            if (cellular_.IsReady())
+                HandleCellularEvent(NetworkEvent::Connected, "4G");
+            else
+                ArmCellularFallbackDeadline();
+        } else if (wifi.IsConnected() && !wifi_connected_reported_.exchange(true) &&
+                   cloud_network_callback_) {
+            cloud_network_callback_(NetworkEvent::Connected, wifi.GetSsid());
+        }
+    }
+    void HandleCellularEvent(NetworkEvent event, const std::string& data) {
+        if (power_.IsShuttingDown() || !UsesCellularNetwork())
+            return;
+        if (event == NetworkEvent::Connected) {
+            if (!cellular_.IsReady() || cellular_connected_reported_.exchange(true))
+                return;
+            CancelCellularFallbackDeadline();
+        } else if (event == NetworkEvent::Disconnected) {
+            if (cellular_.IsReady())
+                return;
+            cellular_connected_reported_.store(false);
+            wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
+            controller_.SetConversationActive(false);
+            ArmCellularFallbackDeadline();
+        } else if (event != NetworkEvent::Connecting) {
+            // The deadline owns the offline announcement. A registration
+            // error is distinct from failure to detect the modem over UART.
+            return;
+        }
+        if (cloud_network_callback_)
+            cloud_network_callback_(event, data);
+    }
+
+    void ArmCellularFallbackDeadline() {
+        if (cellular_fallback_deadline_us_ != 0)
+            return;
+        const auto deadline = esp_timer_get_time() + kCellularRecoveryUs;
+        if (StartDeadline(
+                cellular_fallback_timer_, "dino_fallback",
+                [](void* arg) {
+                    auto* self = static_cast<WzhDinosaur*>(arg);
+                    Application::GetInstance().Schedule(
+                        [self]() { self->CheckCellularFallback(); });
+                },
+                kCellularRecoveryUs)) {
+            cellular_fallback_deadline_us_ = deadline;
+        }
+    }
+    void CancelCellularFallbackDeadline() {
+        if (cellular_fallback_deadline_us_ != 0) {
+            cellular_fallback_deadline_us_ = 0;
+            esp_timer_stop(cellular_fallback_timer_);
+        }
+    }
+    void CheckCellularFallback() {
+        if (cellular_fallback_deadline_us_ == 0 ||
+            esp_timer_get_time() < cellular_fallback_deadline_us_)
+            return;
+        cellular_fallback_deadline_us_ = 0;
+        if (power_.IsShuttingDown() || !UsesCellularNetwork() || cellular_.IsReady())
+            return;
+        if (!CanStartNetworkSwitch()) {
+            ArmCellularFallbackDeadline();
+            return;
+        }
+        if (!SsidManager::GetInstance().HasSavedNetworks()) {
+            // Retain the selected cellular route and keep retrying registration.
+            // The hotspot can be used to save Wi-Fi credentials.
+            AnnounceCellularFailure(false);
+        } else if (!BeginNetworkSwitch(NetworkChoice::kWifi, 0)) {
+            ArmCellularFallbackDeadline();
+        }
+    }
+    void AnnounceCellularFailure(bool falling_back) {
+        extern const char wifi_start[] asm("_binary_cellular_to_wifi_ogg_start");
+        extern const char wifi_end[] asm("_binary_cellular_to_wifi_ogg_end");
+        extern const char offline_start[] asm("_binary_cellular_unavailable_ogg_start");
+        extern const char offline_end[] asm("_binary_cellular_unavailable_ogg_end");
+        const char* message = falling_back ? "4G 暂不可用，正在切换到 Wi-Fi"
+                                           : "4G 暂不可用，请连接设备热点配置 Wi-Fi";
+        const std::string_view sound =
+            falling_back ? std::string_view(wifi_start, wifi_end - wifi_start)
+                         : std::string_view(offline_start, offline_end - offline_start);
+        Application::GetInstance().Alert("4G 暂不可用", message, "warning", sound);
+    }
+
     std::atomic<NetworkChoice> network_choice_{NetworkChoice::kProbing};
-    std::atomic<bool> boot_selection_pending_{true};
-    esp_timer_handle_t boot_network_timer_ = nullptr;
-    std::atomic<bool> cellular_probe_requested_{false};
     std::atomic<bool> wifi_setup_deferred_{true};
     std::atomic<bool> wifi_connected_reported_{false};
     std::atomic<bool> cellular_connected_reported_{false};
+    mutable std::mutex network_switch_mutex_;
+    NetworkTransportSwitchStatus network_switch_;
+    esp_timer_handle_t modem_probe_timer_ = nullptr;
+    uint32_t modem_probe_request_id_ = 0;
+    int64_t modem_probe_deadline_us_ = 0;
+    esp_timer_handle_t cellular_fallback_timer_ = nullptr;
+    int64_t cellular_fallback_deadline_us_ = 0;
     DinosaurCellular cellular_;
     NetworkEventCallback cloud_network_callback_;
 #endif

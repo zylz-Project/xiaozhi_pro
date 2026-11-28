@@ -37,6 +37,8 @@ struct AudioFileInfo {
 // 播放方可以不经锁直接按 offset 读取。
 class AudioStore {
 public:
+    static constexpr int kMaxFiles = 32;
+
     enum class Layout {
         kEmpty,   // 工厂状态（无有效目录）
         kLegacy,  // 老工程 v1/v2 目录
@@ -91,7 +93,6 @@ public:
     bool EraseAllAsync(std::function<void(bool)> on_done);
 
 private:
-    static constexpr int kMaxFiles = 32;
     static constexpr size_t kEntrySize = 96;
     static constexpr uint32_t kTocSlotSize = 4096;
     static constexpr uint32_t kTocV3HeaderSize = 32;

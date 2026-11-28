@@ -138,6 +138,7 @@ public:
     static constexpr uint32_t kLocalPlayoutMaxWaitMs = 80;
     static constexpr uint32_t kCellularPlayoutTargetMs = 360;
     static constexpr uint32_t kCellularPlayoutMaxWaitMs = 480;
+    static constexpr uint32_t kCellularPlayoutRecoveryMs = 480;
 
     AudioService();
     ~AudioService();
@@ -221,7 +222,8 @@ public:
     // Deepen the downlink prefix for a lossy transport (cellular). Must be
     // called before/during a stream; it only takes effect when the board opted
     // into buffered playback.
-    void SetDownlinkJitter(uint32_t target_ms, uint32_t max_wait_ms);
+    void SetDownlinkJitter(uint32_t target_ms, uint32_t max_wait_ms,
+                           uint32_t recovery_target_ms = 0);
     void FinishPlayback(std::optional<uint32_t> expected_generation = std::nullopt);
     void SetModelsList(srmodel_list_t* models_list);
 
@@ -238,9 +240,7 @@ private:
     void* opus_decoder_ = nullptr;
     std::mutex decoder_mutex_;
     std::mutex input_resampler_mutex_;
-#if CONFIG_AUDIO_PRODUCT_QUALITY
     std::vector<int16_t> input_resample_scratch_;
-#endif
     esp_ae_rate_cvt_handle_t input_resampler_ = nullptr;
     esp_ae_rate_cvt_handle_t output_resampler_ = nullptr;
 
@@ -335,6 +335,7 @@ private:
     bool IsPlaybackDrainedLocked() const;
     bool MarkPlaybackDrainedLocked();
     uint32_t BufferedPlaybackMsLocked() const;
+    uint32_t BufferedPrefixMsLocked(uint32_t target_ms) const;
 };
 
 #endif

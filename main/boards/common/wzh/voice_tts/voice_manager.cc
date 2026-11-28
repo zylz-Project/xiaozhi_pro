@@ -293,7 +293,7 @@ VoiceOperation SelectKnownVoice(const std::string& id, const std::function<bool(
         return VoiceOperation::kBusy;
     if (reset_active.load())
         return VoiceOperation::kBusy;
-    if (!Builtin(id)) {
+    if (id != kNativeVoiceId && !Builtin(id)) {
         std::vector<VoiceName> names;
         if (!LoadVoiceNames(names))
             return VoiceOperation::kSave;

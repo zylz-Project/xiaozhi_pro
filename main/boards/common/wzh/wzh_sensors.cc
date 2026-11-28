@@ -126,10 +126,12 @@ bool Sensors::Initialize(gpio_num_t human, gpio_num_t sda, gpio_num_t scl, Servo
 }
 
 void Sensors::Task() {
+    constexpr uint32_t kMaxFallSampleGapMs = 120;
     PresenceGreeting presence;
     PostureInput posture;
     int fall_samples = 0, safe_samples = 0, read_failures = 0;
     bool falling = false;
+    uint32_t last_accel_read_ms = 0;
     uint32_t next_greeting_attempt = 0, next_probe = 0, next_diagnostic = 0, next_event_attempt = 0;
     while (true) {
         const uint32_t now = esp_timer_get_time() / 1000;
@@ -161,6 +163,10 @@ void Sensors::Task() {
             uint8_t bytes[6] = {};
             if (Read(0x28, bytes, sizeof(bytes))) {
                 read_failures = 0;
+                const uint32_t sample_ms = esp_timer_get_time() / 1000;
+                if (sample_ms - last_accel_read_ms > kMaxFallSampleGapMs)
+                    fall_samples = safe_samples = 0;
+                last_accel_read_ms = sample_ms;
                 auto axis = [&bytes](int index) {
                     return (static_cast<int16_t>(bytes[index] | (bytes[index + 1] << 8)) >> 4) * 2;
                 };

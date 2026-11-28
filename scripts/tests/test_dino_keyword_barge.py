@@ -22,12 +22,12 @@ int main(){
  auto speech=BargeWave(1500),silence=BargeWave(0),echo=BargeWave(8000,true);
  auto frame=[&](const std::vector<int16_t>& pcm,bool vad){
   now+=60000;FeedBargeReference(detector,now);
-  return detector.Observe(pcm.data(),pcm.size(),vad,now);
+  return detector.Observe(pcm.data(),pcm.size(),vad,now,false,1920);
  };
  for(int i=0;i<8;++i)assert(!frame(echo,true));
  assert(!frame(speech,true));assert(!frame(silence,false));
  assert(!frame(silence,false));assert(frame(speech,true));
- assert(detector.required_speech_ms()==120);
+ assert(detector.required_speech_ms()==120); // A higher minimum still spans packets.
  detector.Cancel();detector.Begin();
  for(int i=0;i<8;++i)assert(!frame(echo,true));
  assert(!frame(speech,true));
@@ -36,6 +36,33 @@ int main(){
  detector.Cancel();detector.Begin();
  for(int i=0;i<20;++i)assert(!frame(echo,true));
  assert(!detector.pending(detector.token(),now));
+}
+''')
+
+    def test_one_60_ms_near_end_packet_with_motion_guard_override(self):
+        self.run_cpp('#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n' + barge.HEADER + r'''
+#include <cassert>
+int main(){
+ VoiceBargeIn detector;int64_t now=0;
+ auto speech=BargeWave(1500),echo=BargeWave(8000,true),quiet=BargeWave(50);
+ auto frame=[&](const std::vector<int16_t>& pcm,bool vad,size_t minimum=0){
+  now+=60000;FeedBargeReference(detector,now);
+  return detector.Observe(pcm.data(),pcm.size(),vad,now,false,minimum);
+ };
+ const auto token=detector.Begin();
+ assert(detector.required_speech_ms()==60);
+ for(int i=0;i<5;++i)assert(!frame(speech,true)); // Reference settling.
+ assert(!frame(echo,true));
+ assert(!frame(quiet,true));
+ assert(!frame(speech,false));
+ assert(frame(speech,true));
+ assert(detector.pending(token,now)); // A keyword is still needed by Application.
+
+ detector.Begin();
+ for(int i=0;i<5;++i)assert(!frame(speech,true,4800));
+ for(int i=0;i<4;++i)assert(!frame(speech,true,4800));
+ assert(detector.required_speech_ms()==300);
+ assert(frame(speech,true,4800));
 }
 ''')
 
@@ -50,7 +77,8 @@ int main(){
  assert(found&&detector.pending(token,now));
  for(int i=0;i<51;++i){now+=60000;FeedBargeReference(detector,now);}
  assert(!detector.pending(token,now));
- detector.Observe(speech.data(),speech.size(),true,now);
+ auto silence=BargeWave(0);
+ detector.Observe(silence.data(),silence.size(),false,now);
  assert(detector.token()!=token&&!detector.pending(token,now));
  token=detector.token();found=false;
  for(int i=0;i<12&&!found;++i){now+=60000;FeedBargeReference(detector,now);
@@ -88,6 +116,7 @@ struct Board {static Board& GetInstance(){static Board b;return b;}
  bool SupportsLocalInteraction(){return true;}};
 struct Callbacks {std::function<void(uint32_t)> on_voice_interruption;};
 struct Application {Audio audio_service_;std::atomic<bool>voice_enrollment_active_{false};
+ bool wake_word_rearm_pending_=false;
  std::atomic<uint32_t>pending_voice_interruption_{0};int state=kDeviceStateSpeaking,aborts=0;
  std::atomic<int64_t>keyword_interruption_until_us_{0};
  void* event_group_=nullptr;Callbacks callbacks;
@@ -146,7 +175,7 @@ int main(){Application a;a.Install();a.callbacks.on_voice_interruption(42);
             self.assertEqual(words['bao bao wo'], 'local:affection')
             self.assertEqual(words['chi fan la'], 'local:eat')
             self.assertEqual(words['kan kan wo'], 'local:head_center')
-            self.assertNotIn('kai xin', words)
+            self.assertEqual(words['kai xin'], 'local:happy')
             self.assertNotIn('sa jiao', words)
 
     def test_interruption_vocabulary_uses_tone_free_pinyin(self):

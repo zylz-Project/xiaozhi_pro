@@ -2,8 +2,10 @@
 #define PROTOCOL_H
 
 #include <cJSON.h>
+#include <atomic>
 #include <chrono>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -50,7 +52,7 @@ public:
 
     inline int server_sample_rate() const { return server_sample_rate_; }
     inline int server_frame_duration() const { return server_frame_duration_; }
-    inline const std::string& session_id() const { return session_id_; }
+    std::string session_id() const;
 
     void OnIncomingAudio(std::function<void(std::unique_ptr<AudioStreamPacket> packet)> callback);
     void OnIncomingJson(std::function<void(const cJSON* root)> callback);
@@ -69,6 +71,8 @@ public:
     virtual bool DeferUntilReconnectFinishes(std::function<void()>) { return false; }
     virtual bool OpenAudioChannel() = 0;
     virtual void CloseAudioChannel(bool send_goodbye = true) = 0;
+    // Close connections before replacing this protocol on a transport switch.
+    virtual void CloseTransport() { CloseAudioChannel(false); }
     virtual bool IsAudioChannelOpened() const = 0;
     virtual bool SendAudio(std::unique_ptr<AudioStreamPacket> packet) = 0;
     virtual void SendWakeWordDetected(const std::string& wake_word);
@@ -92,14 +96,18 @@ protected:
 
     int server_sample_rate_ = 24000;
     int server_frame_duration_ = 60;
-    bool error_occurred_ = false;
-    std::string session_id_;
-    std::chrono::time_point<std::chrono::steady_clock> last_incoming_time_;
+    std::atomic<bool> error_occurred_{false};
+    std::atomic<std::chrono::steady_clock::time_point> last_incoming_time_{};
 
     virtual bool SendText(const std::string& text) = 0;
     virtual void SetError(const std::string& message);
     virtual bool IsTimeout() const;
+    void SetSessionId(std::string id);
     static void AddTextFontCapabilities(cJSON* root);
+
+private:
+    mutable std::mutex session_mutex_;
+    std::string session_id_;
 };
 
 #endif  // PROTOCOL_H

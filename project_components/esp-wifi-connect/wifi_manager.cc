@@ -152,8 +152,8 @@ void WifiManager::StartStation() {
     station_->SetHostname(config_.station_hostname);
     station_->SetPersistentAp(persistent_portal_active_);
     if (persistent_portal_active_) {
-        station_->OnScanResults([this](const std::vector<wifi_ap_record_t>& records) {
-            config_ap_->UpdateAccessPoints(records);
+        station_->OnScanResults([this](const wifi_ap_record_t* records, size_t count) {
+            config_ap_->UpdateAccessPoints(records, count);
         });
     }
 

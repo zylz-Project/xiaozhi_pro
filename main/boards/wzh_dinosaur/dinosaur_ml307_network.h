@@ -1,10 +1,15 @@
 #ifndef WZH_DINOSAUR_ML307_NETWORK_H_
 #define WZH_DINOSAUR_ML307_NETWORK_H_
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
 #include <network_interface.h>
+#include <array>
 #include <memory>
+#include <mutex>
 
 class AtUart;
+class DinosaurCellular;
 
 // The upstream ML307 UDP driver sends through the two-stage
 // AT+MIPSEND -> '>' -> binary flow. Its first stage has a one-second timeout,
@@ -19,7 +24,7 @@ class AtUart;
 // transport instead of the upstream binary-prompt path.
 class DinosaurMl307Network : public NetworkInterface {
 public:
-    DinosaurMl307Network(NetworkInterface* delegate, std::shared_ptr<AtUart> at_uart);
+    DinosaurMl307Network(const DinosaurCellular& cellular, std::shared_ptr<AtUart> at_uart);
     ~DinosaurMl307Network() override = default;
 
     std::unique_ptr<Http> CreateHttp(int connect_id = -1) override;
@@ -29,9 +34,17 @@ public:
     std::unique_ptr<Mqtt> CreateMqtt(int connect_id = -1) override;
     std::unique_ptr<WebSocket> CreateWebSocket(int connect_id = -1) override;
 
+    static constexpr int kSocketCount = 6;
+    static constexpr EventBits_t kSocketInterrupted = BIT6;
+    bool ClaimSocket(int id, EventGroupHandle_t events);
+    void ReleaseSocket(int id);
+    void InterruptSockets();
+
 private:
-    NetworkInterface* delegate_;
+    const DinosaurCellular& cellular_;
     std::shared_ptr<AtUart> at_uart_;
+    std::mutex socket_mutex_;
+    std::array<EventGroupHandle_t, kSocketCount> socket_events_{};
 };
 
 #endif

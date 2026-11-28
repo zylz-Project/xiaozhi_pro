@@ -102,6 +102,31 @@ const char* HttpStatusText(int status) {
 
 }  // namespace
 
+void AddNetworkTransportStatus(cJSON* root, const Board& board) {
+    const auto status = board.GetNetworkTransportSwitchStatus();
+    using State = NetworkTransportSwitchStatus::State;
+    const char* transport = board.IsNetworkProbing()      ? "probing"
+                            : board.UsesCellularNetwork() ? "cellular"
+                                                          : "wifi";
+    cJSON_AddStringToObject(root, "transport", transport);
+    cJSON_AddBoolToObject(root, "network_available", board.IsNetworkAvailable());
+    cJSON_AddBoolToObject(root, "transport_switchable", board.CanSwitchNetworkTransport());
+    if (status.state == State::kIdle)
+        return;
+    if (auto* job = cJSON_AddObjectToObject(root, "transport_switch")) {
+        cJSON_AddNumberToObject(job, "id", status.id);
+        cJSON_AddStringToObject(job, "target", status.cellular ? "cellular" : "wifi");
+        cJSON_AddStringToObject(job, "state",
+                                status.state == State::kPending     ? "pending"
+                                : status.state == State::kSucceeded ? "succeeded"
+                                                                    : "failed");
+        if (status.state == State::kFailed)
+            cJSON_AddStringToObject(job, "message",
+                                    status.cellular ? "切换到 4G 失败，当前网络保留，可以重试"
+                                                    : "切换到 Wi-Fi 失败，可以重试");
+    }
+}
+
 WebConsole::WebConsole() = default;
 WebConsole::~WebConsole() { Stop(); }
 
@@ -502,9 +527,7 @@ void WebConsole::AddStatus(cJSON* root) {
     auto& wifi = WifiManager::GetInstance();
     const bool wifi_connected = wifi.IsConnected();
     const bool uses_cellular = board.UsesCellularNetwork();
-    const char* transport = board.IsNetworkProbing() ? "probing" : (uses_cellular ? "cellular" : "wifi");
-    cJSON_AddStringToObject(root, "transport", transport);
-    cJSON_AddBoolToObject(root, "network_available", board.IsNetworkAvailable());
+    AddNetworkTransportStatus(root, board);
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
     if (uses_cellular) {
         cJSON_AddBoolToObject(root, "cellular_server_connected", app.IsCellularServerConnected());
@@ -955,12 +978,17 @@ esp_err_t WebConsole::HandleDeveloperStatus(httpd_req_t* req) {
         return httpd_resp_send_500(req);
     self->AddStatus(out);
     const auto* app_desc = esp_app_get_description();
+    multi_heap_info_t internal_heap{};
+    multi_heap_info_t psram_heap{};
+    heap_caps_get_info(&internal_heap, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    heap_caps_get_info(&psram_heap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     cJSON_AddNumberToObject(out, "heap_free", heap_caps_get_free_size(MALLOC_CAP_8BIT));
-    cJSON_AddNumberToObject(out, "heap_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-    cJSON_AddNumberToObject(out, "heap_internal_min",
-                            heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
-    cJSON_AddNumberToObject(out, "heap_internal_largest",
-                            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(out, "heap_internal", internal_heap.total_free_bytes);
+    cJSON_AddNumberToObject(out, "heap_internal_min", internal_heap.minimum_free_bytes);
+    cJSON_AddNumberToObject(out, "heap_internal_largest", internal_heap.largest_free_block);
+    cJSON_AddNumberToObject(out, "heap_psram", psram_heap.total_free_bytes);
+    cJSON_AddNumberToObject(out, "heap_psram_min", psram_heap.minimum_free_bytes);
+    cJSON_AddNumberToObject(out, "heap_psram_largest", psram_heap.largest_free_block);
     cJSON_AddStringToObject(out, "compiled", app_desc->date);
     cJSON_AddStringToObject(out, "compiled_time", app_desc->time);
     cJSON_AddStringToObject(out, "idf_version", app_desc->idf_ver);

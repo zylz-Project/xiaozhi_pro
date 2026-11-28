@@ -55,8 +55,19 @@
 
 - 输入：`/home/wzh/program/ESP32/zylz_project/final/audio_serverWeb/audio_files`，源音频保持原样。
 - [逐文件实测清单](../../data/sound_pack.json)：65个文件、46个不同录音的SHA-256、PCM时长、类别与声道。
-- [130条动作轨迹检查](wzh_sound_motion_audit_2026-10-19.json)：每5ms检查角度、峰值速度、回中、连续上电时段和时长；100ms轨迹供预览使用。
-- 重新生成：`python3 scripts/audio/build_wzh_sound_scores.py <audio_files目录>`，随后运行 `python3 scripts/audio/audit_wzh_choreography.py` 与 `python3 scripts/audio/build_wzh_motion_preview.py`。你已通过其他程序同步本次音频，当前直接更新对应固件即可。以后更换音频文件内容时，再生成配置、重编固件并同步外置Flash。旧格式目录即便把环境音标成animal，也会按已知文件名排除熊猫长环境音。
+- 历史数据包含 65 个声音各 16 种变化，共 1,040 条轨迹。审计按 5 ms 检查角度、峰值速度、回中、连续上电时段和时长。每 100 ms 的预览轨迹与审计数据一起保存于预览页内嵌 JSON。
+- 使用当前源码重新审计，运行 `python3 scripts/audio/audit_wzh_choreography.py --output /tmp/wzh-sound-motion-audit.json`。更换源音频后，可用 `python3 scripts/audio/build_wzh_sound_scores.py <audio_files目录>` 重新生成配置，重编固件并同步外置 Flash。旧格式目录即便把环境音标成 animal，也会按已知文件名排除熊猫长环境音。
+
+在仓库根目录运行以下命令，可按原始格式提取历史 JSON。
+
+```sh
+python3 - <<'PY' > /tmp/wzh_sound_motion_audit_2026-10-19.json
+from pathlib import Path
+
+page = Path('docs/wzh/motion/audio_motion_preview.html').read_text(encoding='utf-8')
+print(page.split('const pack=', 1)[1].split(';\n', 1)[0])
+PY
+```
 
 ## 逐文件配对
 

@@ -59,7 +59,8 @@ public:
     void OnConnected(std::function<void(const std::string& ssid)> on_connected);
     void OnDisconnected(std::function<void(int reason)> on_disconnected);
     void OnScanBegin(std::function<void()> on_scan_begin);
-    void OnScanResults(std::function<void(const std::vector<wifi_ap_record_t>&)> callback) {
+    // Records are borrowed for the duration of the callback.
+    void OnScanResults(std::function<void(const wifi_ap_record_t*, size_t)> callback) {
         on_scan_results_ = std::move(callback);
     }
     void SetScanIntervalRange(int min_interval_seconds, int max_interval_seconds);
@@ -96,9 +97,8 @@ private:
     std::function<void(const std::string& ssid)> on_connected_;
     std::function<void(int reason)> on_disconnected_;
     std::function<void()> on_scan_begin_;
-    std::function<void(const std::vector<wifi_ap_record_t>&)> on_scan_results_;
+    std::function<void(const wifi_ap_record_t*, size_t)> on_scan_results_;
     std::vector<WifiApRecord> connect_queue_;
-    std::atomic<bool> scan_running_{false};
     std::atomic<int64_t> scan_started_us_{0};
     bool persistent_ap_ = false;
     bool was_connected_ = false;  // Track if we were connected before disconnection

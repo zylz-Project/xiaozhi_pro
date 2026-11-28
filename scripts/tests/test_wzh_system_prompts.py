@@ -293,7 +293,11 @@ void vTaskDelay(unsigned ms){
 int main(){
  auto& app=Application::GetInstance();auto& audio=app.audio;
  wzh::StartSystemPrompts();assert(entry&&wzh::onboarding_starts==0);
- // Startup protection feedback has priority, waits for audio and only plays once.
+ // A normal startup voltage check is visible but does not occupy the speaker.
+ wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kCheckingBattery);
+ run_worker();
+ assert(wzh::StartupProtectionMessage()[0] && audio.low==0 && audio.warning==0);
+ // A confirmed fault waits for its audio turn and only plays once.
  wzh::ObserveStartupProtection(wzh::StartupProtectionNotice::kLowBattery);
  app.state=1;run_worker();assert(audio.low==0);app.state=0;
  run_worker();assert(audio.low==1);clock_ms+=1000;run_worker();assert(audio.low==1);

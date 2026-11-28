@@ -1,5 +1,7 @@
 # 网页版 UI 优化方案（对齐小程序 v1.1 体验）
 
+> 历史设计及测量记录。现行页面入口与验证方式见[设备网页](../../web/README.md)。
+
 - 日期：2026-11-16
 - 仓库：`/home/hanhan/Desktop/zylz-Project/xiaozhi/wzh/xiaozhi_pro`（分支 `feature/wzh-tailredpanda-barge-in`，HEAD `e9bfaf8`）
 - 范围：`main/assets/wzh_ui/` 下的用户页（index / setup / done / login / manual）与其 CSS/JS；开发者页 `developer.html` 不在本次视觉范围内（保持 8080 桌面形态）。

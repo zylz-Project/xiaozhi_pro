@@ -367,7 +367,7 @@ int main(){
         self.assertGreaterEqual(len(collections),10)
         calibration = '\n'.join(line for line in (base / 'config.h').read_text().splitlines()
                                 if line.startswith('#define DINOSAUR_NECK_TAIL_SERVO_'))
-        program = calibration + r'''
+        program = calibration + '\n#include "' + str(base / 'dinosaur_speech_motion.h') + '"\n' + r'''
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -400,8 +400,17 @@ unsigned esp_random(){return 0;}
 float frnd(){return .5f;}
 int irnd(int count){static uint32_t rng=98765;rng^=rng<<13;rng^=rng>>17;rng^=rng<<5;return rng%count;}
 struct DinoMotionData{bool playing=false;float level=0,attack=0;};
-struct Audio{DinoMotionData GetMotionData(){return {};}
+struct Audio{bool Playing(){return false;}DinoMotionData GetMotionData(){return {};}
     DinoMotionData GetTtsMotionData(){return {true,.4f,.3f};}};
+struct AudioService{bool idle=true;bool IsPlaybackIdle(){return idle;}};
+struct Application{
+    static Application& GetInstance(){static Application app;return app;}
+    bool IsVoiceEnrollmentActive()const{return false;}
+    bool IsExternalVoicePreviewActive()const{return preview;}
+    AudioService& GetAudioService(){return audio;}
+    bool preview=false;
+    AudioService audio;
+};
 struct Output{
     bool locked=false;int releases=0;std::vector<std::array<float,5>> samples;
     std::array<float,5> last_pwm{};
@@ -424,8 +433,10 @@ struct Output{
 struct DinosaurController{
     struct Pose{float neck_tilt,neck_lean,head_turn,tail_ud,tail_lr;};
     wzh::PetBehavior pet_;Output servo_output_;wzh::VoiceMotion voice_motion_;
+    wzh_dino::SpeechMotion speech_motion_;
     std::atomic<wzh::SpeechIntent> speech_intent_{wzh::SpeechIntent::kNeutral};
-    std::atomic<bool> speech_tail_{false};Audio* audio_=nullptr;
+    std::atomic<bool> conversation_active_{false},speech_tail_{false};Audio* audio_=nullptr;
+    std::atomic<int64_t> speech_started_us_{0};
     wzh::InteractionMotionSelector interaction_motion_;
     bool servo_test_active_=false;float request_gain_=1;
     bool running_speech_bound_=false;
@@ -449,7 +460,9 @@ struct DinosaurController{
     int8_t last_sound_clip_indices_[8]={-1,-1,-1,-1,-1,-1,-1,-1};
     const wzh_dino::MotionClip* PickClip(DinoAction);
     const wzh_dino::MotionClip* PickSoundClip(DinoAction);
-    void SetPose(const Pose&);
+    bool SetPose(const Pose&,const std::array<float,5>* = nullptr);
+    bool UpdateConversationMotion();
+    wzh::SpeechIntent GetSpeechIntent()const{return speech_intent_.load();}
     Pose ResolveKeyframe(const wzh_dino::Keyframe&,const Pose&,bool,float,bool=false) const;
     uint32_t ComfortableDuration(const Pose&,const Pose&,uint32_t)const;
     void PlaySegment(const Pose&,const Pose&,uint32_t,wzh_dino::MotionEase,float,
@@ -460,7 +473,8 @@ struct DinosaurController{
     void RunBodyAction(DinoBodyAction);
 };
 '''
-        for marker in ['void DinosaurController::SettleToCenter(', 'void DinosaurController::SetPose(',
+        for marker in ['void DinosaurController::SettleToCenter(', 'bool DinosaurController::SetPose(',
+                       'bool DinosaurController::UpdateConversationMotion(',
                        'DinosaurController::Pose DinosaurController::ResolveKeyframe(',
                        'uint32_t DinosaurController::ComfortableDuration(',
                        'void DinosaurController::PlaySegment(',
@@ -603,45 +617,74 @@ struct DinosaurController{
     assert(clock_ms==10500);
     auto count=c.servo_output_.samples.size();c.servo_output_.locked=true;
     const auto last_command=c.last_servo_command_movement_us_.load();
-    c.SetPose({0,0,0,55,0});assert(c.servo_output_.samples.size()==count);
+    assert(!c.SetPose({0,0,0,55,0})&&c.servo_output_.samples.size()==count);
     assert(c.last_servo_command_movement_us_.load()==last_command);
-    // Real production audio motion: all five axes must visibly respond, with
-    // several direction changes rather than a single slow drift over 15 sec.
-    DinosaurController talking;Audio audio;talking.audio_=&audio;talking.speaking_=true;
-    std::array<float,5> movement{};int head_turns=0;float previous_delta=0,previous_head=90;
-    bool deep_bow=false, bow_left=false, bow_right=false, raised=false;
-    for(unsigned sample=0;sample<750;++sample){
-        clock_ms=10000+sample*20;talking.output_audio_updated_us_=int64_t(clock_ms)*1000;
-        talking.output_audio_level_=.4f;talking.output_audio_attack_=.3f;
-        talking.SetPose({70,90,90,90,90});
-        auto actual=Values(talking.last_output_pose_);
-        auto rest=Values(DinosaurController::Pose{70,90,90,90,90});
-        for(unsigned axis=0;axis<5;++axis)movement[axis]=std::max(movement[axis],std::abs(actual[axis]-rest[axis]));
-        deep_bow|=actual[0]>=132;
-        bow_left|=actual[0]>=105&&actual[1]>=110;
-        bow_right|=actual[0]>=105&&actual[1]<=70;
-        raised|=actual[0]<=40;
-        float delta=actual[2]-previous_head;
-        if(delta*previous_delta<0)++head_turns;
-        if(std::abs(delta)>.001f)previous_delta=delta;
-        previous_head=actual[2];
+    // Reproduce 60 ms speaker packets with a 300 ms gap mid-turn. Motion
+    // starts on this reply's PCM and returns from the last actual command.
+    DinosaurController talking;Audio audio;talking.audio_=&audio;
+    talking.conversation_active_=talking.speaking_=talking.speech_tail_=true;
+    talking.speech_intent_=wzh::SpeechIntent::kJoy;
+    clock_ms=20000;
+    talking.speech_started_us_=int64_t(clock_ms)*1000;
+    talking.output_audio_updated_us_=talking.speech_started_us_.load()-20000;
+    talking.output_audio_level_=.4f;talking.output_audio_attack_=.3f;
+    assert(!talking.UpdateConversationMotion()&&talking.servo_output_.samples.empty());
+    Application::GetInstance().preview=true;
+    talking.output_audio_updated_us_=talking.speech_started_us_.load();
+    assert(!talking.UpdateConversationMotion()&&talking.servo_output_.samples.empty());
+    Application::GetInstance().preview=false;
+    const auto neutral=Values(talking.last_output_pose_);
+    auto previous=neutral;
+    std::array<float,5> movement{};
+    for(unsigned t=0;t<1300;t+=20){
+        clock_ms=20020+t;
+        if(t%60==0&&(t<=480||t>=780))
+            talking.output_audio_updated_us_=int64_t(clock_ms)*1000;
+        assert(talking.UpdateConversationMotion());
+        const auto actual=Values(talking.last_output_pose_);
+        for(unsigned axis=0;axis<5;++axis){
+            movement[axis]=std::max(movement[axis],std::abs(actual[axis]-neutral[axis]));
+            assert(std::abs(actual[axis]-previous[axis])<=2.61f);
+        }
+        assert(Values(talking.current_pose_)==neutral);
+        if(t==760)assert(std::abs(actual[0]-neutral[0])<2.f);
+        previous=actual;
     }
-    for(float range:movement)assert(range>=15);
-    assert(head_turns>=6);
-    assert(deep_bow&&bow_left&&bow_right&&raised);
-    // A strong automatic expression must leave room for the speaking neck
-    // and tail to move down, even when the underlying clip keeps both raised.
-    DinosaurController proud_voice;proud_voice.audio_=&audio;proud_voice.speaking_=true;
-    proud_voice.running_speech_bound_=true;proud_voice.request_active_=true;
-    bool bowed=false,dropped_tail=false;
-    for(unsigned t=0;t<60000;t+=20){
-        clock_ms=30000+t;
-        proud_voice.SetPose({12,90,90,168,90});
-        const auto& out=proud_voice.last_output_pose_;
-        bowed|=out.neck_tilt>80;
-        dropped_tail|=out.tail_ud<88;
+    for(float range:movement)assert(range>3.f&&range<15.f);
+    assert(talking.speech_motion_.active()&&std::abs(previous[0]-neutral[0])>5.f);
+    talking.conversation_active_=false;
+    talking.flash_performance_active_=true; // Suppressed during output-space recentering.
+    wzh::tutorial_voice=true;
+    clock_ms+=20;
+    assert(!talking.UpdateConversationMotion());
+    talking.SettleToCenter(clock_ms);
+    assert(Values(talking.last_output_pose_)==previous);
+    wzh::tutorial_voice=false;
+
+    // A stop message precedes the first audible PCM when playback is buffering.
+    DinosaurController buffered;buffered.audio_=&audio;
+    buffered.conversation_active_=buffered.speech_tail_=true;
+    buffered.speech_started_us_=int64_t(clock_ms)*1000;
+    auto& playback=Application::GetInstance().GetAudioService();
+    playback.idle=false;
+    assert(!buffered.UpdateConversationMotion()&&buffered.speech_tail_.load());
+    clock_ms+=60;
+    buffered.output_audio_updated_us_=int64_t(clock_ms)*1000;
+    buffered.output_audio_level_=.4f;buffered.output_audio_attack_=.3f;
+    assert(buffered.UpdateConversationMotion()&&buffered.speech_tail_.load());
+    clock_ms+=200;
+    playback.idle=true;
+    buffered.UpdateConversationMotion();
+    assert(!buffered.speech_tail_.load());
+
+    DinosaurController directed;directed.audio_=&audio;
+    directed.request_active_=true;directed.active_body_axes_=1U<<2;
+    const std::array<float,5> rejected_offset{-15,9,12,14,13};
+    for(unsigned t=0;t<1000;t+=20){
+        clock_ms+=20;
+        directed.SetPose({70,90,110,90,90},&rejected_offset);
     }
-    assert(bowed&&dropped_tail);
+    assert(Values(directed.last_output_pose_)==Values({70,90,110,90,90}));
     // Local Flash PCM accents the two vertical axes without adding its own sway.
     DinosaurController local;local.audio_=&audio;local.flash_performance_active_=true;
     for(unsigned t=0;t<2000;t+=20){

@@ -4,6 +4,7 @@
 #include "system_info.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include <esp_log.h>
 #include <esp_mn_iface.h>
@@ -72,8 +73,8 @@ void CustomWakeWord::ParseWakenetModelConfig() {
                     cJSON* action = cJSON_GetObjectItem(command, "action");
                     if (cJSON_IsString(command_name) && cJSON_IsString(text) &&
                         cJSON_IsString(action)) {
-                        commands_.push_back(
-                            {command_name->valuestring, text->valuestring, action->valuestring});
+                        commands_.push_back({command_name->valuestring, text->valuestring,
+                                             std::strcmp(action->valuestring, "wake") == 0});
                         ESP_LOGI(TAG, "Command: %s, Text: %s, Action: %s",
                                  command_name->valuestring, text->valuestring, action->valuestring);
                     }
@@ -96,7 +97,7 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list,
         owns_models_ = models_ != nullptr;
 #ifdef CONFIG_CUSTOM_WAKE_WORD
         threshold_ = CONFIG_CUSTOM_WAKE_WORD_THRESHOLD / 100.0f;
-        commands_.push_back({CONFIG_CUSTOM_WAKE_WORD, CONFIG_CUSTOM_WAKE_WORD_DISPLAY, "wake"});
+        commands_.push_back({CONFIG_CUSTOM_WAKE_WORD, CONFIG_CUSTOM_WAKE_WORD_DISPLAY, true});
 #endif
     } else {
         models_ = models_list;
@@ -108,7 +109,7 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list,
         // bypass the product's dedicated WakeNet model.
         commands_.erase(std::remove_if(commands_.begin(), commands_.end(),
                                        [](const Command& command) {
-                                           return command.action != "wake" ||
+                                           return !command.wake ||
                                                   command.text.rfind("local:", 0) != 0;
                                        }),
                         commands_.end());
@@ -181,19 +182,21 @@ void CustomWakeWord::Stop() {
 
     std::lock_guard<std::mutex> lock(input_buffer_mutex_);
     input_buffer_.clear();
+    shutdown_alias_ = {};
     reset_pending_ = true;
 }
 
 void CustomWakeWord::Feed(const std::vector<int16_t>& data) {
-    FeedSamples(data.data(), data.size(), false, true);
+    FeedSamples(data.data(), data.size(), false, CommandMode::kAll, false);
 }
 
-void CustomWakeWord::FeedMono(const int16_t* data, size_t samples, bool allow_interrupt) {
-    FeedSamples(data, samples, true, allow_interrupt);
+void CustomWakeWord::FeedMono(const int16_t* data, size_t samples, CommandMode mode,
+                              bool vad_silence) {
+    FeedSamples(data, samples, true, mode, vad_silence);
 }
 
 void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono,
-                                 bool allow_interrupt) {
+                                 CommandMode mode, bool vad_silence) {
     if (multinet_model_data_ == nullptr || data == nullptr || samples == 0) {
         return;
     }
@@ -206,6 +209,41 @@ void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono,
     if (reset_pending_.exchange(false)) {
         multinet_->clean(multinet_model_data_);
     }
+
+    constexpr size_t kQuietTailSamples = 16 * 192;
+    constexpr size_t kMaxTailSamples = 16 * 448;
+    const bool standby = mode == CommandMode::kStandby;
+    if (shutdown_alias_.active && !standby) {
+        shutdown_alias_ = {};
+        input_buffer_.clear();
+        multinet_->clean(multinet_model_data_);
+    }
+    if (shutdown_alias_.active) {
+        if (!shutdown_alias_.cancelled) {
+            shutdown_alias_.elapsed_samples += samples;
+            // Fresh speech after a gap or a long voiced tail may complete a
+            // longer command. Suppress repeated prefix matches until quiet.
+            shutdown_alias_.cancelled =
+                shutdown_alias_.elapsed_samples > kMaxTailSamples ||
+                (!vad_silence && (shutdown_alias_.quiet_samples != 0 ||
+                                  shutdown_alias_.elapsed_samples >= kQuietTailSamples));
+        }
+        shutdown_alias_.quiet_samples =
+            vad_silence ? std::min(kQuietTailSamples, shutdown_alias_.quiet_samples + samples) : 0;
+    }
+
+    auto dispatch = [&](const std::string& text) {
+        last_detected_wake_word_ = text;
+        running_ = false;
+        input_buffer_.clear();
+        shutdown_alias_ = {};
+        multinet_->clean(multinet_model_data_);
+        // The application can stop or re-arm the detector in its callback.
+        lock.unlock();
+        if (wake_word_detected_callback_) {
+            wake_word_detected_callback_(last_detected_wake_word_);
+        }
+    };
 
     // If input channels is 2, we need to fetch the left channel data
     if (!mono && codec_->input_channels() > 1) {
@@ -234,29 +272,53 @@ void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono,
                     ESP_LOGW(TAG, "Ignoring unknown command ID %d", command_id);
                     continue;
                 }
-                auto& command = commands_[command_id - 1];
-                if (command.action == "wake") {
-                    if (!allow_interrupt && command.text == "local:interrupt")
+                const auto& command = commands_[command_id - 1];
+                if (command.wake) {
+                    const bool interruption = command.text == "local:interrupt" ||
+                                              command.text == "local:stop" ||
+                                              command.text == "local:chat_wake";
+                    // Keep the best match authoritative even when its action is
+                    // unavailable in the current capture mode.
+                    if ((standby && command.text == "local:interrupt") ||
+                        (mode == CommandMode::kInterruption && !interruption)) {
                         break;
+                    }
+                    if (standby && command.text == "local:shutdown" &&
+                        command.command == "bai bai") {
+                        if (!(mn_result->prob[i] >= threshold_))
+                            break;
+                        for (int alt = i + 1; alt < mn_result->num; ++alt) {
+                            const int id = mn_result->command_id[alt];
+                            if (id <= 0 || static_cast<size_t>(id) > commands_.size() ||
+                                !(mn_result->prob[alt] >= threshold_)) {
+                                continue;
+                            }
+                            const auto& alternative = commands_[id - 1];
+                            if (alternative.command == "bai bai wei ba" &&
+                                alternative.text == "local:wag_tail") {
+                                dispatch(alternative.text);
+                                return;
+                            }
+                        }
+                        // Continue feeding MultiNet while the short match waits
+                        // for silence so a later full phrase can take priority.
+                        shutdown_alias_.active = true;
+                        break;
+                    }
                     ESP_LOGI(TAG, "Custom wake word detected: command_id=%d, string=%s, prob=%f",
                              command_id, mn_result->string, mn_result->prob[i]);
-                    last_detected_wake_word_ = command.text;
-                    running_ = false;
-                    input_buffer_.clear();
-                    multinet_->clean(multinet_model_data_);
-
-                    // Dispatch after releasing the detector lock. The main
-                    // task may immediately stop or re-arm it after this event.
-                    lock.unlock();
-                    if (wake_word_detected_callback_) {
-                        wake_word_detected_callback_(last_detected_wake_word_);
-                    }
+                    dispatch(command.text);
                     return;
                 }
             }
-            multinet_->clean(multinet_model_data_);
+            if (!shutdown_alias_.active) {
+                multinet_->clean(multinet_model_data_);
+            }
         } else if (mn_state == ESP_MN_STATE_TIMEOUT) {
             ESP_LOGD(TAG, "Command word detection timeout, cleaning state");
+            if (shutdown_alias_.active) {
+                shutdown_alias_.cancelled = true;
+            }
             multinet_->clean(multinet_model_data_);
         }
 
@@ -264,6 +326,15 @@ void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono,
             break;
         }
         input_buffer_.erase(input_buffer_.begin(), input_buffer_.begin() + chunksize);
+    }
+    if (running_ && shutdown_alias_.active && shutdown_alias_.quiet_samples >= kQuietTailSamples) {
+        if (!shutdown_alias_.cancelled) {
+            ESP_LOGI(TAG, "Custom wake word detected: bai bai, followed by silence");
+            dispatch("local:shutdown");
+        } else {
+            shutdown_alias_ = {};
+            multinet_->clean(multinet_model_data_);
+        }
     }
 }
 

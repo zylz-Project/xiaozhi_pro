@@ -12,7 +12,7 @@
 // Called under AudioService's queue lock, on post-AEC 16 kHz mono PCM only.
 // VAD, a bounded noise floor and a playback-correlation veto must agree for
 // 180 ms, allowing one 60 ms echo-vetoed frame within that candidate. Keyword
-// confirmation needs 120 ms of speech and allows up to 120 ms of VAD/energy gaps.
+// confirmation needs 60 ms of speech and allows up to 120 ms of VAD/energy gaps.
 // Settle for 300 ms of actual referenced, unclipped playback.
 // Input and post-AEC observations share the audio queue lock.
 class VoiceBargeIn {
@@ -179,7 +179,7 @@ public:
 
 private:
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
-    static constexpr size_t kDefaultSpeechSamples = 1920;
+    static constexpr size_t kDefaultSpeechSamples = 960;
 #else
     static constexpr size_t kDefaultSpeechSamples = 2880;
 #endif

@@ -184,7 +184,7 @@ int main(){
         program=program.replace('unsigned esp_random(){return 0;}',
             'static unsigned esp_seed2=1;inline unsigned esp_random(){esp_seed2=esp_seed2*1664525u+1013904223u;return esp_seed2;}')
         program=program.replace('    auto Snapshot(){return files;}','    auto Snapshot(){return files;}\n    size_t file_count(){return files.size();}')
-        program=program.replace('    bool playback_pending_=false;','    SoundCoverage paired_coverage_,sound_coverage_;uint32_t autonomous_turn_=0;\n    bool PlayAutonomousSound(bool,uint32_t=100,bool=true,bool=false);\n    bool playback_pending_=false;')
+        program=program.replace('    bool playback_pending_=false;','    SoundCoverage<kMaxUserPairs> paired_coverage_;SoundCoverage<128,32> sound_coverage_;uint32_t autonomous_turn_=0;\n    bool PlayAutonomousSound(bool,uint32_t=100,bool=true,bool=false);\n    bool playback_pending_=false;')
         method=queue_function((COMMON/'wzh_audio_player.cc').read_text(),'bool AudioPlayer::PlayAutonomousSound(')
         self.run_cpp(program+'\nbool IsOnboardingActive(){return false;}\nbool idle_suppressed=false;bool IdleSoundSuppressed(){return idle_suppressed;}\n'+method+r'''
 int main(){

@@ -42,14 +42,16 @@ void ConfigureVoiceConsole(WebConsole::Options& options) {
         return Management().Command(action, id, name);
     };
     options.voice_upload = [](uint8_t* data, size_t length) {
-        return !Application::GetInstance().IsVoiceEnrollmentActive() &&
-               Management().Upload(data, length);
+        return Application::GetInstance().IsVoiceEnrollmentActive()
+                   ? 0U
+                   : Management().Upload(data, length);
     };
     options.voice_device_record = [](const std::string& name) {
         return !Management().Busy() && voice_tts::IsValidVoiceName(name) &&
                Application::GetInstance().RequestDeviceVoiceEnrollment(name);
     };
     options.voice_status_extra = [](cJSON* root) { Management().AddStatus(root); };
+    options.voice_status_summary = [](cJSON* root) { Management().AddStatus(root, false); };
     options.save_ali_key = [](const std::string& key) {
         return CanChangeVoice() && voice_tts::SaveAliKey(key);
     };

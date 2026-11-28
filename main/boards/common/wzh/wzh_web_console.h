@@ -18,8 +18,11 @@
 #include "wzh_audio_store.h"
 #include "wzh_developer_session.h"
 
+class Board;
+
 namespace wzh {
 class UserWebPortal;
+void AddNetworkTransportStatus(cJSON* root, const Board& board);
 
 // 设备用户门户（:80，常驻开放热点）与开发者管理页（:8080，热点与局域网均可）。
 //
@@ -58,9 +61,10 @@ public:
         std::function<const char*()> voice_preview_status;
         std::function<uint32_t(const std::string&, const std::string&, const std::string&)>
             voice_command;
-        std::function<bool(uint8_t*, size_t)> voice_upload;
+        std::function<uint32_t(uint8_t*, size_t)> voice_upload;
         std::function<bool(const std::string&)> voice_device_record;
         std::function<void(cJSON*)> voice_status_extra;
+        std::function<void(cJSON*)> voice_status_summary;
         std::function<bool()> begin_factory_reset;
         std::function<bool()> factory_reset_prepared;
         std::function<void()> end_factory_reset;

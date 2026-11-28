@@ -249,6 +249,34 @@ int main(){
  board.enrollment=nullptr;
 }
 ''')
+    def test_native_voice_selection_uses_local_flow_without_ali_configuration(self):
+        self.run_cpp(self.application()+r'''
+struct Enrollment:VoiceEnrollment {
+ bool pending=false;std::string selected;
+ bool IsConfigured() const override{return false;}
+ bool SelectionPending() const override{return pending;}
+ bool Start(std::function<void(bool)>,std::function<void(bool)>) override{return false;}
+ bool StartSelection(const std::string& text,std::function<void(bool)>) override{
+  selected=text;return true;
+ }
+ bool Capture(const int16_t*,size_t,bool) override{return false;}
+ void Cancel() override{}
+};
+int main(){
+ auto& board=Board::GetInstance();Enrollment enrollment;board.enrollment=&enrollment;
+ Application app;app.state=kDeviceStateListening;app.protocol.opened=true;
+ app.Tts(R"({"type":"stt","text":"原声"})");app.Drain();
+ assert(!app.voice_enrollment_active_&&enrollment.selected.empty());
+ app.Tts(R"({"type":"stt","text":"请切回原声。"})");app.Drain();
+ assert(enrollment.selected=="请切回原声。"&&app.protocol.closes==1&&app.alerts==0);
+ app.voice_enrollment_active_=false;app.state=kDeviceStateListening;app.protocol.opened=true;
+ enrollment.pending=true;
+ app.Tts(R"({"type":"stt","text":"原声"})");app.Drain();
+ assert(enrollment.selected=="原声"&&app.protocol.closes==2&&app.alerts==0);
+ board.enrollment=nullptr;
+}
+''')
+
     def application(self, preview=False):
         source=(ROOT/'main/application.cc').read_text()
         methods='\n'.join(queue_function(source,'void Application::'+name+'(') for name in [
@@ -753,9 +781,11 @@ struct AudioService{
  Codec codec;Codec*codec_=&codec;void*audio_power_timer_=nullptr;
  std::mutex audio_queue_mutex_;std::condition_variable audio_queue_cv_;
  std::deque<AudioTask>audio_playback_queue_;
+ std::deque<int>audio_decode_queue_;
  std::atomic<bool>service_stopped_{false};uint32_t playback_generation_=7;
  AudioPlayoutBuffer playout_buffer_;
- uint32_t BufferedPlaybackMsLocked()const{return 0;}
+ uint32_t BufferedPrefixMsLocked(uint32_t)const{return 0;}
+ size_t max_playback_tasks_=6;
  bool buffered_playback_=true;
  bool output_in_flight_=false;
  float output_fast_env_=0,output_slow_env_=0;

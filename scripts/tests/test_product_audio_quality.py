@@ -309,7 +309,8 @@ struct AudioService{
  bool decode_in_flight_=false,output_in_flight_=false,playback_drained_notified_=false;
  std::atomic<uint32_t> playback_drained_count_{0};
  std::atomic<bool>waiting{false};
- AudioPlayoutBuffer playout_buffer_;uint32_t BufferedPlaybackMsLocked(){waiting=true;return 60;}
+ AudioPlayoutBuffer playout_buffer_;uint32_t BufferedPrefixMsLocked(uint32_t){waiting=true;return 60;}
+ size_t max_playback_tasks_=6;
  bool buffered_playback_=true;float output_fast_env_=0,output_slow_env_=0;
  std::function<void(float,float)>output_audio_level_listener_;
  std::chrono::steady_clock::time_point last_output_time_;
@@ -456,14 +457,14 @@ int main(){
 
     def test_capture_reuses_buffers_and_rejects_conversion_errors_or_wrong_rate(self):
         source=(AUDIO/'audio_service.cc').read_text()
-        self.run_cpp(r'''
-#define CONFIG_AUDIO_PRODUCT_QUALITY 1
+        program = r'''
 #include <atomic>
 #include <cassert>
 #include <chrono>
 #include <mutex>
 #include <vector>
 constexpr int ESP_AE_ERR_OK=0,AUDIO_POWER_CHECK_INTERVAL_MS=1000;
+constexpr int kRealtimeInputSamples=160;
 using esp_ae_sample_t=int16_t*;
 void esp_timer_stop(void*){}void esp_timer_start_periodic(void*,unsigned){}
 bool fail_size=false,fail_convert=false;
@@ -496,8 +497,17 @@ int main(){
          (pcm.data()==b&&s.input_resample_scratch_.data()==a));
   for(int v:pcm)assert(v==123);
  }
+ const auto*scratch=s.input_resample_scratch_.data();
+ const auto scratch_capacity=s.input_resample_scratch_.capacity();
+ std::vector<int16_t> test_recording;
+ assert(s.ReadAudioData(test_recording,16000,960)&&test_recording.size()==1920);
+ assert(s.input_resample_scratch_.data()==scratch&&
+        s.input_resample_scratch_.capacity()==scratch_capacity);
  fail_size=true;assert(!s.ReadAudioData(pcm,16000,160));fail_size=false;
  fail_convert=true;assert(!s.ReadAudioData(pcm,16000,160));fail_convert=false;
  s.input_resampler_=nullptr;assert(!s.ReadAudioData(pcm,16000,160));
 }
-''')
+'''
+        for quality in (0, 1):
+            with self.subTest(product_quality=quality):
+                self.run_cpp(f'#define CONFIG_AUDIO_PRODUCT_QUALITY {quality}\n' + program)

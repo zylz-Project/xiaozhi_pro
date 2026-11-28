@@ -8,6 +8,7 @@ let voiceBusy=false, voiceRetry=0, catalogLoaded=false, refreshCatalog=true, sta
 let auditionPending=false, chatBusy=false, voiceJob=null, voiceAvailable=null, volumePending=null;
 let volumeWriting=false, lastVolume=null;
 let voiceSignature='';
+let transportRequest=false, transportProgress='', transportNotice='';
 const products={'wzh-crawlpanda':'crawlPanda','wzh-tailredpanda':'redpanda','wzh-dinosaur':'dinosaur'};
 async function api(path,body,options={}) {
  const {timeout=10000,...request}=options;
@@ -34,13 +35,15 @@ function loadBrandMark(){
  mark.removeAttribute('data-src');
 }
 function networkOnline(s){
- return s.transport!=='probing' && (s.transport==='cellular'||s.cellular
+ if(s.transport_switch?.state==='pending'||s.transport==='probing')return false;
+ if(typeof s.network_available==='boolean')return s.network_available;
+ return (s.transport==='cellular'||(!s.transport&&s.cellular)
   ? !!s.cellular?.connected : !!s.wifi?.connected);
 }
 function paintChat(s){
  const state=s?.state, intro=!!s?.conversation_intro, recovering=!!s?.conversation_recovering;
  const active=recovering||['connecting','listening','speaking'].includes(state);
- const available=state==='idle'&&networkOnline(s)&&!s.onboarding_blocked&&s.conversation_configured!==false;
+ const available=state==='idle'&&!transportRequest&&networkOnline(s)&&!s.onboarding_blocked&&s.conversation_configured!==false;
  const label=chatBusy?'请稍候…':recovering||state==='connecting'?'取消连接':active?'结束对话':'开始对话';
  const hint=!s?'正在读取设备状态…':recovering?'正在恢复对话连接，可以取消。':intro?'正在播放首次对话教程，播完就会开始聆听。':
   state==='connecting'?'正在连接对话服务…':
@@ -64,7 +67,7 @@ function paint(s){
  const metrics=$$('.metrics .metric');if(metrics[0]){textIfChanged(metrics[0].querySelector('b'),b==null?'--':b+'%');textIfChanged(metrics[0].querySelector('em'),s.battery?.charging?'充电中':'电池');}if(metrics[1]){textIfChanged(metrics[1].querySelector('b'),t==null?'--':Number(t).toFixed(1)+'°C');textIfChanged(metrics[1].querySelector('em'),'芯片温度');}
  textIfChanged($('.battery-core b'),b==null?'--':b);textIfChanged($('.battery-caption'),s.battery?.charging?'电量 · 充电中':'电量');textIfChanged($('.readout-copy b'),t==null?'--':Number(t).toFixed(1)+'°C');const readouts=$$('.readout-copy b');if(readouts[1])textIfChanged(readouts[1],Math.floor((s.uptime_s||0)/60)+' 分钟');
  const tr=(s.transport||''), probing=tr==='probing', cell=tr==='cellular'||(tr===''&&s.cellular), netName=probing?'检测网络':(cell?'4G':(w.ssid||'--')), netState=probing?'正在检测模块':(cell?(!s.cellular?.connected?'网络离线':s.cellular?.server_connected?'服务端已连接':'网络已连接 · 服务端未连接'):(w.connected?(w.rssi==null?'已连接':w.rssi+' dBm'):'离线'));$$('[data-metric-net],.net-name,.net-val,.more-state').forEach(e=>textIfChanged(e,netName));$$('.net-sub,[data-metric-signal]').forEach(e=>textIfChanged(e,netState));$$('.net-chip').forEach(e=>{textIfChanged(e,'--');if(e.getAttribute('aria-label')!=='延迟不可用')e.setAttribute('aria-label','延迟不可用');});$$('[data-p-version]').forEach(e=>textIfChanged(e,s.version||'--'));
- if(window.__renderTransportSwitch)window.__renderTransportSwitch({probing,cell,switchable:!!s.transport_switchable,connected:cell?!!s.cellular?.connected:!!w.connected});
+ renderTransportSwitch(s);
  if(!volumeWriting&&s.audio?.volume!=null){lastVolume=s.audio.volume;paintVolume(lastVolume);}
  paintVoiceService();
 }
@@ -103,7 +106,7 @@ async function status(){
  }finally{
   statusBusy=false;
   if(statusPending){statusPending=false;status();}
-  else if(!document.hidden)statusTimer=setTimeout(status,lastStatus?.state==='connecting'||lastStatus?.conversation_recovering?1000:5000);
+  else if(!document.hidden)statusTimer=setTimeout(status,lastStatus?.state==='connecting'||lastStatus?.conversation_recovering||lastStatus?.transport_switch?.state==='pending'?1000:5000);
  }
 }
 function resumeStatus(){
@@ -269,6 +272,12 @@ async function watchVoiceJob(job,path){
    continue;
   }
   interrupted=false;
+  if(job.kind==='upload'){
+   const result=s.voice_operations?.find(operation=>operation.request===job.request)?.status;
+   if(!result)continue;
+   s={phase:result==='ok'?'done':result==='busy'?'working':result==='cancelled'?'cancelled':'failed',
+      failure:result};
+  }
   if(job.request && s.request && s.request!==job.request)
    throw new Error('已有其他录音任务，请查看音色列表。');
   if(s.phase==='success'||s.phase==='done')return '创建成功，已应用新音色。';
@@ -311,9 +320,12 @@ async function upload(job,name){
  const pcm=new ArrayBuffer(samples.length*2),view=new DataView(pcm);
  samples.forEach((v,i)=>view.setInt16(i*2,Math.round(Math.max(-1,Math.min(1,v))*32767),true));
  paintVoiceJob('正在上传录音，请保持手机连接设备热点…');
- await api('/api/user/voices/clone',undefined,{method:'POST',timeout:30000,
+ const accepted=await api('/api/user/voices/clone',undefined,{method:'POST',timeout:30000,
   headers:{'Content-Type':'application/octet-stream','X-Voice-Name':encodeURIComponent(name)},body:pcm});
- return watchVoiceJob(job,'/api/user/voices/clone/status');
+ if(!Number.isInteger(accepted.request)||accepted.request<=0)
+  throw new Error('暂未确认上传结果，请刷新音色列表确认。');
+ job.request=accepted.request;
+ return watchVoiceJob(job,'/api/user/voices/manage/status');
 }
 async function createVoice(kind){
  if(voiceJob){toast('正在处理上一段录音');return;}
@@ -461,27 +473,55 @@ document.addEventListener('DOMContentLoaded',()=>{
  });
 });
 // Dinosaur only: runtime 4G/Wi-Fi transport switch, rendered from /api/status.
-window.__renderTransportSwitch=function(s){
+function renderTransportSwitch(s){
   const box=$('#transportSwitch');if(!box)return;
-  if(!s||(!s.probing&&!s.switchable)){box.hidden=true;return;}
+  const probing=s.transport==='probing', job=s.transport_switch, pending=job?.state==='pending';
+  if(!probing&&!s.transport_switchable){box.hidden=true;return;}
   box.hidden=false;
-  const hint=box.querySelector('.ts-hint');if(hint)hint.textContent=s.probing?'正在切换网络，请稍候':'切换会断开当前连接并重新联网';
+  const offlineCell=s.transport==='cellular'&&!networkOnline(s)&&!pending;
+  const notice=transportNotice||(job?.state==='failed'?(job.message||'网络切换失败，可重试'):'');
+  const offlineHint=notice?notice+'。可点 4G 重新检测':'4G 未联网，可点 4G 重新检测或切到 Wi-Fi';
+  const hint=transportProgress||(pending?'正在切换到 '+WzhNetworkTransport.label(job.target)+'…':
+    probing?'正在选择联网通道…':offlineCell?offlineHint:notice||'切换会断开当前连接并重新联网');
+  textIfChanged(box.querySelector('.ts-hint'),hint);
   const btns=box.querySelectorAll('.ts-btn');
   btns.forEach(b=>{
-    const isCell=b.dataset.transport==='cellular';
-    b.classList.toggle('on',!s.probing&&isCell===s.cell);
-    b.disabled=s.probing||isCell===s.cell;
+    const target=b.dataset.transport, active=s.transport===target;
+    const recheck=active&&offlineCell;
+    b.classList.toggle('on',active);
+    b.setAttribute('aria-pressed',String(active));
+    b.disabled=transportRequest||pending||probing||(active&&!recheck);
     b.onclick=async()=>{
-      if(working){toast('设备正在处理，请稍候');return;}
-      working=true;btns.forEach(x=>x.disabled=true);
-      try{await api('/api/network/transport',{transport:b.dataset.transport});toast(s.cell?'正在切换到 Wi-Fi…':'正在切换到 4G…');}
-      catch(e){
-        if(loginFor(e))return;
-        if(e.timeout||!e.status)toast('网络切换中，请稍候…');
-        else toast(e.message);
+      if(working||transportRequest){toast('设备正在处理，请稍候');return;}
+      transportRequest=true;
+      transportNotice='';
+      renderTransportSwitch(s);
+      paintChat(s);
+      try{
+        const net=await WzhNetworkTransport.select(target,{
+          initial:s,
+          recheck,
+          request:transport=>api('/api/network/transport',{transport},{timeout:5000}),
+          read:timeout=>api('/api/status',undefined,{timeout}),
+          progress:message=>{
+            transportProgress=message;
+            renderTransportSwitch(lastStatus||s);
+          }
+        });
+        transportNotice=recheck?(networkOnline(net)?'4G 已联网':'已请求重新检测 4G'):
+          '已切到 '+WzhNetworkTransport.label(target)+(networkOnline(net)?'':'，等待联网');
+        lastStatus=net;
+      }catch(e){
+        if(!loginFor(e))transportNotice=e.message;
+      }finally{
+        transportRequest=false;
+        transportProgress='';
+        renderTransportSwitch(lastStatus||s);
+        paintChat(lastStatus||s);
+        if(statusBusy)statusPending=true;
+        else status();
       }
-      finally{working=false;setTimeout(status,1500);setTimeout(status,6500);}
     };
   });
-};
+}
 })();

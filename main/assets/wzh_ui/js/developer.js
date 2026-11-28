@@ -147,6 +147,13 @@ function renderChip(id, enabled, on, off) {
   chip.classList.toggle('off', enabled !== true);
   updateText(chip.querySelector('b'), onOff(enabled, on, off));
 }
+function transportProgress(s) {
+  const job = s.transport_switch;
+  if (job?.state === 'pending')
+    return '正在切换到 ' + (job.target === 'cellular' ? '4G' : 'Wi-Fi');
+  if (s.transport === 'probing') return '正在选择联网通道';
+  return '';
+}
 function renderRuntime(s) {
   const w = s.wifi || {}, b = s.battery || {}, a = s.audio || {}, f = s.flash || {};
   const cellular = s.transport === 'cellular';
@@ -160,9 +167,11 @@ function renderRuntime(s) {
   const hasRest = Number.isFinite(b.voltage_mv) && b.voltage_mv > 0;
   setText('batteryRest', hasRest ? reading(b.voltage_mv, ' mV') : '等待静置采样');
   setText('chipTemp', Number.isFinite(s.temperature_c) ? `${s.temperature_c.toFixed(1)} °C` : '--');
-  const probing = s.transport === 'probing';
-  setText('networkLink', probing ? '检测中' : (connected ? (cellular ? '4G 已联网' : 'Wi-Fi 已联网') : '未联网'));
-  setText('networkDetail', probing ? '正在选择联网通道' : (cellular ? server : wifiSignal));
+  const progress = transportProgress(s);
+  setText('networkLink', progress || (connected ? (cellular ? '4G 已联网' : 'Wi-Fi 已联网') : '未联网'));
+  setText('networkDetail', s.transport_switch?.state === 'failed'
+    ? s.transport_switch.message || '网络切换失败'
+    : progress || (cellular ? server : wifiSignal));
   renderChip('micChip', a.input_enabled, '已启用', '已关闭');
   renderChip('speakerChip', a.speaker_enabled, '已启用', '已关闭');
   renderChip('servoChip', s.servo_powered, '已上电', '已断电');
@@ -182,7 +191,8 @@ function renderStatus(s) {
   const cellular = s.transport === 'cellular';
   const transport = cellular ? '4G' : 'Wi-Fi';
   const link = onOff(s.network_available ?? w.connected, '已连接', '未连接');
-  setText('netTransport', s.transport === 'probing' ? '正在选择联网通道' : `${transport} · ${link}`);
+  setText('netTransport', transportProgress(s) || `${transport} · ${link}` +
+    (s.transport_switch?.state === 'failed' ? ' · 上次切换失败' : ''));
   $('netServerRow').hidden = !cellular;
   setText('netServer', onOff(s.cellular_server_connected, '已连接', '未连接'));
   setText('netWifi', w.connected ? w.ssid || '已连接' : '未连接');
@@ -194,7 +204,8 @@ function renderStatus(s) {
   setText('netApClients', `${w.ap_security === 'open' ? '开放' : w.ap_security || '--'} / ${reading(w.ap_clients, ' 个')}`);
   values(rowValues('system',0), [s.version, [s.compiled, s.compiled_time].filter(Boolean).join(' ') || '--',
     s.idf_version, s.chip, `${byteSize(s.flash_bytes)} / ${byteSize(s.psram_bytes)}`, s.sta_mac, s.build,
-    `${byteSize(s.heap_internal)} / ${byteSize(s.heap_internal_min)}`, byteSize(s.heap_internal_largest)]);
+    `${byteSize(s.heap_internal)} / ${byteSize(s.heap_internal_min)}`, byteSize(s.heap_internal_largest),
+    `${byteSize(s.heap_psram)} / ${byteSize(s.heap_psram_min)}`, byteSize(s.heap_psram_largest)]);
   values(rowValues('system',3), [s.app_partition ? `${s.app_partition} · ${byteSize(s.app_partition_bytes)}` : '--',
     `${byteSize(f.used)} / ${byteSize(f.capacity)}`, `${s.nvs_used_entries ?? '--'} / ${s.nvs_total_entries ?? '--'}`]);
   setText('audioStorageSummary', f.type ? `${reading(f.files, ' 个')} · ${byteSize(f.used)}` : '--');

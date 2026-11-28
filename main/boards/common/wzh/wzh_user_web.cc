@@ -381,12 +381,24 @@ void UserWebPortal::UploadTask(void* arg) {
                 break;
             offset += static_cast<size_t>(count);
         }
-        if (offset != job->size || self->reset_running_.load() || !self->options_.voice_upload ||
-            !self->options_.voice_upload(data, prefix + job->size)) {
+        if (offset != job->size || self->reset_running_.load() || !self->options_.voice_upload) {
             free(data);
             Error(req, "409 Conflict", "VOICE_BUSY", "录音上传失败或设备正忙");
         } else {
-            Ok(req, "202 Accepted");
+            Json out(cJSON_CreateObject(), cJSON_Delete);
+            auto* request = out && cJSON_AddBoolToObject(out.get(), "ok", true)
+                                ? cJSON_AddNumberToObject(out.get(), "request", 0)
+                                : nullptr;
+            if (!request) {
+                free(data);
+                httpd_resp_send_500(req);
+            } else if (const auto ticket = self->options_.voice_upload(data, prefix + job->size)) {
+                cJSON_SetNumberValue(request, ticket);
+                JsonResponse(req, out.get(), "202 Accepted");
+            } else {
+                free(data);
+                Error(req, "409 Conflict", "VOICE_BUSY", "声音服务正在处理，请稍后重试");
+            }
         }
     }
     httpd_req_async_handler_complete(req);
@@ -660,19 +672,23 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     const auto now = Now();
     const bool session = HasSession(req, ip, now);
     auto& wifi = WifiManager::GetInstance();
+    auto& board = Board::GetInstance();
     const bool connected = wifi.IsConnected();
-    const bool cellular = Board::GetInstance().UsesCellularNetwork();
+    const bool cellular = board.UsesCellularNetwork();
     // The station may connect before the dinosaur has selected its transport.
     // Only the board knows whether that connection is usable for the product.
-    const bool selected_connected = Board::GetInstance().IsNetworkAvailable();
+    const bool selected_connected = board.IsNetworkAvailable();
     const bool cellular_connected = cellular && selected_connected;
     if (selected_connected)
         last_online_ms_.store(now);
     const auto last_online = last_online_ms_.load();
     const bool online = selected_connected || (last_online && now - last_online < 3000);
-    const bool have_saved = !SsidManager::GetInstance().GetSsidList().empty();
+    const bool have_saved = SsidManager::GetInstance().HasSavedNetworks();
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
     constexpr bool retain_offline = true;
+    const bool wifi_setup_available = !cellular && !board.IsNetworkProbing() &&
+                                      board.GetNetworkTransportSwitchStatus().state !=
+                                          NetworkTransportSwitchStatus::State::kPending;
 #else
     const bool retain_offline = have_saved;
 #endif
@@ -723,15 +739,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
                 }
             }
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
-            // Multi-transport board: report the choice and switchability so
-            // the page can render "4G" or the Wi-Fi SSID by what is actually
-            // selected, and offer a runtime switch when hardware allows it.
-            cJSON_AddStringToObject(out.get(), "transport",
-                                    Board::GetInstance().IsNetworkProbing() ? "probing"
-                                    : cellular                              ? "cellular"
-                                                                            : "wifi");
-            cJSON_AddBoolToObject(out.get(), "transport_switchable",
-                                  Board::GetInstance().HasModemTransport());
+            AddNetworkTransportStatus(out.get(), board);
 #endif
             auto* wireless = cJSON_AddObjectToObject(out.get(), "wifi");
             if (wireless) {
@@ -779,17 +787,12 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         if (path == "/api/network/transport") {
             if (!session)
                 return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
-            auto& board = Board::GetInstance();
             Json out(cJSON_CreateObject(), cJSON_Delete);
             if (!out)
                 return httpd_resp_send_500(req);
             cJSON_AddBoolToObject(out.get(), "ok", true);
-            cJSON_AddStringToObject(out.get(), "transport",
-                                    board.IsNetworkProbing()      ? "probing"
-                                    : board.UsesCellularNetwork() ? "cellular"
-                                                                  : "wifi");
-            cJSON_AddBoolToObject(out.get(), "switchable",
-                                  !board.IsNetworkProbing() && board.HasModemTransport());
+            AddNetworkTransportStatus(out.get(), board);
+            cJSON_AddBoolToObject(out.get(), "switchable", board.CanSwitchNetworkTransport());
             return JsonResponse(req, out.get());
         }
 #endif
@@ -855,13 +858,12 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         if (path == "/api/user/voices/manage/status") {
             if (!session)
                 return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
-            if (!options_.voice_status_extra)
+            if (!options_.voice_status_summary)
                 return Error(req, "404 Not Found", "NOT_FOUND", "声音服务不可用");
             Json out(cJSON_CreateObject(), cJSON_Delete);
             if (!out)
                 return httpd_resp_send_500(req);
-            options_.voice_status_extra(out.get());
-            cJSON_DeleteItemFromObjectCaseSensitive(out.get(), "voice_catalog");
+            options_.voice_status_summary(out.get());
             cJSON_AddBoolToObject(out.get(), "ok", true);
             return JsonResponse(req, out.get());
         }
@@ -972,40 +974,35 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             auto* array = cJSON_AddArrayToObject(out.get(), "aps");
             if (array && portal_
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
-                && !cellular && !Board::GetInstance().IsNetworkProbing()
+                && wifi_setup_available
 #endif
             ) {
-                auto records = portal_->GetAccessPoints();
                 const auto saved = SsidManager::GetInstance().GetSsidList();
                 const auto current = connected ? wifi.GetSsid() : "";
-                std::vector<std::string> found;
-                std::sort(records.begin(), records.end(),
-                          [](const auto& a, const auto& b) { return a.rssi > b.rssi; });
-                for (const auto& record : records) {
-                    const size_t length =
-                        strnlen(reinterpret_cast<const char*>(record.ssid), sizeof(record.ssid));
-                    if (!length)
-                        continue;
-                    std::string name(reinterpret_cast<const char*>(record.ssid), length);
-                    if (std::find(found.begin(), found.end(), name) != found.end())
-                        continue;
+                portal_->VisitAccessPoints([&](const WifiConfigurationAp::PortalAccessPoint& point) {
                     auto* item = cJSON_CreateObject();
                     if (!item)
-                        break;
-                    cJSON_AddStringToObject(item, "ssid", name.c_str());
-                    cJSON_AddNumberToObject(item, "rssi", record.rssi);
-                    cJSON_AddNumberToObject(item, "auth", record.authmode);
+                        return false;
+                    const std::string_view name(point.ssid);
+                    cJSON_AddStringToObject(item, "ssid", point.ssid);
+                    cJSON_AddNumberToObject(item, "rssi", point.rssi);
+                    cJSON_AddNumberToObject(item, "auth", point.authmode);
                     cJSON_AddBoolToObject(
                         item, "saved",
                         std::any_of(saved.begin(), saved.end(),
                                     [&](const SsidItem& entry) { return entry.ssid == name; }));
                     cJSON_AddBoolToObject(item, "current", !current.empty() && current == name);
                     cJSON_AddItemToArray(array, item);
-                    found.push_back(name);
-                }
+                    return true;
+                });
                 for (const auto& entry : saved) {
-                    if (entry.ssid.empty() ||
-                        std::find(found.begin(), found.end(), entry.ssid) != found.end())
+                    const cJSON* listed = nullptr;
+                    cJSON_ArrayForEach(listed, array) {
+                        const auto* name = cJSON_GetObjectItemCaseSensitive(listed, "ssid");
+                        if (cJSON_IsString(name) && entry.ssid == name->valuestring)
+                            break;
+                    }
+                    if (entry.ssid.empty() || listed)
                         continue;
                     auto* item = cJSON_CreateObject();
                     if (!item)
@@ -1022,7 +1019,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             const auto last_scan = last_scan_ms_.load();
             if (!setup_running_.load() && !reset_running_.load() &&
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
-                !cellular && !Board::GetInstance().IsNetworkProbing() &&
+                wifi_setup_available &&
 #endif
                 (!last_scan || now - last_scan >= 2000)) {
                 // Ask the manager rather than poking the driver directly. On a
@@ -1090,6 +1087,8 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     if (path == "/api/network/transport") {
         if (!session)
             return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
+        if (setup_running_.load())
+            return Error(req, "409 Conflict", "SETUP_BUSY", "正在连接 Wi-Fi，请稍后切换网络");
         auto body = ReadBody(req);
         const char* transport = body ? String(body.get(), "transport") : nullptr;
         const bool cellular = transport && std::strcmp(transport, "cellular") == 0;
@@ -1097,12 +1096,16 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         if (!cellular && !wifi)
             return Error(req, "400 Bad Request", "BAD_TRANSPORT",
                          "transport 必须是 wifi 或 cellular");
-        auto& board = Board::GetInstance();
+        if (!board.CanSwitchNetworkTransport())
+            return Error(req, "409 Conflict", "TRANSPORT_UNAVAILABLE", "当前版本只支持 Wi-Fi");
+        Json out(cJSON_CreateObject(), cJSON_Delete);
+        if (!out)
+            return httpd_resp_send_500(req);
         if (!board.SelectNetworkTransport(cellular))
-            return Error(req, "409 Conflict", "TRANSPORT_UNAVAILABLE",
-                         cellular ? "4G 模块未检测到或设备正忙，请稍候重试"
-                                  : "网络正在切换或设备正忙，请稍候重试");
-        return Ok(req, "202 Accepted");
+            return Error(req, "409 Conflict", "TRANSPORT_BUSY", "设备正在处理联网，请稍后重试");
+        cJSON_AddBoolToObject(out.get(), "ok", true);
+        AddNetworkTransportStatus(out.get(), board);
+        return JsonResponse(req, out.get(), "202 Accepted");
     }
 #endif
     if (path == "/api/setup/status") {
@@ -1205,7 +1208,7 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         if ((local_accessible || have_saved) && !session)
             return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
-        if (Board::GetInstance().IsNetworkProbing() || Board::GetInstance().UsesCellularNetwork())
+        if (!wifi_setup_available)
             return Error(req, "409 Conflict", "WIFI_NOT_SELECTED", "请先切换到 Wi-Fi 模式后再连接");
 #endif
         auto body = ReadBody(req);
@@ -1213,6 +1216,19 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         const char* password = body ? String(body.get(), "password") : nullptr;
         if (!ssid || !*ssid || std::strlen(ssid) > 32 || !password || std::strlen(password) > 64)
             return Error(req, "400 Bad Request", "INVALID_INPUT", "请检查网络名称和密码");
+        // Accept a browser-generated token so a channel change that drops the
+        // submit response does not prevent that browser from finding its job.
+        const auto* job_id = cJSON_GetObjectItemCaseSensitive(body.get(), "job");
+        const char* supplied = String(body.get(), "job");
+        if (job_id && (!supplied || std::strlen(supplied) != 32 ||
+                       std::strspn(supplied, "0123456789abcdef") != 32)) {
+            return Error(req, "400 Bad Request", "INVALID_INPUT", "配网任务无效，请重试");
+        }
+        const std::string job = supplied ? supplied : Token();
+        Json out(cJSON_CreateObject(), cJSON_Delete);
+        if (!out || !cJSON_AddBoolToObject(out.get(), "ok", true) ||
+            !cJSON_AddStringToObject(out.get(), "job", job.c_str()))
+            return httpd_resp_send_500(req);
         bool expected = false;
         if (!setup_running_.compare_exchange_strong(expected, true))
             return Error(req, "409 Conflict", "SETUP_BUSY", "正在连接网络，请稍候");
@@ -1220,16 +1236,14 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             setup_running_.store(false);
             return Error(req, "503 Service Unavailable", "RESET_BUSY", "恢复出厂进行中，请稍候");
         }
-        std::string job;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             setup_ = {};
             setup_.phase = JobPhase::kConnecting;
             setup_.ip = ip;
-            setup_.id = Token();
+            setup_.id = job;
             setup_.ssid = ssid;
             setup_.password = password;
-            job = setup_.id;
         }
         if (xTaskCreate(SetupTask, "wzh_setup", 8192, this, 3, nullptr) != pdPASS) {
             {
@@ -1239,11 +1253,6 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
             }
             return Error(req, "503 Service Unavailable", "SETUP_UNAVAILABLE", "设备忙，请稍后重试");
         }
-        Json out(cJSON_CreateObject(), cJSON_Delete);
-        if (!out)
-            return httpd_resp_send_500(req);
-        cJSON_AddBoolToObject(out.get(), "ok", true);
-        cJSON_AddStringToObject(out.get(), "job", job.c_str());
         return JsonResponse(req, out.get(), "202 Accepted");
     }
     if (!session)
@@ -1425,9 +1434,10 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     }
     if (path == "/api/user/chat/start" || path == "/api/user/chat/toggle") {
         const bool start_only = path == "/api/user/chat/start";
-        const auto state = Application::GetInstance().GetDeviceState();
+        auto& app = Application::GetInstance();
+        const auto state = app.GetDeviceState();
         if (start_only && (state == kDeviceStateConnecting || state == kDeviceStateListening ||
-                           state == kDeviceStateSpeaking))
+                           state == kDeviceStateSpeaking || app.IsConversationRecovering()))
             return Ok(req);
         if (!selected_connected)
             return Error(req, "409 Conflict", "NET_OFFLINE", "设备正在等待联网，可以先离线玩耍");
@@ -1445,7 +1455,8 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         // Never run the audio/state-machine work on the HTTP task.
         Application::GetInstance().Schedule([start_only] {
             auto& app = Application::GetInstance();
-            if (!start_only || app.GetDeviceState() == kDeviceStateIdle)
+            if (!start_only ||
+                (app.GetDeviceState() == kDeviceStateIdle && !app.IsConversationRecovering()))
                 app.ToggleConversation();
         });
         return Ok(req);

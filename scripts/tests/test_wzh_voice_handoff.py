@@ -29,6 +29,7 @@ class VoiceHandoffTest(unittest.TestCase):
 #include <mutex>
 #include <new>
 #include <string>
+#include "voice_text_batch.h"
 #include "voice_text_filter.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
@@ -37,6 +38,8 @@ class VoiceHandoffTest(unittest.TestCase):
 #define MALLOC_CAP_8BIT 2
 size_t heap_caps_get_free_size(int){return 8*1024*1024;}
 size_t heap_caps_get_largest_free_block(int){return 4*1024*1024;}
+int64_t now_us=0;
+int64_t esp_timer_get_time(){return now_us;}
 using TaskHandle_t=void*;
 constexpr int pdPASS=1;static int creates=0;static bool fail_create=false;
 int xTaskCreate(void(*)(void*),const char*,int,void*,int,TaskHandle_t* task){
@@ -51,7 +54,7 @@ std::string LoadAliVoice(){return chosen_voice;}
 struct VoiceSession {
  struct PendingTurn {std::string provider,api_key,voice_id;std::function<void(bool)> completion;
   uint32_t playback_generation=0,generation=0;};
- std::mutex mutex_;std::deque<std::string> queue_;std::function<void(bool)> completion_;
+ std::mutex mutex_;std::deque<QueuedText> queue_;std::function<void(bool)> completion_;
  std::atomic<uint32_t> generation_{0},active_generation_{0};std::atomic<bool> bypass_next_{false};
  TaskHandle_t task_=nullptr;std::unique_ptr<PendingTurn> pending_;bool stopping_=false;
  uint32_t playback_generation_=0;bool finished_=false,failed_=false,had_text_=false,overflow_=false;
@@ -76,10 +79,12 @@ int main(){
  VoiceSession s;assert(s.Ready());assert(s.Begin(4,[&](bool){++old_calls;}));
  auto old=s.active_generation_.load();assert(s.Enqueue("old"));
  s.Cancel();assert(s.Ready());assert(s.Begin(9,[&](bool ok){++new_calls;new_ok=ok;}));
- assert(s.pending_&&s.Enqueue("new")&&s.queue_.front()=="new");s.Finish();
+ now_us=100000;assert(s.pending_&&s.Enqueue("new")&&s.queue_.front().text=="new");s.Finish();
+ now_us=2000000;
  assert(!s.Ready());s.CompleteWorker(old);
  assert(old_calls==0&&s.task_&&s.active_generation_.load()!=old);
- assert(s.playback_generation_==9&&s.queue_.front()=="new"&&s.finished_);
+ assert(s.playback_generation_==9&&s.queue_.front().text=="new"&&s.finished_);
+ assert(s.queue_.front().AgeMs(now_us)==1900);
  s.CompleteWorker(s.active_generation_.load());assert(new_calls==1&&new_ok&&!s.task_);
  VoiceSession cancelled;assert(cancelled.Begin(1,[](bool){}));auto first=cancelled.active_generation_.load();
  cancelled.Cancel();assert(cancelled.Begin(2,[](bool){}));assert(cancelled.Enqueue("discard"));

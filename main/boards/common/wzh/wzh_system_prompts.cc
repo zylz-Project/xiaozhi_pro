@@ -277,17 +277,18 @@ void RequestWifiSetupPrompt() {
 
 void MarkStartupNetworkReady() { startup_network_ready.store(true); }
 
-bool StartupGreetingAudioReady() {
-    return worker_started.load() && power_on_prompt_queued.load() && !shutting_down.load();
-}
+bool StartupGreetingAudioReady() { return power_on_prompt_queued.load() && !shutting_down.load(); }
 
 bool StartupGreetingFinished() { return startup_greeting_complete.load(); }
 
 void MarkPowerOnPromptQueued() {
     power_on_queued_ms.store(esp_log_timestamp());
     power_on_prompt_queued.store(true);
-    if (startup_greeting_complete.load() && worker_started.load() &&
-        !onboarding_decided.exchange(true))
+    // The prompt worker is optional for startup. If it could not be created,
+    // the tutorial still gets a chance to start and release its interaction gate.
+    if (!worker_started.load())
+        startup_greeting_complete.store(true);
+    if (startup_greeting_complete.load() && !onboarding_decided.exchange(true))
         StartOnboarding();
 }
 
@@ -304,7 +305,11 @@ void ObserveStartupProtection(StartupProtectionNotice notice) {
     if (startup_protection.exchange(notice) == notice)
         return;
 #if CONFIG_WZH_SYSTEM_PROMPTS
-    startup_protection_pending.store(notice);
+    // The normal voltage check is visible in the portal without reserving the
+    // speaker. Audible protection feedback is for a confirmed fault.
+    startup_protection_pending.store(notice == StartupProtectionNotice::kCheckingBattery
+                                         ? StartupProtectionNotice::kNone
+                                         : notice);
 #endif
 }
 

@@ -22,6 +22,8 @@
 
 class CustomWakeWord : public WakeWord {
 public:
+    enum class CommandMode { kAll, kStandby, kInterruption };
+
     CustomWakeWord();
     ~CustomWakeWord();
 
@@ -30,7 +32,8 @@ public:
     }
     bool Initialize(AudioCodec* codec, srmodel_list_t* models_list, bool local_commands_only);
     void Feed(const std::vector<int16_t>& data);
-    void FeedMono(const int16_t* data, size_t samples, bool allow_interrupt = true);
+    void FeedMono(const int16_t* data, size_t samples, CommandMode mode = CommandMode::kAll,
+                  bool vad_silence = false);
     void OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback);
     void Start();
     void Stop();
@@ -43,7 +46,14 @@ private:
     struct Command {
         std::string command;
         std::string text;
-        std::string action;
+        bool wake;
+    };
+
+    struct ShutdownAliasTail {
+        bool active = false;
+        bool cancelled = false;
+        size_t elapsed_samples = 0;
+        size_t quiet_samples = 0;
     };
 
     // multinet 相关成员变量
@@ -65,6 +75,7 @@ private:
     bool local_commands_only_ = false;
     std::vector<int16_t> input_buffer_;
     std::mutex input_buffer_mutex_;
+    ShutdownAliasTail shutdown_alias_;
 
     TaskHandle_t wake_word_encode_task_ = nullptr;
     StaticTask_t* wake_word_encode_task_buffer_ = nullptr;
@@ -74,7 +85,8 @@ private:
     std::mutex wake_word_mutex_;
     std::condition_variable wake_word_cv_;
 
-    void FeedSamples(const int16_t* data, size_t samples, bool mono, bool allow_interrupt);
+    void FeedSamples(const int16_t* data, size_t samples, bool mono, CommandMode mode,
+                     bool vad_silence);
     void ParseWakenetModelConfig();
 };
 

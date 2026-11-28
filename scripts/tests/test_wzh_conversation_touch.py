@@ -73,6 +73,27 @@ int main(){
         feed(0,21);
         assert(filtered.PollTouch(now)==TouchResponse::kNone);
     }
+    // A pause in ADC updates can hide the end of the first contact. A
+    // different pad after the pause must not complete a directional stroke.
+    PetBehavior recovered(true);
+    TouchInputFilter input(5);
+    auto sample = [&](int voltage, uint32_t now) {
+        TouchInputFilter::Event event{};
+        if (!input.Update(voltage, now, event))
+            return;
+        if (input.AcceptInteraction(event))
+            recovered.Touch(event.code, now, event.StartsContact());
+        else if (event.code < 0)
+            recovered.Touch(0xFF, now, false);
+    };
+    for(uint32_t t=20;t<=420;t+=20)sample(0,t);
+    for(uint32_t t=440;t<=520;t+=20)sample(780,t);
+    assert(recovered.PollTouch(520)==TouchResponse::kNone);
+    for(uint32_t t=680;t<=760;t+=20)sample(1629,t);
+    assert(recovered.PollTouch(760)==TouchResponse::kNone);
+    for(uint32_t t=780;t<=1180;t+=20)sample(0,t);
+    for(uint32_t t=1200;t<=1940;t+=20)sample(780,t);
+    assert(recovered.PollTouch(1940)==TouchResponse::kAffection);
 }
 ''')
 
@@ -192,6 +213,7 @@ int main(){
 #include "cJSON.h"
 struct Protocol {
  std::string session_id_="session",sent;
+ std::string session_id()const{return session_id_;}
  bool SendText(const std::string& text){sent=text;return true;}
  void SendWakeWordDetected(const std::string&);
  bool SendListenText(const std::string&);

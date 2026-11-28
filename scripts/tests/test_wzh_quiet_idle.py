@@ -128,7 +128,7 @@ int main(){
 #include <mutex>
 #include "wzh_pet_behavior.h"
 #include "wzh_posture_input.h"
-uint32_t now=0;int gestures=0;
+uint32_t now=0;int gestures=0,fall_transitions=0;
 struct Done{};
 template<class... T>void log_stub(const T&...){}
 #define ESP_LOGI(...) log_stub(__VA_ARGS__)
@@ -136,7 +136,10 @@ template<class... T>void log_stub(const T&...){}
 #define ESP_LOGD(...) log_stub(__VA_ARGS__)
 int gpio_get_level(int){return 1;} // Boot-high PIR also must not surprise on recovery.
 int64_t esp_timer_get_time(){return int64_t(now)*1000;}
-void vTaskDelay(uint32_t ms){now+=ms;if(now>35000)throw Done{};}
+void vTaskDelay(uint32_t ms){
+    if(now==3020||now==4520)now+=160;
+    now+=ms;if(now>35000)throw Done{};
+}
 #define pdMS_TO_TICKS(ms) (ms)
 void i2c_master_bus_rm_device(void*){}
 void i2c_del_master_bus(void*){}
@@ -144,8 +147,15 @@ namespace wzh {
 const char* kTag="test";constexpr int kFalling=4;
 int Orientation(int,int,int){return 4;}
 struct Output{
+    bool falling=false;
     bool blocked(){return now<25000;} // Startup/low voltage prevents all gestures.
-    bool powered(){return false;}unsigned faults(){return 0;}void SetFault(int,bool){}
+    bool powered(){return false;}unsigned faults(){return falling?kFalling:0;}
+    void SetFault(int fault,bool enabled){
+        assert(fault==kFalling);
+        if(falling==enabled)return;
+        falling=enabled;++fall_transitions;
+        assert(now==(enabled?4040u:5180u)); // A sample gap resets both confirmation streaks.
+    }
 };
 struct Sensors{
     enum class Event{kHuman,kPickedUp,kShaken,kFlipped,kPutDown};
@@ -160,6 +170,7 @@ struct Sensors{
     bool InitializeAccelerometer(int,int){return true;}
     bool Read(uint8_t,uint8_t* bytes,size_t){
         int x=now>=1000?1000:0,z=now>=1000?0:1000;
+        if(now==3000||now==3020||now==3200||(now>=4000&&now<=4040))x=z=0;
         if(now>=30000&&now<30100)x=now/20%2?1500:-1500;
         const int axes[]={x,0,z};
         for(int i=0;i<3;++i){
@@ -178,7 +189,7 @@ int main(){
         assert(now>=30000&&event==wzh::Sensors::Event::kShaken);++gestures;return true;
     };
     try{sensor.Task();}catch(Done&){}
-    assert(gestures==1&&sensor.status_.accelerometer);
+    assert(gestures==1&&sensor.status_.accelerometer&&fall_transitions==2);
 }
 ''')
 
@@ -228,10 +239,10 @@ int main(){
         assert(power.touch_code_.load()==8&&replies==1);
     }
     sample(0,5);now+=200;sample(0,5);
-    sample(1632,5);assert(replies==1); // A gap in sampling cannot count as release time.
+    sample(1632,5);assert(replies==1&&cancels==1); // A sampling gap cancels the contact.
     sample(1800,5);sample(1632,5);sample(1632,600);
     assert(replies==1&&starts==1&&idle_updates==1); // Bit drift and long contact.
-    failed=true;sample(410,5);assert(cancels==1&&power.touch_code_.load()==-1);
+    failed=true;sample(410,5);assert(cancels==2&&power.touch_code_.load()==-1);
     failed=false;sample(410,4);assert(power.touch_code_.load()==-1);
     sample(410,200);assert(replies==1); // No phantom held/released event.
     sample(0,21);sample(410,5);assert(replies==2);
@@ -307,13 +318,14 @@ enum class Action{kHappy,kAffection,kEat};using PandaAction=Action;using DinoAct
 enum class Body{kShakeHead,kLookLeft,kLookRight};using PandaBodyAction=Body;using DinoBodyAction=Body;
 struct Controller{
     int actions=0,bodies=0,controls=0;
+    bool conversation=false;
     wzh::PetControl last=wzh::PetControl::kNone;
     bool HandlePetControl(wzh::PetControl control,bool respond=true){
         (void)respond;
         if(control==wzh::PetControl::kNone)return false;
         last=control;++controls;return true;
     }
-    bool IsConversationActive(){return false;}
+    bool IsConversationActive(){return conversation;}
     void TriggerAction(Action,bool){++actions;}
     void TriggerBodyAction(Body){++bodies;}
     bool HandleBodyCommand(const std::string& name){
@@ -326,13 +338,15 @@ namespace wzh {struct ProductInfo{const char* wake_phrase="test";};ProductInfo P
 namespace wzh {void NotifyOnboarding(OnboardingEvent){}bool CaptureOnboardingInteraction(OnboardingEvent){return false;}bool OnboardingBlocksConversation(){return false;}void NotifyIdleInteraction(){}}
 struct Application{static Application& GetInstance(){static Application app;return app;}
     void WakeWordInvoke(const std::string&){} };
-struct Board{Controller controller_;Audio local_audio_;__ROUTE__};
+struct Power{int requests=0;void RequestShutdown(){++requests;}};
+struct Board{Controller controller_;Audio local_audio_;Power power_;__ROUTE__};
 int main(){
     Board board;
     for(auto command:{"local:happy","local:affection","local:eat","local:shake_head",
-                      "local:look_left","local:look_right","local:wake"})
+                      "local:look_left","local:look_right","local:wake","local:shutdown"})
         assert(board.HandleLocalVoiceCommand(command));
     assert(board.controller_.actions==0&&board.controller_.bodies==0&&board.controller_.controls==0);
+    assert(board.power_.requests==0);
     for(auto command:{"local:stop","local:quiet","local:rest","local:sleepy"})
         assert(board.HandleLocalVoiceCommand(command));
     assert(board.controller_.controls==4);
@@ -345,6 +359,11 @@ int main(){
     assert(board.HandleLocalVoiceCommand("local:shake_head"));
     assert(board.HandleLocalVoiceCommand("local:wake"));
     assert(board.controller_.actions==1&&board.controller_.bodies==1&&board.controller_.controls==8);
+    board.controller_.conversation=true;
+    assert(board.HandleLocalVoiceCommand("local:shutdown")&&board.power_.requests==0);
+    board.controller_.conversation=false;
+    assert(board.HandleLocalVoiceCommand("local:shutdown_later")&&board.power_.requests==0);
+    assert(board.HandleLocalVoiceCommand("local:shutdown")&&board.power_.requests==1);
 }
 '''
         for board, _ in BOARDS:

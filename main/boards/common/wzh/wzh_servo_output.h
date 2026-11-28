@@ -1,6 +1,7 @@
 #ifndef WZH_SERVO_OUTPUT_H_
 #define WZH_SERVO_OUTPUT_H_
 
+#include <array>
 #include <atomic>
 #include <mutex>
 
@@ -36,9 +37,11 @@ private:
     const ledc_channel_t* channels_ = nullptr;
     size_t count_ = 0;
     uint32_t duty_max_ = 8191;
+    std::array<uint32_t, 5> last_duties_{};
     ServoPowerBudget budget_;
     uint32_t last_write_ms_ = 0;
     void ReleaseLocked();
+    void CheckWatchdogLocked(uint32_t now);
 };
 
 }  // namespace wzh

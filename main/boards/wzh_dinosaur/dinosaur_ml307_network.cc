@@ -21,6 +21,7 @@
 #include <freertos/event_groups.h>
 #include <freertos/task.h>
 
+#include "dinosaur_cellular.h"
 #include "dinosaur_ml307_at.h"
 #include "dinosaur_ml307_http.h"
 #include "dinosaur_ml307_mqtt.h"
@@ -42,8 +43,6 @@ constexpr int kCloseUrcTimeoutMs = 1000;
 constexpr int kOpenTimeoutMs = 5000;
 constexpr size_t kSendTimeoutFloorMs = 2000;
 constexpr size_t kSendCompleteTimeoutMs = 3000;
-constexpr int kMinSocketId = 0;
-constexpr int kMaxSocketId = 5;
 // The previous upstream UDP implementation capped inline HEX at 1460/2 bytes.
 // Opus audio frames fit comfortably; a larger datagram fails the channel
 // rather than desynchronizing the AT stream with the binary prompt flow.
@@ -54,12 +53,37 @@ constexpr EventBits_t kOpenFailed = BIT2;
 constexpr EventBits_t kCloseResolved = BIT3;
 constexpr EventBits_t kSendResolved = BIT4;
 constexpr EventBits_t kSendFailed = BIT5;
+constexpr EventBits_t kInterrupted = DinosaurMl307Network::kSocketInterrupted;
 
 bool IsInt(const AtArgumentValue& value) { return value.type == AtArgumentValue::Type::Int; }
 
 bool IsString(const AtArgumentValue& value) { return value.type == AtArgumentValue::Type::String; }
 
-bool IsValidSocketId(int id) { return id >= kMinSocketId && id <= kMaxSocketId; }
+bool IsValidSocketId(int id) { return id >= 0 && id < DinosaurMl307Network::kSocketCount; }
+
+class SocketLease {
+public:
+    SocketLease(DinosaurMl307Network& network, int id) : network_(network), id_(id) {}
+    bool Acquire(EventGroupHandle_t events) {
+        if (!events || !network_.ClaimSocket(id_, events))
+            return false;
+        events_ = events;
+        return true;
+    }
+    void Release() {
+        if (events_)
+            network_.ReleaseSocket(id_);
+    }
+    bool IsActive() const { return events_ && !(xEventGroupGetBits(events_) & kInterrupted); }
+    EventBits_t Wait(EventBits_t bits, TickType_t timeout) const {
+        return xEventGroupWaitBits(events_, bits | kInterrupted, pdFALSE, pdFALSE, timeout);
+    }
+
+private:
+    DinosaurMl307Network& network_;
+    int id_;
+    EventGroupHandle_t events_ = nullptr;
+};
 
 // The address is placed inside a quoted AT argument. The local parser also
 // splits URC arguments on every comma, even inside quotes, so reject anything
@@ -103,8 +127,8 @@ size_t TimeoutForBytes(const AtUart& uart, size_t bytes, size_t floor_ms) {
 
 class DinosaurMl307HexUdp final : public Udp {
 public:
-    DinosaurMl307HexUdp(std::shared_ptr<AtUart> at_uart, int udp_id)
-        : at_uart_(std::move(at_uart)), udp_id_(udp_id) {
+    DinosaurMl307HexUdp(DinosaurMl307Network& network, std::shared_ptr<AtUart> at_uart, int udp_id)
+        : at_uart_(std::move(at_uart)), udp_id_(udp_id), link_(network, udp_id) {
         if (!at_uart_ || !IsValidSocketId(udp_id_)) {
             ESP_LOGE(kUdpTag, "Invalid ML307 UDP socket id %d", udp_id_);
             return;
@@ -114,6 +138,8 @@ public:
             ESP_LOGE(kUdpTag, "Cannot allocate UDP event group");
             return;
         }
+        if (!link_.Acquire(event_group_handle_))
+            return;
         urc_callback_it_ = at_uart_->RegisterUrcCallback(
             [this](const std::string& command, const std::vector<AtArgumentValue>& args) {
                 HandleUrc(command, args);
@@ -138,6 +164,7 @@ public:
             }
         }
         if (event_group_handle_) {
+            link_.Release();
             vEventGroupDelete(event_group_handle_);
         }
     }
@@ -149,6 +176,8 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(io_mutex_);
+        if (!link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         connected_ = false;
         connected_state_.store(false);
         instance_active_.store(false);
@@ -164,11 +193,14 @@ public:
         expecting_close_.store(true);
         const auto close_result =
             at_uart_->SendCommand("AT+MIPCLOSE=" + std::to_string(udp_id_), kCloseTimeoutMs);
+        if (!link_.IsActive()) {
+            expecting_close_.store(false);
+            return Fail(NetworkError::ServerDisconnected());
+        }
         const bool close_acked = AtCommandSucceeded(close_result);
         bool close_confirmed = close_acked;
         if (close_acked) {
-            xEventGroupWaitBits(event_group_handle_, kCloseResolved, pdTRUE, pdFALSE,
-                                pdMS_TO_TICKS(kCloseUrcTimeoutMs));
+            link_.Wait(kCloseResolved, pdMS_TO_TICKS(kCloseUrcTimeoutMs));
         } else if (AtCommandCme(close_result) == 0) {
             close_confirmed = false;
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -187,6 +219,8 @@ public:
         xEventGroupClearBits(event_group_handle_, kCloseResolved | kOpenResolved | kOpenFailed);
         connected_state_.store(false);
         instance_active_.store(false);
+        if (!link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
 
         // 1,1 selects inline HEX for both directions. The receive path still
         // decodes MIPURC "rudp" payloads exactly as before.
@@ -195,12 +229,16 @@ public:
             ESP_LOGE(kUdpTag, "Failed to enable inline HEX for UDP socket %d", udp_id_);
             return Fail(NetworkError::AtCommandFailed());
         }
+        if (!link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         if (!at_uart_->SendCommand("AT+MIPCFG=\"ssl\"," + std::to_string(udp_id_) + ",0,0",
                                    kConfigTimeoutMs)) {
             ESP_LOGE(kUdpTag, "Failed to configure UDP socket %d security", udp_id_);
             return Fail(NetworkError::AtCommandFailed());
         }
 
+        if (!link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         xEventGroupClearBits(event_group_handle_, kOpenResolved | kOpenFailed);
         // For UDP this field is the local port, not TCP's connect timeout.
         // Match upstream's automatic port allocation across new sessions.
@@ -216,9 +254,11 @@ public:
             ESP_LOGE(kUdpTag, "Failed to request UDP socket %d open", udp_id_);
             return Fail(open_result.error().ToNetworkError());
         }
-        auto bits = xEventGroupWaitBits(event_group_handle_, kOpenResolved | kOpenFailed, pdTRUE,
-                                        pdFALSE, pdMS_TO_TICKS(kUdpConnectTimeoutMs));
+        const auto bits =
+            link_.Wait(kOpenResolved | kOpenFailed, pdMS_TO_TICKS(kUdpConnectTimeoutMs));
         awaiting_open_.store(false);
+        if ((bits & kInterrupted) || !link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         if (bits & kOpenFailed) {
             ESP_LOGE(kUdpTag, "ML307 rejected UDP socket %d open, error=%d", udp_id_,
                      last_error_.load());
@@ -269,7 +309,7 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(io_mutex_);
-        if (!connected_state_.load() || !instance_active_.load()) {
+        if (!link_.IsActive() || !connected_state_.load() || !instance_active_.load()) {
             ESP_LOGE(kUdpTag, "UDP socket %d is not connected", udp_id_);
             return -1;
         }
@@ -292,15 +332,14 @@ public:
         const bool command_ok = AtCommandSucceeded(send_result);
         EventBits_t bits = 0;
         if (command_ok) {
-            bits = xEventGroupWaitBits(event_group_handle_, kSendResolved | kSendFailed, pdTRUE,
-                                       pdFALSE, pdMS_TO_TICKS(kSendCompleteTimeoutMs));
+            bits = link_.Wait(kSendResolved | kSendFailed, pdMS_TO_TICKS(kSendCompleteTimeoutMs));
         } else {
             bits = xEventGroupWaitBits(event_group_handle_, kSendResolved | kSendFailed, pdFALSE,
                                        pdFALSE, 0) &
                    (kSendResolved | kSendFailed);
         }
         pending_send_size_.store(0);
-        if (!command_ok || !(bits & kSendResolved)) {
+        if (!command_ok || !link_.IsActive() || (bits & kSendFailed) || !(bits & kSendResolved)) {
             connected_state_.store(false);
             ESP_LOGE(kUdpTag, "Inline HEX send failed on UDP socket %d (%u bytes)", udp_id_,
                      static_cast<unsigned>(data.size()));
@@ -394,7 +433,7 @@ private:
                     ESP_LOGE(kUdpTag, "Malformed MIPURC rudp for UDP socket %d", udp_id_);
                     return;
                 }
-                if (connected_state_.load() && message_callback_) {
+                if (link_.IsActive() && connected_state_.load() && message_callback_) {
                     message_callback_(at_uart_->DecodeHex(args[3].string_value));
                 }
             } else if (args[0].string_value == "disconn") {
@@ -412,7 +451,7 @@ private:
             }
             return;
         }
-        if (command == "FIFO_OVERFLOW") {
+        if (IsMl307TransportLost(command, args)) {
             // This runs on the AT event task. Never issue MIPCLOSE here: it
             // would wait for that same task and turn a recoverable desync into
             // a deadlock. The next Connect()/destructor closes the socket.
@@ -421,12 +460,14 @@ private:
             // cannot issue MIPCLOSE, so teardown or the next Connect() must.
             pending_send_size_.store(0);
             xEventGroupSetBits(event_group_handle_, kOpenFailed | kSendFailed | kCloseResolved);
-            ESP_LOGW(kUdpTag, "AT FIFO overflow invalidated UDP socket %d", udp_id_);
+            ESP_LOGW(kUdpTag, "AT link event %s invalidated UDP socket %d", command.c_str(),
+                     udp_id_);
         }
     }
 
     std::shared_ptr<AtUart> at_uart_;
     int udp_id_;
+    SocketLease link_;
     EventGroupHandle_t event_group_handle_ = nullptr;
     std::list<UrcCallback>::iterator urc_callback_it_;
     bool urc_callback_registered_ = false;
@@ -447,8 +488,9 @@ private:
 // path as UDP; TLS itself is still performed by the caller (voice_http.cc).
 class DinosaurMl307HexTcp final : public Tcp {
 public:
-    DinosaurMl307HexTcp(std::shared_ptr<AtUart> at_uart, int tcp_id, bool ssl)
-        : at_uart_(std::move(at_uart)), tcp_id_(tcp_id), ssl_(ssl) {
+    DinosaurMl307HexTcp(DinosaurMl307Network& network, std::shared_ptr<AtUart> at_uart, int tcp_id,
+                        bool ssl)
+        : at_uart_(std::move(at_uart)), tcp_id_(tcp_id), ssl_(ssl), link_(network, tcp_id) {
         if (!at_uart_ || !IsValidSocketId(tcp_id_)) {
             ESP_LOGE(kTcpTag, "Invalid ML307 TCP socket id %d", tcp_id_);
             return;
@@ -458,6 +500,8 @@ public:
             ESP_LOGE(kTcpTag, "Cannot allocate TCP event group");
             return;
         }
+        if (!link_.Acquire(event_group_handle_))
+            return;
         urc_callback_it_ = at_uart_->RegisterUrcCallback(
             [this](const std::string& command, const std::vector<AtArgumentValue>& args) {
                 HandleUrc(command, args);
@@ -480,6 +524,7 @@ public:
             }
         }
         if (event_group_handle_) {
+            link_.Release();
             vEventGroupDelete(event_group_handle_);
         }
     }
@@ -491,6 +536,8 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(io_mutex_);
+        if (!link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         connected_ = false;
         connected_state_.store(false);
         instance_active_.store(false);
@@ -506,11 +553,14 @@ public:
         expecting_close_.store(true);
         const auto close_result =
             at_uart_->SendCommand("AT+MIPCLOSE=" + std::to_string(tcp_id_), kCloseTimeoutMs);
+        if (!link_.IsActive()) {
+            expecting_close_.store(false);
+            return Fail(NetworkError::ServerDisconnected());
+        }
         const bool close_acked = AtCommandSucceeded(close_result);
         bool close_confirmed = close_acked;
         if (close_acked) {
-            xEventGroupWaitBits(event_group_handle_, kCloseResolved, pdTRUE, pdFALSE,
-                                pdMS_TO_TICKS(kCloseUrcTimeoutMs));
+            link_.Wait(kCloseResolved, pdMS_TO_TICKS(kCloseUrcTimeoutMs));
         } else if (AtCommandCme(close_result) == 0) {
             close_confirmed = false;
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -530,12 +580,17 @@ public:
         connected_state_.store(false);
         instance_active_.store(false);
 
+        if (!link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         if (ssl_ && !at_uart_->SendCommand("AT+MSSLCFG=\"auth\",0,0", kConfigTimeoutMs)) {
             ESP_LOGE(kTcpTag, "Failed to configure modem TLS authentication");
             return Fail(NetworkError::AtCommandFailed());
         }
+        if (!link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         if (!at_uart_->SendCommand("AT+MIPCFG=\"encoding\"," + std::to_string(tcp_id_) + ",1,1",
                                    kConfigTimeoutMs) ||
+            !link_.IsActive() ||
             !at_uart_->SendCommand(
                 "AT+MIPCFG=\"ssl\"," + std::to_string(tcp_id_) + "," + (ssl_ ? "1" : "0") + ",0",
                 kConfigTimeoutMs)) {
@@ -543,6 +598,8 @@ public:
             return Fail(NetworkError::AtCommandFailed());
         }
 
+        if (!link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         xEventGroupClearBits(event_group_handle_, kOpenResolved | kOpenFailed);
         const std::string open = "AT+MIPOPEN=" + std::to_string(tcp_id_) + ",\"TCP\",\"" + host +
                                  "\"," + std::to_string(port) + "," +
@@ -557,9 +614,11 @@ public:
             ESP_LOGE(kTcpTag, "Failed to request TCP socket %d open", tcp_id_);
             return Fail(open_result.error().ToNetworkError());
         }
-        auto bits = xEventGroupWaitBits(event_group_handle_, kOpenResolved | kOpenFailed, pdTRUE,
-                                        pdFALSE, pdMS_TO_TICKS(kTcpConnectTimeoutMs));
+        const auto bits =
+            link_.Wait(kOpenResolved | kOpenFailed, pdMS_TO_TICKS(kTcpConnectTimeoutMs));
         awaiting_open_.store(false);
+        if ((bits & kInterrupted) || !link_.IsActive())
+            return Fail(NetworkError::ServerDisconnected());
         if (bits & kOpenFailed) {
             ESP_LOGE(kTcpTag, "ML307 rejected TCP socket %d open, error=%d", tcp_id_,
                      last_error_.load());
@@ -602,13 +661,15 @@ public:
         if (data.empty())
             return 0;
         std::lock_guard<std::mutex> lock(io_mutex_);
-        if (!connected_state_.load() || !instance_active_.load()) {
+        if (!link_.IsActive() || !connected_state_.load() || !instance_active_.load()) {
             ESP_LOGE(kTcpTag, "TCP socket %d is not connected", tcp_id_);
             return -1;
         }
 
         size_t total_sent = 0;
         while (total_sent < data.size()) {
+            if (!link_.IsActive())
+                return -1;
             const size_t chunk_size = std::min(data.size() - total_sent, kMaxInlinePayloadBytes);
             std::string command =
                 "AT+MIPSEND=" + std::to_string(tcp_id_) + "," + std::to_string(chunk_size) + ",\"";
@@ -624,15 +685,16 @@ public:
                 AtCommandSucceeded(at_uart_->SendCommand(command, send_timeout, false));
             EventBits_t bits = 0;
             if (command_ok) {
-                bits = xEventGroupWaitBits(event_group_handle_, kSendResolved | kSendFailed, pdTRUE,
-                                           pdFALSE, pdMS_TO_TICKS(kSendCompleteTimeoutMs));
+                bits =
+                    link_.Wait(kSendResolved | kSendFailed, pdMS_TO_TICKS(kSendCompleteTimeoutMs));
             } else {
                 bits = xEventGroupWaitBits(event_group_handle_, kSendResolved | kSendFailed,
                                            pdFALSE, pdFALSE, 0) &
                        (kSendResolved | kSendFailed);
             }
             pending_send_size_.store(0);
-            if (!command_ok || !(bits & kSendResolved)) {
+            if (!command_ok || !link_.IsActive() || (bits & kSendFailed) ||
+                !(bits & kSendResolved)) {
                 connected_state_.store(false);
                 ESP_LOGE(kTcpTag, "Inline HEX send failed on TCP socket %d (%u bytes)", tcp_id_,
                          static_cast<unsigned>(chunk_size));
@@ -715,7 +777,7 @@ private:
                     ESP_LOGE(kTcpTag, "Malformed MIPURC rtcp for TCP socket %d", tcp_id_);
                     return;
                 }
-                if (connected_state_.load() && stream_callback_)
+                if (link_.IsActive() && connected_state_.load() && stream_callback_)
                     stream_callback_(at_uart_->DecodeHex(args[3].string_value));
             } else if (args[0].string_value == "disconn") {
                 const bool was_connected = connected_state_.exchange(false);
@@ -733,20 +795,24 @@ private:
             }
             return;
         }
-        if (command == "FIFO_OVERFLOW") {
+        if (IsMl307TransportLost(command, args)) {
             // Never issue an AT command from this callback: it runs on the AT
             // receive task. Keep the socket tracked so the next
             // Connect()/destructor closes it.
-            connected_state_.store(false);
+            const bool was_connected = connected_state_.exchange(false);
             pending_send_size_.store(0);
             xEventGroupSetBits(event_group_handle_, kOpenFailed | kSendFailed | kCloseResolved);
-            ESP_LOGW(kTcpTag, "AT FIFO overflow invalidated TCP socket %d", tcp_id_);
+            if (was_connected && disconnect_callback_)
+                disconnect_callback_();
+            ESP_LOGW(kTcpTag, "AT link event %s invalidated TCP socket %d", command.c_str(),
+                     tcp_id_);
         }
     }
 
     std::shared_ptr<AtUart> at_uart_;
     int tcp_id_;
     bool ssl_;
+    SocketLease link_;
     EventGroupHandle_t event_group_handle_ = nullptr;
     std::list<UrcCallback>::iterator urc_callback_it_;
     bool urc_callback_registered_ = false;
@@ -760,54 +826,68 @@ private:
     std::atomic<size_t> pending_send_size_{0};
 };
 
-std::unique_ptr<Udp> CreateInlineHexUdp(NetworkInterface* delegate,
-                                        const std::shared_ptr<AtUart>& at_uart, int connect_id) {
-    if (!delegate || !at_uart || connect_id < 0) {
-        return nullptr;
-    }
-    return std::make_unique<DinosaurMl307HexUdp>(at_uart, connect_id);
-}
-
-std::unique_ptr<Tcp> CreateInlineHexTcp(NetworkInterface* delegate,
-                                        const std::shared_ptr<AtUart>& at_uart, int connect_id,
-                                        bool ssl) {
-    if (!delegate || !at_uart || connect_id < 0)
-        return nullptr;
-    return std::make_unique<DinosaurMl307HexTcp>(at_uart, connect_id, ssl);
-}
 }  // namespace
 
-DinosaurMl307Network::DinosaurMl307Network(NetworkInterface* delegate,
+DinosaurMl307Network::DinosaurMl307Network(const DinosaurCellular& cellular,
                                            std::shared_ptr<AtUart> at_uart)
-    : delegate_(delegate), at_uart_(std::move(at_uart)) {}
+    : cellular_(cellular), at_uart_(std::move(at_uart)) {}
+
+bool DinosaurMl307Network::ClaimSocket(int id, EventGroupHandle_t events) {
+    std::lock_guard<std::mutex> lock(socket_mutex_);
+    if (!IsValidSocketId(id) || !cellular_.IsReady() || socket_events_[id])
+        return false;
+    socket_events_[id] = events;
+    return true;
+}
+
+void DinosaurMl307Network::ReleaseSocket(int id) {
+    std::lock_guard<std::mutex> lock(socket_mutex_);
+    socket_events_[id] = nullptr;
+}
+
+void DinosaurMl307Network::InterruptSockets() {
+    // This can run on the UART event task. Waking waiters must never issue an
+    // AT command or call a transport callback on that task.
+    std::lock_guard<std::mutex> lock(socket_mutex_);
+    for (const auto events : socket_events_) {
+        if (events)
+            xEventGroupSetBits(events, kSocketInterrupted);
+    }
+}
 
 std::unique_ptr<Http> DinosaurMl307Network::CreateHttp(int connect_id) {
     (void)connect_id;
-    if (!at_uart_)
+    if (!at_uart_ || !cellular_.IsReady())
         return nullptr;
     return std::make_unique<DinosaurMl307Http>(at_uart_);
 }
 
 std::unique_ptr<Tcp> DinosaurMl307Network::CreateTcp(int connect_id) {
-    return CreateInlineHexTcp(delegate_, at_uart_, connect_id, false);
+    if (!at_uart_ || !cellular_.IsReady() || !IsValidSocketId(connect_id))
+        return nullptr;
+    return std::make_unique<DinosaurMl307HexTcp>(*this, at_uart_, connect_id, false);
 }
 
 std::unique_ptr<Tcp> DinosaurMl307Network::CreateSsl(int connect_id) {
-    return CreateInlineHexTcp(delegate_, at_uart_, connect_id, true);
+    if (!at_uart_ || !cellular_.IsReady() || !IsValidSocketId(connect_id))
+        return nullptr;
+    return std::make_unique<DinosaurMl307HexTcp>(*this, at_uart_, connect_id, true);
 }
 
 std::unique_ptr<Udp> DinosaurMl307Network::CreateUdp(int connect_id) {
-    return CreateInlineHexUdp(delegate_, at_uart_, connect_id);
+    if (!at_uart_ || !cellular_.IsReady() || !IsValidSocketId(connect_id))
+        return nullptr;
+    return std::make_unique<DinosaurMl307HexUdp>(*this, at_uart_, connect_id);
 }
 
 std::unique_ptr<Mqtt> DinosaurMl307Network::CreateMqtt(int connect_id) {
-    if (!at_uart_ || connect_id < 0)
+    if (!at_uart_ || !cellular_.IsReady() || connect_id < 0)
         return nullptr;
     return std::make_unique<DinosaurMl307Mqtt>(at_uart_, connect_id);
 }
 
 std::unique_ptr<WebSocket> DinosaurMl307Network::CreateWebSocket(int connect_id) {
-    if (!at_uart_ || connect_id < 0)
+    if (!at_uart_ || !cellular_.IsReady() || !IsValidSocketId(connect_id))
         return nullptr;
     // Construct against this adapter so the WebSocket client uses the
     // inline-HEX TCP/TLS implementation above rather than the component

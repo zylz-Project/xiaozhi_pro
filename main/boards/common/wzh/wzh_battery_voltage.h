@@ -39,13 +39,6 @@ public:
         voltage_ = sorted[1];
         stable_.Update(voltage_, low_mv, recover_mv, critical_mv, rested);
     }
-    // Bootstrap only before the first motion, from one calibrated ADC burst.
-    // Subsequent samples continue through the normal median and protection.
-    void InitializeFromStartupSample(int millivolts, int low_mv, int recover_mv,
-                                     int critical_mv) {
-        for (unsigned i = 0; i < 5; ++i)
-            Update(millivolts, false, low_mv, recover_mv, critical_mv);
-    }
     void Invalidate() {
         live_.Invalidate();
         stable_.Invalidate();

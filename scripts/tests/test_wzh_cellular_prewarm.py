@@ -21,8 +21,8 @@ class CellularPrewarmTest(unittest.TestCase):
 #define CONFIG_BOARD_TYPE_WZH_DINOSAUR 1
 struct AudioService{
 ''' + constants + r'''
- uint32_t target=0,wait=0;
- void SetDownlinkJitter(uint32_t t,uint32_t w){target=t;wait=w;}
+ uint32_t target=0,wait=0,recovery=0;
+ void SetDownlinkJitter(uint32_t t,uint32_t w,uint32_t r=0){target=t;wait=w;recovery=r?r:t;}
 };
 struct Board{bool cellular=true;int opened=0;
  bool UsesCellularNetwork(){return cellular;}bool IsNetworkAvailable(){return true;}
@@ -36,9 +36,11 @@ struct Application{std::atomic<uint32_t>protocol_generation_{1};
 };
 int main(){Application a;Board b;
  a.Opened(b,0);assert(a.audio_service_.target==0);
- a.Opened(b,1);assert(a.audio_service_.target==360&&a.audio_service_.wait>=360&&b.opened==0);
+ a.Opened(b,1);assert(a.audio_service_.target==360&&a.audio_service_.wait==480&&
+                      a.audio_service_.recovery==480&&b.opened==0);
  a.cellular_prewarming_=false;b.cellular=false;a.Opened(b,1);
- assert(a.audio_service_.target==120&&a.audio_service_.wait==80&&b.opened==1);
+ assert(a.audio_service_.target==120&&a.audio_service_.wait==80&&
+        a.audio_service_.recovery==120&&b.opened==1);
 }
 ''')
 
@@ -121,7 +123,8 @@ int64_t now_us=1000000;int64_t esp_timer_get_time(){return now_us;}
 std::function<void()> worker;
 int xTaskCreate(void(*fn)(void*),const char*,int,void* arg,int,void*){
  assert(!worker);worker=[=]{fn(arg);};return pdPASS;}
-void vTaskDelete(void*){}
+std::function<void()> before_task_delete;
+void vTaskDelete(void*){if(before_task_delete)before_task_delete();}
 unsigned dispatched=0;void xEventGroupSetBits(void*,unsigned bits){dispatched|=bits;}
 struct Board{bool cellular=true,online=true,maintenance=false;
  static Board& GetInstance(){static Board b;return b;}
@@ -152,7 +155,10 @@ int main(){Application a;auto& b=Board::GetInstance();
  b.cellular=false;a.MaybePrewarmCellularAudio();assert(!worker);
  b.cellular=true;b.online=false;a.MaybePrewarmCellularAudio();assert(!worker);
  b.online=true;a.MaybePrewarmCellularAudio();assert(worker && a.cellular_prewarming_);
+ // Self-deletion bypasses destructors. Only the app and its completion should own the channel.
+ before_task_delete=[&]{assert(a.protocol_.use_count()==2);};
  a.cellular_prewarm_wake_word_="wake";run(a);assert(a.protocol_->open && a.cellular_prewarmed_ && a.wake=="wake");
+ before_task_delete={};
  a.protocol_->open=false;a.MaybePrewarmCellularAudio();assert(!worker);
  now_us+=31000000;a.protocol_->success=false;a.MaybePrewarmCellularAudio();assert(worker);
  a.QueueCellularInteraction(4);run(a);assert(!a.cellular_prewarmed_ && dispatched==4);

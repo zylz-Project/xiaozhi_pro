@@ -2,17 +2,18 @@
   'use strict';
   const $ = id => document.getElementById(id);
   let online = false, authenticated = false, selected = null, busy = false, scanning = false;
-  let initialized = false, checkingStatus = false;
+  let initialized = false, checkingStatus = false, switchNeedsRetry = false, wifiTransport = null;
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   async function api(path, body, timeoutMs=10000) {
     const opts = {cache:'no-store', credentials:'same-origin'};
     if (body !== undefined) { opts.method='POST'; opts.headers={'Content-Type':'application/json'}; opts.body=JSON.stringify(body); }
     const controller = new AbortController(), timer = setTimeout(()=>controller.abort(),timeoutMs);
     let r, d;
-    try { r = await fetch(path, {...opts, signal:controller.signal}); d = await r.json(); }
+    try { r = await fetch(path, {...opts, signal:controller.signal}); d = await r.json().catch(e=>{ if(e.name==='AbortError')throw e; return null; }); }
     catch(e) { if(e.name==='AbortError') throw new Error('连接设备超时，请确认手机仍连接设备热点后重试'); throw e; }
     finally { clearTimeout(timer); }
-    if (!r.ok || d.ok === false) { const e = new Error(d.error?.message || '操作失败'); e.status = r.status; throw e; }
+    if (!r.ok || d?.ok === false) { const e = new Error(d?.error?.message || '操作失败'); e.status = r.status; throw e; }
+    if (!d || typeof d!=='object' || Array.isArray(d)) throw new Error('设备回复未接收完整，请稍后重试');
     return d;
   }
   function show(id, visible) {
@@ -36,36 +37,16 @@
     location.href='/login?next=/setup';
     return true;
   }
-  async function ensureWifiTransport(net) {
-    net=net||await api('/api/status');
-    const deadline=Date.now()+30000;
-    let lastSwitchAt=0;
-    while(Date.now()<deadline) {
-      if(net.transport==='probing') {
-        await wait(500);
-      } else if(net.transport==='cellular') {
-        // The firmware applies the switch on the main task. A status poll taken
-        // 500 ms later can legitimately still say "cellular"; keep polling and
-        // retry the request after a few seconds instead of failing the page.
-        if(!lastSwitchAt || Date.now()-lastSwitchAt>6000) {
-          $('scanMeta').textContent='正在切换到 Wi-Fi…';
-          try { await api('/api/network/transport',{transport:'wifi'},12000); }
-          catch(e) {
-            if(loginFor(e)) throw e;
-            // The AP may change channel before the response reaches the phone.
-            // A 409 means the main task is still busy; status will decide.
-            if(e.status && e.status!==409) throw e;
-          }
-          lastSwitchAt=Date.now();
-        }
-        await wait(600);
-      } else {
-        return net;
-      }
-      try { net=await api('/api/status'); }
-      catch(e) { if(e.status) throw e; }
-    }
-    throw new Error('网络切换超时，请稍后重试');
+  function ensureWifiTransport(net) {
+    if(!wifiTransport)wifiTransport=(async()=>{
+      return WzhNetworkTransport.select('wifi',{
+        initial:net||await api('/api/status',undefined,3000),
+        request:transport=>api('/api/network/transport',{transport},5000),
+        read:timeout=>api('/api/status',undefined,timeout),
+        progress:message=>{ $('scanMeta').textContent=message; }
+      });
+    })().finally(()=>{ wifiTransport=null; });
+    return wifiTransport;
   }
   async function scan(network) {
     if (scanning||busy) return;
@@ -166,14 +147,26 @@
     error.textContent='正在连接，请保持手机连接设备热点…';
     try {
       await ensureWifiTransport();
-      const r=await api('/submit',{ssid,password}); save('wzh_setup_ssid',ssid);
+      let job=window.crypto?.getRandomValues ? Array.from(window.crypto.getRandomValues(new Uint8Array(16)),
+        byte=>byte.toString(16).padStart(2,'0')).join('') : undefined;
+      let submitError;
+      try {
+        const r=await api('/submit',{ssid,password,job});
+        job=r.job||job;
+      } catch(e) {
+        if(!job||e.status)throw e;
+        submitError=e;
+        error.textContent='连接暂时中断，正在查询配网进度…';
+      }
+      if(!job)throw new Error('设备未返回配网任务，请重试');
+      save('wzh_setup_ssid',ssid);
       const deadline=Date.now()+120000;
-      const jobStatus='/api/setup/status?job='+encodeURIComponent(r.job);
+      const jobStatus='/api/setup/status?job='+encodeURIComponent(job);
       while(Date.now()<deadline) {
         let s;
         try { s=await api(jobStatus,undefined,3000); }
         catch(e) {
-          if(e.status===401)throw e;
+          if(e.status===401)throw submitError||e;
           error.textContent='连接暂时中断，正在重新查询…';
         }
         if(s?.phase==='failed')throw new Error(s.error?.message||'连接失败');
@@ -196,7 +189,10 @@
       if (e.key==='Enter' && !e.isComposing) { e.preventDefault(); $(button).click(); }
     });
   }
-  $('scanBtn').onclick=()=>initialized ? scan() : refreshStatus();
+  $('scanBtn').onclick=()=>{
+    switchNeedsRetry=false;
+    return initialized ? scan() : refreshStatus();
+  };
   $('manualSsidBtn').onclick=()=>show('manualLayer',true); $('setupBack').onclick=()=>location.href=authenticated?'/':'/login?next=/';
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>{if(busy){toast('正在连接，请稍候');return;}show(b.dataset.close,false);});
   ['pw','manual'].forEach(prefix=>$(prefix+'Peek').onclick=()=>{
@@ -206,8 +202,9 @@
   });
   function showStartupNotice(s) { const el=$('startupNotice'); const text=s.startup_notice||''; el.textContent=text; el.hidden=!text; }
   async function refreshStatus() {
-    if (document.hidden || checkingStatus) return;
+    if (document.hidden || checkingStatus || busy) return;
     checkingStatus = true;
+    let switching = false;
     try {
       const status = await api('/api/status', undefined, 3000);
       showStartupNotice(status);
@@ -215,7 +212,10 @@
       const dinosaur = status.build === 'wzh-dinosaur';
       authenticated = status.authenticated??!!status.wifi?.connected;
       $('setupBack').hidden = !(authenticated||status.wifi?.connected||dinosaur);
+      if(switchNeedsRetry&&(status.transport!=='wifi'||status.transport_switch?.state==='pending'))return;
+      switching=dinosaur&&(status.transport!=='wifi'||status.transport_switch?.state==='pending');
       const network = await ensureWifiTransport(status);
+      switchNeedsRetry=false;
       online = !!network.wifi?.connected;
       authenticated = network.authenticated??online;
       const mode = online ? 'change' : network.saved_network ? 'offline' : 'first';
@@ -250,8 +250,10 @@
         PandaGuide.auto(mode === 'change' ? 'setupChange' : mode === 'offline' ? 'setupOffline' : 'setupFirst');
     } catch (e) {
       if (!initialized && !loginFor(e)) {
-        $('scanMeta').textContent='正在恢复与设备的连接…';
-        $('netEmpty').textContent='请确认手机仍连接设备热点，也可以点击刷新';
+        if(switching)switchNeedsRetry=true;
+        $('scanMeta').textContent=switching?e.message:'正在恢复与设备的连接…';
+        $('netEmpty').textContent=switching?'请保持手机连接设备热点，点击刷新可重试'
+                                         :'请确认手机仍连接设备热点，也可以点击刷新';
         $('netEmpty').hidden=false;
       }
     } finally {

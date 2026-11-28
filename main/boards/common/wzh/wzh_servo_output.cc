@@ -1,5 +1,6 @@
 #include "wzh_servo_output.h"
 
+#include <esp_err.h>
 #include <esp_log.h>
 #include <algorithm>
 #include <cmath>
@@ -30,11 +31,10 @@ bool ServoOutput::Write(const int* angles, size_t count) {
 bool ServoOutput::WriteDegrees(const float* angles, size_t count) {
     std::lock_guard<std::mutex> lock(mutex_);
     const uint32_t now = esp_timer_get_time() / 1000;
-    const bool cooling = !budget_.Allow(now);
-    if (cooling_.exchange(cooling) != cooling)
-        ESP_LOGI("WzhServo", "Motion power cooldown %s", cooling ? "ON" : "OFF");
+    CheckWatchdogLocked(now);
+    const bool already_powered = powered_.load();
     if (angles == nullptr || channels_ == nullptr || count != count_ || blocked()) {
-        if (powered_.load())
+        if (already_powered)
             ReleaseLocked();
         return false;
     }
@@ -44,17 +44,34 @@ bool ServoOutput::WriteDegrees(const float* angles, size_t count) {
             return false;
         }
     }
+    // LEDC repeats the programmed waveform while the rail is on. After
+    // release, all channels must be started again even for the same pose.
+    const bool cache_duties = count <= last_duties_.size();
     for (size_t i = 0; i < count; ++i) {
         const float pulse_us = 500.0f + std::clamp(angles[i], 0.0f, 180.0f) * 2000.0f / 180.0f;
         // LEDC divides by 2^N timer counts, not its largest duty value 2^N-1.
         const uint32_t duty =
             static_cast<uint32_t>(std::lround(pulse_us * (duty_max_ + 1.f) / 20000.0f));
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, channels_[i], duty);
-        ledc_update_duty(LEDC_LOW_SPEED_MODE, channels_[i]);
+        if (cache_duties && already_powered && duty == last_duties_[i])
+            continue;
+        if (ledc_set_duty(LEDC_LOW_SPEED_MODE, channels_[i], duty) != ESP_OK ||
+            ledc_update_duty(LEDC_LOW_SPEED_MODE, channels_[i]) != ESP_OK) {
+            ReleaseLocked();
+            ESP_LOGW("WzhServo", "PWM write failed on channel %d", channels_[i]);
+            return false;
+        }
+        if (cache_duties)
+            last_duties_[i] = duty;
     }
-    gpio_set_level(power_, 1);
-    budget_.PowerOn(now);
-    powered_.store(true);
+    if (!already_powered) {
+        if (gpio_set_level(power_, 1) != ESP_OK) {
+            ReleaseLocked();
+            ESP_LOGW("WzhServo", "Could not enable servo power on GPIO %d", power_);
+            return false;
+        }
+        budget_.PowerOn(now);
+        powered_.store(true);
+    }
     last_write_ms_ = now;
     return true;
 }
@@ -96,19 +113,24 @@ void ServoOutput::SetFault(MotionFault fault, bool enabled) {
 
 void ServoOutput::Watchdog() {
     std::lock_guard<std::mutex> lock(mutex_);
-    const uint32_t now = esp_timer_get_time() / 1000;
+    CheckWatchdogLocked(esp_timer_get_time() / 1000);
+}
+
+void ServoOutput::CheckWatchdogLocked(uint32_t now) {
     const bool cooling = !budget_.Allow(now);
-    if (cooling_.exchange(cooling) != cooling)
-        ESP_LOGI("WzhServo", "Motion power cooldown %s", cooling ? "ON" : "OFF");
-    // Power task checks this independently every 20ms. A stalled motion task cannot
-    // leave PWM holding torque for the entire continuous-power budget.
-    if (powered_.load() && now - last_write_ms_ >= 500) {
-        if ((faults_.fetch_or(kMotionTimeout) & kMotionTimeout) == 0)
-            ESP_LOGW("WzhServo", "Motion watchdog: no update for 500ms; servo power released");
-    }
+    const bool cooling_changed = cooling_.exchange(cooling) != cooling;
+    // Check before accepting data too: a late write must not erase an expired
+    // deadline while the independent power task is delayed.
+    const bool timed_out = powered_.load() && now - last_write_ms_ >= 500;
+    if (timed_out)
+        faults_.fetch_or(kMotionTimeout);
     if (blocked() && powered_.load()) {
         ReleaseLocked();
     }
+    if (cooling_changed)
+        ESP_LOGI("WzhServo", "Motion power cooldown %s", cooling ? "ON" : "OFF");
+    if (timed_out)
+        ESP_LOGW("WzhServo", "Motion watchdog: no update for 500ms; servo power released");
 }
 
 }  // namespace wzh

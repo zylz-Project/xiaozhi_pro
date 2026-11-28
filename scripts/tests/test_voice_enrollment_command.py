@@ -20,6 +20,13 @@ int main() {
         assert(IsVoiceSelectionRequest(text));
     for (const char* text : {"不要换声音", "怎么切换音色", "把声音调大", "帮我克隆声音", "我喜欢你的声音", "这个声音好用吗", "别换声音"})
         assert(!IsVoiceSelectionRequest(text));
+    for (const char* text : {"切回原声", "请换回原声。", "　恢复原声？ ",
+                             "切换音色为原声", "用原声说话!"})
+        assert(IsNativeVoiceSelection(text, false));
+    assert(!IsNativeVoiceSelection("原声。", false));
+    assert(IsNativeVoiceSelection("原声。", true));
+    for (const char* text : {"不要用原声", "别切回原声", "怎么换回原声", "原声好听吗", "播放原声音乐", "\"切回原声\""})
+        assert(!IsNativeVoiceSelection(text, true));
 }
 '''
         with tempfile.TemporaryDirectory() as temp:

@@ -1465,8 +1465,9 @@ void PandaController::Task() {
         const auto pet_state = pet_.Get(now_ms);
         autoplay_.SetPaused(now_ms, conversation_active_.load() || shutdown_requested_.load() ||
                                         servo_output_.blocked() || !pet_state.motion);
+        const bool startup_low_battery = (servo_output_.faults() & wzh::kLowBattery) != 0;
         if (startup_sound_pending &&
-            (conversation_active_.load() || shutdown_requested_.load() ||
+            (conversation_active_.load() || shutdown_requested_.load() || startup_low_battery ||
              last_request_us_.load() > 0 || pet_state.mode != wzh::PetMode::kNormal ||
              !pet_state.motion || now_ms - startup_origin_ms >= 30000 ||
              Application::GetInstance().IsVoiceEnrollmentActive() ||
@@ -1474,7 +1475,7 @@ void PandaController::Task() {
             startup_sound_pending = false;
         }
         if (startup_sound_started &&
-            (conversation_active_.load() || shutdown_requested_.load() ||
+            (conversation_active_.load() || shutdown_requested_.load() || startup_low_battery ||
              last_request_us_.load() > 0 || !pet_state.motion ||
              Application::GetInstance().IsVoiceEnrollmentActive() ||
              Application::GetInstance().IsExternalVoicePreviewActive())) {
@@ -1484,7 +1485,7 @@ void PandaController::Task() {
         const bool startup_was_pending = startup.Pending();
         startup.Due(now_ms, false,
                     conversation_active_.load() || shutdown_requested_.load() ||
-                        pet_state.mode != wzh::PetMode::kNormal ||
+                        startup_low_battery || pet_state.mode != wzh::PetMode::kNormal ||
                         Application::GetInstance().IsVoiceEnrollmentActive() ||
                         Application::GetInstance().IsExternalVoicePreviewActive());
         if (startup_was_pending && !startup.Pending())
@@ -1498,7 +1499,8 @@ void PandaController::Task() {
             running_speech_bound_ = false;
         }
         const bool offline = !conversation_active_.load();
-        if (!startup.Pending() && !startup_sound_pending && !startup_sound_started && !clip_active_)
+        if (!wzh::StartupGreetingFinished() && !startup.Pending() && !startup_sound_pending &&
+            !startup_sound_started && !clip_active_)
             wzh::MarkStartupGreetingComplete();
         if (servo_output_.blocked() || !pet_state.motion) {
             CancelSoundMotion();
@@ -1587,7 +1589,7 @@ void PandaController::Task() {
         // Wait for the power-on prompt to drain before the startup gesture.
         const bool startup_interrupted = conversation_active_.load() ||
                                          shutdown_requested_.load();
-        const bool startup_ready = wzh::StartupGreetingAudioReady() &&
+        const bool startup_ready = startup.Pending() && wzh::StartupGreetingAudioReady() &&
                                    Application::GetInstance().GetAudioService().IsPlaybackIdle() &&
                                    !request_active_.load() && !clip_active_ && !local_motion &&
                                    uxQueueMessagesWaiting(action_queue_) == 0;
@@ -1612,9 +1614,11 @@ void PandaController::Task() {
         }
         if (!startup.Pending() && !startup_sound_pending && !clip_active_ &&
             (!startup_sound_started ||
-             (!local_motion && !clip_active_ && audio_ != nullptr && !audio_->Playing() &&
+             (!local_motion && audio_ != nullptr && !audio_->Playing() &&
               Application::GetInstance().GetAudioService().IsPlaybackIdle()))) {
-            wzh::MarkStartupGreetingComplete();
+            startup_sound_started = false;
+            if (!wzh::StartupGreetingFinished())
+                wzh::MarkStartupGreetingComplete();
         }
         if (autoplay_.Due(now_ms,
                           offline && pet_state.local_sound && !wzh::IsOnboardingActive() &&

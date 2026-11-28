@@ -565,9 +565,6 @@ if BOARD_TYPE_WZH_DINOSAUR
         string
         depends on WZH_SYSTEM_PROMPTS
         default "main/assets/wzh_system_voices"
-    config WZH_AUDIO_SYNC_SERVER
-        string
-        default "http://192.168.1.7:5000"
     config WZH_IDLE_POWER_ENABLE
         bool
         default y
@@ -578,6 +575,13 @@ if BOARD_TYPE_WZH_DINOSAUR
         bool
         default y
 endif
+
+config WZH_AUDIO_SYNC_SERVER
+    string
+    depends on BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA || BOARD_TYPE_WZH_DINOSAUR
+    default "http://192.168.1.111:9091"
+    help
+        三款产品共用的工厂局域网 Audio Hub 地址。设备出厂登记、Key 配置和音频管理使用工厂 Wi-Fi。
 
 menu "WZH Product Configuration"
     depends on BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA
@@ -624,13 +628,6 @@ menu "WZH Product Configuration"
         help
             Edge 的云希/晓晓不等于阳光青年/樱桃丸子。仅在接受替代声音后开启。
             此选项不改变云端角色音色，也不代表获得音色的商用许可。
-
-    config WZH_AUDIO_SYNC_SERVER
-        string "Factory Audio Hub server base URL"
-        default "http://192.168.1.7:5000"
-        help
-            仅开发者页面手动检查或更新时连接的局域网服务地址。
-            可通过 NVS（audio_hub 命名空间，server 键）覆盖，无需重烧固件。
 
     menu "WZH idle countdown"
         config WZH_IDLE_POWER_ENABLE

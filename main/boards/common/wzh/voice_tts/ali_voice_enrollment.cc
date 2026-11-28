@@ -8,6 +8,7 @@
 
 #include "ali_enrollment.h"
 #include "application.h"
+#include "assets/lang_config.h"
 #include "board.h"
 #include "external_tts.h"
 #include "voice_config.h"
@@ -164,19 +165,21 @@ const char* AliVoiceEnrollment::Failure() const {
 
 void AliVoiceEnrollment::TaskEntry(void* arg) {
     auto* self = static_cast<AliVoiceEnrollment*>(arg);
-    bool selection = false;
-    std::string text;
-    std::string name;
     {
-        std::lock_guard<std::mutex> lock(self->mutex_);
-        selection = self->selection_task_;
-        text = self->selection_text_;
-        name = self->requested_name_;
+        bool selection;
+        uint32_t generation;
+        std::string text;
+        {
+            std::lock_guard<std::mutex> lock(self->mutex_);
+            selection = self->selection_task_;
+            generation = self->generation_.load();
+            text = selection ? self->selection_text_ : self->requested_name_;
+        }
+        if (selection)
+            self->RunSelection(generation, text);
+        else
+            self->Run(generation, text);
     }
-    if (selection)
-        self->RunSelection(self->generation_.load(), text);
-    else
-        self->Run(self->generation_.load(), name);
     vTaskDelete(nullptr);
 }
 
@@ -192,7 +195,7 @@ bool AliVoiceEnrollment::StartSelection(const std::string& text,
     if (text.empty() || text.size() > 512 || !complete)
         return false;
     std::lock_guard<std::mutex> lock(mutex_);
-    if (task_ || LoadAliKey().empty())
+    if (task_ || (!IsNativeVoiceSelection(text, true) && LoadAliKey().empty()))
         return false;
     selection_text_ = text;
     selection_task_ = true;
@@ -214,10 +217,19 @@ void AliVoiceEnrollment::RunSelection(uint32_t generation, const std::string& te
     const auto cancelled = [this, generation]() {
         return generation != generation_.load() || !active_.load();
     };
+    const bool native = IsNativeVoiceSelection(text, true);
     std::vector<VoiceName> names;
-    const bool loaded = LoadVoiceNames(names);
+    const bool loaded = !native && LoadVoiceNames(names);
     bool ok = false;
-    if (loaded && !cancelled()) {
+    if (native && !cancelled()) {
+        selection_deadline_us_.store(0);
+        auto& audio = Application::GetInstance().GetAudioService();
+        const auto playback_generation = audio.GetPlaybackGeneration();
+        ok = SelectKnownVoice(kNativeVoiceId, cancelled) == VoiceOperation::kOk;
+        if (!cancelled())
+            audio.PlaySound(ok ? Lang::Sounds::OGG_POPUP : Lang::Sounds::OGG_EXCLAMATION,
+                            playback_generation);
+    } else if (loaded && !cancelled()) {
         const bool request = text.find("切换音色") != std::string::npos;
         if (request) {
             std::vector<std::string> phrases;
@@ -230,10 +242,12 @@ void AliVoiceEnrollment::RunSelection(uint32_t generation, const std::string& te
                 }
                 line += name + "，";
             };
+            append(kNativeVoiceName);
             for (const auto& builtin : kBuiltinVoices)
                 append(builtin.name);
             for (const auto& entry : names)
-                append(entry.name);
+                if (entry.name != kNativeVoiceName)
+                    append(entry.name);
             line += "你想用哪个音色？";
             phrases.push_back(line);
             ok = true;
@@ -263,7 +277,8 @@ void AliVoiceEnrollment::RunSelection(uint32_t generation, const std::string& te
             for (const auto& builtin : kBuiltinVoices)
                 match(builtin.name, builtin.id);
             for (const auto& entry : names)
-                match(entry.name, entry.id);
+                if (entry.name != kNativeVoiceName)
+                    match(entry.name, entry.id);
             if (text.find("取消") != std::string::npos) {
                 ok = Speak("好的，保持现在的音色。", generation);
             } else if (ambiguous) {

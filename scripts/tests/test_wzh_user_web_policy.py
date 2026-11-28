@@ -9,6 +9,113 @@ from test_wzh_action_queue import queue_function
 ROOT = Path(__file__).resolve().parents[2]
 
 class UserWebPolicyTest(unittest.TestCase):
+    def test_offline_transport_request_returns_accepted_job_and_distinguishes_failure(self):
+        compiler = shutil.which('g++')
+        if not compiler:
+            self.skipTest('g++ required')
+        common = ROOT / 'main/boards/common'
+        board_status = queue_function((common / 'board.h').read_text(),
+                                      'struct NetworkTransportSwitchStatus') + ';'
+        console = (common / 'wzh/wzh_web_console.cc').read_text()
+        serializer = queue_function(console, 'void AddNetworkTransportStatus(')
+        portal = (common / 'wzh/wzh_user_web.cc').read_text()
+        post = queue_function(portal[portal.index('// Runtime 4G/Wi-Fi switch.'):],
+                              'if (path == "/api/network/transport")')
+        source = r'''
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include <map>
+#include <memory>
+#include <string>
+''' + board_status + r'''
+struct cJSON {
+    std::map<std::string, std::string> fields;
+    std::map<std::string, cJSON> objects;
+};
+cJSON* cJSON_CreateObject() { return new cJSON; }
+void cJSON_Delete(cJSON* item) { delete item; }
+void cJSON_AddStringToObject(cJSON* out, const char* key, const char* value) {
+    out->fields[key] = value;
+}
+void cJSON_AddBoolToObject(cJSON* out, const char* key, bool value) {
+    out->fields[key] = value ? "true" : "false";
+}
+void cJSON_AddNumberToObject(cJSON* out, const char* key, uint32_t value) {
+    out->fields[key] = std::to_string(value);
+}
+cJSON* cJSON_AddObjectToObject(cJSON* out, const char* key) { return &out->objects[key]; }
+using Json = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
+struct httpd_req_t { std::string transport, code; cJSON output; };
+int httpd_resp_send_500(httpd_req_t*) { return 500; }
+int Error(httpd_req_t* req, const char* status, const char* code, const char*) {
+    req->code = code;
+    return std::stoi(status);
+}
+int JsonResponse(httpd_req_t* req, const cJSON* root, const char* status) {
+    req->output = *root;
+    return std::stoi(status);
+}
+Json ReadBody(httpd_req_t* req) {
+    Json body(cJSON_CreateObject(), cJSON_Delete);
+    body->fields["transport"] = req->transport;
+    return body;
+}
+const char* String(cJSON* body, const char* key) { return body->fields.at(key).c_str(); }
+using State = NetworkTransportSwitchStatus::State;
+struct Board {
+    bool active_cell = true, allowed = true, supported = true;
+    unsigned requests = 0;
+    NetworkTransportSwitchStatus job;
+    bool IsNetworkProbing() const { return false; }
+    bool UsesCellularNetwork() const { return active_cell; }
+    bool IsNetworkAvailable() const { return false; }
+    bool CanSwitchNetworkTransport() const { return supported; }
+    NetworkTransportSwitchStatus GetNetworkTransportSwitchStatus() const { return job; }
+    bool SelectNetworkTransport(bool target_cell) {
+        ++requests;
+        if (allowed) job = {State::kPending, target_cell, 7};
+        return allowed;
+    }
+};
+''' + serializer + r'''
+int Switch(httpd_req_t* req, Board& board, bool session, bool setup_busy = false) {
+    const std::string path = "/api/network/transport";
+    std::atomic<bool> setup_running_{setup_busy};
+''' + post + r'''
+    return 404;
+}
+int main() {
+    Board board;
+    httpd_req_t req;
+    req.transport = "wifi";
+    assert(Switch(&req, board, false) == 401 && board.requests == 0);
+    assert(Switch(&req, board, true, true) == 409 && board.requests == 0);
+    assert(Switch(&req, board, true) == 202 && board.requests == 1);
+    assert(req.output.fields.at("transport") == "cellular");
+    assert(req.output.fields.at("network_available") == "false");
+    const auto& job = req.output.objects.at("transport_switch").fields;
+    assert(job.at("id") == "7" && job.at("target") == "wifi" && job.at("state") == "pending");
+    board.job.state = State::kFailed;
+    cJSON status;
+    AddNetworkTransportStatus(&status, board);
+    assert(status.objects.at("transport_switch").fields.at("state") == "failed");
+    assert(status.objects.at("transport_switch").fields.count("message") == 1);
+    assert(status.fields.at("transport_switchable") == "true");
+    board.allowed = false;
+    assert(Switch(&req, board, true) == 409 && req.code == "TRANSPORT_BUSY");
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            cpp = Path(directory) / 'transport.cc'
+            binary = cpp.with_suffix('')
+            cpp.write_text(source)
+            result = subprocess.run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror',
+                                     str(cpp), '-o', str(binary)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            subprocess.run([str(binary)], check=True, timeout=5)
+
     def test_setup_job_and_completion_survive_hotspot_address_change(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')

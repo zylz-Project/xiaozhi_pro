@@ -56,6 +56,10 @@ Application::Application() {
 }
 
 Application::~Application() {
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+    if (cellular_audio_task_)
+        vTaskDelete(cellular_audio_task_);
+#endif
     if (clock_timer_handle_ != nullptr) {
         esp_timer_stop(clock_timer_handle_);
         esp_timer_delete(clock_timer_handle_);
@@ -82,8 +86,6 @@ void Application::Initialize() {
     // Setup the audio service
     auto codec = board.GetAudioCodec();
     audio_service_.Initialize(codec);
-    audio_service_.Start();
-    board.OnAudioServiceReady();
 
     AudioServiceCallbacks callbacks;
     callbacks.on_processed_audio = [this](const int16_t* pcm, size_t count, bool speech) {
@@ -120,6 +122,8 @@ void Application::Initialize() {
     };
 #endif
     audio_service_.SetCallbacks(callbacks);
+    audio_service_.Start();
+    board.OnAudioServiceReady();
 
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
@@ -294,72 +298,31 @@ void Application::Run() {
         }
 #endif
         if ((bits & MAIN_EVENT_SEND_AUDIO) && !barge_in_reconnecting_.load()) {
-            while (auto packet = audio_service_.PopPacketFromSendQueue()) {
-                // A pending stop must not leak uplink frames produced before
-                // the microphone engine actually stopped.
-                if (interaction_stopped_.load() || voice_enrollment_active_.load() ||
-                    external_voice_preview_status_.load() == 5) {
-                    continue;
-                }
-#if CONFIG_BOARD_TYPE_WZH_DINOSAUR && CONFIG_USE_VOICE_BARGE_IN
-                const size_t uplink_bytes = packet->payload.size();
-                const int64_t uplink_started_us = esp_timer_get_time();
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            if (Board::GetInstance().UsesCellularNetwork()) {
+                QueueCellularAudioSend();
+            } else
 #endif
-                const bool sent = protocol_ && protocol_->SendAudio(std::move(packet));
+            {
+                while (auto packet = audio_service_.PopPacketFromSendQueue()) {
+                    if (interaction_stopped_.load() || voice_enrollment_active_.load() ||
+                        external_voice_preview_status_.load() == 5) {
+                        continue;
+                    }
+                    const bool sent = protocol_ && protocol_->SendAudio(std::move(packet));
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
-                if (official_probe_active_.load() && !official_probe_sent_stop_) {
-                    if (sent)
-                        ++official_probe_packets_sent_;
-                    else
-                        ++official_probe_packets_failed_;
-                }
-#endif
-                if (protocol_ && !sent) {
-                    // Drop the remaining packets. Leaving them in the queue would
-                    // stall the Opus codec task (it waits for queue space), which in
-                    // turn deadlocks the whole audio input pipeline, as no new
-                    // MAIN_EVENT_SEND_AUDIO event would ever be triggered again.
-                    while (audio_service_.PopPacketFromSendQueue())
-                        ;
-#if CONFIG_USE_VOICE_BARGE_IN && CONFIG_BOARD_TYPE_WZH_DINOSAUR
-                    // A failed MIPSEND can leave the AT stream out of sync.
-                    // Do not feed more audio into that state.
-                    if (Board::GetInstance().UsesCellularNetwork() &&
-                        GetDeviceState() == kDeviceStateListening) {
-                        ESP_LOGW(TAG, "Cellular audio send failed: %u bytes, %lld ms",
-                                 static_cast<unsigned>(uplink_bytes),
-                                 static_cast<long long>((esp_timer_get_time() - uplink_started_us) /
-                                                        1000));
-                        const auto generation = interaction_generation_.load();
-                        if (cellular_recovery_generation_ != generation) {
-                            cellular_recovery_generation_ = generation;
-                            cellular_recovery_attempted_ = false;
-                        }
-                        const bool retry = !cellular_recovery_attempted_;
-                        cellular_recovery_attempted_ = true;
-                        ESP_LOGW(TAG, "Cellular audio send failed; %s channel",
-                                 retry ? "reopening" : "closing");
-                        if (!retry) {
-                            ESP_LOGW(TAG, "Requesting cellular registration and PDP recheck");
-                            Board::GetInstance().RequestNetworkRecheck();
-                        }
-                        barge_in_reconnecting_.store(true);
-                        if (!ReconnectAfterVoiceInterruption(generation, true, retry)) {
-                            barge_in_reconnecting_.store(false);
-                            audio_service_.EnableVoiceProcessing(false);
-                            SetDeviceState(kDeviceStateIdle);
-                            ESP_LOGE(TAG, "Unable to start cellular audio recovery task");
-                        }
+                    if (official_probe_active_.load() && !official_probe_sent_stop_) {
+                        if (sent)
+                            ++official_probe_packets_sent_;
+                        else
+                            ++official_probe_packets_failed_;
                     }
 #endif
-                    break;
-                }
-                if (Board::GetInstance().UsesCellularNetwork()) {
-                    // Each modem send waits for AT completion. Do not drain
-                    // a continuously refilled queue before processing TTS,
-                    // stop and connection events on the main task.
-                    xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
-                    break;
+                    if (protocol_ && !sent) {
+                        while (audio_service_.PopPacketFromSendQueue()) {
+                        }
+                        break;
+                    }
                 }
             }
 #if CONFIG_USE_VOICE_BARGE_IN
@@ -387,6 +350,10 @@ void Application::Run() {
             }
         }
 
+        if (bits & (MAIN_EVENT_SCHEDULE | MAIN_EVENT_CLOCK_TICK)) {
+            ServiceWakeWordRearm();
+        }
+
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
             ServiceConversationNetworkRecovery();
@@ -394,6 +361,7 @@ void Application::Run() {
             SendPendingTouchConversationInput();
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
             if (cellular_server_connected_.load() && !cellular_prewarming_.load() &&
+                !cellular_audio_in_flight_ &&
                 (!Board::GetInstance().UsesCellularNetwork() ||
                  !Board::GetInstance().IsNetworkAvailable() || !protocol_ ||
                  !protocol_->IsAudioChannelOpened()))
@@ -459,6 +427,11 @@ void Application::HandleNetworkConnectedEvent() {
         }
     } else if (protocol_) {
         protocol_->OnNetworkReady();
+        if (IsConversationRecovering()) {
+            // WebSocket can reopen as soon as the board link is ready. MQTT
+            // will also wake this path when its control connection is ready.
+            Schedule([this]() { ServiceConversationNetworkRecovery(); });
+        }
     }
 
     // Update the status bar immediately to show the network state
@@ -538,10 +511,15 @@ bool Application::IsConversationRecovering() const {
 
 void Application::PrepareConversationNetworkSwitch() {
     Schedule([this] {
-        if (GetDeviceState() == kDeviceStateIdle && !IsConversationRecovering())
-            StopInteraction();
-        else
-            SuspendConversationForNetworkLoss(45000000);
+        constexpr int64_t kSwitchRecoveryUs = 45000000;
+        if (GetDeviceState() == kDeviceStateIdle) {
+            if (IsConversationRecovering())
+                network_resume_deadline_us_.store(esp_timer_get_time() + kSwitchRecoveryUs);
+            else
+                StopInteraction();
+        } else {
+            SuspendConversationForNetworkLoss(kSwitchRecoveryUs);
+        }
     });
 }
 
@@ -866,8 +844,10 @@ bool Application::InitializeProtocol() {
 
     protocol_->OnConnected([this, protocol_generation]() {
         Schedule([this, protocol_generation]() {
-            if (protocol_generation == protocol_generation_.load())
-                DismissAlert();
+            if (protocol_generation != protocol_generation_.load())
+                return;
+            DismissAlert();
+            ServiceConversationNetworkRecovery();
         });
     });
 
@@ -916,8 +896,8 @@ bool Application::InitializeProtocol() {
             return;
         }
 #endif
-        const uint32_t generation = audio_service_.GetPlaybackGeneration();
         std::lock_guard<std::mutex> lock(early_audio_mutex_);
+        const uint32_t generation = audio_service_.GetPlaybackGeneration();
         if (protocol_generation != protocol_generation_.load() ||
             interaction != interaction_generation_.load() || interaction_stopped_.load() ||
             external_tts_selected_.load() || voice_enrollment_active_.load() ||
@@ -949,7 +929,8 @@ bool Application::InitializeProtocol() {
             // the only one before the user starts talking.
             if (board.UsesCellularNetwork()) {
                 audio_service_.SetDownlinkJitter(AudioService::kCellularPlayoutTargetMs,
-                                                 AudioService::kCellularPlayoutMaxWaitMs);
+                                                 AudioService::kCellularPlayoutMaxWaitMs,
+                                                 AudioService::kCellularPlayoutRecoveryMs);
             } else {
                 audio_service_.SetDownlinkJitter(AudioService::kLocalPlayoutTargetMs,
                                                  AudioService::kLocalPlayoutMaxWaitMs);
@@ -1345,11 +1326,13 @@ bool Application::InitializeProtocol() {
                 auto* enrollment = Board::GetInstance().GetVoiceEnrollment();
                 const auto current_state = GetDeviceState();
                 const bool clone_request = IsVoiceEnrollmentRequest(recognized);
-                const bool selection_request = IsVoiceSelectionRequest(recognized);
                 const bool selection_pending = enrollment && enrollment->SelectionPending();
+                const bool native_selection = IsNativeVoiceSelection(recognized, selection_pending);
+                const bool selection_request =
+                    native_selection || IsVoiceSelectionRequest(recognized);
                 const bool voice_operation_configured =
                     !enrollment || !(clone_request || selection_request || selection_pending) ||
-                    enrollment->IsConfigured();
+                    native_selection || enrollment->IsConfigured();
                 if (!voice_operation_configured) {
                     ESP_LOGW(TAG, "Voice operation requested but Ali API key is not configured");
                 }
@@ -1362,8 +1345,8 @@ bool Application::InitializeProtocol() {
                     voice_selection_reply_guard_.store(true);
                     voice_enrollment_resume_guard_until_us_ = 0;
                     const auto token = interaction_generation_.fetch_add(1) + 1;
-                    Schedule([this, enrollment, token, clone_request, selection_pending, recognized,
-                              voice_operation_configured]() {
+                    Schedule([this, enrollment, token, clone_request, selection_pending,
+                              native_selection, recognized, voice_operation_configured]() {
                         if (!voice_enrollment_active_.load() || interaction_stopped_.load() ||
                             token != interaction_generation_.load())
                             return;
@@ -1413,10 +1396,11 @@ bool Application::InitializeProtocol() {
                             });
                         };
                         const bool started =
-                            clone_request
-                                ? enrollment->Start(capture, completion)
-                                : enrollment->StartSelection(
-                                      selection_pending ? recognized : "切换音色", completion);
+                            clone_request ? enrollment->Start(capture, completion)
+                                          : enrollment->StartSelection(
+                                                selection_pending || native_selection ? recognized
+                                                                                      : "切换音色",
+                                                completion);
                         if (!started) {
                             ESP_LOGW(TAG,
                                      "Voice operation unavailable: check Ali settings or memory");
@@ -1873,8 +1857,12 @@ void Application::HandleStopListeningEvent() {
 void Application::HandleWakeWordDetectedEvent() {
     if (voice_enrollment_active_.load())
         return;
-    if (Board::GetInstance().IsAudioMaintenanceActive())
+    if (Board::GetInstance().IsAudioMaintenanceActive()) {
+        // Detection disarms the audio engine. Maintenance can finish while
+        // the application remains idle and never dispatches another state event.
+        wake_word_rearm_pending_ = true;
         return;
+    }
     auto state = GetDeviceState();
     auto wake_word = audio_service_.GetLastWakeWord();
 #if CONFIG_USE_VOICE_BARGE_IN
@@ -1978,6 +1966,45 @@ void Application::HandleWakeWordDetectedEvent() {
     }
 }
 
+void Application::ServiceWakeWordRearm() {
+    if (!wake_word_rearm_pending_)
+        return;
+    if (IsShuttingDown() || audio_service_.IsWakeWordRunning()) {
+        wake_word_rearm_pending_ = false;
+        return;
+    }
+    auto& board = Board::GetInstance();
+    const auto state = GetDeviceState();
+    if (board.IsAudioMaintenanceActive() || voice_enrollment_active_.load() ||
+        external_voice_preview_status_.load() == 5 ||
+        (interaction_stopped_.load() &&
+         (state == kDeviceStateListening || state == kDeviceStateSpeaking))) {
+        return;
+    }
+
+    wake_word_rearm_pending_ = false;
+    switch (state) {
+        case kDeviceStateIdle:
+            audio_service_.EnableWakeWordDetection(true);
+            break;
+        case kDeviceStateListening:
+            ConfigureWakeWordForListening();
+            break;
+        case kDeviceStateSpeaking:
+            audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
+            break;
+        case kDeviceStateStarting:
+        case kDeviceStateWifiConfiguring:
+        case kDeviceStateActivating:
+            if (board.SupportsLocalInteraction() && local_assets_applied_.load()) {
+                audio_service_.EnableWakeWordDetection(true);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 void Application::BeginWakeWordInvoke(const std::string& wake_word) {
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
     if (cellular_prewarming_.load()) {
@@ -2076,6 +2103,7 @@ void Application::HandleStateChangedEvent() {
         return;
     DeviceState new_state = state_machine_.GetState();
     clock_ticks_ = 0;
+    wake_word_rearm_pending_ = false;
     // Any state change invalidates a pending deferred listening start;
     // the Listening case below re-arms it when needed.
     pending_listening_start_ = false;
@@ -2204,8 +2232,8 @@ void Application::HandleStateChangedEvent() {
 void Application::StartListeningAudio() {
     // Runs in the main loop, either directly from HandleStateChangedEvent or
     // deferred via MAIN_EVENT_PLAYBACK_DRAINED once the playback queue drains.
-    if (GetDeviceState() != kDeviceStateListening || interaction_stopped_.load() ||
-        barge_in_reconnecting_.load()) {
+    if (!protocol_ || GetDeviceState() != kDeviceStateListening || interaction_stopped_.load() ||
+        voice_enrollment_active_.load() || barge_in_reconnecting_.load()) {
         return;
     }
 
@@ -2459,7 +2487,8 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
 #endif
     const auto state = GetDeviceState();
     const bool conversation = state == kDeviceStateListening || state == kDeviceStateSpeaking;
-    if (name.empty() || name.size() > 48 || (state != kDeviceStateIdle && !conversation) ||
+    if (name.empty() || name.size() > 48 || IsShuttingDown() ||
+        (state != kDeviceStateIdle && !conversation) ||
         (conversation && interaction_stopped_.load()) || voice_enrollment_reconnecting_.load() ||
         barge_in_reconnecting_.load() || external_voice_preview_active_.load() ||
         Board::GetInstance().IsAudioMaintenanceActive() ||
@@ -2475,7 +2504,7 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
         const auto current = GetDeviceState();
         const bool still_conversation =
             current == kDeviceStateListening || current == kDeviceStateSpeaking;
-        if (!enrollment ||
+        if (!enrollment || IsShuttingDown() ||
             (conversation ? (!still_conversation || interaction_stopped_.load())
                           : current != kDeviceStateIdle) ||
             Board::GetInstance().IsAudioMaintenanceActive()) {
@@ -2964,10 +2993,44 @@ void Application::ResetProtocol(std::function<void()> after_reset) {
             audio_service_.EnableVoiceProcessing(false);
             SetDeviceState(kDeviceStateIdle);
         }
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+        if (after_reset && protocol_) {
+            struct TransportReset {
+                Application* app;
+                std::shared_ptr<Protocol> protocol;
+                std::function<void()> completion;
+            };
+            auto* reset = new (std::nothrow)
+                TransportReset{this, std::move(protocol_), std::move(after_reset)};
+            if (reset &&
+                xTaskCreate(
+                    [](void* arg) {
+                        auto* request = static_cast<TransportReset*>(arg);
+                        request->protocol->CloseTransport();
+                        request->app->Schedule([protocol = std::move(request->protocol),
+                                                done = std::move(request->completion)]() mutable {
+                            protocol.reset();
+                            done();
+                        });
+                        delete request;
+                        vTaskDelete(nullptr);
+                    },
+                    "transport_reset", 5120, reset, 3, nullptr) == pdPASS) {
+                conversation_configured_.store(false);
+                return;
+            }
+            if (reset) {
+                protocol_ = std::move(reset->protocol);
+                after_reset = std::move(reset->completion);
+                delete reset;
+            }
+            ESP_LOGW(TAG, "Cannot start transport cleanup task; closing channel in place");
+        }
+#endif
         // Close audio channel if opened
         if (protocol_ && !voice_enrollment_reconnecting_.load() && !barge_in_reconnecting_.load() &&
             protocol_->IsAudioChannelOpened()) {
-            protocol_->CloseAudioChannel();
+            protocol_->CloseAudioChannel(!after_reset);
         }
         // Reset protocol
         protocol_.reset();
@@ -2978,6 +3041,101 @@ void Application::ResetProtocol(std::function<void()> after_reset) {
 }
 
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+void Application::QueueCellularAudioSend() {
+    if (cellular_audio_in_flight_)
+        return;
+    if (!protocol_ || interaction_stopped_.load() || voice_enrollment_active_.load() ||
+        external_voice_preview_status_.load() == 5) {
+        while (audio_service_.PopPacketFromSendQueue()) {
+        }
+        return;
+    }
+    auto packet = audio_service_.PopPacketFromSendQueue();
+    if (!packet)
+        return;
+    if (!cellular_audio_task_ &&
+        xTaskCreate([](void* arg) { static_cast<Application*>(arg)->RunCellularAudioSend(); },
+                    "cellular_audio", 4096, this, 4, &cellular_audio_task_) != pdPASS) {
+        ESP_LOGW(TAG, "Cannot start cellular audio sender");
+        HandleCellularAudioSendFailure();
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(cellular_audio_mutex_);
+        cellular_audio_send_ = {protocol_, std::move(packet), protocol_generation_.load(),
+                                interaction_generation_.load()};
+    }
+    cellular_audio_in_flight_ = true;
+    xTaskNotifyGive(cellular_audio_task_);
+}
+
+void Application::RunCellularAudioSend() {
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        CellularAudioSend request;
+        {
+            std::lock_guard<std::mutex> lock(cellular_audio_mutex_);
+            request = std::move(cellular_audio_send_);
+        }
+        auto& board = Board::GetInstance();
+        const auto protocol_generation = request.protocol_generation;
+        const auto interaction_generation = request.interaction_generation;
+        const bool current = protocol_generation == protocol_generation_.load() &&
+                             interaction_generation == interaction_generation_.load() &&
+                             !interaction_stopped_.load() && board.UsesCellularNetwork();
+        const bool sent = current && board.IsNetworkAvailable() &&
+                          request.protocol->SendAudio(std::move(request.packet));
+        request.protocol.reset();
+        Schedule([this, protocol_generation, interaction_generation, sent]() {
+            cellular_audio_in_flight_ = false;
+            if (protocol_generation == protocol_generation_.load() &&
+                interaction_generation == interaction_generation_.load() &&
+                !interaction_stopped_.load() && Board::GetInstance().UsesCellularNetwork()) {
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+                if (official_probe_active_.load() && !official_probe_sent_stop_) {
+                    if (sent)
+                        ++official_probe_packets_sent_;
+                    else
+                        ++official_probe_packets_failed_;
+                }
+#endif
+                if (!sent) {
+                    HandleCellularAudioSendFailure();
+                    return;
+                }
+            }
+            // Capture may have queued more packets while the modem was busy.
+            xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
+        });
+    }
+}
+
+void Application::HandleCellularAudioSendFailure() {
+    while (audio_service_.PopPacketFromSendQueue()) {
+    }
+#if CONFIG_USE_VOICE_BARGE_IN
+    if (GetDeviceState() != kDeviceStateListening || !Board::GetInstance().IsNetworkAvailable())
+        return;
+    const auto generation = interaction_generation_.load();
+    if (cellular_recovery_generation_ != generation) {
+        cellular_recovery_generation_ = generation;
+        cellular_recovery_attempted_ = false;
+    }
+    const bool retry = !cellular_recovery_attempted_;
+    cellular_recovery_attempted_ = true;
+    ESP_LOGW(TAG, "Cellular audio send failed; %s channel", retry ? "reopening" : "closing");
+    if (!retry)
+        Board::GetInstance().RequestNetworkRecheck();
+    barge_in_reconnecting_.store(true);
+    if (!ReconnectAfterVoiceInterruption(generation, true, retry)) {
+        barge_in_reconnecting_.store(false);
+        audio_service_.EnableVoiceProcessing(false);
+        SetDeviceState(kDeviceStateIdle);
+        ESP_LOGE(TAG, "Unable to start cellular audio recovery task");
+    }
+#endif
+}
+
 void Application::QueueCellularInteraction(EventBits_t event) {
     const auto interaction = interaction_generation_.load();
     const auto protocol = protocol_generation_.load();
@@ -3072,6 +3230,8 @@ void Application::MaybePrewarmCellularAudio() {
                 else
                     app->cellular_prewarm_pending_events_ = 0;
             });
+            request.reset();
+            protocol.reset();
             vTaskDelete(nullptr);
         },
         "cell_prewarm", 8192, request, 3, nullptr);

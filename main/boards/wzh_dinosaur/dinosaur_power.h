@@ -30,9 +30,8 @@ public:
     bool Initialize();
     bool IsShuttingDown() const { return shutting_down_.load(); }
     void RegisterServoOutput(wzh::ServoOutput* output) { servo_output_.store(output); }
-    // 无人互动计时到期后由空闲倒计时任务投递；只置位，真正的 Shutdown()
-    // 仍在电源任务里执行，保证关机顺序不变。
-    void RequestAutoShutdown() { auto_shutdown_requested_.store(true); }
+    // Requests from other tasks are handled by the power task.
+    void RequestShutdown() { shutdown_requested_.store(true); }
     // 关机序列中、断电前调用：让板级把舵机放回安全姿态。
     void RegisterShutdownHook(ShutdownHook hook);
     // Invoked once from the power task; the hook must only enqueue motion.
@@ -52,7 +51,7 @@ public:
 
 private:
     std::atomic<bool> shutting_down_{false};
-    std::atomic<bool> auto_shutdown_requested_{false};
+    std::atomic<bool> shutdown_requested_{false};
     std::atomic<wzh::ServoOutput*> servo_output_{nullptr};
     wzh::StableBatteryProtection battery_protection_;
     temperature_sensor_handle_t temperature_ = nullptr;

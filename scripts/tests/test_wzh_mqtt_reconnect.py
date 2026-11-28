@@ -275,11 +275,16 @@ int main(){Protocol p;auto& app=Application::GetInstance();int closes=0;
 ''')
 
     def test_stale_connected_event_does_not_start_activation(self):
-        method = queue_function((ROOT / 'main/application.cc').read_text(),
-                                'void Application::HandleNetworkConnectedEvent(')
+        source = (ROOT / 'main/application.cc').read_text()
+        method = queue_function(source, 'void Application::HandleNetworkConnectedEvent(')
+        connected_callback = queue_function(source, 'protocol_->OnConnected(') + ');'
         output.WzhMotionOutputTest.run_cpp(self, r'''
+#include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <utility>
 #define CONFIG_BOARD_TYPE_WZH_DINOSAUR 1
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
@@ -294,11 +299,23 @@ void vTaskDelete(void*){}
 struct Display{int updates=0;void UpdateStatusBar(bool){++updates;}};
 struct Board{bool online=false;Display display;static Board& GetInstance(){static Board b;return b;}
  bool IsNetworkAvailable(){return online;}Display* GetDisplay(){return &display;}};
-struct Protocol{int ready=0;void OnNetworkReady(){++ready;}};
+struct Protocol{int ready=0;std::function<void()> connected;
+ void OnNetworkReady(){++ready;}
+ void OnConnected(std::function<void()> fn){connected=std::move(fn);}};
 struct Application{int state=kDeviceStateIdle;Protocol* protocol_=nullptr;bool activation_running_=false;
  void* event_group_=nullptr;bool activation_network_ready_pending_=false;
+ std::atomic<uint32_t> protocol_generation_{1};std::function<void()> scheduled;
+ bool recovering=false;int attempts=0,dismissals=0;
  bool shutting_down=false;bool IsShuttingDown()const{return shutting_down;}
+ bool IsConversationRecovering()const{return recovering;}
+ void ServiceConversationNetworkRecovery(){if(recovering)++attempts;}
+ void DismissAlert(){++dismissals;}
+ void Schedule(std::function<void()> work){assert(!scheduled);scheduled=std::move(work);}
+ void Run(){auto work=std::exchange(scheduled, {});assert(work);work();}
  int GetDeviceState(){return state;}void SetDeviceState(int s){state=s;}void ActivationTask(){}
+ void BindConnected(uint32_t protocol_generation){
+''' + connected_callback + r'''
+ }
  void HandleNetworkConnectedEvent();};
 ''' + method + r'''
 int main(){Application app;auto& board=Board::GetInstance();
@@ -310,6 +327,15 @@ int main(){Application app;auto& board=Board::GetInstance();
  Protocol p;app.protocol_=&p;app.HandleNetworkConnectedEvent();
  assert(p.ready==0&&app.activation_network_ready_pending_);
  app.state=kDeviceStateIdle;app.HandleNetworkConnectedEvent();assert(p.ready==1&&tasks==1);
+ assert(!app.scheduled);
+ app.recovering=true;app.HandleNetworkConnectedEvent();
+ assert(p.ready==2&&app.scheduled&&app.attempts==0);
+ app.Run();assert(app.attempts==1);
+ app.BindConnected(1);p.connected();
+ assert(app.scheduled&&app.attempts==1);
+ app.Run();assert(app.attempts==2&&app.dismissals==1);
+ p.connected();++app.protocol_generation_;
+ app.Run();assert(app.attempts==2&&app.dismissals==1);
  app.protocol_=nullptr;app.activation_running_=false;allocation_ok=false;app.HandleNetworkConnectedEvent();
  assert(tasks==2&&app.state==kDeviceStateIdle&&!app.activation_running_);
 }
@@ -607,15 +633,24 @@ int main(){auto p=std::make_shared<MqttProtocol>();auto& b=Board::GetInstance();
 #include <memory>
 #include <utility>
 #define CONFIG_BOARD_TYPE_WZH_DINOSAUR 1
+#define ESP_LOGW(...) ((void)0)
+constexpr int pdPASS=1;
 constexpr int kDeviceStateIdle=0;
-int destroyed=0;
+int destroyed=0,closed=0;
+std::function<void()> cleanup;
+int xTaskCreate(void (*run)(void*),const char*,int,void* arg,int,void*){
+ assert(!cleanup);cleanup=[run,arg]{run(arg);};return pdPASS;
+}
+void vTaskDelete(void*){}
 struct Protocol{
  bool running=true;std::function<void()> completion;
  ~Protocol(){++destroyed;}
  bool DeferUntilReconnectFinishes(std::function<void()> next){
   if(!running)return false;
   completion=std::move(next);return true;}
- bool IsAudioChannelOpened(){return false;}void CloseAudioChannel(){}
+ bool IsAudioChannelOpened(){return false;}
+ void CloseAudioChannel(bool goodbye=true){assert(!goodbye);++closed;}
+ void CloseTransport(){CloseAudioChannel(false);}
 };
 struct Enrollment{void Cancel(){}};
 struct Board{
@@ -643,9 +678,96 @@ int main(){
  app.Run();assert(app.protocol_&&!switched&&app.pending.empty()&&worker->completion);
  worker->running=false;auto finished=std::move(worker->completion);finished();worker.reset();
  assert(app.protocol_&&!switched&&destroyed==0);
- app.Run();assert(!app.protocol_&&!switched&&destroyed==1);
+ app.Run();assert(!app.protocol_&&!switched&&destroyed==0&&cleanup&&app.pending.empty());
+ auto teardown=std::exchange(cleanup,{});teardown();
+ assert(!switched&&destroyed==0&&closed==1);
  app.Run();assert(switched&&!app.cellular_server_connected_&&!app.conversation_configured_&&app.protocol_generation_==1);
+ assert(destroyed==1);
  assert(app.interaction_generation_==5&&app.network_resume_generation_==5);
+}
+''')
+
+    def test_cellular_audio_send_keeps_one_packet_in_flight_and_drops_old_generation(self):
+        source = (ROOT / 'main/application.cc').read_text()
+        methods = '\n'.join(queue_function(source, name) for name in (
+            'void Application::QueueCellularAudioSend(', 'void Application::RunCellularAudioSend('))
+        output.WzhMotionOutputTest.run_cpp(self, r'''
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <utility>
+#define ESP_LOGW(...) ((void)0)
+constexpr int pdPASS=1,pdTRUE=1,portMAX_DELAY=1,MAIN_EVENT_SEND_AUDIO=1;
+using TaskHandle_t=void*;
+std::function<void()> worker;
+bool notification=false;
+int send_events=0;
+struct WaitForMoreWork{};
+int xTaskCreate(void (*run)(void*),const char*,int,void* arg,int,TaskHandle_t* task){
+ worker=[run,arg]{run(arg);};*task=arg;return pdPASS;
+}
+void xTaskNotifyGive(TaskHandle_t){notification=true;}
+void ulTaskNotifyTake(int,int){if(!std::exchange(notification,false))throw WaitForMoreWork{};}
+void xEventGroupSetBits(int,int){++send_events;}
+struct Board{
+ bool cellular=true,online=true;
+ static Board& GetInstance(){static Board b;return b;}
+ bool UsesCellularNetwork(){return cellular;}
+ bool IsNetworkAvailable(){return online;}
+};
+struct AudioStreamPacket{};
+struct Protocol{
+ int sends=0;bool send_ok=true;
+ bool SendAudio(std::unique_ptr<AudioStreamPacket> packet){assert(packet);++sends;return send_ok;}
+};
+struct Audio{
+ int queued=0;
+ std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue(){
+  if(!queued)return {};
+  --queued;return std::make_unique<AudioStreamPacket>();
+ }
+};
+struct Application{
+ struct CellularAudioSend {
+  std::shared_ptr<Protocol> protocol;
+  std::unique_ptr<AudioStreamPacket> packet;
+  uint32_t protocol_generation,interaction_generation;
+ };
+ std::shared_ptr<Protocol> protocol_=std::make_shared<Protocol>();
+ std::atomic<uint32_t> protocol_generation_{1},interaction_generation_{1};
+ std::atomic<bool> interaction_stopped_{false},voice_enrollment_active_{false};
+ std::atomic<int> external_voice_preview_status_{0};
+ Audio audio_service_;
+ int event_group_=0,failures=0;
+ bool cellular_audio_in_flight_=false;
+ TaskHandle_t cellular_audio_task_=nullptr;
+ std::mutex cellular_audio_mutex_;
+ CellularAudioSend cellular_audio_send_{};
+ std::function<void()> completion;
+ void QueueCellularAudioSend();
+ void RunCellularAudioSend();
+ void HandleCellularAudioSendFailure(){++failures;}
+ void Schedule(std::function<void()> callback){assert(!completion);completion=std::move(callback);}
+};
+''' + methods + r'''
+int main(){
+ Application app;
+ auto work=[] {try{worker();}catch(const WaitForMoreWork&){};};
+ auto finish=[&] {auto run=std::exchange(app.completion,{});assert(run);run();};
+ app.audio_service_.queued=2;
+ app.QueueCellularAudioSend();app.QueueCellularAudioSend();
+ assert(notification&&app.audio_service_.queued==1&&app.protocol_->sends==0);
+ work();assert(app.protocol_->sends==1&&app.cellular_audio_in_flight_);finish();
+ assert(send_events==1&&!app.cellular_audio_in_flight_);
+ app.QueueCellularAudioSend();++app.protocol_generation_;
+ work();finish();assert(app.protocol_->sends==1&&app.failures==0&&send_events==2);
+ app.protocol_->send_ok=false;app.audio_service_.queued=1;
+ app.QueueCellularAudioSend();work();finish();
+ assert(app.protocol_->sends==2&&app.failures==1);
 }
 ''')
 

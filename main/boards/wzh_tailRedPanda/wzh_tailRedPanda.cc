@@ -158,7 +158,7 @@ public:
         WifiManager::GetInstance().SetBeforeConfigApHook([this]() { web_console_.Stop(); });
         InitializeConversationMode();
         InitializeButton();
-        wzh::StartIdlePower([this]() { power_.RequestAutoShutdown(); });
+        wzh::StartIdlePower([this]() { power_.RequestShutdown(); });
     }
 
     AudioCodec* GetAudioCodec() override {
@@ -261,6 +261,10 @@ public:
         }
         if (controller_.IsConversationActive()) {
             ESP_LOGD(TAG, "Cloud conversation owns joint commands via MCP");
+            return true;
+        }
+        if (name == "shutdown") {
+            power_.RequestShutdown();
             return true;
         }
         // Deliver the spoken command even while the cloud conversation owns

@@ -84,25 +84,19 @@ int main(){
 '''.replace('__NAME__', name).replace('__MECH__', mechanism)
                 self.run_cpp(code)
 
-    def test_network_and_prompt_readiness(self):
+    def test_power_on_prompt_readiness_does_not_require_prompt_worker(self):
         source=(ROOT/'main/boards/common/wzh/wzh_system_prompts.cc').read_text()
         method=queue_function(source,'bool StartupGreetingAudioReady(')
         self.run_cpp(r'''
 #include <atomic>
 #include <cassert>
-#define CONFIG_WZH_SYSTEM_PROMPTS 1
 namespace wzh {
-std::atomic<bool> worker_started{false}, startup_network_ready{false}, shutting_down{false}, power_on_prompt_queued{false};
-std::atomic<bool> wifi_setup_requested{false}, wifi_setup_producing{false};
+std::atomic<bool> shutting_down{false}, power_on_prompt_queued{false};
 ''' + method + r'''
 }
 int main(){using namespace wzh;
  assert(!StartupGreetingAudioReady());
- worker_started=true;assert(!StartupGreetingAudioReady());
  power_on_prompt_queued=true;assert(StartupGreetingAudioReady());
- startup_network_ready=true;wifi_setup_requested=true;assert(StartupGreetingAudioReady());
- wifi_setup_producing=true;wifi_setup_requested=false;assert(StartupGreetingAudioReady());
- wifi_setup_producing=false;assert(StartupGreetingAudioReady());
  shutting_down=true;assert(!StartupGreetingAudioReady());
 }
 ''')

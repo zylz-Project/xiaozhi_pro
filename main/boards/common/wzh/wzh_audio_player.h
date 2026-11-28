@@ -108,8 +108,9 @@ protected:
     std::atomic<float> tts_level_{0.0f};
     std::atomic<float> tts_attack_{0.0f};
     InteractionSoundSelector interaction_sounds_;
-    SoundCoverage sound_coverage_;
-    SoundCoverage paired_coverage_;
+    // Physical Flash files can change during a round; paired clips are fixed.
+    SoundCoverage<128, AudioStore::kMaxFiles> sound_coverage_;
+    SoundCoverage<kMaxUserPairs> paired_coverage_;
     uint32_t autonomous_turn_ = 0;
     std::mutex reaction_mutex_;
 

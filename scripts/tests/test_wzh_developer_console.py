@@ -64,24 +64,41 @@ int main(){
         source=(COMMON/'wzh_audio_store.cc').read_text()
         guard=queue_function(source,'struct WritingGuard')+';'
         method=queue_function(source,'bool AudioStore::EraseAll(')
+        args=queue_function(source,'struct AsyncEraseArgs')+';'
+        async_erase=queue_function(source,'bool AudioStore::EraseAllAsync(')
         self.run_cpp(r'''
 #include <atomic>
 #include <cassert>
+#include <functional>
+#include <memory>
 #include <mutex>
+#include <new>
 #include <string>
 #include <vector>
+#define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 constexpr int ESP_OK=0;
 int raw_erases=0;bool succeed=true;
 int wzh_flash_erase_all(){++raw_erases;return succeed?ESP_OK:-1;}
+constexpr int pdPASS=1;
+bool task_created=true;
+void (*worker)(void*)=nullptr;
+void* worker_arg=nullptr;
+std::function<void()> before_self_delete;
+int xTaskCreate(void(*fn)(void*),const char*,int,void* arg,int,void*) {
+    if (!task_created) return 0;
+    worker=fn;worker_arg=arg;return pdPASS;
+}
+void vTaskDelete(void*) { before_self_delete(); }
 struct AudioStore{
     enum class Layout{kEmpty,kV3};
     uint64_t capacity_=0;uint32_t erase_size_=4096,toc_seq_=42;int current_slot_=3;
     std::atomic<bool>writing_{false};std::mutex mutex_;
     std::vector<int>files_{1,2};Layout layout_=Layout::kV3;
     bool EraseAll(std::string*);
+    bool EraseAllAsync(std::function<void(bool)>);
 };
-'''+guard+method+r'''
+'''+guard+args+method+async_erase+r'''
 int main(){
     AudioStore store;std::string error;
     assert(!store.EraseAll(&error)&&raw_erases==0&&store.files_.size()==2);
@@ -91,6 +108,16 @@ int main(){
     assert(!store.EraseAll(&error)&&raw_erases==1&&store.files_.empty());
     assert(!store.writing_&&store.layout_==AudioStore::Layout::kEmpty&&store.current_slot_==-1);
     succeed=true;assert(store.EraseAll(&error)&&raw_erases==2&&!store.writing_);
+    auto owner=std::make_shared<int>(0);
+    task_created=false;
+    assert(!store.EraseAllAsync([owner](bool){assert(false);}));
+    assert(owner.use_count()==1 && !worker && raw_erases==2);
+    task_created=true;
+    assert(store.EraseAllAsync([owner](bool ok){assert(ok);++*owner;}));
+    assert(owner.use_count()==2);
+    before_self_delete=[&]{assert(owner.use_count()==1);};
+    worker(worker_arg);
+    assert(*owner==1 && raw_erases==3);
 }
 ''')
 

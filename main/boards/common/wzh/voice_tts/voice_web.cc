@@ -60,38 +60,42 @@ uint32_t VoiceWeb::Command(const std::string& action, const std::string& id,
         busy_.store(false);
         return 0;
     }
-    active_request_ = 0;
-    if (action == "list")
+    if (action == "list") {
+        active_request_ = 0;
         return 1;  // Internal refresh, with no result for a user action.
+    }
+    return TrackRequestLocked();
+}
+
+uint32_t VoiceWeb::TrackRequestLocked() {
     if (++next_request_ == 0)
         ++next_request_;
     active_request_ = next_request_;
     results_[(active_request_ - 1) % results_.size()] = {active_request_, "busy"};
     return active_request_;
 }
-bool VoiceWeb::Upload(uint8_t* data, size_t length) {
+
+uint32_t VoiceWeb::Upload(uint8_t* data, size_t length) {
     if (!data || length < 2 || VoiceResetActive() ||
         Board::GetInstance().IsAudioMaintenanceActive() ||
         Application::GetInstance().IsVoiceEnrollmentActive() ||
         Application::GetInstance().IsExternalVoicePreviewActive())
-        return false;
+        return 0;
     const size_t name_length = data[0];
     const size_t offset = 1 + name_length;
     if (!name_length || name_length > 48 || offset >= length || (length - offset) % 2 ||
         length - offset < 5 * 16000 * 2 || length - offset > 20 * 16000 * 2)
-        return false;
+        return 0;
     std::string name(reinterpret_cast<char*>(data + 1), name_length);
     if (!IsValidVoiceName(name))
-        return false;
+        return 0;
     bool expected = false;
     if (!busy_.compare_exchange_strong(expected, true))
-        return false;
+        return 0;
     std::lock_guard<std::mutex> lock(mutex_);
     cancelled_.store(false);
     const size_t pcm_size = length - offset;
-    std::memmove(data, data + offset, pcm_size);
     action_ = "create";
-    active_request_ = 0;
     name_ = std::move(name);
     id_.clear();
     data_ = data;
@@ -102,9 +106,11 @@ bool VoiceWeb::Upload(uint8_t* data, size_t length) {
         sample_count_ = 0;
         status_ = "memory";
         busy_.store(false);
-        return false;
+        return 0;
     }
-    return true;
+    // Run() acquires the same lock before reading the buffer and request ID.
+    std::memmove(data, data + offset, pcm_size);
+    return TrackRequestLocked();
 }
 bool VoiceWeb::Cancel() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -154,12 +160,18 @@ void VoiceWeb::Run() {
     }
     free(data);
     std::vector<ManagedVoice> list;
-    auto listed = ListManagedVoices(list);
-    if (action == "list")
-        result = listed;
+    bool list_loaded = false;
+    // Selecting a voice does not change catalog membership or labels. The
+    // requested selection already validates cloud IDs when necessary.
+    if (action != "select") {
+        const auto listed = ListManagedVoices(list);
+        list_loaded = listed == VoiceOperation::kOk || listed == VoiceOperation::kUncertain;
+        if (action == "list")
+            result = listed;
+    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (listed == VoiceOperation::kOk || listed == VoiceOperation::kUncertain) {
+        if (list_loaded) {
             voices_ = std::move(list);
             have_list_ = true;
         } else if (result == VoiceOperation::kOk && action == "rename") {
@@ -177,7 +189,7 @@ void VoiceWeb::Run() {
         busy_.store(false);
     }
 }
-void VoiceWeb::AddStatus(cJSON* out) {
+void VoiceWeb::AddStatus(cJSON* out, bool include_catalog) {
     std::lock_guard<std::mutex> lock(mutex_);
     cJSON_AddBoolToObject(out, "voice_management_busy", busy_.load());
     cJSON_AddBoolToObject(out, "voice_management_cancellable",
@@ -199,6 +211,8 @@ void VoiceWeb::AddStatus(cJSON* out) {
             }
         }
     }
+    if (!include_catalog)
+        return;
     cJSON* array = cJSON_AddArrayToObject(out, "voice_catalog");
     if (!array)
         return;

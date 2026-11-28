@@ -255,7 +255,7 @@ NetworkResult<> DinosaurMl307Mqtt::Connect(const std::string broker_address, int
 
     auto bits = xEventGroupWaitBits(event_group_handle_, kConnectedBit | kDisconnectedBit, pdTRUE,
                                     pdFALSE, pdMS_TO_TICKS(kConnectWaitMs));
-    if (bits & kConnectedBit) {
+    if ((bits & kConnectedBit) && connected_.load()) {
         ESP_LOGI(kTag, "MQTT connected");
         return {};
     }
@@ -279,7 +279,7 @@ NetworkResult<> DinosaurMl307Mqtt::Connect(const std::string broker_address, int
         }
         bits = xEventGroupWaitBits(event_group_handle_, kConnectedBit | kDisconnectedBit,
                                    pdTRUE, pdFALSE, 0);
-        if (bits & kConnectedBit) {
+        if ((bits & kConnectedBit) && connected_.load()) {
             ESP_LOGI(kTag, "MQTT connected after delayed URC");
             return {};
         }
@@ -292,8 +292,7 @@ NetworkResult<> DinosaurMl307Mqtt::Connect(const std::string broker_address, int
 
     // Some modem firmware omits the conn URC after a delayed TLS handshake.
     // Query once, with a short timeout, and accept only the documented state 2.
-    if (QueryState(kStateQueryTimeoutMs) && queried_state_.load() == 2) {
-        SetConnected(true, true);
+    if (QueryState(kStateQueryTimeoutMs) && queried_state_.load() == 2 && connected_.load()) {
         ESP_LOGI(kTag, "MQTT connected (state query fallback)");
         return {};
     }
@@ -305,7 +304,7 @@ NetworkResult<> DinosaurMl307Mqtt::Connect(const std::string broker_address, int
     if (queried_state_.load() == 1) {
         bits = xEventGroupWaitBits(event_group_handle_, kConnectedBit | kDisconnectedBit, pdTRUE,
                                    pdFALSE, pdMS_TO_TICKS(5000));
-        if (bits & kConnectedBit) {
+        if ((bits & kConnectedBit) && connected_.load()) {
             ESP_LOGI(kTag, "MQTT connected after delayed reconnect URC");
             return {};
         }
@@ -459,7 +458,7 @@ void DinosaurMl307Mqtt::ResetIncomingLocked() {
 
 void DinosaurMl307Mqtt::HandleUrc(const std::string& command,
                                   const std::vector<AtArgumentValue>& arguments) {
-    if (command == "FIFO_OVERFLOW") {
+    if (IsMl307TransportLost(command, arguments)) {
         const bool was_connected = connected_.exchange(false);
         session_possible_.store(true);
         pending_cleanup_serial_.store(0);

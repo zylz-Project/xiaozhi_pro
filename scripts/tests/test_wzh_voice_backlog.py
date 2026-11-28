@@ -26,33 +26,50 @@ using voice_tts::IsToolStatus;
 using voice_tts::IsMusicStart;
 using voice_tts::IsPostMusicAnnouncement;
 using voice_tts::PopTextBatch;
+using voice_tts::QueuedText;
+using voice_tts::ShortCellularBatchWaitMs;
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGI(...) ((void)0)
 void xTaskNotifyGive(void*){}
+int64_t now_us=0;
+int64_t esp_timer_get_time(){return now_us;}
 constexpr size_t kMaxPendingSentences=64,kMaxPendingBytes=16*1024;
 struct VoiceSession {
- std::mutex mutex_;std::deque<std::string> queue_;void* task_=this;
+ std::mutex mutex_;std::deque<QueuedText> queue_;void* task_=this;
  bool finished_=false,failed_=false,overflow_=false,had_text_=false;size_t queued_bytes_=0;
  bool Enqueue(const std::string&);
 };
 ''' + method + r'''
 int main(){
- std::deque<std::string> pending={"Hello,", "friend!",std::string(230,'x')};
+ std::deque<QueuedText> pending={{"Hello,",0},{"friend!",300},{std::string(230,'x'),600}};
  size_t pending_bytes=6+7+230;
  assert(PopTextBatch(pending,pending_bytes,true)=="Hello, friend!");
  assert(pending.size()==1 && pending_bytes==230);
  assert(PopTextBatch(pending,pending_bytes,true)==std::string(230,'x'));
  assert(pending.empty() && pending_bytes==0);
- pending={"one","two"};pending_bytes=6;
+ pending={{"one",0},{"two",1}};pending_bytes=6;
  assert(PopTextBatch(pending,pending_bytes,false)=="one" && pending_bytes==3);
- std::deque<std::string> short_text={"你好"};
- assert(voice_tts::WaitForShortCellularBatch(short_text,false,0));
- assert(!voice_tts::WaitForShortCellularBatch(short_text,true,0));
- assert(!voice_tts::WaitForShortCellularBatch(short_text,false,1800));
- short_text.push_back("朋友");
- assert(!voice_tts::WaitForShortCellularBatch(short_text,false,100));
- short_text={std::string(37,'x')};
- assert(!voice_tts::WaitForShortCellularBatch(short_text,false,0));
+ std::deque<QueuedText> short_text={{"你好",100000}};
+ assert(ShortCellularBatchWaitMs(short_text,false,100000)==1800);
+ assert(ShortCellularBatchWaitMs(short_text,false,400000)==1500);
+ assert(ShortCellularBatchWaitMs(short_text,false,1899999)==1);
+ assert(ShortCellularBatchWaitMs(short_text,false,1900000)==0);
+ assert(ShortCellularBatchWaitMs(short_text,true,100001)==0);
+ short_text.push_back({"朋友",500000});
+ assert(ShortCellularBatchWaitMs(short_text,false,500000)==0);
+ short_text={{std::string(37,'x'),600000}};
+ assert(ShortCellularBatchWaitMs(short_text,false,600000)==0);
+ // The next sentence arrives while the worker is waiting for its first HTTPS
+ // request. Its queue age counts before the worker can poll the queue again.
+ VoiceSession busy;
+ now_us=1000000;assert(busy.Enqueue("First"));
+ now_us=2800000;
+ assert(ShortCellularBatchWaitMs(busy.queue_,false,now_us)==0);
+ assert(PopTextBatch(busy.queue_,busy.queued_bytes_,true)=="First");
+ now_us=3100000;assert(busy.Enqueue("Next"));
+ now_us=4100000;assert(ShortCellularBatchWaitMs(busy.queue_,false,now_us)==800);
+ now_us=5200000;assert(ShortCellularBatchWaitMs(busy.queue_,false,now_us)==0);
+ assert(PopTextBatch(busy.queue_,busy.queued_bytes_,true)=="Next"&&busy.queued_bytes_==0);
  assert(IsToolStatus("% search_music..."));
  assert(IsToolStatus(" \t% self.panda.react_to_user_emotion...\n"));
  assert(IsToolStatus("% play_music..."));
@@ -77,7 +94,7 @@ int main(){
  auto bytes=s.queued_bytes_;
  assert(!s.Enqueue("overflow"));assert(s.overflow_ && !s.failed_);
  assert(s.queue_.size()==64 && s.queued_bytes_==bytes);
- for(int i=0;i<64;++i){assert(s.queue_.front()==std::to_string(i));s.queue_.pop_front();}
+ for(int i=0;i<64;++i){assert(s.queue_.front().text==std::to_string(i));s.queue_.pop_front();}
  VoiceSession large;
  for(int i=0;i<32;++i)assert(large.Enqueue(std::string(512,'a')));
  assert(!large.Enqueue("a") && large.queue_.size()==32 && large.queued_bytes_==16*1024);

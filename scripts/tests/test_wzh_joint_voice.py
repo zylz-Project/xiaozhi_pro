@@ -34,7 +34,8 @@ class WzhJointVoiceTest(unittest.TestCase):
                 self.assertEqual({p['text'] for p in commands},
                                  {'local:' + name for name in body} |
                                  {'local:' + name for name in
-                                  ['happy', 'affection', 'eat', 'sleepy', 'stop', 'quiet', 'rest', 'wake', 'chat_wake']})
+                                  ['happy', 'affection', 'eat', 'sleepy', 'stop', 'quiet', 'rest',
+                                   'wake', 'chat_wake', 'shutdown']})
                 for bits, action, _, pinyin in rows:
                     if int(bits) & mask:
                         self.assertEqual(packed[pinyin], 'local:' + action)
@@ -72,6 +73,7 @@ class WzhJointVoiceTest(unittest.TestCase):
 #include "wzh_body_commands.h"
 #include "wzh_onboarding.h"
 #include "wzh_sound_choreography.h"
+#include "wzh_speech_intent.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
@@ -96,6 +98,7 @@ int64_t esp_timer_get_time(){return 10000000;}
 unsigned esp_random(){return 0;}
 struct Controller{
     std::atomic<bool> conversation_active_{false};
+    std::atomic<wzh::SpeechIntent> user_intent_{wzh::SpeechIntent::kNeutral};
     wzh::AutoplayCadence autoplay_;
     bool allowed=true;int queued=0,attempts=0,controls=0,reactions=0,actions=0;
     BODY last=static_cast<BODY>(0);
@@ -122,7 +125,8 @@ namespace wzh {struct ProductInfo{const char* wake_phrase="test";};ProductInfo P
 namespace wzh {void NotifyOnboarding(OnboardingEvent){}bool CaptureOnboardingInteraction(OnboardingEvent){return false;}void NotifyIdleInteraction(){}bool OnboardingBlocksConversation(){return false;}}
 struct Application{static Application& GetInstance(){static Application app;return app;}
     void WakeWordInvoke(const std::string&){} };
-struct Board{Controller controller_;Audio local_audio_;__ROUTE__};
+struct Power{void RequestShutdown(){}};
+struct Board{Controller controller_;Audio local_audio_;Power power_;__ROUTE__};
 int main(){
     Board board;auto& c=board.controller_;Registry mcp;c.Register(mcp);
     auto& call=mcp.callbacks.at("__PREFIX__.body");
@@ -146,7 +150,7 @@ int main(){
         c.conversation_active_=true;before=c.queued;
         const int prior_reactions=c.reactions;
         c.HandleUserSpeechEmotion(phrase.text);
-        assert(c.queued==before&&c.reactions==prior_reactions);
+        assert(c.queued==before&&c.reactions==prior_reactions&&c.user_intent_==wzh::SpeechIntent::kNeutral);
         assert(board.HandleLocalVoiceCommand(std::string("local:")+phrase.action));
         assert(c.queued==before); // An active cloud conversation owns body dispatch.
         assert(std::get<bool>(call(args))&&c.queued==before+1&&c.last==value);
@@ -173,6 +177,8 @@ int main(){
 }
 '''.replace('BODY', body_type).replace('__ROUTE__', route).replace('__PREFIX__', prefix).replace(
     '__MASK__', str(mask)).replace('__COUNT__', str(count))
+        if dino:
+            program = f'#include "{base / "dinosaur_speech_intent.h"}"\n' + program
         output.WzhMotionOutputTest.run_cpp(self, program)
 
     def test_product_selector_filters_assets_and_rejects_multiple_boards(self):

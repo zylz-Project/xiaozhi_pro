@@ -52,6 +52,34 @@ inline bool IsVoiceSelectionRequest(std::string_view text) {
     return false;
 }
 
+inline bool IsNativeVoiceSelection(std::string_view text, bool allow_name) {
+    if (text.size() > 384 || text.find("原声") == std::string_view::npos)
+        return false;
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos)
+        return false;
+    text.remove_prefix(first);
+    while (text.substr(0, sizeof("　") - 1) == "　")
+        text.remove_prefix(sizeof("　") - 1);
+    const auto last = text.find_last_not_of(" \t\r\n.!?");
+    if (last == std::string_view::npos)
+        return false;
+    text = text.substr(0, last + 1);
+    for (const std::string_view mark : {"。", "！", "？"}) {
+        if (text.size() >= mark.size() && text.substr(text.size() - mark.size()) == mark) {
+            text.remove_suffix(mark.size());
+            break;
+        }
+    }
+    if (text.substr(0, sizeof("请") - 1) == "请")
+        text.remove_prefix(sizeof("请") - 1);
+    if (text.substr(0, sizeof("帮我") - 1) == "帮我")
+        text.remove_prefix(sizeof("帮我") - 1);
+    return (allow_name && text == "原声") || text == "切回原声" || text == "换回原声" ||
+           text == "恢复原声" || text == "切换到原声" || text == "切换音色为原声" ||
+           text == "用原声" || text == "使用原声" || text == "用原声说话";
+}
+
 // Optional board-owned enrollment. Capture runs on the audio task and must be bounded.
 class VoiceEnrollment {
 public:

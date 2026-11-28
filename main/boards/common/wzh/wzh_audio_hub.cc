@@ -164,9 +164,7 @@ bool AudioHub::InitializeClient() {
              mac[4], mac[5]);
     device_id_ = id;
 
-    // 服务地址：NVS 可覆盖 Kconfig 默认值（换服务器不用重烧固件）。
     Settings hub("audio_hub");
-    server_ = hub.GetString("server", CONFIG_WZH_AUDIO_SYNC_SERVER);
     api_token_ = hub.GetString("api_token");
     claim_token_ = hub.GetString("claim_token");
     activation_code_ = hub.GetString("act_code");
@@ -282,32 +280,27 @@ bool AudioHub::ListenForHub() {
 
 void AudioHub::TaskEntry(void* arg) {
     auto& hub = *static_cast<AudioHub*>(arg);
-    Job job;
-    std::string server;
     {
-        std::lock_guard<std::mutex> lock(hub.job_mutex_);
-        job = hub.pending_job_;
+        Job job;
+        std::string server;
+        {
+            std::lock_guard<std::mutex> lock(hub.job_mutex_);
+            job = hub.pending_job_;
+            if (job == Job::kPresence)
+                server = hub.offered_server_;
+        }
         if (job == Job::kPresence)
-            server = hub.offered_server_;
+            hub.DoPresence(server);
+        else if (job == Job::kCheck)
+            hub.DoCheck();
+        else
+            hub.DoUpdate();
     }
-    if (job == Job::kPresence)
-        hub.DoPresence(server);
-    else if (job == Job::kCheck)
-        hub.DoCheck();
-    else
-        hub.DoUpdate();
     hub.job_running_.store(false);
     vTaskDelete(nullptr);
 }
 
-std::string AudioHub::ServerUrl() const {
-    // 尾部不带斜杠。
-    std::string base = server_;
-    while (!base.empty() && base.back() == '/') {
-        base.pop_back();
-    }
-    return base;
-}
+std::string AudioHub::ServerUrl() const { return CONFIG_WZH_AUDIO_SYNC_SERVER; }
 
 bool AudioHub::Register() {
     status_.store(Status::kRegistering);
@@ -728,6 +721,8 @@ bool AudioHub::RequestUpdate(const std::vector<std::string>& names) {
 
 bool AudioHub::RequestJob(Job job, const std::vector<std::string>& names,
                           const std::string& server) {
+    if (job == Job::kPresence && server != CONFIG_WZH_AUDIO_SYNC_SERVER)
+        return false;
     std::lock_guard<std::mutex> lock(job_mutex_);
     if (store_ == nullptr || local_maintenance_ || job_running_.load())
         return false;
@@ -829,13 +824,6 @@ void AudioHub::DoPresence(const std::string& server) {
         app.GetDeviceState() != kDeviceStateIdle)
         return;
 
-    if (server_ != server) {
-        server_ = server;
-        std::lock_guard<std::mutex> lock(job_mutex_);
-        diff_.clear();
-        checked_revision_.clear();
-        remote_files_.clear();
-    }
     if (!EnsureRegistered())
         return;
 

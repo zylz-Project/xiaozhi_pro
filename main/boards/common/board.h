@@ -46,6 +46,14 @@ enum class PowerSaveLevel {
 // data contains additional info like SSID for Connecting/Connected events
 using NetworkEventCallback = std::function<void(NetworkEvent event, const std::string& data)>;
 
+struct NetworkTransportSwitchStatus {
+    enum class State : uint8_t { kIdle, kPending, kSucceeded, kFailed };
+
+    State state = State::kIdle;
+    bool cellular = false;
+    uint32_t id = 0;
+};
+
 void* create_board();
 class AudioCodec;
 class Display;
@@ -118,13 +126,14 @@ public:
     // Largest single control message the selected transport can carry.
     // Zero means the transport has no board-specific limit.
     virtual size_t GetProtocolPayloadLimit() const { return 0; }
-    // Boards with multiple transports: switch the cloud transport at runtime.
-    // Returns false when the request is unsupported or would have no effect.
+    // Accept a runtime transport request. Physical link readiness is reported
+    // separately by IsNetworkAvailable().
     virtual bool SelectNetworkTransport(bool cellular) { (void)cellular; return false; }
-    // True while the transport choice is still being probed at boot.
+    virtual NetworkTransportSwitchStatus GetNetworkTransportSwitchStatus() const { return {}; }
+    // True before boot selection or while the selected transport is changing.
     virtual bool IsNetworkProbing() const { return false; }
-    // True when this board can switch between cellular and Wi-Fi at runtime
-    // (both transports exist in firmware and hardware detection has settled).
+    virtual bool CanSwitchNetworkTransport() const { return false; }
+    // True when this board detected compatible modem hardware.
     virtual bool HasModemTransport() const { return false; }
     // Request an asynchronous link check after persistent transport failures.
     virtual void RequestNetworkRecheck() {}

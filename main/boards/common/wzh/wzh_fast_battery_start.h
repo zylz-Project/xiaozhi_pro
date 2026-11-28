@@ -15,7 +15,7 @@ namespace wzh {
 // cell and the V4-2.2 divider, not hardware measurements or certification.
 class FastBatteryStart {
 public:
-    static constexpr uint32_t kProbeIntervalMs = 200;
+    static constexpr uint32_t kProbeIntervalMs = 100;
     static constexpr uint32_t kMinBootMs = 2000;
     static constexpr uint32_t kMaxSampleGapMs = 500;
     static constexpr float kMaxTimeConstantMs = 6000.0f;

@@ -916,11 +916,12 @@ void DinosaurMl307Http::ResetResponseLocked() {
 
 void DinosaurMl307Http::HandleUrc(const std::string& command,
                                   const std::vector<AtArgumentValue>& arguments) {
-    if (command == "FIFO_OVERFLOW") {
+    if (IsMl307TransportLost(command, arguments)) {
         // This callback runs on the AT receive task. Sending MHTTPDEL here
         // would wait for a response that this same task must parse.
         std::lock_guard<std::mutex> lock(state_mutex_);
-        ESP_LOGW(kTag, "AT FIFO overflow invalidated HTTP slot %d", http_id_.load());
+        ESP_LOGW(kTag, "AT link event %s invalidated HTTP slot %d", command.c_str(),
+                 http_id_.load());
         FailLocked(-1);
         return;
     }

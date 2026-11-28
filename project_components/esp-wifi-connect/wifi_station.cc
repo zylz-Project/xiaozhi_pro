@@ -1,6 +1,8 @@
 #include "wifi_station.h"
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
+#include <memory>
 
 #include <esp_log.h>
 #include <esp_netif.h>
@@ -56,7 +58,6 @@ void WifiStation::AddAuth(const std::string&& ssid, const std::string&& password
 
 void WifiStation::Stop() {
     ESP_LOGI(TAG, "Stopping WiFi station");
-    scan_running_.store(false);
     scan_started_us_.store(0);
 
     // Unregister event handlers FIRST to prevent scan done from triggering connect
@@ -178,7 +179,7 @@ void WifiStation::Start() {
         .name = "WiFiScanTimer",
         .skip_unhandled_events = false};
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &timer_handle_));
-    if (persistent_ap_ && !SsidManager::GetInstance().GetSsidList().empty()) {
+    if (persistent_ap_ && SsidManager::GetInstance().HasSavedNetworks()) {
         // STA_START may have fired before this handler was registered.
         // With no saved network, wait until the phone requests a scan from
         // the portal. Sweeping channels now can interrupt its first join.
@@ -194,21 +195,16 @@ void WifiStation::Start() {
 }
 
 bool WifiStation::RequestScan(const wifi_scan_config_t* config) {
-    if (scan_running_.load()) {
-        const auto started = scan_started_us_.load();
-        // A driver error can leave the SCAN_DONE event unpaired. Do not let the
-        // portal's refresh button stay permanently stuck on that stale state.
-        if (started && esp_timer_get_time() - started < 15 * 1000 * 1000)
-            return true;
-        ESP_LOGW(TAG, "Wi-Fi scan watchdog expired; starting another scan");
-        scan_running_.store(false);
-    }
-    bool expected = false;
-    if (!scan_running_.compare_exchange_strong(expected, true)) {
-        ESP_LOGD(TAG, "Wi-Fi scan already in progress");
+    const auto now = std::max<int64_t>(1, esp_timer_get_time());
+    auto started = scan_started_us_.load();
+    // Publish the busy flag and its timestamp together. An unpaired
+    // SCAN_DONE event still permits a fresh scan after the watchdog.
+    if ((started && now - started < 15 * 1000 * 1000) ||
+        !scan_started_us_.compare_exchange_strong(started, now)) {
         return true;
     }
-    scan_started_us_.store(esp_timer_get_time());
+    if (started)
+        ESP_LOGW(TAG, "Wi-Fi scan watchdog expired; starting another scan");
     const esp_err_t err = esp_wifi_scan_start(config, false);
     if (err == ESP_OK) {
         // Do not invoke on_scan_begin_ here. Start() is called from
@@ -220,8 +216,8 @@ bool WifiStation::RequestScan(const wifi_scan_config_t* config) {
     // The driver can still be completing its STA start transition right after
     // the persistent AP starts. Clear the guard and retry through the scan
     // timer instead of leaving the portal without a scan owner.
-    scan_running_.store(false);
-    scan_started_us_.store(0);
+    auto failed_scan = now;
+    scan_started_us_.compare_exchange_strong(failed_scan, 0);
     ESP_LOGW(TAG, "Unable to start Wi-Fi scan: %s", esp_err_to_name(err));
     if (timer_handle_)
         esp_timer_start_once(timer_handle_, 500 * 1000ULL);
@@ -237,43 +233,30 @@ bool WifiStation::WaitForConnected(int timeout_ms) {
 }
 
 void WifiStation::HandleScanResult() {
-    scan_running_.store(false);
-    scan_started_us_.store(0);
+    auto completed_scan = scan_started_us_.load();
     uint16_t ap_num = 0;
     esp_wifi_scan_get_ap_num(&ap_num);
     if (persistent_ap_)
         ap_num = std::min<uint16_t>(ap_num, 32);
-    wifi_ap_record_t* ap_records =
-        ap_num ? (wifi_ap_record_t*)malloc(ap_num * sizeof(wifi_ap_record_t)) : nullptr;
-    if (!ap_num)
-        esp_wifi_clear_ap_list();
-    if (ap_num && !ap_records) {
+    std::unique_ptr<wifi_ap_record_t, decltype(&std::free)> ap_records(
+        ap_num ? static_cast<wifi_ap_record_t*>(std::malloc(ap_num * sizeof(wifi_ap_record_t)))
+               : nullptr,
+        std::free);
+    if (ap_num && !ap_records)
         ESP_LOGW(TAG, "Unable to allocate Wi-Fi scan results");
+    // The driver returns the strongest APs first and releases its scan list
+    // on success. Keep the scan marked busy until we consume that list.
+    if (!ap_records || esp_wifi_scan_get_ap_records(&ap_num, ap_records.get()) != ESP_OK) {
         ap_num = 0;
         esp_wifi_clear_ap_list();
-    } else if (ap_num && esp_wifi_scan_get_ap_records(&ap_num, ap_records) != ESP_OK) {
-        free(ap_records);
-        ap_records = nullptr;
-        ap_num = 0;
     }
+    scan_started_us_.compare_exchange_strong(completed_scan, 0);
     if (persistent_ap_ && on_scan_results_) {
-        std::vector<wifi_ap_record_t> snapshot;
-        if (ap_records && ap_num)
-            snapshot.assign(ap_records, ap_records + std::min<uint16_t>(ap_num, 32));
-        ESP_LOGI(TAG, "Wi-Fi scan complete: %u access points",
-                 static_cast<unsigned>(snapshot.size()));
-        on_scan_results_(snapshot);
+        ESP_LOGI(TAG, "Wi-Fi scan complete: %u access points", static_cast<unsigned>(ap_num));
+        on_scan_results_(ap_records.get(), ap_num);
     }
-    if (persistent_ap_ && was_connected_) {
-        free(ap_records);
+    if (persistent_ap_ && was_connected_)
         return;
-    }
-    // sort by rssi descending
-    if (ap_num > 1) {
-        std::sort(
-            ap_records, ap_records + ap_num,
-            [](const wifi_ap_record_t& a, const wifi_ap_record_t& b) { return a.rssi > b.rssi; });
-    }
 
     auto& ssid_manager = SsidManager::GetInstance();
     auto ssid_list = ssid_manager.GetSsidList();
@@ -285,9 +268,9 @@ void WifiStation::HandleScanResult() {
         return;
     }
     for (int i = 0; i < ap_num; i++) {
-        auto ap_record = ap_records[i];
+        const auto& ap_record = ap_records.get()[i];
         auto it =
-            std::find_if(ssid_list.begin(), ssid_list.end(), [ap_record](const SsidItem& item) {
+            std::find_if(ssid_list.begin(), ssid_list.end(), [&ap_record](const SsidItem& item) {
                 return strcmp((char*)ap_record.ssid, item.ssid.c_str()) == 0;
             });
         if (it != ssid_list.end()) {
@@ -306,7 +289,7 @@ void WifiStation::HandleScanResult() {
             connect_queue_.push_back(record);
         }
     }
-    free(ap_records);
+    ap_records.reset();
 
     if (connect_queue_.empty()) {
         ESP_LOGI(TAG, "No AP found, next scan in %d seconds",

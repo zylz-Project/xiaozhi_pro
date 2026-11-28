@@ -97,6 +97,7 @@ int main() {
                 "int ledc_update_duty(int, ledc_channel_t);\n"
                 "int ledc_stop(int, ledc_channel_t, int);\n"
             )
+            (directory / "esp_err.h").write_text("#pragma once\nconstexpr int ESP_OK = 0;\n")
             (directory / "esp_log.h").write_text("#pragma once\n#define ESP_LOGI(...) ((void)0)\n#define ESP_LOGW(...) ((void)0)\n")
             (directory / "esp_timer.h").write_text(
                 "#pragma once\n#include <cstdint>\nint64_t esp_timer_get_time();\n"
@@ -105,15 +106,24 @@ int main() {
             cpp.write_text(r'''#include <cassert>
 #include <cmath>
 #include "wzh_servo_output.h"
-static int power = 0, stops = 0, writes = 0;
+static int power = 0, starts = 0, stops = 0, writes = 0;
+static int fail_set_channel = -1, fail_update_channel = -1;
+static bool fail_power_on = false;
 static uint32_t first_duty=0;
 static int64_t now = 0;
 int64_t esp_timer_get_time() { return now; }
-int gpio_set_level(gpio_num_t, int value) { power = value; return 0; }
-int ledc_set_duty(int, ledc_channel_t channel, uint32_t duty) {
-    ++writes;if(channel==0)first_duty=duty;return 0;
+int gpio_set_level(gpio_num_t, int value) {
+    if (value) {
+        ++starts;
+        if (fail_power_on) return -1;
+    }
+    power = value;
+    return 0;
 }
-int ledc_update_duty(int, ledc_channel_t) { return 0; }
+int ledc_set_duty(int, ledc_channel_t channel, uint32_t duty) {
+    ++writes;if(channel==0)first_duty=duty;return channel==fail_set_channel?-1:0;
+}
+int ledc_update_duty(int, ledc_channel_t channel) { return channel==fail_update_channel?-1:0; }
 int ledc_stop(int, ledc_channel_t, int) { ++stops; return 0; }
 int main() {
     const ledc_channel_t channels[] = {0, 1, 2};
@@ -132,9 +142,16 @@ int main() {
     assert(output.blocked() && !output.Write(angles, 3) && !power);
     output.SetFault(test_off, false);
     assert(output.Write(angles, 3) && power && output.powered());
+    const int first_writes = writes;
+    const int first_starts = starts;
+    assert(output.Write(angles, 3));
+    assert(writes == first_writes && starts == first_starts);
     float fractional[] = {90,90,150};
     assert(output.WriteDegrees(fractional,3));const auto duty0=first_duty;
+    fractional[0]=90.001f;
+    assert(output.WriteDegrees(fractional,3) && writes == first_writes);
     fractional[0]=90.25f;assert(output.WriteDegrees(fractional,3));const auto duty1=first_duty;
+    assert(writes == first_writes + 1 && starts == first_starts);
     fractional[0]=90.5f;assert(output.WriteDegrees(fractional,3));
     assert(duty1>duty0&&first_duty>duty1); // Sub-degree updates reach actual LEDC duty.
     // Higher resolution must use the matching duty scale, retaining the same
@@ -173,7 +190,10 @@ int main() {
     assert(output.Write(angles, 3) && power);
     output.Release();
     assert(!power && !output.powered());
+    const int writes_before_restart = writes;
+    const int starts_before_restart = starts;
     assert(output.Write(angles, 3));
+    assert(writes == writes_before_restart + 3 && starts == starts_before_restart + 1);
     now += 499000;
     output.Watchdog();
     assert(power);
@@ -183,11 +203,31 @@ int main() {
     assert(!output.Write(angles, 3));
     output.SetFault(wzh::kMotionTimeout, false);
     assert(output.Write(angles, 3));
+    now += 500000;
+    const int writes_before_timeout = writes;
+    // A resumed motion task itself must check expiry if power polling is delayed.
+    assert(!output.Write(angles, 3) && !power && !output.powered());
+    assert((output.faults() & wzh::kMotionTimeout) && writes == writes_before_timeout);
+    output.SetFault(wzh::kMotionTimeout, false);
+    assert(output.Write(angles, 3));
     output.SetFault(wzh::kPetPaused, true);
     output.SetFault(wzh::kMaintenance, true);
     output.SetFault(wzh::kPetPaused, false);
     assert(!power && !output.Write(angles, 3));
     output.SetFault(wzh::kMaintenance, false);
+    assert(output.Write(angles, 3));
+    int stopped_before = stops;
+    fail_update_channel = 1;
+    const int updated_angles[] = {91, 91, 150};
+    assert(!output.Write(updated_angles, 3) && !output.powered() && !power);
+    assert(stops == stopped_before + 3); // An earlier axis was already updated.
+    fail_update_channel = -1;
+    fail_set_channel = 2;
+    assert(!output.Write(angles, 3) && !output.powered() && !power);
+    fail_set_channel = -1;
+    fail_power_on = true;
+    assert(!output.Write(angles, 3) && !output.powered() && !power);
+    fail_power_on = false;
     assert(output.Write(angles, 3));
     output.SetFault(wzh::kShutdown, true);
     assert(!output.Write(angles, 3) && !power);

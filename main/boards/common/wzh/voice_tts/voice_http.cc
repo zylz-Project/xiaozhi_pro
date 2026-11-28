@@ -33,6 +33,11 @@ constexpr size_t kReceiveCapacity = 1024 * 1024;
 constexpr int kSocketId = 3;
 std::atomic<bool> socket_in_use{false};
 
+bool CellularLinkAvailable() {
+    const auto& board = Board::GetInstance();
+    return board.UsesCellularNetwork() && board.IsNetworkAvailable();
+}
+
 class AtTls {
 public:
     AtTls() {
@@ -49,6 +54,8 @@ public:
             socket_in_use.store(false);
     }
     int Connect(const char* host, int port, int timeout_ms) {
+        if (!CellularLinkAvailable())
+            return -1;
         bool expected = false;
         if (!socket_in_use.compare_exchange_strong(expected, true)) {
             ESP_LOGW(kTag, "Voice connection already in use");
@@ -125,6 +132,10 @@ public:
         return 0;
     }
     int Read(char* out, int len, int timeout_ms) {
+        if (!CellularLinkAvailable()) {
+            errno = ENETDOWN;
+            return -1;
+        }
         SetDeadline(timeout_ms);
         int rc;
         do {
@@ -135,7 +146,7 @@ public:
             return 0;
         if (rc < 0) {
             ESP_LOGW(kTag, "TLS read failed: -0x%x", -rc);
-            errno = ETIMEDOUT;
+            errno = CellularLinkAvailable() ? ETIMEDOUT : ENETDOWN;
             return -1;
         }
         return rc;
@@ -154,12 +165,14 @@ public:
         return rc;
     }
     int PollRead(int timeout_ms) {
+        if (!CellularLinkAvailable())
+            return -1;
         if (mbedtls_ssl_get_bytes_avail(&ssl_) > 0)
             return 1;
         std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait_for(lock, std::chrono::milliseconds(std::max(0, timeout_ms)),
-                     [this] { return receive_.Size() || closed_ || failed_; });
-        return failed_ ? -1 : (receive_.Size() || closed_ ? 1 : 0);
+        if (!WaitForInput(lock, std::max(0, timeout_ms)))
+            return -1;
+        return receive_.Size() || closed_ ? 1 : 0;
     }
     int Close() {
         tcp_.reset();
@@ -170,6 +183,18 @@ public:
     }
 
 private:
+    bool WaitForInput(std::unique_lock<std::mutex>& lock, int64_t timeout_ms) {
+        using Clock = std::chrono::steady_clock;
+        const auto deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
+        while (CellularLinkAvailable() && !receive_.Size() && !closed_ && !failed_) {
+            const auto now = Clock::now();
+            if (now >= deadline)
+                break;
+            // A deliberate switch pauses the modem without a remote close URC.
+            cv_.wait_until(lock, std::min(deadline, now + std::chrono::milliseconds(100)));
+        }
+        return CellularLinkAvailable() && !failed_;
+    }
     void SetDeadline(int timeout_ms) {
         deadline_ = esp_timer_get_time() + static_cast<int64_t>(std::max(0, timeout_ms)) * 1000;
     }
@@ -178,7 +203,7 @@ private:
     }
     static int Send(void* ctx, const unsigned char* data, size_t len) {
         auto* self = static_cast<AtTls*>(ctx);
-        if (!self->tcp_ || self->Remaining() <= 0)
+        if (!self->tcp_ || self->Remaining() <= 0 || !CellularLinkAvailable())
             return MBEDTLS_ERR_NET_SEND_FAILED;
         const size_t chunk = std::min<size_t>(len, 730);
         int sent = self->tcp_->Send(std::string(reinterpret_cast<const char*>(data), chunk));
@@ -187,11 +212,9 @@ private:
     static int Receive(void* ctx, unsigned char* out, size_t len) {
         auto* self = static_cast<AtTls*>(ctx);
         std::unique_lock<std::mutex> lock(self->mutex_);
-        self->cv_.wait_for(lock, std::chrono::milliseconds(self->Remaining()), [self] {
-            return self->receive_.Size() || self->closed_ || self->failed_;
-        });
-        if (self->failed_) {
-            ESP_LOGE(kTag, "AT receive buffer overflow; aborting response");
+        if (!self->WaitForInput(lock, self->Remaining())) {
+            if (self->failed_)
+                ESP_LOGE(kTag, "AT receive buffer overflow; aborting response");
             return MBEDTLS_ERR_NET_RECV_FAILED;
         }
         if (!self->receive_.Size())

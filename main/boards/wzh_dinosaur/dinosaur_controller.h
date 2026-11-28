@@ -1,6 +1,7 @@
 #ifndef WZH_DINOSAUR_CONTROLLER_H_
 #define WZH_DINOSAUR_CONTROLLER_H_
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -9,6 +10,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+#include "dinosaur_speech_motion.h"
 #include "wzh_pet_behavior.h"
 #include "wzh_quiet_center.h"
 #include "wzh_servo_output.h"
@@ -164,8 +166,6 @@ private:
     std::atomic<uint32_t> tutorial_feedback_requested_ms_{0};
     std::atomic<wzh::PetPriority> running_priority_{wzh::PetPriority::kSensor};
     bool running_speech_bound_ = false;
-    std::atomic<int> pending_expression_{-1};
-    std::atomic<uint32_t> expression_since_{0};
     uint32_t last_output_ms_ = 0;
     uint32_t last_pose_log_ms_ = 0;
     std::atomic<int64_t> last_servo_command_movement_us_{0};
@@ -203,7 +203,6 @@ private:
     bool QueueInteraction(wzh::PetInteraction interaction, uint8_t tutorial_step = 0,
                           wzh::PetPriority priority = wzh::PetPriority::kExplicit);
     void RunTutorialTouch();
-    bool React(wzh::PetReaction reaction, wzh::PetPriority priority, bool speech_bound = false);
 
     DinosaurAudio* audio_ = nullptr;
     // 队列有界，防止服务端连续情绪事件造成动作无限堆积。
@@ -214,8 +213,14 @@ private:
     // speaking 用于让在线 TTS 比提示音拥有稍强的声音随动增益。
     std::atomic<bool> speaking_{false};
     std::atomic<bool> speech_tail_{false};
+    std::atomic<int64_t> speech_started_us_{0};
     std::atomic<bool> center_requested_{false};
-    std::atomic<wzh::SpeechIntent> speech_intent_{wzh::SpeechIntent::kNeutral};
+    std::atomic<wzh::SpeechIntent> sentence_intent_{wzh::SpeechIntent::kNeutral};
+    std::atomic<wzh::SpeechIntent> server_intent_{wzh::SpeechIntent::kNeutral};
+    std::atomic<wzh::SpeechIntent> user_intent_{wzh::SpeechIntent::kNeutral};
+    std::atomic<wzh::SpeechIntent> speech_tail_intent_{wzh::SpeechIntent::kNeutral};
+    wzh::SpeechIntent GetSpeechIntent() const;
+    void ClearSpeechHints();
     wzh::QuietCenter<5> quiet_center_;
     void SettleToCenter(uint32_t now);
     Pose current_pose_{70, 90, 90, 90, 90};
@@ -250,10 +255,12 @@ private:
     uint8_t mirror_run_length_ = 0;
     static void TaskEntry(void* arg);
     void Task();
-    bool UpdateSoundMotion(uint32_t now);
+    bool UpdateSoundMotion(uint32_t now, bool& wrote_pose);
     void CancelSoundMotion();
     wzh::SoundChoreography sound_motion_;
+    wzh_dino::SpeechMotion speech_motion_;
     wzh::VoiceMotion voice_motion_;
+    bool UpdateConversationMotion();
     wzh::AutoplayCadence autoplay_;
     wzh::IdleCadence idle_life_;
     bool autonomous_playback_ = false;
@@ -262,7 +269,7 @@ private:
     cJSON* RequestResult(bool accepted) const;
     void InitializeServos();
     void RunServoTest(int gpio);
-    void SetPose(const Pose& pose);
+    bool SetPose(const Pose& pose, const std::array<float, 5>* speech_gesture = nullptr);
     void MoveTo(const Pose& target, uint32_t duration_ms);
     void RunAction(DinoAction action, uint32_t sound_duration_ms = 0, bool flash_sync = false,
                    const wzh_dino::MotionClip* forced_clip = nullptr, bool allow_mirror = true);
