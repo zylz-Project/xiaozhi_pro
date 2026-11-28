@@ -9,6 +9,110 @@ from test_wzh_action_queue import queue_function
 ROOT=Path(__file__).resolve().parents[2]
 
 class WifiStartupTest(unittest.TestCase):
+    def test_shared_optional_modem_does_not_select_it_on_detection(self):
+        if not shutil.which('g++'):
+            self.skipTest('g++ required')
+        source = (ROOT / 'main/boards/common/wzh/wzh_network_board.cc').read_text()
+        methods = '\n'.join(queue_function(source, name) for name in (
+            'void NetworkBoard::StartNetwork(',
+            'void NetworkBoard::FallbackToWifi(',
+            'const char* NetworkBoard::ConnectCellularNetwork(',
+            'bool NetworkBoard::BeginWifiNetworkTrial(',
+            'bool NetworkBoard::FinishWifiNetworkTrial(',
+            'bool NetworkBoard::ClearNetworkPreference('))
+        program = r'''
+#include <atomic>
+#include <cassert>
+#include <functional>
+#include <string>
+enum class NetworkEvent { Connected, Disconnected, ModemErrorInitFailed };
+int64_t clock_us = 0;
+int64_t esp_timer_get_time() { return clock_us; }
+int pdMS_TO_TICKS(int ms) { return ms; }
+void vTaskDelay(int ms) { clock_us += ms * 1000; }
+struct Application {
+    static Application& GetInstance() { static Application app; return app; }
+    void Schedule(std::function<void()> callback) { callback(); }
+};
+struct WifiManager {
+    bool active = false;
+    static WifiManager& GetInstance() { static WifiManager wifi; return wifi; }
+    void StartStation() { active = true; }
+    void StopStation() { active = false; }
+};
+struct Modem {
+    bool present = true, paused = true, can_connect = true;
+    void SetPaused(bool value) { paused = value; }
+    bool IsReady() const { return present && !paused && can_connect; }
+    bool Start(std::function<void(NetworkEvent, const std::string&)>,
+               std::function<void(bool)> detection) { detection(present); return true; }
+};
+struct WifiBoard {
+    virtual bool UsesCellularNetwork() const = 0;
+    void StartNetwork() { if (!UsesCellularNetwork()) WifiManager::GetInstance().StartStation(); }
+};
+struct NetworkBoard : WifiBoard {
+    enum class NetworkChoice { kWifi, kCellular };
+    std::atomic<NetworkChoice> network_{NetworkChoice::kWifi};
+    std::atomic<bool> transport_trial_{false}, cellular_saved_{false};
+    Modem hardware;
+    Modem* cellular_ = &hardware;
+    bool preference = false;
+    bool LoadCellularPreference() const { return preference; }
+    bool SaveCellularPreference(bool value) { cellular_saved_.store(preference = value); return true; }
+    bool UsesCellularNetwork() const override { return network_.load() == NetworkChoice::kCellular; }
+    bool IsNetworkShuttingDown() const { return false; }
+    bool HasCellularModem() const { return hardware.present; }
+    bool HasSavedCellularNetwork() const { return cellular_saved_.load(); }
+    bool BeginTransportTrial() { transport_trial_.store(true); return true; }
+    void CompleteTransportTrial(NetworkChoice value) { network_.store(value); transport_trial_ = false; }
+    void ForwardNetworkEvent(NetworkEvent, const std::string&) {}
+    void StartNetwork();
+    void FallbackToWifi();
+    const char* ConnectCellularNetwork();
+    bool BeginWifiNetworkTrial();
+    bool FinishWifiNetworkTrial(bool);
+    bool ClearNetworkPreference();
+};
+''' + methods + r'''
+int main() {
+    auto& wifi = WifiManager::GetInstance();
+    NetworkBoard board;
+    board.StartNetwork();
+    assert(wifi.active && board.hardware.paused && !board.UsesCellularNetwork());
+    board.hardware.can_connect = false;
+    assert(board.ConnectCellularNetwork());
+    assert(wifi.active && board.hardware.paused && !board.preference);
+    board.hardware.can_connect = true;
+    assert(!board.ConnectCellularNetwork());
+    assert(!wifi.active && board.UsesCellularNetwork() && board.preference);
+    assert(board.BeginWifiNetworkTrial() && board.hardware.paused);
+    assert(board.FinishWifiNetworkTrial(false));
+    assert(board.UsesCellularNetwork() && board.preference && !board.hardware.paused);
+    assert(board.BeginWifiNetworkTrial());
+    assert(board.FinishWifiNetworkTrial(true));
+    assert(board.hardware.paused && !board.UsesCellularNetwork() && !board.preference);
+    assert(!board.ConnectCellularNetwork());
+    board.StartNetwork();
+    assert(board.UsesCellularNetwork() && !board.hardware.paused);
+    assert(board.ClearNetworkPreference());
+    board.StartNetwork();
+    assert(wifi.active && board.hardware.paused && !board.UsesCellularNetwork());
+    board.hardware.present = false;
+    board.preference = true;
+    board.StartNetwork();
+    assert(wifi.active && board.hardware.paused && !board.UsesCellularNetwork());
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            cpp = Path(directory) / 'transport.cc'
+            binary = Path(directory) / 'transport'
+            cpp.write_text(program)
+            result = subprocess.run(['g++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                                     str(cpp), '-o', str(binary)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            subprocess.run([str(binary)], check=True, timeout=5)
+
     def test_wzh_legacy_entry_points_do_not_touch_station(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')

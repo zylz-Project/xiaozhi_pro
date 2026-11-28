@@ -89,8 +89,9 @@ set(BUILTIN_ICON_FONT font_material_symbols_14_1)
 set(EMOTE_RESOLUTION "320_240")
 
 # Select the board source directory from Kconfig
-if(CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC AND NOT CONFIG_BOARD_TYPE_WZH_DINOSAUR)
-    message(FATAL_ERROR "The ML307 variant requires the WZH Dinosaur board")
+if(CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC AND NOT (CONFIG_BOARD_TYPE_WZH_DINOSAUR OR
+    CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_TAILREDPANDA))
+    message(FATAL_ERROR "The optional ML307 transport requires a WZH V4-2.2 board")
 endif()
 
 # Set default assets if the board uses partition table V2
@@ -148,6 +149,14 @@ file(GLOB BOARD_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/*.c
 )
 list(APPEND SOURCES ${BOARD_SOURCES})
+if(CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC AND NOT CONFIG_BOARD_TYPE_WZH_DINOSAUR)
+    list(APPEND SOURCES
+        "boards/wzh_dinosaur/dinosaur_cellular.cc"
+        "boards/wzh_dinosaur/dinosaur_ml307_http.cc"
+        "boards/wzh_dinosaur/dinosaur_ml307_mqtt.cc"
+        "boards/wzh_dinosaur/dinosaur_ml307_network.cc"
+    )
+endif()
 
 # WZH 三产品共享基础层（Flash 抽象/PNDA 音频仓库/播放引擎等），
 # 只在三款 WZH 产品构建中参与编译。

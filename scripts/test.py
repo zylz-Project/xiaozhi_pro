@@ -126,7 +126,8 @@ RULES = (
     ),
     (
         ("project_components/esp-wifi-connect/*", "components/esp-wifi-connect/*",
-         "main/boards/common/wifi_board.*", "main/boards/common/blufi.*"),
+         "main/boards/common/wifi_board.*", "main/boards/common/blufi.*",
+         WZH + "wzh_network_board.*"),
         ("test_wzh_wifi_*", "test_wzh_miniprogram_wifi", "test_wzh_ble_parity",
          "test_wzh_portal_credentials", "test_wzh_portal_security", "test_wzh_onboarding_progress"),
     ),

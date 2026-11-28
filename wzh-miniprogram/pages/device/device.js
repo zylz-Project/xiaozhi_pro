@@ -54,6 +54,12 @@ const WIFI_GUIDE_STEPS = [
   { target: '.wifi-password', title: '输入密码', text: '输完 Wi-Fi 密码后，点键盘上的完成或收起键盘。' },
   { target: '.wifi-modal .modal-foot .primary', title: '点击连接', text: '点“连接网络”，等待设备确认。' }
 ]
+const NETWORK_GUIDE_STEP = {
+  target: '.wifi-options',
+  viewport: '.wifi-modal .modal-body',
+  title: '选择 Wi-Fi 或 4G',
+  text: '选择附近的 Wi-Fi，或点 4G 使用移动网络。4G 不用输密码。'
+}
 const MANUAL_NAV = [
   { id: 'm-start', label: '快速上手' },
   { id: 'm-parts', label: '认识它' },
@@ -306,6 +312,7 @@ Page({
     wifiScanning: false,
     wifiList: [],
     wifiSelected: '',
+    wifiSelectedTransport: '',
     wifiNeedPassword: false,
     wifiPassword: '',
     wifiError: '',
@@ -502,10 +509,19 @@ Page({
     const wifi = raw && raw.wifi
     const online = typeof raw?.online === 'boolean' ? raw.online
       : typeof wifi?.connected === 'boolean' ? wifi.connected : s.online !== false
+    const transport = s.transport === 'cellular' ? 'cellular' : 'wifi'
+    const cellularAvailable = typeof raw?.cellular_available === 'boolean'
+      ? raw.cellular_available : (raw?.cellularAvailable ?? base.cellularAvailable) === true
+    const wifiConfigured = typeof wifi?.configured === 'boolean' ? wifi.configured
+      : (s.wifiConfigured || (online && transport === 'wifi'))
     return {
       online,
-      wifiConfigured: typeof wifi?.configured === 'boolean' ? wifi.configured
-        : (s.wifiConfigured || online),
+      transport,
+      cellularAvailable,
+      networkConfigured: typeof raw?.network_configured === 'boolean' ? raw.network_configured
+        : (raw?.networkConfigured ?? (transport === 'cellular'
+          ? (base.networkConfigured || online) : wifiConfigured)),
+      wifiConfigured,
       guide_done: s.guide_done === true ? true : s.guide_done === false ? false : null,
       state: s.state || 'idle',
       startupNotice: typeof s.startup_notice === 'string'
@@ -539,6 +555,7 @@ Page({
   },
 
   applyStatus(raw) {
+    const baseHasCellular = this.data.status.cellularAvailable
     const s = this.normalizeStatus(raw)
     const copy = stateCopy(s.online, s.state)
     const app = getApp()
@@ -558,14 +575,18 @@ Page({
       voiceInitial: fmt.initial(s.currentVoice),
       vmCurrent: s.currentVoice,
       vmCurrentInitial: fmt.initial(s.currentVoice),
-      wifiCurrent: s.ssid || '',
-      wifiCurrentSub: s.online ? (s.band + ' · 已连接') : '未连接',
+      wifiCurrent: s.transport === 'cellular' ? '4G' : (s.ssid || ''),
+      wifiCurrentSub: s.online ? (s.transport === 'cellular' ? '移动网络 · 已连接'
+        : s.band + ' · 已连接') : '未连接',
       // 状态球跟着设备的真实状态与音量走，而不是固定节奏地“演”。
       orbVars: this.orbVars(s)
     }, () => {
-      if (this._wifiTarget && raw?.wifi?.provisioning === false && s.online &&
-          s.wifiConfigured && s.ssid === this._wifiTarget) {
-        this.finishWifiSetup(s.ssid)
+      if (raw?.wifi?.provisioning === false && s.online && s.networkConfigured &&
+          this.isNetworkTarget(s.transport, s.ssid)) {
+        this.finishWifiSetup(s.ssid, s.transport)
+      } else if (this.data.wifiModal && !this.data.wifiSelected &&
+          s.cellularAvailable && !baseHasCellular) {
+        this.advanceWifiGuide(2, true)
       } else {
         this.scheduleFirstGuide()
       }
@@ -686,13 +707,15 @@ Page({
       this.applyStatus(data)
       if (data.clones) this.applyClones(data.clones, data.voiceCapacity)
     } else if (type === 'wifi_state' && data) {
+      const transport = data.transport || 'wifi'
       if (data.state === 'connected') {
-        this.finishWifiSetup(data.ssid)
-      } else if (data.state === 'failed' && this._wifiTarget === data.ssid) {
+        this.finishWifiSetup(data.ssid, transport)
+      } else if (data.state === 'failed' && this.isNetworkTarget(transport, data.ssid)) {
         clearTimeout(this._wifiTimer)
         this._wifiTarget = ''
-        this.setData({ wifiConnecting: false, wifiError: data.message || '连接失败，请检查密码' })
-        if (this.data.wifiNeedPassword) this.advanceWifiGuide(3, true)
+        this.setData({ wifiConnecting: false, wifiError: data.message || (transport === 'cellular'
+          ? '4G 连接失败，请重试' : '连接失败，请检查密码') })
+        this.advanceWifiGuide(this.data.wifiNeedPassword ? 3 : 4, true)
       }
     } else if (type === 'voice_record' && data) {
       if (!this.data.audioRecordPending) return
@@ -886,7 +909,7 @@ Page({
 
   firstGuideKind() {
     const status = this.data.status
-    if (!status.wifiConfigured && !status.online) return 'wifi'
+    if (!(status.networkConfigured ?? status.wifiConfigured) && !status.online) return 'wifi'
     if (!status.online || this._guideDone || status.guide_done === true) return ''
     // Older firmwares only report whether their first-use narration is complete.
     const unfinished = status.guide_done === false || (status.onboarding && !status.onboarding.done)
@@ -897,12 +920,16 @@ Page({
     this.startDeviceGuide('replay', 0)
   },
 
-  guideSteps() {
-    return this.data.guideKind === 'wifi' ? WIFI_GUIDE_STEPS : GUIDE_STEPS
+  guideSteps(kind = this.data.guideKind) {
+    const wifi = kind === 'wifi'
+    if (!this.data.status.cellularAvailable) return wifi ? WIFI_GUIDE_STEPS : GUIDE_STEPS
+    if (wifi) return WIFI_GUIDE_STEPS.map((step, i) => i === 2 ? NETWORK_GUIDE_STEP : step)
+    return GUIDE_STEPS.map((step, i) => i === 5
+      ? Object.assign({}, step, { text: '点“配置”可以连接或切换 Wi-Fi / 4G。' }) : step)
   },
 
   startDeviceGuide(kind, index) {
-    const steps = kind === 'wifi' ? WIFI_GUIDE_STEPS : GUIDE_STEPS
+    const steps = this.guideSteps(kind)
     this._guidePending = null
     this._guideRevision = (this._guideRevision || 0) + 1
     this.setData({
@@ -1274,13 +1301,15 @@ Page({
       wifiList: [],
       guideHide: this.data.guideKind === 'wifi',
       wifiSelected: '',
+      wifiSelectedTransport: '',
       wifiNeedPassword: false,
       wifiPassword: '',
       wifiError: '',
-      wifiFocus: false,
-      wifiCurrent: this.data.status.ssid || '',
-      wifiCurrentSub: this.data.status.online ? (this.data.status.band + ' · 已连接') : '未连接'
-    }, () => this.scanWifi())
+      wifiFocus: false
+    }, () => {
+      if (this.data.status.cellularAvailable) this.advanceWifiGuide(2, true)
+      this.scanWifi()
+    })
   },
 
   closeWifi() {
@@ -1293,9 +1322,15 @@ Page({
     })
   },
 
-  finishWifiSetup(ssid) {
-    if (!this._wifiTarget || (ssid && this._wifiTarget !== ssid)) return
-    ssid = ssid || this._wifiTarget
+  isNetworkTarget(transport, ssid) {
+    return !!this._wifiTarget && (this._wifiTargetTransport || 'wifi') === transport &&
+      (transport === 'cellular' || ssid === this._wifiTarget)
+  },
+
+  finishWifiSetup(ssid, transport = 'wifi') {
+    if (!this.isNetworkTarget(transport, ssid || this._wifiTarget)) return
+    const cellular = transport === 'cellular'
+    ssid = cellular ? '4G' : (ssid || this._wifiTarget)
     const firstSetup = this.data.guideKind === 'wifi' || this._wifiFirstSetup
     this._wifiTarget = ''
     this._statusRevision = (this._statusRevision || 0) + 1
@@ -1313,7 +1348,9 @@ Page({
       wifiError: '',
       expanded: firstSetup ? false : this.data.expanded
     }, () => {
-      this.applyStatus({ online: true, wifi: { configured: true }, ssid, band: '2.4G' })
+      const status = { online: true, transport, network_configured: true, ssid: cellular ? '' : ssid }
+      if (!cellular) Object.assign(status, { wifi: { configured: true }, band: '2.4G' })
+      this.applyStatus(status)
       this.refreshStatus()
     })
     this.toast('网络已连接 · ' + ssid)
@@ -1354,7 +1391,7 @@ Page({
       const list = Object.keys(bySsid).map(k => bySsid[k])
       list.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.rssi - a.rssi)
       this.setData({ wifiList: list, wifiScanning: false }, () => {
-        if (this.data.wifiModal && list.some(item => item.supported) && !this.data.wifiSelected) {
+        if (this.data.wifiModal && list.some(item => item.supported) && !this.data.wifiSelected && !this.data.status.cellularAvailable) {
           this.advanceWifiGuide(2, true)
         }
       })
@@ -1375,6 +1412,7 @@ Page({
     this._wifiKeyboardShown = false
     this.setData({
       wifiSelected: ssid,
+      wifiSelectedTransport: 'wifi',
       wifiNeedPassword: item.secure,
       wifiPassword: '',
       wifiFocus: item.secure && this.data.guideKind !== 'wifi',
@@ -1383,6 +1421,19 @@ Page({
     if (!item.secure) {
       setTimeout(() => this.setData({ wifiFocus: false }), 200)
     }
+  },
+
+  selectCellular() {
+    if (this.data.wifiConnecting || !this.data.status.cellularAvailable) return
+    this._wifiKeyboardShown = false
+    this.setData({
+      wifiSelected: '4G',
+      wifiSelectedTransport: 'cellular',
+      wifiNeedPassword: false,
+      wifiPassword: '',
+      wifiFocus: false,
+      wifiError: ''
+    }, () => this.advanceWifiGuide(4, true))
   },
 
   onWifiPassword(e) {
@@ -1410,29 +1461,36 @@ Page({
   async connectWifi() {
     if (this.data.wifiConnecting || !this.client) return
     const ssid = this.data.wifiSelected
-    if (!ssid) return this.setData({ wifiError: '请选择一个 Wi-Fi' })
+    const cellular = this.data.wifiSelectedTransport === 'cellular'
+    const transport = cellular ? 'cellular' : 'wifi'
+    if (!ssid) return this.setData({ wifiError: this.data.status.cellularAvailable
+      ? '请选择要连接的网络' : '请选择一个 Wi-Fi' })
+    if (cellular && !this.data.status.cellularAvailable) return
     if (this.data.wifiNeedPassword && this.data.wifiPassword.length < 8) {
       return this.setData({ wifiError: 'Wi-Fi 密码至少 8 位' })
     }
     this._wifiTarget = ssid
-    this._wifiFirstSetup = !this.data.status.wifiConfigured
+    this._wifiTargetTransport = transport
+    this._wifiFirstSetup = !(this.data.status.networkConfigured ?? this.data.status.wifiConfigured)
     this.setData({ wifiConnecting: true, wifiError: '', guideHide: this.data.guideKind === 'wifi' })
     try {
-      await this.client.request('wifi_connect', { ssid: ssid, password: this.data.wifiPassword })
-      if (this._unloaded || this._wifiTarget !== ssid) return
+      if (cellular) await this.client.request('cellular_connect', {}, 16000)
+      else await this.client.request('wifi_connect', { ssid: ssid, password: this.data.wifiPassword })
+      if (this._unloaded || !this.isNetworkTarget(transport, ssid)) return
       // Allow time for DHCP, credential persistence and station rollback.
       this._wifiTimer = setTimeout(async () => {
         await this.refreshStatus()
-        if (this._wifiTarget === ssid) {
+        if (this.isNetworkTarget(transport, ssid)) {
           this._wifiTarget = ''
           this.setData({ wifiConnecting: false, wifiError: '设备响应超时，请重试' })
           this.advanceWifiGuide(this.data.wifiNeedPassword ? 3 : 4, true)
         }
-      }, 26000)
+      }, cellular ? 38000 : 26000)
     } catch (e) {
-      if (this._unloaded || this._wifiTarget !== ssid) return
+      if (this._unloaded || !this.isNetworkTarget(transport, ssid)) return
       this._wifiTarget = ''
-      this.setData({ wifiConnecting: false, wifiError: e.message || '连接失败，请检查密码' })
+      this.setData({ wifiConnecting: false, wifiError: e.message || (cellular
+        ? '4G 连接失败，请重试' : '连接失败，请检查密码') })
       this.advanceWifiGuide(this.data.wifiNeedPassword ? 3 : 4, true)
     }
   },

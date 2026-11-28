@@ -3794,7 +3794,7 @@ input { border: 0; outline: none; }
 .tx-h1, .tx-h2, .tx-h3, .tx-h4 { display: block; margin: .6em 0; font-weight: 650; }
 .tx-label { display: block; }
 .wifi-modal .modal-card { max-height: 84vh; }
-.wifi-body { display: flex; flex-direction: column; gap: 10rpx; }
+.wifi-body, .wifi-options { display: flex; flex-direction: column; gap: 10rpx; }
 .wifi-current { display: flex; align-items: center; gap: 10rpx; padding: 10rpx 12rpx; border: 1rpx solid var(--card-border); border-radius: 14rpx; background: var(--card-bg); }
 .wifi-current .ico { width: 16rpx; height: 16rpx; color: var(--accent-deep); }
 .wifi-current .tx-b { font-size: 12rpx; }
@@ -3903,6 +3903,8 @@ input { border: 0; outline: none; }
 /* Wi-Fi sheet: readable mobile sizes (the web prototype used 8-12px labels). */
 .wifi-current { gap: 15.38rpx; padding: 17.31rpx 19.23rpx; border-radius: 23.08rpx; }
 .wifi-current .ico { width: 28.85rpx; height: 28.85rpx; }
+.ico-cellular { clip-path: polygon(10% 69%, 25% 69%, 25% 90%, 10% 90%, 10% 69%, 34% 69%, 34% 52%, 49% 52%, 49% 90%, 34% 90%, 34% 69%, 58% 69%, 58% 35%, 73% 35%, 73% 90%, 58% 90%, 58% 69%, 82% 69%, 82% 18%, 97% 18%, 97% 90%, 82% 90%, 82% 69%); }
+.wifi-cellular { box-sizing: border-box; width: calc(100% - 3.85rpx); }
 .wifi-current-copy { display: flex; flex-direction: column; gap: 5.77rpx; flex: 1; min-width: 0; }
 .wifi-current .tx-b { font-size: 24rpx; line-height: 1.1; }
 .wifi-current .tx-small { color: var(--ink-3); font-size: 17.31rpx; line-height: 1.1; }

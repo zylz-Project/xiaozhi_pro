@@ -232,6 +232,7 @@ struct WifiConnectArgs {
     std::string ssid;
     std::string password;
     uint32_t generation;
+    bool cellular;
 };
 
 struct VoiceWatchArgs {
@@ -641,7 +642,8 @@ void BleService::HandleLine(const char* line) {
     if (op == "chat_start" || op == "chat_stop" || op == "set_volume" || op == "set_voice" ||
         op == "audition" || op == "audition_stop" || op == "voice_restore" ||
         op == "voice_record" || op == "voice_upload_begin" || op == "voice_upload_chunk" ||
-        op == "wifi_scan" || op == "wifi_connect" || op == "reset_factory") {
+        op == "wifi_scan" || op == "wifi_connect" || op == "cellular_connect" ||
+        op == "reset_factory") {
         NoteIdlePowerInteraction();
     }
 #endif
@@ -741,6 +743,11 @@ void BleService::HandleLine(const char* line) {
         HandleWifiStatus(id);
     } else if (op == "wifi_connect") {
         HandleWifiConnect(id, data);
+    } else if (op == "cellular_connect") {
+        if (Board::GetInstance().HasCellularModem())
+            StartNetworkConnect(id, {}, {}, true);
+        else
+            SendError(id, 1005, "设备未检测到 4G 模块");
     } else if (op == "guide_complete") {
         const auto* epoch = cJSON_GetObjectItemCaseSensitive(data, "epoch");
         if (!cJSON_IsNumber(epoch) || !(epoch->valuedouble >= 0 && epoch->valuedouble <= UINT32_MAX) ||
@@ -1079,12 +1086,19 @@ void BleService::HandleUploadCancel(int id) {
 }
 
 void BleService::HandleWifiScan(int id) {
-#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
-    if (Board::GetInstance().UsesCellularNetwork())
-        WifiManager::GetInstance().StartStation();
-#endif
+    if (wifi_connecting_.load()) {
+        SendError(id, 1010, "正在连接网络，请稍后再扫描");
+        return;
+    }
     std::vector<wifi_ap_record_t> records;
-    esp_err_t err = WifiManager::GetInstance().ScanNetworks(records, 12000);
+    auto& wifi = WifiManager::GetInstance();
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    const auto err = Board::GetInstance().UsesCellularNetwork()
+                         ? wifi.ScanNetworksWithoutConnecting(records, 12000)
+                         : wifi.ScanNetworks(records, 12000);
+#else
+    const auto err = wifi.ScanNetworks(records, 12000);
+#endif
     if (err != ESP_OK) {
         ESP_LOGW(kTag, "Wi-Fi 扫描失败: %s", esp_err_to_name(err));
         SendError(id, 1005, "Wi-Fi 扫描失败，请稍后重试");
@@ -1154,12 +1168,16 @@ void BleService::HandleWifiConnect(int id, cJSON* data) {
         SendError(id, 1005, "Wi-Fi 密码需为 8 到 63 位");
         return;
     }
+    StartNetworkConnect(id, std::move(ssid), std::move(password), false);
+}
+
+void BleService::StartNetworkConnect(int id, std::string ssid, std::string password, bool cellular) {
     if (Board::GetInstance().IsAudioMaintenanceActive() || wifi_connecting_.exchange(true)) {
         SendError(id, 1010, "设备正在配网或维护，请稍后重试");
         return;
     }
     auto* args =
-        new (std::nothrow) WifiConnectArgs{this, ssid, std::move(password), request_generation_};
+        new (std::nothrow) WifiConnectArgs{this, ssid, std::move(password), request_generation_, cellular};
     if (!args || xTaskCreate(WifiConnectTask, "wzh_ble_wifi", 5120, args, 3, nullptr) != pdPASS) {
         delete args;
         wifi_connecting_.store(false);
@@ -1169,6 +1187,7 @@ void BleService::HandleWifiConnect(int id, cJSON* data) {
 
     cJSON* out = cJSON_CreateObject();
     cJSON_AddBoolToObject(out, "accepted", 1);
+    cJSON_AddStringToObject(out, "transport", cellular ? "cellular" : "wifi");
     cJSON_AddStringToObject(out, "ssid", ssid.c_str());
     SendResponse(id, out);
 }
@@ -1330,7 +1349,13 @@ cJSON* BleService::BuildStatusObject() {
 
 #if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
     auto& board = Board::GetInstance();
-    const bool online = board.UsesCellularNetwork() ? board.IsNetworkAvailable() : connected;
+    const bool cellular = board.UsesCellularNetwork();
+    const bool online = board.IsNetworkAvailable();
+    cJSON_AddStringToObject(status, "transport", cellular ? "cellular" : "wifi");
+    cJSON_AddBoolToObject(status, "cellular_available", board.HasCellularModem());
+    cJSON_AddBoolToObject(status, "network_configured",
+                         (cellular && board.HasSavedCellularNetwork()) ||
+                             SsidManager::GetInstance().HasSavedNetwork());
 #else
     const bool online = connected;
 #endif
@@ -1449,16 +1474,31 @@ void BleService::WifiConnectTask(void* arg) {
         std::unique_ptr<WifiConnectArgs> job(static_cast<WifiConnectArgs*>(arg));
         auto* self = job->service;
         NotifyOnboarding(OnboardingEvent::kWifiRequest);
-        WifiTrialFailure failure;
-        const bool saved =
-            WifiManager::GetInstance().TestAndSaveStationNetwork(job->ssid, job->password, 20000,
-                                                                &failure);
+        auto& board = Board::GetInstance();
+        const char* error = nullptr;
+        WifiTrialFailure failure = WifiTrialFailure::Unavailable;
+        bool saved = false;
+        if (job->cellular) {
+            error = board.ConnectCellularNetwork();
+            saved = error == nullptr;
+        } else if (board.BeginWifiNetworkTrial()) {
+            saved = WifiManager::GetInstance().TestAndSaveStationNetwork(
+                job->ssid, job->password, 20000, &failure);
+            if (!board.FinishWifiNetworkTrial(saved)) {
+                saved = false;
+                failure = WifiTrialFailure::Save;
+            }
+        }
         std::fill(job->password.begin(), job->password.end(), '\0');
+        self->wifi_connecting_.store(false);
         if (self->rx_generation_.load() == job->generation) {
             cJSON* result = cJSON_CreateObject();
             cJSON_AddStringToObject(result, "state", saved ? "connected" : "failed");
+            cJSON_AddStringToObject(result, "transport", job->cellular ? "cellular" : "wifi");
             cJSON_AddStringToObject(result, "ssid", job->ssid.c_str());
-            if (!saved) {
+            if (error) {
+                cJSON_AddStringToObject(result, "message", error);
+            } else if (!saved) {
                 const char* message = "无法开始连接，请稍后重试";
                 switch (failure) {
                     case WifiTrialFailure::Authentication:
@@ -1480,7 +1520,6 @@ void BleService::WifiConnectTask(void* arg) {
             }
             self->SendEvent("wifi_state", result);
         }
-        self->wifi_connecting_.store(false);
     }
     vTaskDelete(nullptr);
 }

@@ -372,7 +372,11 @@ void StartOnboarding() {
     if (started.exchange(true))
         return;
     current_step.store(0);
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    wifi_connected.store(Board::GetInstance().IsNetworkAvailable());
+#else
     wifi_connected.store(WifiManager::GetInstance().IsConnected());
+#endif
     StartWorkerLocked(WaitReason::kStart);
 #else
     // No tutorial worker without a voice pack; keep the atomics coherent so a

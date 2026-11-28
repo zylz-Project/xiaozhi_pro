@@ -125,6 +125,13 @@ public:
     virtual bool UsesCellularNetwork() const { return false; }
     virtual size_t GetProtocolPayloadLimit() const { return 0; }
 #endif
+    virtual bool HasCellularModem() const { return false; }
+    virtual bool HasSavedCellularNetwork() const { return false; }
+    // BLE provisioning runs these hooks off the application task.
+    virtual const char* ConnectCellularNetwork() { return "设备未检测到 4G 模块"; }
+    virtual bool BeginWifiNetworkTrial() { return true; }
+    virtual bool FinishWifiNetworkTrial(bool) { return true; }
+    virtual bool ClearNetworkPreference() { return true; }
     virtual void StartNetwork() = 0;
     // Called after the network driver is initialized and the station is
     // started. Boards use it to bring up services that need the Wi-Fi stack

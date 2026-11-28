@@ -388,7 +388,13 @@ void UserWebPortal::RunReset() {
             reset_phase_ = "clearing_local";
         };
         const auto status = voice_tts::ResetManagedVoices(
-            []() { return !WifiManager::GetInstance().IsConnected(); }, progress, local);
+            []() {
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+                return !Board::GetInstance().IsNetworkAvailable();
+#else
+                return !WifiManager::GetInstance().IsConnected();
+#endif
+            }, progress, local);
         using Voice = voice_tts::VoiceOperation;
         switch (status) {
             case Voice::kOk:
@@ -408,7 +414,10 @@ void UserWebPortal::RunReset() {
         }
     };
     operations.clear_onboarding = []() { return ClearOnboarding(); };
-    operations.clear_wifi = []() { return SsidManager::GetInstance().ClearChecked(); };
+    operations.clear_wifi = []() {
+        return Board::GetInstance().ClearNetworkPreference() &&
+               SsidManager::GetInstance().ClearChecked();
+    };
     operations.report = [this](const FactoryResetPolicy::Progress& progress) {
         std::lock_guard<std::mutex> lock(mutex_);
         switch (progress.phase) {

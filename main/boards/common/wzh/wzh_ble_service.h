@@ -85,6 +85,7 @@ private:
     void HandleWifiScan(int id);
     void HandleWifiStatus(int id);
     void HandleWifiConnect(int id, cJSON* data);
+    void StartNetworkConnect(int id, std::string ssid, std::string password, bool cellular);
     void HandleResetFactory(int id);
 
     cJSON* BuildStatusObject();

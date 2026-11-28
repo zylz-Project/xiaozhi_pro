@@ -158,6 +158,9 @@ public:
      * This includes closing audio channel, resetting protocol and ota objects
      */
     void ResetProtocol();
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    void PrepareNetworkTransportSwitch(std::function<void(bool)> ready);
+#endif
 
 private:
     Application();

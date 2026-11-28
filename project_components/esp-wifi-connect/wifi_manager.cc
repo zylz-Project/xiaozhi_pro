@@ -268,6 +268,15 @@ esp_err_t WifiManager::ScanNetworks(std::vector<wifi_ap_record_t>& records, int 
     return station->ScanNetworks(records, timeout_ms);
 }
 
+esp_err_t WifiManager::ScanNetworksWithoutConnecting(std::vector<wifi_ap_record_t>& records,
+                                                    int timeout_ms) {
+    if (!StartStationImpl(false))
+        return ESP_ERR_INVALID_STATE;
+    const auto result = ScanNetworks(records, timeout_ms);
+    StopStation();
+    return result;
+}
+
 std::string WifiManager::GetSsid() const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!station_active_ || !station_)

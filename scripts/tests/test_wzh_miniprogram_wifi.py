@@ -6,6 +6,59 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MiniProgramWifiTest(unittest.TestCase):
+    def test_cellular_setup_skips_password_and_routes_results_by_transport(self):
+        script = r'''
+const assert = require('node:assert/strict')
+let page
+const app = { globalData: {} }
+global.Page = value => { page = value }
+global.getApp = () => app
+global.wx = {}
+require('./wzh-miniprogram/pages/device/device.js')
+page.setData = (values, done) => { Object.assign(page.data, values); if (done) done() }
+page.syncRailDrift = page.toast = page.refreshStatus = () => {}
+const guideSteps = [], requests = []
+page.advanceWifiGuide = step => guideSteps.push(step)
+page.scheduleFirstGuide = () => { page.nextGuideKind = page.firstGuideKind() }
+let resolveScan
+page.client = { request: (op, data) => {
+  requests.push([op, data])
+  return op === 'wifi_scan' ? new Promise(resolve => { resolveScan = resolve }) : Promise.resolve({})
+} }
+const offline = { online: false, transport: 'wifi', network_configured: false,
+  wifi: { configured: false }, guide_done: false, ssid: '' }
+;(async () => {
+  page.applyStatus(offline)
+  page.selectCellular()
+  assert.equal(page.data.wifiSelected, '')
+  page.applyStatus({ ...offline, cellular_available: true })
+  page.data.guideKind = 'wifi'
+  page.openWifi()
+  assert.deepEqual(guideSteps, [2])
+  assert.equal(page.guideSteps()[2].target, '.wifi-options')
+  page.selectCellular()
+  assert.deepEqual(guideSteps, [2, 4])
+  assert.equal(page.data.wifiNeedPassword, false)
+  await page.connectWifi()
+  assert.deepEqual(requests[1], ['cellular_connect', {}])
+  page.onBleEvent('wifi_state', { state: 'connected', transport: 'wifi', ssid: '4G' })
+  assert.equal(page.data.wifiConnecting, true)
+  page.onBleEvent('wifi_state', { state: 'failed', transport: 'cellular', message: 'SIM 卡不可用' })
+  assert.equal(page.data.wifiError, 'SIM 卡不可用')
+  await page.connectWifi()
+  page.applyStatus({ online: true, transport: 'cellular', cellular_available: true,
+    network_configured: true, wifi: { configured: false, provisioning: false }, ssid: '' })
+  assert.equal(page.data.wifiModal, false)
+  assert.equal(page.data.status.transport, 'cellular')
+  assert.equal(page.data.wifiCurrent, '4G')
+  assert.equal(page.nextGuideKind, 'first')
+  resolveScan({ networks: [{ ssid: '4G', secure: false }] })
+  page.applyStatus({ ...offline, cellular_available: true })
+  assert.equal(page.nextGuideKind, 'wifi')
+})().catch(error => { console.error(error); process.exitCode = 1 })
+'''
+        subprocess.run(['node', '-e', script], cwd=ROOT, check=True, timeout=10)
+
     def test_first_setup_then_actual_chat_and_reset_epoch(self):
         script = r'''
 const assert = require('node:assert/strict')

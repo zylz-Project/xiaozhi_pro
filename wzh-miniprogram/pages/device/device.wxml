@@ -62,9 +62,10 @@
           <view class="tx-em temp-{{status.tempClass}}">{{status.tempState}}</view>
         </view>
         <view class="metric metric-net {{status.online ? '' : 'is-offline'}} {{status.state === 'connecting' ? 'is-connecting' : ''}}">
-          <view class="tx-small"><view class="ico ico-wifi"></view><text>网络</text></view>
-          <view class="tx-b ssid">{{status.online ? status.ssid : '未连接'}}</view>
-          <view class="tx-em">
+          <view class="tx-small"><view class="ico {{status.transport === 'cellular' ? 'ico-cellular' : 'ico-wifi'}}"></view><text>网络</text></view>
+          <view class="tx-b ssid">{{status.online ? (status.transport === 'cellular' ? '4G' : status.ssid) : '未连接'}}</view>
+          <view class="tx-em" wx:if="{{status.transport === 'cellular'}}">移动网络 · {{status.online ? '已连接' : '未连接'}}</view>
+          <view class="tx-em" wx:else>
             <text>{{status.band}} · </text>
             <view class="signal-bars">
               <view class="tx-i {{bar <= status.signalBars ? 'on' : ''}}" wx:for="{{signalLevels}}" wx:for-item="bar" wx:key="*this"></view>
@@ -114,7 +115,7 @@
             <text class="con-title">控制台</text>
           </view>
           <view class="con-sub">
-            <text class="net-val">{{status.online ? status.ssid : '未连接'}} · {{status.band}}</text>
+            <text class="net-val">{{status.transport === 'cellular' ? (status.online ? '4G · 移动网络' : '4G · 未连接') : ((status.online ? status.ssid : '未连接') + ' · ' + status.band)}}</text>
             <text> · </text>
             <text>{{status.version}}</text>
           </view>
@@ -158,12 +159,12 @@
               </view>
             </view>
             <view class="network-tile">
-              <view class="net-radar"><view class="net-sweep"></view><view class="ico ico-wifi"></view></view>
+              <view class="net-radar"><view class="net-sweep"></view><view class="ico {{status.transport === 'cellular' ? 'ico-cellular' : 'ico-wifi'}}"></view></view>
               <view class="net-copy">
-                <text class="tx-b net-name">{{status.online ? status.ssid : '未连接'}}</text>
-                <text class="tx-span net-sub">{{status.band}} · 信号{{status.signal}}</text>
+                <text class="tx-b net-name">{{status.online ? (status.transport === 'cellular' ? '4G' : status.ssid) : '未连接'}}</text>
+                <text class="tx-span net-sub">{{status.transport === 'cellular' ? ('移动网络 · ' + (status.online ? '已连接' : '未连接')) : (status.band + ' · 信号' + status.signal)}}</text>
               </view>
-              <view class="net-chip">{{status.latencyText}}</view>
+              <view class="net-chip" wx:if="{{status.transport !== 'cellular'}}">{{status.latencyText}}</view>
               <button class="net-change" bindtap="openWifi">
                 <text class="net-change-txt">配置</text>
                 <view class="ico ico-chev"></view>
@@ -329,12 +330,12 @@
 
         <view class="mn-sec" id="m-start">
           <view class="mn-sec-head"><text class="mn-sec-no">01</text><text class="mn-sec-title">快速上手</text></view>
-          <view class="mn-p">第一次使用，按下面五步走。设备需要连接家里的 <text class="mn-b">2.4GHz Wi-Fi</text>，不支持 5GHz。</view>
+          <view class="mn-p">第一次使用，按下面五步走。<text wx:if="{{status.cellularAvailable}}">设备可以连接 <text class="mn-b">2.4GHz Wi-Fi 或 4G</text>。</text><text wx:else>设备需要连接家里的 <text class="mn-b">2.4GHz Wi-Fi</text>，不支持 5GHz。</text></view>
           <view class="mn-steps">
             <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text class="mn-b">充电。</text><text>用 USB-C 线连接 5V 充电器。电量低时设备会限制动作并提示。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text class="mn-b">开机。</text><text>长按电源键约 1 秒，听到启动音、头部回中即开机。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text class="mn-b">连接。</text><text>打开「泽元灵智」小程序，保持手机蓝牙开启，在附近设备里选择以 </text><text class="mn-b">{{product.ap}}-</text><text> 开头的设备。</text></view></view>
-            <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text class="mn-b">配网。</text><text>进入详情页后点「配置网络」，选择家里的 2.4GHz 网络并输入密码。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text class="mn-b">配网。</text><text>{{status.cellularAvailable ? '进入详情页后点「配置网络/4G」，选择 2.4GHz Wi-Fi 或 4G。' : '进入详情页后点「配置网络」，选择家里的 2.4GHz 网络并输入密码。'}}</text></view></view>
             <view class="mn-step"><text class="mn-step-n">05</text><view class="mn-step-copy"><text class="mn-b">完成设备语音引导后开始对话。</text><text>按语音提示操作；引导结束后可说“{{product.wake}}”或双击电源键开始对话，再双击退出。</text></view></view>
           </view>
           <view class="mn-callout"><text class="mn-b">没有屏幕也没关系。</text><text>设备通过声音和 {{manual.inlineBody}} 动作回应；所有设置都在小程序里完成。</text></view>
@@ -392,7 +393,7 @@
           <view class="mn-steps">
             <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text>手机打开蓝牙，在「泽元灵智」小程序里连接以 </text><text class="mn-b">{{product.ap}}-</text><text> 开头的设备。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text>进入设备详情页，点网络条右侧的</text><text class="mn-b">「配置」</text><text>。</text></view></view>
-            <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text>选择家里的 2.4GHz 网络，输入 Wi-Fi 密码（至少 8 位）。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text>{{status.cellularAvailable ? '选择 2.4GHz Wi-Fi 并输入密码，或选择无须密码的 4G。' : '选择家里的 2.4GHz 网络，输入 Wi-Fi 密码（至少 8 位）。'}}</text></view></view>
             <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text>连接成功后弹窗自动关闭，设备保持在线，不会跳转页面。</text></view></view>
           </view>
           <view class="mn-p mn-gap"><text class="mn-b">换网：</text><text>新网络连接成功前，旧网络会保留；失败会自动恢复旧网络。</text></view>
@@ -408,7 +409,7 @@
             <view class="mn-li"><text class="mn-b">音量：</text><text>调整设备扬声器音量。</text></view>
             <view class="mn-li"><text class="mn-b">当前音色：</text><text>试听、切换固定音色或复刻音色。</text></view>
             <view class="mn-li"><text class="mn-b">声音：</text><text>录音或上传音频，创建专属复刻音色；最多 10 个。</text></view>
-            <view class="mn-li"><text class="mn-b">配置网络：</text><text>换到另一个 2.4GHz 网络。</text></view>
+            <view class="mn-li"><text class="mn-b">配置网络：</text><text>{{status.cellularAvailable ? '切换 Wi-Fi 或 4G。' : '换到另一个 2.4GHz 网络。'}}</text></view>
             <view class="mn-li"><text class="mn-b">使用说明书：</text><text>就是当前这一页。</text></view>
             <view class="mn-li"><text class="mn-b">恢复出厂设置：</text><text>清除 Wi-Fi 与本机复刻音色，详见第 12 节。</text></view>
           </view>
@@ -468,7 +469,7 @@
           <view class="mn-sec-head"><text class="mn-sec-no">13</text><text class="mn-sec-title">规格</text></view>
           <view class="mn-spec">
             <view class="mn-spec-row"><text>主控</text><text>ESP32-S3</text></view>
-            <view class="mn-spec-row"><text>网络</text><text>2.4GHz Wi-Fi / 蓝牙配网</text></view>
+            <view class="mn-spec-row"><text>网络</text><text>{{status.cellularAvailable ? '2.4GHz Wi-Fi / 4G / 蓝牙配网' : '2.4GHz Wi-Fi / 蓝牙配网'}}</text></view>
             <view class="mn-spec-row"><text>动作</text><text>{{manual.specAction}}</text></view>
             <view class="mn-spec-row"><text>声音</text><text>ES8311 编解码 + 扬声器 / 麦克风</text></view>
             <view class="mn-spec-row"><text>存储</text><text>外置 NAND 音频库</text></view>
@@ -622,9 +623,9 @@
       <view class="modal-body">
         <view class="reset-copy-block">
           <text class="tx-h4">恢复后需要重新配网</text>
-          <text class="tx-p">会清除 Wi-Fi 和本机创建的复刻音色；小智绑定、预置语音 Key 保留。</text>
+          <text class="tx-p">{{status.cellularAvailable ? '会清除 Wi-Fi、4G 选择和本机创建的复刻音色。小智绑定、预置语音 Key 保留。' : '会清除 Wi-Fi 和本机创建的复刻音色；小智绑定、预置语音 Key 保留。'}}</text>
         </view>
-        <view class="reset-warning">有云端复刻音色时，设备会先联网清理。清理失败时保留 Wi-Fi，以便重试。</view>
+        <view class="reset-warning">{{status.cellularAvailable ? '有云端复刻音色时，设备会先联网清理。清理失败时保留网络设置，以便重试。' : '有云端复刻音色时，设备会先联网清理。清理失败时保留 Wi-Fi，以便重试。'}}</view>
         <text class="field-hint" wx:if="{{resetting && resetStage}}">{{resetStage}}</text>
         <view class="field">
           <text class="tx-span">请输入确认语</text>
@@ -646,31 +647,38 @@
     <view class="modal-card">
       <view class="modal-head">
         <view class="modal-head-copy">
-          <text class="tx-b">配置网络</text>
-          <text class="tx-small">选择设备要连接的 Wi-Fi</text>
+          <text class="tx-b">{{status.cellularAvailable ? '配置网络/4G' : '配置网络'}}</text>
+          <text class="tx-small">{{status.cellularAvailable ? '选择设备要连接的 Wi-Fi/4G' : '选择设备要连接的 Wi-Fi'}}</text>
         </view>
         <button class="modal-close" disabled="{{wifiConnecting}}" bindtap="closeWifi"><view class="ico ico-close"></view></button>
       </view>
       <scroll-view class="modal-body" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
         <view class="wifi-body">
           <view class="wifi-current">
-            <view class="ico ico-wifi"></view>
+            <view class="ico {{status.transport === 'cellular' ? 'ico-cellular' : 'ico-wifi'}}"></view>
             <view class="wifi-current-copy"><text class="tx-b">{{wifiCurrent || '未连接'}}</text><text class="tx-small">{{wifiCurrentSub}}</text></view>
           </view>
-          <view class="wifi-scan-row">
-            <text class="wifi-cap">附近的网络</text>
-            <button class="wifi-rescan" disabled="{{wifiScanning || wifiConnecting}}" bindtap="scanWifi"><view class="ico ico-reset"></view><text>{{wifiScanning ? '扫描中…' : '重新扫描'}}</text></button>
-          </view>
-          <scroll-view class="wifi-list" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
-            <view class="wifi-item {{wifiSelected === item.ssid ? 'on' : ''}}" wx:for="{{wifiList}}" wx:key="ssid" data-ssid="{{item.ssid}}" bindtap="selectWifi">
-              <view class="ico ico-wifi"></view>
-              <view class="wifi-item-copy"><text class="tx-b">{{item.ssid}}</text><text class="tx-small">{{item.band}} · {{item.secure ? '加密' : '开放'}}{{item.supported ? '' : ' · 设备不支持'}}</text></view>
-              <view class="signal-bars"><view class="tx-i {{bi < item.bars ? 'on' : ''}}" wx:for="{{signalLevels}}" wx:for-item="bar" wx:for-index="bi" wx:key="*this"></view></view>
-              <text class="wifi-badge" wx:if="{{item.current}}">当前</text>
+          <view class="wifi-options">
+            <view wx:if="{{status.cellularAvailable}}" class="wifi-item wifi-cellular {{wifiSelectedTransport === 'cellular' ? 'on' : ''}}" bindtap="selectCellular">
+              <view class="ico ico-cellular"></view>
+              <view class="wifi-item-copy"><text class="tx-b">4G</text><text class="tx-small">移动网络 · 无需密码</text></view>
+              <text class="wifi-badge" wx:if="{{status.transport === 'cellular' && status.online}}">当前</text>
             </view>
-            <view class="wifi-empty" wx:if="{{wifiScanning && wifiList.length === 0}}">设备正在搜索附近的 Wi-Fi…</view>
-            <view class="wifi-empty" wx:elif="{{wifiList.length === 0 && !wifiError}}">没有发现网络，请靠近路由器后重试</view>
-          </scroll-view>
+            <view class="wifi-scan-row">
+              <text class="wifi-cap">附近的网络</text>
+              <button class="wifi-rescan" disabled="{{wifiScanning || wifiConnecting}}" bindtap="scanWifi"><view class="ico ico-reset"></view><text>{{wifiScanning ? '扫描中…' : '重新扫描'}}</text></button>
+            </view>
+            <scroll-view class="wifi-list" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+              <view class="wifi-item {{wifiSelectedTransport === 'wifi' && wifiSelected === item.ssid ? 'on' : ''}}" wx:for="{{wifiList}}" wx:key="ssid" data-ssid="{{item.ssid}}" bindtap="selectWifi">
+                <view class="ico ico-wifi"></view>
+                <view class="wifi-item-copy"><text class="tx-b">{{item.ssid}}</text><text class="tx-small">{{item.band}} · {{item.secure ? '加密' : '开放'}}{{item.supported ? '' : ' · 设备不支持'}}</text></view>
+                <view class="signal-bars"><view class="tx-i {{bi < item.bars ? 'on' : ''}}" wx:for="{{signalLevels}}" wx:for-item="bar" wx:for-index="bi" wx:key="*this"></view></view>
+                <text class="wifi-badge" wx:if="{{item.current}}">当前</text>
+              </view>
+              <view class="wifi-empty" wx:if="{{wifiScanning && wifiList.length === 0}}">设备正在搜索附近的 Wi-Fi…</view>
+              <view class="wifi-empty" wx:elif="{{wifiList.length === 0 && !wifiError}}">没有发现网络，请靠近路由器后重试</view>
+            </scroll-view>
+          </view>
           <view class="wifi-password" wx:if="{{wifiSelected && wifiNeedPassword}}">
             <view class="field">
               <text class="tx-span">Wi-Fi 密码</text>
@@ -678,13 +686,13 @@
             </view>
           </view>
           <text class="wifi-error" wx:if="{{wifiError}}">{{wifiError}}</text>
-          <text class="wifi-note">设备仅支持 2.4GHz Wi-Fi。连接成功后详情页会自动刷新网络状态。</text>
+          <text class="wifi-note">{{status.cellularAvailable ? 'Wi-Fi 支持 2.4GHz。选中并连接 4G 后，设备会记住此选择。' : '设备仅支持 2.4GHz Wi-Fi。连接成功后详情页会自动刷新网络状态。'}}</text>
         </view>
       </scroll-view>
       <view class="modal-foot">
         <view class="modal-actions">
           <button class="modal-btn" disabled="{{wifiConnecting}}" bindtap="closeWifi">取消</button>
-          <button class="modal-btn primary" disabled="{{!wifiSelected || wifiConnecting}}" bindtap="connectWifi">{{wifiConnecting ? '连接中…' : '连接网络'}}</button>
+          <button class="modal-btn primary" disabled="{{!wifiSelected || wifiConnecting}}" bindtap="connectWifi">{{wifiConnecting ? '连接中…' : (wifiSelectedTransport === 'cellular' ? '连接 4G' : '连接网络')}}</button>
         </view>
       </view>
     </view>

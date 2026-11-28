@@ -106,8 +106,12 @@ class MockClient {
       setupByDevice.set(this.deviceId, { epoch: 0, guideDone: true, ssid: 'Home' })
     }
     const setup = setupByDevice.get(this.deviceId)
+    const cellular = setup.transport === 'cellular'
     this.status = {
-      online: Boolean(setup.ssid),
+      online: cellular || Boolean(setup.ssid),
+      transport: cellular ? 'cellular' : 'wifi',
+      cellular_available: this.deviceId === 'mock-dino',
+      network_configured: cellular || Boolean(setup.ssid),
       guide_done: setup.guideDone,
       wifi: { configured: Boolean(setup.ssid), provisioning: false },
       state: 'idle',
@@ -285,14 +289,30 @@ class MockClient {
       case 'wifi_scan':
         return {
           networks: [
-            { ssid: 'Home', rssi: -48, band: '2.4G', secure: true, current: true, bars: 4 },
+            { ssid: 'Home', rssi: -48, band: '2.4G', secure: true, current: this.status.transport === 'wifi' && this.status.ssid === 'Home', bars: 4 },
             { ssid: 'Home-Guest', rssi: -55, band: '2.4G', secure: false, current: false, bars: 3 },
             { ssid: 'CrawlPanda-1A2B', rssi: -63, band: '2.4G', secure: true, current: false, bars: 3 },
             { ssid: 'Studio-5G', rssi: -67, band: '5G', secure: true, current: false, bars: 2 }
           ]
         }
       case 'wifi_status':
-        return { connected: this.status.online, ssid: this.status.ssid, ip: '192.168.1.23', rssi: this.status.rssi, band: this.status.band, signal: this.status.signal, bars: 4 }
+        return { connected: this.status.online && this.status.transport === 'wifi', ssid: this.status.ssid, ip: '192.168.1.23', rssi: this.status.rssi, band: this.status.band, signal: this.status.signal, bars: 4 }
+      case 'cellular_connect':
+        if (!this.status.cellular_available) {
+          throw Object.assign(new Error('设备未检测到 4G 模块'), { code: 1005 })
+        }
+        this.wifiBusy = true
+        this.status.wifi.provisioning = true
+        setTimeout(() => {
+          this.wifiBusy = false
+          setupByDevice.get(this.deviceId).transport = 'cellular'
+          this.status.transport = 'cellular'
+          this.status.online = this.status.network_configured = true
+          this.status.wifi.provisioning = false
+          this.emit('wifi_state', { state: 'connected', transport: 'cellular' })
+          this.emit('status', this.status)
+        }, 1100)
+        return { accepted: true, transport: 'cellular' }
       case 'wifi_connect': {
         const ssid = String((data && data.ssid) || '')
         const password = String((data && data.password) || '')
@@ -307,6 +327,8 @@ class MockClient {
           this.wifiBusy = false
           const setup = setupByDevice.get(this.deviceId)
           setup.ssid = this.status.ssid = ssid
+          setup.transport = this.status.transport = 'wifi'
+          this.status.network_configured = true
           this.status.wifi = { configured: true, provisioning: false }
           this.status.online = true
           this.status.band = '2.4G'
@@ -328,7 +350,8 @@ class MockClient {
           setup.guideDone = this.status.guide_done = false
           setup.narrated = this.status.onboarding.done = false
           setup.ssid = this.status.ssid = ''
-          this.status.online = false
+          setup.transport = this.status.transport = 'wifi'
+          this.status.online = this.status.network_configured = false
           this.status.wifi = { configured: false, provisioning: false }
           this.clones = []
           this._previousVoice = ''

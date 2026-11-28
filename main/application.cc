@@ -2571,6 +2571,23 @@ void Application::ResetProtocol() {
     });
 }
 
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+void Application::PrepareNetworkTransportSwitch(std::function<void(bool)> ready) {
+    Schedule([this, ready = std::move(ready)]() {
+        const auto state = GetDeviceState();
+        if (state == kDeviceStateActivating || state == kDeviceStateUpgrading ||
+            voice_enrollment_reconnecting_.load() || barge_in_reconnecting_.load() ||
+            Board::GetInstance().IsAudioMaintenanceActive()) {
+            ready(false);
+            return;
+        }
+        StopInteraction();
+        ResetProtocol();
+        Schedule([ready = std::move(ready)]() { ready(true); });
+    });
+}
+#endif
+
 void Application::SendQueuedVoice() {
     const auto generation = interaction_generation_.load();
     const auto protocol_generation = protocol_generation_.load();

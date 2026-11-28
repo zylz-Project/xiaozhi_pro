@@ -11,16 +11,11 @@
 #include "button.h"
 #include "codecs/es8311_audio_codec.h"
 #include "config.h"
-#if DINOSAUR_ENABLE_4G
-#include "dinosaur_cellular.h"
-#include "settings.h"
-#include <material_symbols.h>
-#endif
 #include "dinosaur_audio.h"
 #include "dinosaur_controller.h"
 #include "dinosaur_power.h"
 #include "display/display.h"
-#include "wifi_board.h"
+#include "wzh_network_board.h"
 #include "wifi_manager.h"
 #include "wzh_audio_hub.h"
 #include "wzh_ble_service.h"
@@ -63,7 +58,7 @@ private:
     DinosaurController& controller_;
 };
 
-class WzhDinosaur : public WifiBoard {
+class WzhDinosaur : public wzh::NetworkBoard {
 public:
     WzhDinosaur() : boot_button_(BOOT_BUTTON_GPIO), display_(controller_) {
         // 配网热点和 DHCP 主机名使用产品前缀（"Dino-XXXX"），
@@ -297,80 +292,10 @@ public:
         return level >= 0;
     }
 
-#if DINOSAUR_ENABLE_4G
-    void StartNetwork() override {
-        WifiBoard::StartNetwork();
-        Settings preference("dino_net", false);
-        if (preference.GetString("network", "") == "wifi") {
-            SelectBootNetwork(false);
-            return;
-        }
-        if (!cellular_.Start(
-                [this](NetworkEvent event, const std::string& data) {
-                    Application::GetInstance().Schedule([this, event, data]() {
-                        if (power_.IsShuttingDown())
-                            return;
-                        if (event == NetworkEvent::Connected &&
-                            network_.load() == NetworkChoice::kProbing) {
-                            SelectBootNetwork(true);
-                        } else if (network_.load() == NetworkChoice::kCellular) {
-                            ForwardNetworkEvent(event, data);
-                        }
-                    });
-                },
-                [this](bool detected) {
-                    if (!detected)
-                        Application::GetInstance().Schedule([this]() { SelectBootNetwork(false); });
-                })) {
-            SelectBootNetwork(false);
-            return;
-        }
-        esp_timer_create_args_t timeout{};
-        timeout.callback = [](void* arg) {
-            auto* board = static_cast<WzhDinosaur*>(arg);
-            Application::GetInstance().Schedule([board]() { board->SelectBootNetwork(false); });
-        };
-        timeout.arg = this;
-        timeout.name = "dino_net_boot";
-        if (esp_timer_create(&timeout, &boot_network_timer_) != ESP_OK ||
-            esp_timer_start_once(boot_network_timer_, 5000000) != ESP_OK) {
-            SelectBootNetwork(false);
-        }
-    }
-
-    bool DeferWifiStationStart() const override {
-        return network_.load() != NetworkChoice::kWifi;
-    }
-    bool UsesCellularNetwork() const override { return network_.load() == NetworkChoice::kCellular; }
-    size_t GetProtocolPayloadLimit() const override { return UsesCellularNetwork() ? 1024 : 0; }
-    bool IsNetworkAvailable() const override {
-        if (power_.IsShuttingDown())
-            return false;
-        return UsesCellularNetwork() ? cellular_.IsReady() :
-               network_.load() == NetworkChoice::kWifi && WifiBoard::IsNetworkAvailable();
-    }
-    NetworkInterface* GetNetwork() override {
-        return UsesCellularNetwork() ? cellular_.GetNetwork() : WifiBoard::GetNetwork();
-    }
-    const char* GetNetworkStateIcon() override {
-        if (!UsesCellularNetwork())
-            return WifiBoard::GetNetworkStateIcon();
-        return cellular_.IsReady() ? MATERIAL_SYMBOLS_SIGNAL_CELLULAR_ALT
-                                   : MATERIAL_SYMBOLS_ANDROID_CELL_4_BAR_OFF;
-    }
-#endif
-
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
-#if DINOSAUR_ENABLE_4G
-        cloud_network_callback_ = std::move(callback);
-        WifiBoard::SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
-            if (network_.load() == NetworkChoice::kWifi && !power_.IsShuttingDown())
-                ForwardNetworkEvent(event, data);
-        });
-#else
         // 在线/离线主要由对话状态决定；断网事件仍应立即强制返回离线，
         // 防止语音通道关闭回调尚未到达时继续保留在线状态。
-        WifiBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
+        NetworkBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
                                                NetworkEvent event, const std::string& data) {
             if (event == NetworkEvent::Connected) {
                 wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkConnected);
@@ -386,8 +311,9 @@ public:
                 callback(event, data);
             }
         });
-#endif
     }
+
+    bool IsNetworkShuttingDown() const override { return power_.IsShuttingDown(); }
 
     void OnNetworkStackReady() override {
         // 启动 BLE 广播与局域网开发者页；手机连上后直接进详情页。
@@ -404,42 +330,6 @@ public:
     }
 
 private:
-#if DINOSAUR_ENABLE_4G
-    enum class NetworkChoice : uint8_t { kProbing, kWifi, kCellular };
-    std::atomic<NetworkChoice> network_{NetworkChoice::kProbing};
-    esp_timer_handle_t boot_network_timer_ = nullptr;
-    DinosaurCellular cellular_;
-    NetworkEventCallback cloud_network_callback_;
-
-    void ForwardNetworkEvent(NetworkEvent event, const std::string& data) {
-        if (event == NetworkEvent::Connected) {
-            wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkConnected);
-        } else if (event == NetworkEvent::Disconnected || event == NetworkEvent::WifiConfigModeEnter) {
-            wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
-            controller_.SetConversationActive(false);
-        }
-        if (cloud_network_callback_)
-            cloud_network_callback_(event, data);
-    }
-
-    void SelectBootNetwork(bool use_cellular) {
-        if (power_.IsShuttingDown() || network_.load() != NetworkChoice::kProbing)
-            return;
-        if (boot_network_timer_) {
-            esp_timer_stop(boot_network_timer_);
-            esp_timer_delete(boot_network_timer_);
-            boot_network_timer_ = nullptr;
-        }
-        if (use_cellular && cellular_.IsReady()) {
-            network_.store(NetworkChoice::kCellular);
-            ForwardNetworkEvent(NetworkEvent::Connected, "4G");
-        } else {
-            network_.store(NetworkChoice::kWifi);
-            cellular_.SetPaused(true);
-            WifiManager::GetInstance().StartStation();
-        }
-    }
-#endif
     bool activated_ = false;
     i2c_master_bus_handle_t codec_i2c_bus_ = nullptr;
     Button boot_button_;

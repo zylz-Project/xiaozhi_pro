@@ -97,6 +97,8 @@ public:
     bool TestAndSaveStationNetwork(const std::string& ssid, const std::string& password,
                                    int timeout_ms, WifiTrialFailure* failure = nullptr);
     esp_err_t ScanNetworks(std::vector<wifi_ap_record_t>& records, int timeout_ms = 12000);
+    esp_err_t ScanNetworksWithoutConnecting(std::vector<wifi_ap_record_t>& records,
+                                           int timeout_ms);
 
     bool IsConnected() const;
     std::string GetSsid() const;

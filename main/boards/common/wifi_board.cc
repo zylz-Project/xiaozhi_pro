@@ -336,6 +336,12 @@ std::string WifiBoard::GetBoardJson() {
     json += R"("name":")" + std::string(BOARD_NAME) + R"(",)";
     json += R"("manufacturer":")" + std::string(BOARD_MANUFACTURER) + R"(",)";
 
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    if (UsesCellularNetwork()) {
+        json += R"("network":"cellular","mac":")" + SystemInfo::GetMacAddress() + R"("})";
+        return json;
+    }
+#endif
     if (!wifi.IsConfigMode()) {
         json += R"("ssid":")" + wifi.GetSsid() + R"(",)";
         json += R"("rssi":)" + std::to_string(wifi.GetRssi()) + R"(,)";
@@ -398,13 +404,21 @@ std::string WifiBoard::GetDeviceStatusJson() {
     }
 
     // Network
-    auto& wifi = WifiManager::GetInstance();
     auto network = cJSON_CreateObject();
-    cJSON_AddStringToObject(network, "type", "wifi");
-    cJSON_AddStringToObject(network, "ssid", wifi.GetSsid().c_str());
-    int rssi = wifi.GetRssi();
-    const char* signal = rssi >= -60 ? "strong" : (rssi >= -70 ? "medium" : "weak");
-    cJSON_AddStringToObject(network, "signal", signal);
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    if (UsesCellularNetwork()) {
+        cJSON_AddStringToObject(network, "type", "cellular");
+        cJSON_AddBoolToObject(network, "connected", IsNetworkAvailable());
+    } else
+#endif
+    {
+        auto& wifi = WifiManager::GetInstance();
+        cJSON_AddStringToObject(network, "type", "wifi");
+        cJSON_AddStringToObject(network, "ssid", wifi.GetSsid().c_str());
+        int rssi = wifi.GetRssi();
+        const char* signal = rssi >= -60 ? "strong" : (rssi >= -70 ? "medium" : "weak");
+        cJSON_AddStringToObject(network, "signal", signal);
+    }
     cJSON_AddItemToObject(root, "network", network);
 
     // Chip temperature

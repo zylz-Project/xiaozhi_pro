@@ -324,7 +324,7 @@ void DinosaurCellular::Run() {
         NotifyDetection(false);
         return;
     }
-    ESP_LOGI(kTag, "ML307 detected; waiting for SIM and network registration");
+    ESP_LOGI(kTag, "ML307 detected");
     // Replace UDP, TCP/SSL, HTTP, MQTT, and WebSocket with the board adapters.
     // UDP/TCP/WebSocket use the inline HEX form that has no binary-payload
     // prompt to time out on; HTTP streams and validates its URCs; MQTT keeps a
@@ -379,12 +379,30 @@ void DinosaurCellular::Run() {
     uint32_t seen_recheck = recheck_generation_.load();
     auto last_failure = NetworkStatus::Ready;
     bool connecting_reported = false;
+    bool flight_mode = false;
+    bool radio_enabled = false;
     for (;;) {
         if (paused_.load()) {
-            // Deselected transport: hold offline and wait for reselection.
             SetReady(false);
+            radio_enabled = false;
+            if (!flight_mode) {
+                flight_mode = AtCommandSucceeded(uart->SendCommand("AT+CFUN=4", 3000));
+                if (!flight_mode)
+                    ESP_LOGW(kTag, "ML307 did not confirm flight mode");
+            }
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
+        }
+        if (!radio_enabled) {
+            if (!AtCommandSucceeded(uart->SendCommand("AT+CFUN=1", 3000))) {
+                ESP_LOGW(kTag, "ML307 radio did not confirm enable");
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                continue;
+            }
+            radio_enabled = true;
+            flight_mode = false;
+            if (paused_.load())
+                continue;
         }
         if (!IsReady()) {
             if (!connecting_reported) {
@@ -431,7 +449,8 @@ void DinosaurCellular::Run() {
                 }
             }
             if (result == NetworkStatus::Ready && transport_ok && generation == seen_loss &&
-                ConfirmPdpAddress(generation) && lost_generation_.load() == generation) {
+                ConfirmPdpAddress(generation) && !paused_.load() &&
+                lost_generation_.load() == generation) {
                 needs_dial_.store(false);
                 connecting_reported = false;
                 last_failure = NetworkStatus::Ready;

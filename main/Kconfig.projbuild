@@ -411,11 +411,11 @@ config WZH_DIALOGUE_PARITY
         Existing diagnostic variants may disable this to compare AFE modes.
 
 config WZH_DINOSAUR_AT_DIAGNOSTIC
-    bool "Dinosaur ML307 AT cellular transport"
+    bool "WZH optional ML307 AT cellular transport"
     default n
     help
-        Enable only for the dinosaur board fitted with ML307. The SDK
-        component resolver also reads this symbol for Wi-Fi variants.
+        Include optional ML307 support in WZH V4-2.2 firmware.
+        Devices without the modem continue to use Wi-Fi.
 
 config WZH_DINOSAUR_ML307_DTR_GPIO
     int "ML307 DTR pin (-1 when absent)"

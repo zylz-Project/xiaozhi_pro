@@ -17,7 +17,7 @@
 #include "panda_audio.h"
 #include "panda_controller.h"
 #include "panda_power.h"
-#include "wifi_board.h"
+#include "wzh_network_board.h"
 #include "wifi_manager.h"
 #include "wzh_audio_hub.h"
 #include "wzh_ble_service.h"
@@ -60,7 +60,7 @@ private:
     PandaController& controller_;
 };
 
-class WzhTailRedPanda : public WifiBoard {
+class WzhTailRedPanda : public wzh::NetworkBoard {
 public:
 #if CONFIG_AUDIO_PRODUCT_QUALITY
     int16_t GetAudioSourceGainQ8(const uint8_t* data, size_t size) const override {
@@ -283,7 +283,7 @@ public:
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
         // 在线/离线主要由对话状态决定；断网事件仍应立即强制返回离线，
         // 防止语音通道关闭回调尚未到达时继续保留在线状态。
-        WifiBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
+        NetworkBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
                                                NetworkEvent event, const std::string& data) {
             if (event == NetworkEvent::Connected) {
                 wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkConnected);
@@ -300,6 +300,8 @@ public:
             }
         });
     }
+
+    bool IsNetworkShuttingDown() const override { return power_.IsShuttingDown(); }
 
     void OnNetworkStackReady() override {
         // 启动 BLE 广播与局域网开发者页；手机连上后直接进详情页。

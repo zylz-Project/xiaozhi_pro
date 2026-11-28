@@ -166,7 +166,10 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `online` | bool | 已连上 Wi-Fi 且拿到 IP |
+| `online` | bool | 当前选定的联网方式已就绪（Wi-Fi 已获得 IP，或 4G 已确认 PDP） |
+| `transport` | string，可选 | `wifi` 或 `cellular`。缺省时按 `wifi` 展示 |
+| `cellular_available` | bool，可选 | 设备已通过 UART 探测到 4G 模块。小程序据此显示 4G 选项 |
+| `network_configured` | bool，可选 | 当前联网方式已有有效的持久配置。旧固件用 `wifi.configured` |
 | `state` | string | `idle` / `connecting` / `listening` / `speaking` / `starting` / `wifi_configuring` / `upgrading` / `activating` / `audio_testing` / `fatal_error` |
 | `battery` | 0–100 | 电量百分比 |
 | `charging` | bool | 是否充电中 |
@@ -256,13 +259,14 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 取消使用本次录音的 `request`，不会取消后来开始的录音；已进入云端处理时不接受
 取消录音。旧固件不返回 `request` 时，小程序只提供关闭窗口并保留状态轮询。
 
-### 6.3 Wi-Fi
+### 6.3 Wi-Fi 和 4G
 
 | op | 请求 data | 成功 data | 说明 |
 | --- | --- | --- | --- |
 | `wifi_scan` | `{}` | `{networks:[...]}` | 阻塞扫描；失败 `1005` |
 | `wifi_status` | `{}` | `{connected,ssid,ip,rssi,band,signal,bars}` | 当前网络 |
 | `wifi_connect` | `{ssid,password}` | `{accepted:true,ssid}` | 先 accepted，再推 `wifi_state` |
+| `cellular_connect` | `{}` | `{accepted:true,transport:"cellular"}` | 仅已检测到模块时可用。完成后推送 `wifi_state`，`transport` 为 `cellular` |
 
 `wifi_scan` 返回示例：
 
@@ -281,6 +285,8 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 - ESP32-S3 设备只能扫描并连接 2.4GHz；小程序展示设备返回的全部网络，若其他设备返回 5G 则标记为不支持，
   并对同名 SSID 去重（保留最强/当前连接），避免用户选完才失败。
 - 开放网络 `password` 传空字符串；加密网络密码 8–63 位由设备校验。
+- Wi-Fi 和 4G 共用一个配网任务入口，4G 无需密码。两种方式的 `wifi_state` 以 `transport` 区分，旧固件缺省按 `wifi` 处理。
+- 只有 4G 注册并确认 PDP 后才保存选择；下次开机按该选择连接。切回 Wi-Fi 以取得 IP 并保存为准。恢复出厂清除 Wi-Fi 凭据和 4G 选择。
 - 连接过程事件：
 
 ```json
