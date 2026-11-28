@@ -60,12 +60,13 @@ private:
     adc_cali_handle_t power_adc_cali_ = nullptr;
     adc_cali_handle_t battery_adc_cali_ = nullptr;
     adc_cali_handle_t touch_adc_cali_ = nullptr;
-    std::atomic<int> battery_level_{0};
+    std::atomic<int> battery_level_{-1};
     std::atomic<int> battery_voltage_mv_{0};
     std::atomic<bool> touch_valid_{false};
     std::atomic<int> touch_code_{0};
     std::atomic<int> touch_voltage_mv_{-1};
     wzh::BatteryRestVoltage battery_rest_voltage_;
+    wzh::BatteryDisplayLevel battery_display_level_;
     wzh::BatteryWarningLevel battery_warning_;
     std::atomic<int> battery_live_mv_{0};
     std::atomic<int> battery_protection_mv_{0};

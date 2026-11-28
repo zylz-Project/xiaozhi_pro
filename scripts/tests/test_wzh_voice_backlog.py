@@ -37,12 +37,14 @@ struct VoiceSession {
 };
 ''' + method + r'''
 int main(){
- std::deque<std::string> pending={"Hello,", "friend!",std::string(230,'x')};
- size_t pending_bytes=6+7+230;
+ std::deque<std::string> pending={"Hello,", "friend!",std::string(466,'x')};
+ size_t pending_bytes=6+7+466;
  assert(PopTextBatch(pending,pending_bytes,true)=="Hello, friend!");
- assert(pending.size()==1 && pending_bytes==230);
- assert(PopTextBatch(pending,pending_bytes,true)==std::string(230,'x'));
+ assert(pending.size()==1 && pending_bytes==466);
+ assert(PopTextBatch(pending,pending_bytes,true)==std::string(466,'x'));
  assert(pending.empty() && pending_bytes==0);
+ pending={std::string(250,'x'),std::string(229,'y')};pending_bytes=479;
+ assert(PopTextBatch(pending,pending_bytes,true).size()==480 && pending_bytes==0);
  pending={"one","two"};pending_bytes=6;
  assert(PopTextBatch(pending,pending_bytes,false)=="one" && pending_bytes==3);
  assert(IsToolStatus("% search_music..."));

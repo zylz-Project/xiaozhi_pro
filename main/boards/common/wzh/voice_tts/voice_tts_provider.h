@@ -24,15 +24,13 @@ struct Request {
     std::string text;
     std::string voice_id;
     std::function<bool()> cancelled;
-    // Optional native-rate signed PCM16LE stream; called only by the worker.
-    std::function<bool(const uint8_t*, size_t)> pcm_sink;
+    // Incremental Ogg/Opus bytes; called only by the synthesis worker.
+    std::function<bool(const uint8_t*, size_t)> opus_sink;
 };
 
 struct Response {
-    // WAV bytes, owned by the caller. Verify its format before playback.
-    std::vector<uint8_t> wav;
     int http_status = 0;
-    bool streamed = false;
+    unsigned header_ms = 0;
     // Bounded, content-free diagnostics; timings include scheduling delays.
     const char* stream_detail = "none";
     size_t stream_bytes = 0;

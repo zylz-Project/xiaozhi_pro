@@ -10,7 +10,7 @@ COMMON = ROOT / 'main/boards/common/wzh'
 
 
 class OnboardingPlayerTest(unittest.TestCase):
-    def test_waits_release_worker_and_all_chapters_block_chat(self):
+    def test_ble_waits_release_worker_and_online_chapter_gates_first_chat(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')
         with tempfile.TemporaryDirectory() as directory:
@@ -54,15 +54,17 @@ struct Board{static Board& GetInstance(){static Board b;return b;}
             (root / 'application.h').write_text('''#pragma once
 #include <cstdint>
 #include <string_view>
+#include <functional>
 #include <vector>
 extern uint32_t clock_ms;
-constexpr int kDeviceStateIdle=0;
+constexpr int kDeviceStateIdle=0,kDeviceStateConnecting=1;
 struct Audio{uint32_t until=0,generation=1;std::vector<std::string_view> played;
  bool IsPlaybackIdle(){return clock_ms>=until;}bool IsAudioProcessorRunning(){return false;}
  uint32_t GetPlaybackGeneration(){return generation;}
  void PlaySound(std::string_view sound,uint32_t){played.push_back(sound);until=clock_ms+100;}};
-struct Application{Audio audio;static Application& GetInstance(){static Application a;return a;}
- int GetDeviceState(){return kDeviceStateIdle;}Audio& GetAudioService(){return audio;}};
+struct Application{Audio audio;int state=kDeviceStateIdle;std::function<void()> scheduled;static Application& GetInstance(){static Application a;return a;}
+ int GetDeviceState(){return state;}Audio& GetAudioService(){return audio;}
+ void Schedule(std::function<void()> fn){scheduled=fn;}};
 ''')
             (root / 'test.cc').write_text(r'''
 #include <cassert>
@@ -74,7 +76,8 @@ int xTaskCreate(void(*fn)(void*),const char*,int,void*,int,void*){
  if(fail_create)return 0;
  worker=fn;return 1;}
 uint32_t xTaskGetTickCount(){return clock_ms;}
-void vTaskDelay(uint32_t ms){clock_ms+=ms;assert(clock_ms<500000);}
+void (*on_delay)()=nullptr;
+void vTaskDelay(uint32_t ms){clock_ms+=ms;assert(clock_ms<500000);if(on_delay)on_delay();}
 void vTaskDelete(void*){}
 namespace wzh {
 OnboardingProgress saved;
@@ -92,20 +95,32 @@ int main(){
  assert(saved.step==7 && !worker && !IsOnboardingActive() && OnboardingBlocksConversation());
  assert(Application::GetInstance().audio.played.size()==8);
  NotifyOnboarding(OnboardingEvent::kWifiRequest);assert(worker);run();
- assert(saved.step==8 && !worker && OnboardingBlocksConversation());
+ assert(saved.step==8 && !worker && !OnboardingBlocksConversation() && IsOnboardingIntroPending());
  NotifyOnboarding(OnboardingEvent::kNetworkConnected);
  NotifyOnboarding(OnboardingEvent::kServiceReady);assert(!worker);
  NotifyOnboarding(OnboardingEvent::kServiceLost);
  NotifyOnboarding(OnboardingEvent::kNetworkLost);
  PrepareOnboardingDoubleClick();assert(!worker);
  NotifyOnboarding(OnboardingEvent::kNetworkConnected);assert(!worker);
- NotifyOnboarding(OnboardingEvent::kServiceConfigured);assert(worker);run();
+ NotifyOnboarding(OnboardingEvent::kServiceConfigured);assert(!worker);
+ auto& app=Application::GetInstance();app.state=kDeviceStateConnecting;
+ int handoff=0;
+ auto resume=[&](bool played){handoff=played?1:-1;};
+ assert(DeferOnboardingConversation(resume));
+ on_delay=[](){NotifyOnboarding(OnboardingEvent::kNetworkLost);on_delay=nullptr;};
+ run();assert(!worker&&saved.step==8&&handoff==0&&app.scheduled);
+ app.scheduled();app.scheduled={};assert(handoff==-1);
+ NotifyOnboarding(OnboardingEvent::kNetworkConnected);
+ NotifyOnboarding(OnboardingEvent::kServiceConfigured);
+ assert(DeferOnboardingConversation(resume));run();
+ assert(handoff==-1&&app.scheduled);app.scheduled();assert(handoff==1);
+ app.state=kDeviceStateIdle;
  assert(saved.Done() && !worker && !IsOnboardingActive() && !OnboardingBlocksConversation());
- assert(Application::GetInstance().audio.played.size()==13);
+ assert(Application::GetInstance().audio.played.size()==14);
  // A failed task allocation keeps the guide pending and can be retried.
  saved=OnboardingProgress{};started.store(false);stopping.store(false);wifi_online=false;
  ble_connected.store(false);wifi_requested.store(false);wifi_narrated.store(false);
- service_verified.store(false);online_double_click.store(false);
+ service_verified.store(false);
  fail_create=true;worker=nullptr;StartOnboarding();assert(!worker && OnboardingBlocksConversation());
  fail_create=false;TryResumeOnboarding();assert(worker);run();assert(saved.step==7);
  // Failed persistence loading must not permanently block the product.

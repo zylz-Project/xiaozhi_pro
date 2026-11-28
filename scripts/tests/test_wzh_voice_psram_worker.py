@@ -34,6 +34,7 @@ class VoicePsramWorkerTest(unittest.TestCase):
 #define CONFIG_WZH_VOICE_PSRAM_WORKER_EXPERIMENT 1
 #define CONFIG_WZH_VOICE_FLASH_DISPATCH_EXPERIMENT 1
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGD(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define MALLOC_CAP_SPIRAM 1
 #define MALLOC_CAP_8BIT 2
@@ -52,6 +53,7 @@ int xTaskCreate(void(*)(void*),const char*,int,void*,int,TaskHandle_t* task){
  ++internal_creates;if(fail_create)return 0;*task=reinterpret_cast<void*>(99);return pdPASS;
 }
 namespace voice_tts {
+constexpr char kNativeVoiceId[]="xiaozhi-native";
 bool FlashDispatcherReady(){return dispatcher_ready;}
 constexpr size_t kMaxPendingSentences=64,kMaxPendingBytes=16*1024;
 std::string LoadAliKey(){return "key";}std::string LoadAliVoice(){return "voice";}

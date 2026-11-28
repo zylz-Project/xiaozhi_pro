@@ -28,7 +28,8 @@ public:
     ~MqttProtocol();
 
     bool Start() override;
-    bool SendAudio(std::unique_ptr<AudioStreamPacket> packet) override;
+    bool SendAudio(const AudioStreamPacket& packet) override;
+    bool CanRetryUplinkAudio() const override;
     bool OpenAudioChannel() override;
     void CloseAudioChannel(bool send_goodbye = true) override;
     bool IsAudioChannelOpened() const override;
@@ -42,6 +43,7 @@ private:
     std::string publish_topic_;
 
     mutable std::mutex channel_mutex_;
+    std::atomic<uint32_t> channel_generation_{0};
     std::mutex crypto_mutex_;
     std::unique_ptr<Mqtt> mqtt_;
     // A sender keeps the transport alive while sending without the channel lock.

@@ -10,8 +10,7 @@
 // Conservative phrase recognition for user requests. This is a local rule
 // matcher, not a general language-understanding model: require both a voice
 // object and an action, and leave negated/educational statements to the LLM.
-inline bool VoiceTextHasAny(std::string_view text,
-                            std::initializer_list<std::string_view> terms) {
+inline bool VoiceTextHasAny(std::string_view text, std::initializer_list<std::string_view> terms) {
     for (const auto term : terms) {
         if (text.find(term) != std::string_view::npos)
             return true;
@@ -21,22 +20,31 @@ inline bool VoiceTextHasAny(std::string_view text,
 
 inline bool IsVoiceChangeRequestContext(std::string_view text) {
     if (text.empty() || text.size() > 384 ||
-        !VoiceTextHasAny(text, {"音色", "声音", "声线", "嗓音", "嗓子"}))
+        !VoiceTextHasAny(text, {"音色", "声音", "声线", "嗓音", "嗓子", "原声"}))
         return false;
-    return !VoiceTextHasAny(text, {"不要", "不用", "不想", "不需要", "不必", "别换", "别切换", "别复刻", "别复克",
-                                   "别克隆", "别模仿", "别用", "不换", "不复刻", "不复克", "不克隆", "取消",
-                                   "完成了吗", "成功了吗", "好了吗", "进度", "状态", "什么是",
-                                   "是什么意思", "怎么", "如何", "为什么", "介绍",
-                                   "解释", "听说", "听别人", "有人说", "别人说", "引用", "\"", "“", "”"});
+    return !VoiceTextHasAny(
+        text, {"不要",   "不用",     "不想",     "不需要", "不必", "别换",   "别切换", "别复刻",
+               "别复克", "别克隆",   "别模仿",   "别用",   "不换", "不复刻", "不复克", "不克隆",
+               "取消",   "完成了吗", "成功了吗", "好了吗", "进度", "状态",   "什么是", "是什么意思",
+               "怎么",   "如何",     "为什么",   "介绍",   "解释", "听说",   "听别人", "有人说",
+               "别人说", "引用",     "\"",       "“",      "”"});
 }
 
 inline bool IsVoiceEnrollmentRequest(std::string_view text) {
     return IsVoiceChangeRequestContext(text) &&
-           !VoiceTextHasAny(text, {"复刻过", "复克过", "克隆过", "已经复刻", "已经复克", "已经克隆"}) &&
+           !VoiceTextHasAny(text,
+                            {"复刻过", "复克过", "克隆过", "已经复刻", "已经复克", "已经克隆"}) &&
            VoiceTextHasAny(text, {"复刻", "复克", "克隆", "复制", "模仿", "仿制", "复原", "复现"});
 }
 
 inline bool IsVoiceSelectionRequest(std::string_view text) {
+    // This exact transcription was observed for the spoken menu request.
+    while (!text.empty() && text.front() == ' ')
+        text.remove_prefix(1);
+    while (!text.empty() && text.back() == ' ')
+        text.remove_suffix(1);
+    if (text == "千万音色" || text == "千万音色。")
+        return true;
     if (!IsVoiceChangeRequestContext(text) || IsVoiceEnrollmentRequest(text))
         return false;
     if (VoiceTextHasAny(text, {"切换", "更换", "换", "切成", "改成", "改为", "恢复"}))
@@ -44,7 +52,7 @@ inline bool IsVoiceSelectionRequest(std::string_view text) {
     const auto use = text.find("用");
     if (use == std::string_view::npos)
         return false;
-    for (const auto voice : {"音色", "声音", "声线", "嗓音", "嗓子"}) {
+    for (const auto voice : {"音色", "声音", "声线", "嗓音", "嗓子", "原声"}) {
         const auto position = text.find(voice);
         if (position != std::string_view::npos && use < position)
             return true;
@@ -64,6 +72,8 @@ public:
     }
     virtual bool Capture(const int16_t* samples, size_t count, bool speech) = 0;
     virtual void Cancel() = 0;
+    // User-initiated cancellation is allowed before the cloud operation starts.
+    virtual bool CancelCapture() { return false; }
     virtual const char* Status() const { return "unavailable"; }
     virtual const char* Failure() const { return ""; }
     virtual bool IsConfigured() const { return true; }

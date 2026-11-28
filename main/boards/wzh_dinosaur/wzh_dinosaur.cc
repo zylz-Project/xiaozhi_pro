@@ -11,6 +11,11 @@
 #include "button.h"
 #include "codecs/es8311_audio_codec.h"
 #include "config.h"
+#if DINOSAUR_ENABLE_4G
+#include "dinosaur_cellular.h"
+#include "settings.h"
+#include <material_symbols.h>
+#endif
 #include "dinosaur_audio.h"
 #include "dinosaur_controller.h"
 #include "dinosaur_power.h"
@@ -21,10 +26,11 @@
 #include "wzh_ble_service.h"
 #include "wzh_conversation_sounds.h"
 #include "wzh_mcp_tools.h"
-#include "wzh_power_telemetry.h"
 #include "wzh_onboarding.h"
+#include "wzh_power_telemetry.h"
 #include "wzh_product.h"
 #include "wzh_sensors.h"
+#include "wzh_system_prompts.h"
 #include "wzh_user_pairs_catalog.inc"
 #include "wzh_voice_services.h"
 #include "wzh_web_console.h"
@@ -153,11 +159,15 @@ public:
             AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT,
             AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN, AUDIO_CODEC_ES8311_ADDR, false, false,
             AUDIO_CODEC_PA_VOLTAGE, kDacReference, AUDIO_CODEC_PA_GAIN_DB,
-            AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB, 100);
+            AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB, 100,
+            AUDIO_CODEC_REFERENCE_MIC_GAIN_DB);
         return &codec;
     }
 
     bool SupportsLocalInteraction() const override { return true; }
+    bool IsLocalPlaybackPending() const override {
+        return local_audio_.Playing() || !local_audio_.WorkerIdle();
+    }
     bool TriggerOnboardingFeedback(uint8_t step) override {
         return controller_.TriggerOnboardingFeedback(step);
     }
@@ -169,13 +179,10 @@ public:
     }
     void OnProtocolServiceAvailable(bool connected) override {
         wzh::NotifyOnboarding(connected ? wzh::OnboardingEvent::kServiceReady
-                                       : wzh::OnboardingEvent::kServiceConfigured);
+                                        : wzh::OnboardingEvent::kServiceConfigured);
     }
     void OnProtocolServiceUnavailable() override {
         wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceLost);
-    }
-    bool IsLocalPlaybackPending() override {
-        return local_audio_.Playing() || !local_audio_.WorkerIdle();
     }
 
 #if CONFIG_USE_VOICE_BARGE_IN && CONFIG_WZH_DINOSAUR_MOTION_BARGE_GUARD
@@ -186,7 +193,7 @@ public:
             now_us >= last_command_us && now_us - last_command_us <= 150000) {
             return 4800;  // 300 ms at 16 kHz; experimental, not speech confirmation.
         }
-        return 2880;
+        return 0;
     }
 #endif
 
@@ -224,6 +231,9 @@ public:
     bool HandleLocalVoiceCommand(const std::string& command) override {
         constexpr const char* prefix = "local:";
         if (command.compare(0, std::strlen(prefix), prefix) != 0) {
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+            wzh::NoteIdlePowerInteraction();
+#endif
             // An ordinary wake phrase is an explicit invitation to resume companionship.
             local_audio_.StopPlayback();
             controller_.HandlePetControl(wzh::PetControl::kWake, false);
@@ -237,6 +247,9 @@ public:
             ESP_LOGD(TAG, "Local command ignored during speaker output: %s", name.c_str());
             return true;
         }
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+        wzh::NoteIdlePowerInteraction();
+#endif
         if (name == "chat_wake") {
             if (wzh::OnboardingBlocksConversation()) {
                 if (!wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kWake))
@@ -281,10 +294,80 @@ public:
         // 当前硬件没有接入充电状态检测脚，只能报告电池正在供电。
         charging = false;
         discharging = true;
-        return true;
+        return level >= 0;
     }
 
+#if DINOSAUR_ENABLE_4G
+    void StartNetwork() override {
+        WifiBoard::StartNetwork();
+        Settings preference("dino_net", false);
+        if (preference.GetString("network", "") == "wifi") {
+            SelectBootNetwork(false);
+            return;
+        }
+        if (!cellular_.Start(
+                [this](NetworkEvent event, const std::string& data) {
+                    Application::GetInstance().Schedule([this, event, data]() {
+                        if (power_.IsShuttingDown())
+                            return;
+                        if (event == NetworkEvent::Connected &&
+                            network_.load() == NetworkChoice::kProbing) {
+                            SelectBootNetwork(true);
+                        } else if (network_.load() == NetworkChoice::kCellular) {
+                            ForwardNetworkEvent(event, data);
+                        }
+                    });
+                },
+                [this](bool detected) {
+                    if (!detected)
+                        Application::GetInstance().Schedule([this]() { SelectBootNetwork(false); });
+                })) {
+            SelectBootNetwork(false);
+            return;
+        }
+        esp_timer_create_args_t timeout{};
+        timeout.callback = [](void* arg) {
+            auto* board = static_cast<WzhDinosaur*>(arg);
+            Application::GetInstance().Schedule([board]() { board->SelectBootNetwork(false); });
+        };
+        timeout.arg = this;
+        timeout.name = "dino_net_boot";
+        if (esp_timer_create(&timeout, &boot_network_timer_) != ESP_OK ||
+            esp_timer_start_once(boot_network_timer_, 5000000) != ESP_OK) {
+            SelectBootNetwork(false);
+        }
+    }
+
+    bool DeferWifiStationStart() const override {
+        return network_.load() != NetworkChoice::kWifi;
+    }
+    bool UsesCellularNetwork() const override { return network_.load() == NetworkChoice::kCellular; }
+    size_t GetProtocolPayloadLimit() const override { return UsesCellularNetwork() ? 1024 : 0; }
+    bool IsNetworkAvailable() const override {
+        if (power_.IsShuttingDown())
+            return false;
+        return UsesCellularNetwork() ? cellular_.IsReady() :
+               network_.load() == NetworkChoice::kWifi && WifiBoard::IsNetworkAvailable();
+    }
+    NetworkInterface* GetNetwork() override {
+        return UsesCellularNetwork() ? cellular_.GetNetwork() : WifiBoard::GetNetwork();
+    }
+    const char* GetNetworkStateIcon() override {
+        if (!UsesCellularNetwork())
+            return WifiBoard::GetNetworkStateIcon();
+        return cellular_.IsReady() ? MATERIAL_SYMBOLS_SIGNAL_CELLULAR_ALT
+                                   : MATERIAL_SYMBOLS_ANDROID_CELL_4_BAR_OFF;
+    }
+#endif
+
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
+#if DINOSAUR_ENABLE_4G
+        cloud_network_callback_ = std::move(callback);
+        WifiBoard::SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
+            if (network_.load() == NetworkChoice::kWifi && !power_.IsShuttingDown())
+                ForwardNetworkEvent(event, data);
+        });
+#else
         // 在线/离线主要由对话状态决定；断网事件仍应立即强制返回离线，
         // 防止语音通道关闭回调尚未到达时继续保留在线状态。
         WifiBoard::SetNetworkEventCallback([this, callback = std::move(callback)](
@@ -303,6 +386,7 @@ public:
                 callback(event, data);
             }
         });
+#endif
     }
 
     void OnNetworkStackReady() override {
@@ -320,6 +404,42 @@ public:
     }
 
 private:
+#if DINOSAUR_ENABLE_4G
+    enum class NetworkChoice : uint8_t { kProbing, kWifi, kCellular };
+    std::atomic<NetworkChoice> network_{NetworkChoice::kProbing};
+    esp_timer_handle_t boot_network_timer_ = nullptr;
+    DinosaurCellular cellular_;
+    NetworkEventCallback cloud_network_callback_;
+
+    void ForwardNetworkEvent(NetworkEvent event, const std::string& data) {
+        if (event == NetworkEvent::Connected) {
+            wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkConnected);
+        } else if (event == NetworkEvent::Disconnected || event == NetworkEvent::WifiConfigModeEnter) {
+            wzh::NotifyOnboarding(wzh::OnboardingEvent::kNetworkLost);
+            controller_.SetConversationActive(false);
+        }
+        if (cloud_network_callback_)
+            cloud_network_callback_(event, data);
+    }
+
+    void SelectBootNetwork(bool use_cellular) {
+        if (power_.IsShuttingDown() || network_.load() != NetworkChoice::kProbing)
+            return;
+        if (boot_network_timer_) {
+            esp_timer_stop(boot_network_timer_);
+            esp_timer_delete(boot_network_timer_);
+            boot_network_timer_ = nullptr;
+        }
+        if (use_cellular && cellular_.IsReady()) {
+            network_.store(NetworkChoice::kCellular);
+            ForwardNetworkEvent(NetworkEvent::Connected, "4G");
+        } else {
+            network_.store(NetworkChoice::kWifi);
+            cellular_.SetPaused(true);
+            WifiManager::GetInstance().StartStation();
+        }
+    }
+#endif
     bool activated_ = false;
     i2c_master_bus_handle_t codec_i2c_bus_ = nullptr;
     Button boot_button_;
@@ -333,27 +453,33 @@ private:
     DinosaurDisplay display_;
 
     void InitializeSensors() {
-        sensors_.Initialize(HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
-                            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
-                                if (event == wzh::Sensors::Event::kPickedUp ||
-                                    event == wzh::Sensors::Event::kShaken) {
-                                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion))
-                                        return true;
-                                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
-                                }
-                                return controller_.HandleSensorEvent(static_cast<int>(event));
-                            });
+        sensors_.Initialize(
+            HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
+            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
+                if (event == wzh::Sensors::Event::kPickedUp ||
+                    event == wzh::Sensors::Event::kShaken) {
+                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion))
+                        return true;
+                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
+                }
+                const bool accepted = controller_.HandleSensorEvent(static_cast<int>(event));
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+                if (accepted || event == wzh::Sensors::Event::kHuman)
+                    wzh::NoteIdlePowerInteraction();
+#endif
+                return accepted;
+            });
         sensors_.RegisterMcpTools("dinosaur");
     }
 
     void InitializeTouch() {
-        power_.RegisterTouchHook([this](uint8_t code, uint8_t pressed, uint8_t) {
-            if (pressed) {
-                if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch))
-                    return;
+        power_.RegisterTouchHook([this](uint8_t code, uint8_t pressed, uint8_t released) {
+            const bool starts_contact = code != 0 && code == pressed && released == 0;
+            const bool captured =
+                starts_contact && wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch);
+            if (starts_contact && !captured)
                 wzh::NotifyOnboarding(wzh::OnboardingEvent::kTouch);
-            }
-            controller_.HandleTouch(code);
+            controller_.HandleTouch(code, starts_contact && !captured);
         });
     }
 

@@ -37,17 +37,18 @@ const char* StatusName(VoiceOperation op) {
     return "unknown";
 }
 }  // namespace
-bool VoiceWeb::Command(const std::string& action, const std::string& id, const std::string& name) {
+uint32_t VoiceWeb::Command(const std::string& action, const std::string& id,
+                           const std::string& name) {
     if (action != "list" && action != "select" && action != "rename" && action != "delete")
-        return false;
+        return 0;
     if (id.size() > 128 || name.size() > 48 || VoiceResetActive() ||
         Board::GetInstance().IsAudioMaintenanceActive() ||
         Application::GetInstance().IsVoiceEnrollmentActive() ||
         Application::GetInstance().IsExternalVoicePreviewActive())
-        return false;
+        return 0;
     bool expected = false;
     if (!busy_.compare_exchange_strong(expected, true))
-        return false;
+        return 0;
     std::lock_guard<std::mutex> lock(mutex_);
     cancelled_.store(false);
     action_ = action;
@@ -57,9 +58,16 @@ bool VoiceWeb::Command(const std::string& action, const std::string& id, const s
     if (xTaskCreate(TaskEntry, "voice_manage", 10240, this, 3, nullptr) != pdPASS) {
         status_ = "memory";
         busy_.store(false);
-        return false;
+        return 0;
     }
-    return true;
+    active_request_ = 0;
+    if (action == "list")
+        return 1;  // Internal refresh, with no result for a user action.
+    if (++next_request_ == 0)
+        ++next_request_;
+    active_request_ = next_request_;
+    results_[(active_request_ - 1) % results_.size()] = {active_request_, "busy"};
+    return active_request_;
 }
 bool VoiceWeb::Upload(uint8_t* data, size_t length) {
     if (!data || length < 2 || VoiceResetActive() ||
@@ -83,6 +91,7 @@ bool VoiceWeb::Upload(uint8_t* data, size_t length) {
     const size_t pcm_size = length - offset;
     std::memmove(data, data + offset, pcm_size);
     action_ = "create";
+    active_request_ = 0;
     name_ = std::move(name);
     id_.clear();
     data_ = data;
@@ -153,18 +162,45 @@ void VoiceWeb::Run() {
         if (listed == VoiceOperation::kOk || listed == VoiceOperation::kUncertain) {
             voices_ = std::move(list);
             have_list_ = true;
+        } else if (result == VoiceOperation::kOk && action == "rename") {
+            for (auto& voice : voices_)
+                if (voice.id == id)
+                    voice.name = name;
+        } else if (result == VoiceOperation::kOk && action == "delete") {
+            voices_.erase(std::remove_if(voices_.begin(), voices_.end(),
+                                         [&](const auto& voice) { return voice.id == id; }),
+                          voices_.end());
         }
         status_ = StatusName(result);
+        if (active_request_ != 0)
+            results_[(active_request_ - 1) % results_.size()].status = StatusName(result);
         busy_.store(false);
     }
 }
-void VoiceWeb::AddStatus(cJSON* out) {
+void VoiceWeb::AddStatus(cJSON* out, bool include_catalog) {
     std::lock_guard<std::mutex> lock(mutex_);
     cJSON_AddBoolToObject(out, "voice_management_busy", busy_.load());
     cJSON_AddBoolToObject(out, "voice_management_cancellable",
                           busy_.load() && action_ == "create" && !cancelled_.load());
     cJSON_AddStringToObject(out, "voice_management_status", status_.c_str());
     cJSON_AddBoolToObject(out, "voice_management_loaded", have_list_);
+    if (!include_catalog)
+        return;
+    if (auto* results = cJSON_AddArrayToObject(out, "voice_operations")) {
+        for (const auto& result : results_) {
+            if (!result.request)
+                continue;
+            auto* item = cJSON_CreateObject();
+            if (!item)
+                break;
+            if (!cJSON_AddNumberToObject(item, "request", result.request) ||
+                !cJSON_AddStringToObject(item, "status", result.status) ||
+                !cJSON_AddItemToArray(results, item)) {
+                cJSON_Delete(item);
+                break;
+            }
+        }
+    }
     cJSON* array = cJSON_AddArrayToObject(out, "voice_catalog");
     if (!array)
         return;

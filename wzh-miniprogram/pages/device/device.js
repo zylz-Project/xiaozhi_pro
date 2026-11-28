@@ -4,7 +4,7 @@ const products = require('../../services/products')
 const store = require('../../services/store')
 const fmt = require('../../utils/format')
 const audio = require('../../services/audio')
-const DEVICE_GUIDE_KEY = 'panda-guide-v1:'
+const phoneRecorder = require('../../services/phone_recorder')
 
 const FIXED = ['龙安欢', '龙安灵心', '龙安风悦', '许南川', '于小云', '温怀清']
 const THEME_LABEL = { milk: '奶糖', salt: '海盐', berry: '莓果', bamboo: '竹青' }
@@ -26,10 +26,10 @@ const RECORD_FAIL = {
 const GUIDE_STEPS = [
   { target: '.orb-wrap', title: '这是它的状态球', text: '待机、聆听、说话都会变。', state: 'collapsed' },
   { target: '.metrics', title: '一眼看状态', text: '电量、温度、网络，都是实时。', state: 'collapsed' },
-  { target: '.sheet-main .primary', title: '想聊就点这里', text: '和双击电源键一样。', state: 'collapsed' },
+  { target: '.sheet-main .primary', title: '和小熊猫打声招呼', text: '点「开始对话」，听听它联网后会说什么。', state: 'collapsed' },
   { target: '.voice-row', title: '声音都在这里', text: '点一下，打开完整控制台。', state: 'collapsed' },
   { target: '.con-head', title: '这是控制台', text: '设备、声音、网络和说明书都在这里。', state: 'expanded' },
-  { target: '.network-tile', title: '网络和信号', text: '点“更改”可以换 Wi-Fi。', state: 'expanded', panel: 'panel-device' },
+  { target: '.network-tile', title: '网络和信号', text: '点“配置”可以连接或更换 Wi-Fi。', state: 'expanded', panel: 'panel-device' },
   { target: '.fixed-rail', title: '先挑一个固定音色', text: '左右滑动，点一下就能切换。', state: 'expanded', panel: 'panel-sound' },
   { target: '.voice-lab', title: '声音实验室', text: '连续朗读一段话，或上传一段人声。', state: 'expanded', panel: 'panel-sound' },
   { target: '.clone-strip', title: '复刻音色', text: '点管理，可以改名或删除。', state: 'expanded', panel: 'panel-sound' },
@@ -39,6 +39,20 @@ const GUIDE_STEPS = [
   { target: '.con-manual', title: '完整说明书', text: '按键、配网、声音和恢复出厂都写了。', state: 'expanded' },
   { target: '.manual-close', title: '看完点 X', text: '回到控制台，接着玩。', state: 'expanded', manual: true },
   { target: '.con-close', title: '最后收起控制台', text: '回到状态球，随时再点开。', state: 'expanded', manual: false }
+]
+const ORB_NOTICE = {
+  '电池电量不足，暂时无法活动，请先充电。': '我的电量有点低，先帮我充会儿电吧。',
+  '设备温度过高，暂时无法活动，请等待冷却。': '我有点热，等我凉一会儿再玩吧。',
+  '动作暂时受保护，请将设备平稳放置后重试。': '我先歇一下，把我放平就好啦。',
+  '正在检查电池状态，动作暂未启动，请稍候。': '我在看看还有多少电，等我一下。'
+}
+
+const WIFI_GUIDE_STEPS = [
+  { target: '.handle', title: '展开详情栏', text: '点底部的拉手，打开设备控制台。' },
+  { target: '.net-change', title: '点击配置', text: '在网络卡片上打开配置。', panel: 'panel-device' },
+  { target: '.wifi-list', viewport: '.wifi-modal .modal-body', title: '选择网络', text: '从附近网络中选一个 2.4 GHz Wi-Fi。' },
+  { target: '.wifi-password', title: '输入密码', text: '输完 Wi-Fi 密码后，点键盘上的完成或收起键盘。' },
+  { target: '.wifi-modal .modal-foot .primary', title: '点击连接', text: '点“连接网络”，等待设备确认。' }
 ]
 const MANUAL_NAV = [
   { id: 'm-start', label: '快速上手' },
@@ -142,7 +156,7 @@ function faqFor(product) {
     { q: '小程序搜不到设备怎么办？', a: '确认玩具已开机、手机蓝牙已开启，并且距离在 1 米内。设备名称通常以 ' + devicePrefix + ' 的形式显示，后四位因设备而异；若仍搜不到，长按电源键关机再开机，然后在连接页点“重新扫描”。' },
     { q: '连接后很快断开？', a: '先确认手机没有同时连接其他蓝牙音频设备，并把手机靠近玩具，避免隔着墙或金属桌面。iOS 需要允许微信使用蓝牙权限。' },
     { q: '连不上家里的 Wi-Fi？', a: '设备支持 2.4GHz Wi-Fi。请确认路由器已开启 2.4GHz 和 DHCP，且没有开启 MAC 地址过滤；加密网络请检查密码。' },
-    { q: '设备离线还能用吗？', a: '可以。离线时仍能用蓝牙连接小程序查看状态和更改网络；云端对话、复刻音色和恢复出厂需要设备联网。' },
+    { q: '设备离线还能用吗？', a: '可以。离线时仍能用蓝牙连接小程序查看状态和更改网络；云端对话和复刻音色需要设备联网。有待清理的云端音色时，恢复出厂也需要联网。' },
     { q: '复刻音色失败？', a: '确认设备在线、环境安静、一个人连续说话 5–20 秒。提示“复刻音色已满”时，先在音色管理里删除一个再试。' },
     { q: '触摸没有反应？', a: '对话进行中触摸只驱动动作，不额外播放声音。若完全没反应，确认没有长时间按住多个触摸区，或重启设备再试。' },
     { q: '设备发热正常吗？', a: '舵机连续动作或边充边用会发热，属于正常现象。温度过高时设备会限制动作；请放在通风处，避免阳光直射。' },
@@ -199,18 +213,6 @@ function safeAreaBottom(info) {
   return Math.max(0, Math.round(h - safe.bottom))
 }
 
-function deviceGuideSeen(productId) {
-  try { return !!wx.getStorageSync(DEVICE_GUIDE_KEY + productId) } catch (e) { return true }
-}
-
-function markDeviceGuideSeen(productId) {
-  try { wx.setStorageSync(DEVICE_GUIDE_KEY + productId, true) } catch (e) {}
-}
-
-function clearDeviceGuideSeen(productId) {
-  try { wx.removeStorageSync(DEVICE_GUIDE_KEY + productId) } catch (e) {}
-}
-
 function pad(n) { return n < 10 ? '0' + n : '' + n }
 
 function stateCopy(online, state) {
@@ -218,6 +220,7 @@ function stateCopy(online, state) {
   switch (state) {
     case 'listening': return { sheet: '聆听中', cta: '结束对话', disabled: false }
     case 'speaking': return { sheet: '说话中', cta: '结束对话', disabled: false }
+    case 'activating': return { sheet: '正在联网', cta: '服务启动中…', disabled: true }
     case 'connecting': return { sheet: '连接中', cta: '连接中…', disabled: true }
     case 'offline': return { sheet: '离线', cta: '设备离线', disabled: true }
     default: return { sheet: '待机', cta: '开始对话', disabled: false }
@@ -265,6 +268,7 @@ Page({
     railScroll: 0,
     auditioning: false,
     voiceModal: false,
+    vmPrevious: '',
     vmCurrent: '龙安欢',
     vmCurrentInitial: '龙',
     vmConfirm: false,
@@ -277,6 +281,7 @@ Page({
     audioMode: 'record',
     audioRecording: false,
     audioRecordPending: false,
+    audioPhonePending: false,
     audioCreating: false,
     audioElapsed: 0,
     audioTime: '00:00',
@@ -316,7 +321,9 @@ Page({
     faqOpen: {},
     manualAnchor: '',
     guideOpen: false,
+    guideKind: '',
     guideStep: 0,
+    guideSaving: false,
     guideDots: GUIDE_STEPS.map(function (_, i) { return i }),
     guideCurrent: { title: '', text: '' },
     guideSpot: { left: 0, top: 0, width: 0, height: 0, radius: 18 },
@@ -358,7 +365,10 @@ Page({
     this._volumeTimer = null
     this._toastTimer = null
     this._auditionTimer = null
+    this._auditionRequest = 0
     this._wifiTimer = null
+    this._wifiScanRevision = 0
+    this._statusRevision = 0
     this._resetDoneResolve = null
     this._renaming = false
     this._leaving = false
@@ -423,6 +433,7 @@ Page({
   },
 
   onShow() {
+    this._guidePaused = false
     this.syncSafeBottom()
     if (this.client) {
       this.refreshStatus()
@@ -432,6 +443,8 @@ Page({
   },
 
   onHide() {
+    this._guidePaused = true
+    this.cancelPhoneRecording()
     if (this._guideAutoTimer) clearTimeout(this._guideAutoTimer)
     this._guideAutoTimer = null
     this.stopStatusTimer()
@@ -458,14 +471,17 @@ Page({
   },
 
   onUnload() {
+    this.cancelPhoneRecording()
     if (this._guideAutoTimer) clearTimeout(this._guideAutoTimer)
     this._guideAutoTimer = null
+    this._unloaded = true
     this.stopStatusTimer()
     this.stopRailDrift()
     if (this._recordTimer) clearInterval(this._recordTimer)
     if (this._volumeTimer) clearTimeout(this._volumeTimer)
     if (this._toastTimer) clearTimeout(this._toastTimer)
     if (this._auditionTimer) clearTimeout(this._auditionTimer)
+    this._auditionRequest = 0
     if (this._wifiTimer) clearTimeout(this._wifiTimer)
     if (this._railTimer) clearTimeout(this._railTimer)
     if (this.unsub) this.unsub()
@@ -483,26 +499,23 @@ Page({
     const runtimeMinutes = Number(s.runtimeMinutes || 0)
     const volume = Number(s.volume)
     const guide = s.onboarding && typeof s.onboarding === 'object' ? s.onboarding : null
-    const rawGuideCount = guide ? Number(guide.step_count) : 13
-    const guideStepCount = Number.isFinite(rawGuideCount) && rawGuideCount >= 1
-      ? fmt.clamp(Math.floor(rawGuideCount), 1, 13) : 13
-    const rawGuideNext = guide ? Number(guide.next_step) : 0
-    const guideNext = Number.isFinite(rawGuideNext) ? fmt.clamp(Math.floor(rawGuideNext), 0, guideStepCount) : 0
+    const wifi = raw && raw.wifi
+    const online = typeof raw?.online === 'boolean' ? raw.online
+      : typeof wifi?.connected === 'boolean' ? wifi.connected : s.online !== false
     return {
-      online: s.online !== false,
+      online,
+      wifiConfigured: typeof wifi?.configured === 'boolean' ? wifi.configured
+        : (s.wifiConfigured || online),
+      guide_done: s.guide_done === true ? true : s.guide_done === false ? false : null,
       state: s.state || 'idle',
       startupNotice: typeof s.startup_notice === 'string'
         ? s.startup_notice
         : (typeof s.startupNotice === 'string' ? s.startupNotice : ''),
       onboarding: guide ? {
         done: guide.done === true || guide.done === 1,
-        active: guide.active === true || guide.active === 1,
-        blocked: guide.blocked === true || guide.blocked === 1,
-        next_step: guideNext,
-        step_count: guideStepCount,
-        displayStep: Math.min(guideStepCount, guideNext + 1)
+        blocked: guide.blocked === true || guide.blocked === 1
       } : null,
-      battery: fmt.clamp(Number(s.battery != null ? s.battery : 0), 0, 100),
+      battery: typeof s.battery === 'number' ? fmt.clamp(s.battery, 0, 100) : null,
       charging: !!s.charging,
       // 真机上报的是浮点（51.79999…），界面只显示取整值；分级文案也在这里统一算。
       temp: fmt.formatTemp(s.temp != null ? s.temp : s.temperature),
@@ -530,8 +543,14 @@ Page({
     const copy = stateCopy(s.online, s.state)
     const app = getApp()
     if (app && app.globalData) app.globalData.lastStatus = s
+    if (raw && (typeof raw.online === 'boolean' || typeof raw.wifi?.connected === 'boolean')) this._guideStatusReady = true
+    // A completion already acknowledged by this device cannot become pending
+    // again within the same BLE session, even if an older status arrives late.
+    if (this._guideDone) s.guide_done = true
+    else if (s.guide_done === true) this._guideDone = true
     this.setData({
       status: s,
+      orbNotice: ORB_NOTICE[s.startupNotice] || s.startupNotice,
       deviceState: s.online ? s.state : 'offline',
       sheetState: copy.sheet,
       ctaLabel: s.onboarding && s.onboarding.blocked ? '请先完成使用教程' : copy.cta,
@@ -543,6 +562,13 @@ Page({
       wifiCurrentSub: s.online ? (s.band + ' · 已连接') : '未连接',
       // 状态球跟着设备的真实状态与音量走，而不是固定节奏地“演”。
       orbVars: this.orbVars(s)
+    }, () => {
+      if (this._wifiTarget && raw?.wifi?.provisioning === false && s.online &&
+          s.wifiConfigured && s.ssid === this._wifiTarget) {
+        this.finishWifiSetup(s.ssid)
+      } else {
+        this.scheduleFirstGuide()
+      }
     })
   },
 
@@ -562,6 +588,14 @@ Page({
     const dev = device || (this.client && this.client.device)
     if (!dev) return
     const product = products.detectProduct(dev)
+    const epoch = Number.isInteger(dev.guide_epoch) ? dev.guide_epoch : null
+    const identity = dev.identity || this.client?.deviceId
+    if (this._guideEpoch !== epoch || this._guideIdentity !== identity) {
+      this._guideDone = false
+      this._guideFirstChat = false
+      this._guideEpoch = epoch
+      this._guideIdentity = identity
+    }
     if (product) this.setData({ product: product })
     const fixed = this.voiceNames(dev.fixedVoices)
     if (fixed.length) this.setData({ fixedVoices: fixed })
@@ -598,6 +632,7 @@ Page({
       if (fixed.length) this.setData({ fixedVoices: fixed })
     }
     if (clones) this.applyClones(clones, capacity)
+    this.setData({ vmPrevious: payload.previousVoiceId || '' })
     if (payload.currentVoice) {
       this.setData({
         'status.currentVoice': payload.currentVoice,
@@ -611,13 +646,15 @@ Page({
   async refreshStatus() {
     if (!this.client || this._statusBusy) return
     this._statusBusy = true
+    const revision = this._statusRevision
     try {
       const status = await this.client.request('get_status')
-      if (status) {
-        // 固件的 latency 字段目前恒为 0，这里用一次 ping 的往返时间做真实值。
+      if (status && !this._leaving && revision === this._statusRevision) {
+        this.applyStatus(Object.assign({}, status, { latency: this.data.status.latency }))
         const rtt = await this.measureLatency()
-        if (rtt > 0) status.latency = rtt
-        this.applyStatus(status)
+        if (rtt > 0 && !this._leaving && revision === this._statusRevision) {
+          this.setData({ 'status.latency': rtt, 'status.latencyText': fmt.formatLatency(rtt) })
+        }
       }
     } catch (e) {
     } finally {
@@ -649,23 +686,13 @@ Page({
       this.applyStatus(data)
       if (data.clones) this.applyClones(data.clones, data.voiceCapacity)
     } else if (type === 'wifi_state' && data) {
-      if (data.state === 'connecting') {
-        this.setData({ wifiConnecting: true, wifiError: '' })
-      } else if (data.state === 'connected') {
-        if (this._wifiTimer) clearTimeout(this._wifiTimer)
-        this.setData({
-          wifiConnecting: false,
-          wifiModal: false,
-          wifiSelected: '',
-          wifiPassword: '',
-          wifiCurrent: data.ssid || this.data.wifiCurrent,
-          wifiCurrentSub: '2.4G · 已连接'
-        })
-        this.applyStatus(Object.assign({}, this.data.status, { online: true, ssid: data.ssid || this.data.status.ssid, band: '2.4G' }))
-        this.toast('网络已连接 · ' + (data.ssid || ''))
-      } else if (data.state === 'failed') {
-        if (this._wifiTimer) clearTimeout(this._wifiTimer)
+      if (data.state === 'connected') {
+        this.finishWifiSetup(data.ssid)
+      } else if (data.state === 'failed' && this._wifiTarget === data.ssid) {
+        clearTimeout(this._wifiTimer)
+        this._wifiTarget = ''
         this.setData({ wifiConnecting: false, wifiError: data.message || '连接失败，请检查密码' })
+        if (this.data.wifiNeedPassword) this.advanceWifiGuide(3, true)
       }
     } else if (type === 'voice_record' && data) {
       if (!this.data.audioRecordPending) return
@@ -682,7 +709,7 @@ Page({
         }
       } else if (status === 'processing') {
         const reason = String(data.reason || '')
-        this.setData({ audioRecording: false, audioRecordStatus: '录音完成，正在处理…', audioProgress: 100,
+        this.setData({ audioRecording: false, audioRecordCancellable: false, audioRecordStatus: '录音完成，正在处理…', audioProgress: 100,
           audioError: RECORD_FAIL[reason] || '' })
         this.stopRecordClock()
       } else if (status === 'success') {
@@ -715,9 +742,8 @@ Page({
       }
     } else if (type === 'disconnected') {
       if (this.data.resetting && this._resetDoneResolve) {
-        this._resetDoneResolve({ ok: true })
+        this._resetDoneResolve({ ok: false, message: '蓝牙已断开，恢复结果未确认。请重新连接查看。' })
         this._resetDoneResolve = null
-        // 恢复出厂重启会主动断开蓝牙，这是预期行为，不要当成异常掉线。
         return
       }
       if (this._leaving) return
@@ -790,13 +816,13 @@ Page({
 
   closeToyPicker() { this.setData({ toyPickerOpen: false }) },
 
-  chooseToy(e) {
+  async chooseToy(e) {
     const id = e.currentTarget.dataset.id
-    if (!id) return
+    if (!id || this._leaving) return
     store.setToy(id)
     this.setData({ toyPickerOpen: false })
     this._leaving = true
-    if (this.client) { try { this.client.close() } catch (err) {} }
+    if (this.client) { try { await this.client.close() } catch (err) {} }
     const app = getApp()
     if (app && app.clearBle) app.clearBle()
     wx.reLaunch({ url: '/pages/connect/connect?toy=' + id })
@@ -808,6 +834,7 @@ Page({
     this.setData({ expanded: expanded, railPaused: false, scrollIntoView: '', assistDim: false }, () => {
       this.syncRailDrift()
       if (expanded) this.measureConsoleView()
+      if (expanded) this.advanceWifiGuide(1)
     })
   },
 
@@ -843,102 +870,177 @@ Page({
 
 
   scheduleFirstGuide() {
-    const productId = this.data.product && this.data.product.id
-    if (!this._guideReady || !this.client || !productId || this._leaving ||
-        this._guideAutoTimer || this.data.guideOpen || deviceGuideSeen(productId)) return
+    if (!this._guideReady || !this._guideStatusReady || !this.client || this._leaving ||
+        this._guidePaused || this._guideAutoTimer || this.data.guideOpen ||
+        this.data.wifiModal || this.data.wifiConnecting) return
+    const pending = this.firstGuideKind()
+    if (!pending) return
     this._guideAutoTimer = setTimeout(() => {
       this._guideAutoTimer = null
-      if (!this.client || this._leaving || this.data.guideOpen) return
-      if (!this.data.product || this.data.product.id !== productId) return this.scheduleFirstGuide()
-      if (deviceGuideSeen(productId) || this.data.wifiModal || this.data.resetModal ||
-          this.data.audioModal || this.data.manualOpen) return
-      this.openGuide()
-    }, 900)
+      if (this._leaving || this._guidePaused || this.data.guideOpen || this.data.wifiModal ||
+          this.data.resetModal || this.data.audioModal || this.data.manualOpen) return
+      const kind = this.firstGuideKind()
+      if (kind) this.startDeviceGuide(kind, kind === 'wifi' && this.data.expanded ? 1 : 0)
+    }, 350)
+  },
+
+  firstGuideKind() {
+    const status = this.data.status
+    if (!status.wifiConfigured && !status.online) return 'wifi'
+    if (!status.online || this._guideDone || status.guide_done === true) return ''
+    // Older firmwares only report whether their first-use narration is complete.
+    const unfinished = status.guide_done === false || (status.onboarding && !status.onboarding.done)
+    return unfinished ? 'first' : ''
   },
 
   openGuide() {
+    this.startDeviceGuide('replay', 0)
+  },
+
+  guideSteps() {
+    return this.data.guideKind === 'wifi' ? WIFI_GUIDE_STEPS : GUIDE_STEPS
+  },
+
+  startDeviceGuide(kind, index) {
+    const steps = kind === 'wifi' ? WIFI_GUIDE_STEPS : GUIDE_STEPS
     this._guidePending = null
+    this._guideRevision = (this._guideRevision || 0) + 1
     this.setData({
       guideOpen: true,
-      guideStep: 0,
-      guideCurrent: { title: GUIDE_STEPS[0].title, text: GUIDE_STEPS[0].text },
+      guideKind: kind,
+      guideDots: steps.map((_, i) => i),
+      guideStep: index,
+      guideSaving: false,
+      guideCurrent: { title: steps[index].title, text: steps[index].text },
       guideSpot: { left: 0, top: 0, width: 0, height: 0, radius: 18 },
       guideBubble: { place: 'below', style: 'opacity:0' },
       guideHide: false,
       manualOpen: false,
-      expanded: false,
+      expanded: kind === 'wifi' && index > 0,
       scrollIntoView: ''
-    }, () => { this.syncRailDrift(); setTimeout(() => this.showGuideStep(0), 120) })
+    }, () => { this.syncRailDrift(); this.showGuideStep(index) })
   },
 
   showGuideStep(index) {
-    const step = GUIDE_STEPS[index]
+    const step = this.guideSteps()[index]
     if (!step) return this.closeGuide()
     // 等上一步测量完成再切换，避免卡片/聚光灯停在旧位置造成残影。
     if (this._guidePending !== undefined && this._guidePending !== null) return
     this._guidePending = index
-    const patch = { scrollIntoView: step.panel || '' }
+    const revision = this._guideRevision
+    const patch = { scrollIntoView: step.panel || '', guideHide: true }
     if (step.state === 'expanded') patch.expanded = true
     if (step.state === 'collapsed') patch.expanded = false
     if (step.manual === true) patch.manualOpen = true
     if (step.manual === false) patch.manualOpen = false
-    // 展开/收起控制台或开关说明书时，先收起气泡与高亮（整屏均匀变暗），布局稳定后再一次性出现。
-    if (patch.expanded !== undefined && patch.expanded !== this.data.expanded) patch.guideHide = true
-    if (patch.manualOpen !== undefined && patch.manualOpen !== this.data.manualOpen) patch.guideHide = true
-    if (patch.guideHide) patch.guideSpot = { left: -40, top: -40, width: 0, height: 0, radius: 0 }
     this.setData(patch, () => {
       this.syncRailDrift()
-      setTimeout(() => this.measureGuide(index), step.state === 'expanded' ? 560 : 380)
+      setTimeout(() => this.measureGuide(index, revision), step.state === 'expanded' ? 560 : 380)
     })
   },
 
-  measureGuide(index) {
-    const step = GUIDE_STEPS[index]
+  measureGuide(index, revision) {
+    if (revision !== this._guideRevision) return
+    const step = this.guideSteps()[index]
     if (!this.data.guideOpen || !step) { this._guidePending = null; return }
     const query = wx.createSelectorQuery()
     query.select('.phone').boundingClientRect()
     query.select(step.target).boundingClientRect()
+    if (step.viewport) query.select(step.viewport).boundingClientRect()
     query.exec((res) => {
+      if (revision !== this._guideRevision) return
       if (!this.data.guideOpen) { this._guidePending = null; return }
       const phone = res && res[0]
       const rect = res && res[1]
+      const viewport = (res && res[2]) || phone
       const vw = (phone && phone.width) || 390
       const vh = (phone && phone.height) || 700
-      const spot = rect ? {
-        left: Math.max(0, rect.left - 6),
-        top: Math.max(0, rect.top - 6),
-        width: Math.min(vw, rect.width + 12),
-        height: Math.min(vh, rect.height + 12),
-        radius: step.round ? 999 : 18
-      } : { left: vw / 2 - 60, top: vh / 2 - 40, width: 120, height: 80, radius: 18 }
-      const bw = Math.min(300, vw - 28)
-      const below = spot.top + spot.height / 2 < vh * 0.56
-      const left = Math.max(14, Math.min(spot.left + spot.width / 2 - bw / 2, vw - bw - 14))
-      const style = below
-        ? 'left:' + left + 'px;top:' + (spot.top + spot.height + 14) + 'px;width:' + bw + 'px'
-        : 'left:' + left + 'px;bottom:' + Math.max(14, vh - spot.top + 14) + 'px;width:' + bw + 'px'
-      // 聚光灯、气泡位置、标题正文一次性换到新目标（没有任何过渡），不留旧框。
+      const originX = (phone && phone.left) || 0
+      const originY = (phone && phone.top) || 0
+      const leftEdge = rect ? Math.max(0, rect.left - originX - 5) : 0
+      const topEdge = rect ? Math.max(0, rect.top - originY - 5, (viewport?.top || 0) - originY) : 0
+      const bottomEdge = rect ? Math.min(vh, rect.top + rect.height - originY + 5,
+        viewport?.bottom == null ? vh : viewport.bottom - originY) : 0
+      const spot = {
+        left: leftEdge,
+        top: topEdge,
+        width: rect ? Math.max(0, Math.min(vw - leftEdge, rect.width + 10)) : 0,
+        height: Math.max(0, bottomEdge - topEdge),
+        radius: 12
+      }
+      const hasSpot = spot.width > 0 && spot.height > 0
+      const bw = Math.min(304, vw - 32)
+      const topSpace = spot.top
+      const bottomSpace = vh - bottomEdge
+      const below = bottomSpace >= 176 || bottomSpace >= topSpace
+      const center = hasSpot ? spot.left + spot.width / 2 : vw / 2
+      const left = Math.max(16, Math.min(center - bw / 2, vw - bw - 16))
+      const arrow = Math.max(18, Math.min(center - left, bw - 18))
+      const placement = !hasSpot ? 'top:' + Math.max(24, Math.floor(vh * 0.20)) + 'px'
+        : below ? 'top:' + (bottomEdge + 10) + 'px'
+          : 'bottom:' + (vh - spot.top + 10) + 'px'
+      const style = 'left:' + left + 'px;width:' + bw + 'px;--pg-arrow:' + arrow + 'px;' + placement
       this._guidePending = null
       this.setData({
         guideStep: index,
         guideCurrent: { title: step.title, text: step.text },
         guideSpot: { left: spot.left, top: spot.top, width: spot.width, height: spot.height, radius: spot.radius },
-        guideBubble: { place: below ? 'below' : 'above', style: style },
+        guideBubble: { place: !hasSpot ? '' : below ? 'below' : 'above', style: style },
         guideHide: false
       })
     })
   },
 
   nextGuide() {
-    if (this._guidePending !== undefined && this._guidePending !== null) return
-    if (this.data.guideStep + 1 >= GUIDE_STEPS.length) return this.closeGuide()
-    this.showGuideStep(this.data.guideStep + 1)
+    if (this._guidePending != null || this.data.guideSaving) return
+    if (this.data.guideKind === 'wifi' || this.waitingForFirstChat()) return
+    const next = this.data.guideStep + 1
+    if (next >= GUIDE_STEPS.length) return this.closeGuide()
+    this.showGuideStep(next)
   },
 
-  closeGuide() {
+  async closeGuide() {
+    const kind = this.data.guideKind
+    if (this.data.guideSaving || !this.data.guideOpen) return
+    if (kind === 'first' && this.data.status.guide_done === false && Number.isInteger(this._guideEpoch)) {
+      this.setData({ guideSaving: true })
+      try {
+        await this.client.request('guide_complete', { epoch: this._guideEpoch })
+        if (this._unloaded || this._leaving) return
+        this._guideDone = true
+        this.setData({ 'status.guide_done': true })
+      } catch (e) {
+        if (this._unloaded || this._leaving) return
+        this.setData({ guideSaving: false })
+        this.toast(e.message || '保存使用引导失败，请重试')
+        this.refreshStatus()
+        return
+      }
+    }
+    if (kind !== 'replay') this._guidePaused = true
+    this.dismissGuide(kind !== 'wifi')
+  },
+
+  dismissGuide(collapse = false) {
+    this._guideRevision = (this._guideRevision || 0) + 1
     this._guidePending = null
-    if (this.data.guideOpen && this.data.product) markDeviceGuideSeen(this.data.product.id)
-    this.setData({ guideOpen: false, expanded: false, manualOpen: false, scrollIntoView: '' }, () => this.syncRailDrift())
+    const patch = { guideOpen: false, guideKind: '', guideSaving: false, manualOpen: false, scrollIntoView: '' }
+    if (collapse) patch.expanded = false
+    this.setData(patch, () => this.syncRailDrift())
+  },
+
+  waitingForFirstChat() {
+    const s = this.data.status
+    return this.data.guideKind === 'first' && this.data.guideStep === 2 &&
+      !this._guideFirstChat && s.onboarding && !s.onboarding.done &&
+      (s.state !== 'listening' && s.state !== 'speaking')
+  },
+
+  advanceWifiGuide(index, rewind = false) {
+    if (this.data.guideKind !== 'wifi' || (!rewind && index <= (this._guidePending ?? this.data.guideStep))) return
+    this._guideRevision++
+    this._guidePending = null
+    this.showGuideStep(index)
   },
 
   noop() {},
@@ -975,34 +1077,71 @@ Page({
   onPrimary() {
     if (this.data.ctaDisabled) return
     const idle = this.data.status.state === 'idle' || this.data.status.state === 'offline'
-    const next = idle ? 'speaking' : 'idle'
+    const firstChat = idle && this.waitingForFirstChat()
+    const next = idle ? 'connecting' : 'idle'
     const prev = this.data.status.state
     this.applyStatus(Object.assign({}, this.data.status, { state: next }))
     if (!this.client) return
     this.client.request(idle ? 'chat_start' : 'chat_stop', {}).then(() => {
+      if (firstChat && this.data.guideKind === 'first' && this.data.guideStep === 2) {
+        this._guideFirstChat = true
+        this.showGuideStep(3)
+      }
       setTimeout(() => this.refreshStatus(), 700)
-    }).catch(() => {
+    }).catch(err => {
       this.applyStatus(Object.assign({}, this.data.status, { state: prev }))
-      this.toast('设备暂不支持语音会话控制')
+      this.toast(err.message || '设备暂不支持语音会话控制')
     })
   },
 
   onTryVoice() {
-    if (this.data.auditioning) return
-    const name = this.data.status.currentVoice
-    this.setData({ auditioning: true })
-    if (this._auditionTimer) clearTimeout(this._auditionTimer)
-    if (!this.client) {
-      this.setData({ auditioning: false })
-      return this.toast('设备未连接')
+    const client = this.client
+    if (!client) return this.toast('设备未连接')
+    if (this.data.auditioning) {
+      if (!this._auditionRequest) return
+      client.request('audition_stop', { request: this._auditionRequest }).catch(err => {
+        if (!this._leaving && this.data.auditioning) this.toast(err.message || '停止试听失败')
+      })
+      return
     }
-    this.client.request('audition', { name: name }).then(() => {
+    const name = this.data.status.currentVoice
+    if (name === '小智原声') {
+      return this.toast('开始对话即可听到小智原声')
+    }
+    this.setData({ auditioning: true })
+    client.request('audition', { name: name }).then(result => {
+      if (this._leaving || client !== this.client) return
       this.toast('正在试听 · ' + name)
-      this._auditionTimer = setTimeout(() => this.setData({ auditioning: false }), 1600)
+      if (!result || !result.request) {
+        this._auditionTimer = setTimeout(() => this.finishAudition(), 1600)
+        return
+      }
+      this._auditionRequest = result.request
+      this.pollAudition(client, result.request, Date.now() + 60000)
     }).catch(err => {
-      this.setData({ auditioning: false })
-      this.toast(err.message || '试听失败')
+      if (!this._leaving) this.finishAudition(err.message || '试听失败')
     })
+  },
+
+  pollAudition(client, request, deadline) {
+    if (this._leaving || client !== this.client || this._auditionRequest !== request) return
+    if (Date.now() >= deadline) return this.finishAudition('未收到试听结果')
+    client.request('audition_status', {}).then(result => {
+      if (this._leaving || this._auditionRequest !== request) return
+      if (result.request !== request) return this.finishAudition('试听已结束')
+      if (result.status === 'complete') return this.finishAudition()
+      if (result.status === 'cancelled') return this.finishAudition('已停止试听')
+      if (result.status === 'failed') return this.finishAudition('试听失败，请重试')
+      this._auditionTimer = setTimeout(() => this.pollAudition(client, request, deadline), 800)
+    }).catch(() => {
+      if (!this._leaving && this._auditionRequest === request) this.finishAudition('未收到试听结果')
+    })
+  },
+
+  finishAudition(message) {
+    this._auditionRequest = 0
+    this.setData({ auditioning: false })
+    if (message) this.toast(message)
   },
 
   onSelectVoice(e) {
@@ -1128,9 +1267,12 @@ Page({
   },
 
   openWifi() {
+    this._wifiKeyboardShown = false
     this.setData({
       wifiModal: true,
       wifiScanning: false,
+      wifiList: [],
+      guideHide: this.data.guideKind === 'wifi',
       wifiSelected: '',
       wifiNeedPassword: false,
       wifiPassword: '',
@@ -1138,24 +1280,57 @@ Page({
       wifiFocus: false,
       wifiCurrent: this.data.status.ssid || '',
       wifiCurrentSub: this.data.status.online ? (this.data.status.band + ' · 已连接') : '未连接'
-    })
-    this.scanWifi()
+    }, () => this.scanWifi())
   },
 
   closeWifi() {
-    if (this._wifiTimer) clearTimeout(this._wifiTimer)
-    this.setData({ wifiModal: false, wifiConnecting: false, wifiFocus: false })
+    if (this.data.wifiConnecting) return
+    this._wifiKeyboardShown = false
+    this._wifiScanRevision = (this._wifiScanRevision || 0) + 1
+    this.setData({ wifiModal: false, wifiScanning: false, wifiFocus: false }, () => {
+      this.advanceWifiGuide(1, true)
+      this.scheduleFirstGuide()
+    })
+  },
+
+  finishWifiSetup(ssid) {
+    if (!this._wifiTarget || (ssid && this._wifiTarget !== ssid)) return
+    ssid = ssid || this._wifiTarget
+    const firstSetup = this.data.guideKind === 'wifi' || this._wifiFirstSetup
+    this._wifiTarget = ''
+    this._statusRevision = (this._statusRevision || 0) + 1
+    this._wifiScanRevision = (this._wifiScanRevision || 0) + 1
+    clearTimeout(this._wifiTimer)
+    if (firstSetup) this._guidePaused = false
+    if (this.data.guideKind === 'wifi') this.dismissGuide(true)
+    this.setData({
+      wifiConnecting: false,
+      wifiScanning: false,
+      wifiModal: false,
+      wifiSelected: '',
+      wifiPassword: '',
+      wifiFocus: false,
+      wifiError: '',
+      expanded: firstSetup ? false : this.data.expanded
+    }, () => {
+      this.applyStatus({ online: true, wifi: { configured: true }, ssid, band: '2.4G' })
+      this.refreshStatus()
+    })
+    this.toast('网络已连接 · ' + ssid)
   },
 
   async scanWifi() {
-    if (this.data.wifiScanning || !this.client) return
+    if (this.data.wifiScanning || this.data.wifiConnecting || !this.client) return
+    const revision = (this._wifiScanRevision || 0) + 1
+    this._wifiScanRevision = revision
     this.setData({ wifiScanning: true, wifiError: '' })
     try {
       const raw = await this.client.request('wifi_scan', {}, 16000)
+      if (this._unloaded || revision !== this._wifiScanRevision) return
       const networks = Array.isArray(raw) ? raw : ((raw && raw.networks) || [])
       // Keep all reported networks visible. Prefer a connectable 2.4 GHz
       // radio for dual-band APs that share the same SSID.
-      const bySsid = {}
+      const bySsid = Object.create(null)
       networks.forEach(item => {
         if (!item || !item.ssid) return
         const band = item.band || '2.4G'
@@ -1178,8 +1353,13 @@ Page({
       })
       const list = Object.keys(bySsid).map(k => bySsid[k])
       list.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.rssi - a.rssi)
-      this.setData({ wifiList: list, wifiScanning: false })
+      this.setData({ wifiList: list, wifiScanning: false }, () => {
+        if (this.data.wifiModal && list.some(item => item.supported) && !this.data.wifiSelected) {
+          this.advanceWifiGuide(2, true)
+        }
+      })
     } catch (e) {
+      if (this._unloaded || revision !== this._wifiScanRevision) return
       this.setData({ wifiScanning: false, wifiError: e.message || '扫描 Wi-Fi 失败' })
     }
   },
@@ -1187,47 +1367,73 @@ Page({
   selectWifi(e) {
     const ssid = e.currentTarget.dataset.ssid
     const item = this.data.wifiList.find(w => w.ssid === ssid)
-    if (!item) return
+    if (!item || this.data.wifiConnecting) return
     if (item.band === '5G') {
       this.setData({ wifiError: '设备仅支持 2.4GHz，请选择 2.4G 网络' })
       return
     }
+    this._wifiKeyboardShown = false
     this.setData({
       wifiSelected: ssid,
       wifiNeedPassword: item.secure,
       wifiPassword: '',
-      wifiFocus: item.secure,
+      wifiFocus: item.secure && this.data.guideKind !== 'wifi',
       wifiError: ''
-    })
+    }, () => this.advanceWifiGuide(item.secure ? 3 : 4, true))
     if (!item.secure) {
       setTimeout(() => this.setData({ wifiFocus: false }), 200)
     }
   },
 
   onWifiPassword(e) {
-    this.setData({ wifiPassword: e.detail.value || '' })
+    const password = e.detail.value || ''
+    this.setData({ wifiPassword: password })
+    if ((this._guidePending ?? this.data.guideStep) === 4) this.advanceWifiGuide(3, true)
+  },
+
+  onWifiPasswordDone(e) {
+    if (!this.data.wifiModal || !this.data.wifiNeedPassword || this.data.wifiConnecting) return
+    const value = e && e.detail && e.detail.value
+    const password = typeof value === 'string' ? value : this.data.wifiPassword
+    this._wifiKeyboardShown = false
+    this.setData({ wifiPassword: password, wifiFocus: false })
+    if (password.length >= 8) this.advanceWifiGuide(4)
+  },
+
+  onWifiKeyboardHeight(e) {
+    if (!this.data.wifiModal || !this.data.wifiNeedPassword) return
+    const height = e.detail.height
+    if (height > 0) this._wifiKeyboardShown = true
+    else if (height === 0 && this._wifiKeyboardShown) this.onWifiPasswordDone()
   },
 
   async connectWifi() {
-    if (this.data.wifiConnecting) return
+    if (this.data.wifiConnecting || !this.client) return
     const ssid = this.data.wifiSelected
     if (!ssid) return this.setData({ wifiError: '请选择一个 Wi-Fi' })
     if (this.data.wifiNeedPassword && this.data.wifiPassword.length < 8) {
       return this.setData({ wifiError: 'Wi-Fi 密码至少 8 位' })
     }
-    this.setData({ wifiConnecting: true, wifiError: '' })
+    this._wifiTarget = ssid
+    this._wifiFirstSetup = !this.data.status.wifiConfigured
+    this.setData({ wifiConnecting: true, wifiError: '', guideHide: this.data.guideKind === 'wifi' })
     try {
       await this.client.request('wifi_connect', { ssid: ssid, password: this.data.wifiPassword })
-      if (this._wifiTimer) clearTimeout(this._wifiTimer)
-      // Firmware waits 20 s (40 x 500 ms) before reporting failure; keep the
-      // local fallback slightly longer so its wifi_state event wins the race.
-      this._wifiTimer = setTimeout(() => {
-        if (this.data.wifiConnecting) {
+      if (this._unloaded || this._wifiTarget !== ssid) return
+      // Allow time for DHCP, credential persistence and station rollback.
+      this._wifiTimer = setTimeout(async () => {
+        await this.refreshStatus()
+        if (this._wifiTarget === ssid) {
+          this._wifiTarget = ''
           this.setData({ wifiConnecting: false, wifiError: '设备响应超时，请重试' })
+          this.advanceWifiGuide(this.data.wifiNeedPassword ? 3 : 4, true)
         }
-      }, 22000)
+      }, 26000)
     } catch (e) {
+      if (this._unloaded || this._wifiTarget !== ssid) return
+      this._wifiTarget = ''
       this.setData({ wifiConnecting: false, wifiError: e.message || '连接失败，请检查密码' })
+      this.advanceWifiGuide(this.data.wifiNeedPassword ? 3 : 4, true)
     }
   },
 
@@ -1245,6 +1451,20 @@ Page({
 
   closeVoiceManager() {
     this.setData({ voiceModal: false, vmConfirm: false, editingId: '', vmError: '' })
+  },
+
+  async onRestoreVoice() {
+    if (!this.client || !this.data.vmPrevious || this._restoringVoice) return
+    this._restoringVoice = true
+    try {
+      const voices = await this.client.request('voice_restore', {})
+      this.applyVoiceList(voices)
+      this.toast('已切换到上一个音色')
+    } catch (e) {
+      this.toast(e.message || '切换音色失败')
+    } finally {
+      this._restoringVoice = false
+    }
   },
 
   onVmUse(e) {
@@ -1370,24 +1590,80 @@ Page({
   },
 
   switchAudioTab(e) {
-    if (this.data.audioRecordPending) return this.toast('录音仍在进行，请稍候')
+    if (this.data.audioRecordPending || this.data.audioPhonePending || this.data.audioCreating) {
+      return this.toast('声音任务仍在进行，请稍候')
+    }
     const mode = e.currentTarget.dataset.mode
     this.setData({
       audioMode: mode,
       audioError: '',
       audioHint: mode === 'record'
         ? '请在提示后连续清晰朗读 10–15 秒，玩具最多录 20 秒。'
-        : '仅支持 WAV，5–20 秒；上传后会转成 16kHz 单声道。'
+        : (mode === 'phone' ? '允许使用手机麦克风后，录制 5–20 秒。'
+          : '仅支持 WAV，5–20 秒；上传后会转成 16kHz 单声道。')
     })
   },
 
   onAudioPrimary() {
     if (this.data.audioMode === 'record') this.startRecord()
+    else if (this.data.audioMode === 'phone') this.togglePhoneRecording()
     else this.createVoice()
   },
 
   toggleRecord() {
-    this.startRecord()
+    if (this.data.audioMode === 'phone') this.togglePhoneRecording()
+    else this.startRecord()
+  },
+
+  togglePhoneRecording() {
+    if (this.data.audioRecording && this._phoneRecording) {
+      this._phoneRecording.stop()
+      return
+    }
+    if (this.data.audioPhonePending || this.data.audioRecordPending || this.data.audioCreating) return
+    if (!this.client) return this.setData({ audioError: '设备未连接' })
+    if (this.mock) {
+      this.setData({ audioMode: 'upload', audioDone: true, audioFileName: '手机录音.wav',
+        audioFile: 'mock://phone.wav', audioFileInfo: '6 秒 · 演示录音' })
+      return
+    }
+    this.setData({ audioPhonePending: true, audioElapsed: 0, audioTime: '00:00', audioProgress: 0,
+      audioError: '', audioRecordStatus: '正在启动手机麦克风…' })
+    try {
+      this._phoneRecording = phoneRecorder.start({
+        onStart: () => {
+          this.setData({ audioRecording: true, audioRecordStatus: '正在录音，至少说 5 秒' })
+          this.startRecordClock()
+        },
+        onStop: result => {
+          this.cancelPhoneRecording()
+          if (!result || !result.tempFilePath || Number(result.duration) < 5000) {
+            this.setData({ audioError: '录音不足 5 秒，请重新录制' })
+            return
+          }
+          this.setData({ audioMode: 'upload', audioDone: true, audioFile: result.tempFilePath,
+            audioFileName: '手机录音.wav', audioFileInfo: '录音已就绪，点击生成音色上传到玩具' })
+        },
+        onError: err => {
+          this.cancelPhoneRecording()
+          const message = (err && err.errMsg) || ''
+          this.setData({ audioError: /auth|permission|denied/i.test(message)
+            ? '请在小程序设置中允许使用麦克风' : (message || '手机录音失败，请重试') })
+        }
+      })
+    } catch (err) {
+      this.cancelPhoneRecording()
+      this.setData({ audioError: err.message || '手机录音暂不可用' })
+    }
+  },
+
+  cancelPhoneRecording() {
+    if (this._phoneRecording) this._phoneRecording.cancel()
+    this._phoneRecording = null
+    if (!this.data.audioPhonePending) return
+    this.stopRecordClock()
+    this.setData({ audioPhonePending: false, audioRecording: false,
+      audioRecordStatus: '点击“开始录制”，按提示连续说话' })
   },
 
   startRecord() {
@@ -1398,8 +1674,10 @@ Page({
     this._recordPolling = false
     this._recordPollGeneration = (this._recordPollGeneration || 0) + 1
     this._recordPhaseRank = 0
+    this._recordRequest = 0
     this.setData({
       audioRecordPending: true,
+      audioRecordCancellable: false,
       audioRecording: false,
       audioElapsed: 0,
       audioTime: '00:00',
@@ -1411,6 +1689,8 @@ Page({
     this.client.request('voice_record', { name: name, statusPoll: true }).then(res => {
       if (!res || !res.accepted) throw new Error('设备没有开始录音')
       if (this.data.audioRecordPending) {
+        this._recordRequest = Number.isInteger(res.request) && res.request > 0 ? res.request : 0
+        this.setData({ audioRecordCancellable: this._recordRequest > 0 })
         this._recordPolling = true
         this.pollDeviceRecord()
       }
@@ -1426,12 +1706,30 @@ Page({
     })
   },
 
+  async cancelDeviceRecord() {
+    if (!this.client || !this._recordRequest || !this.data.audioRecordPending ||
+        !this.data.audioRecordCancellable || this._recordCancelPending) return
+    this._recordCancelPending = true
+    const generation = this._recordPollGeneration
+    try {
+      await this.client.request('voice_record_cancel', { request: this._recordRequest })
+      if (generation === this._recordPollGeneration) this.pollDeviceRecord()
+    } catch (e) {
+      if (generation === this._recordPollGeneration) {
+        this.setData({ audioError: e.message || '取消请求未确认，请查看录音状态' })
+      }
+    } finally {
+      this._recordCancelPending = false
+    }
+  },
+
   pollDeviceRecord() {
     if (!this.client || !this._recordPolling || this._recordPollInFlight) return
     const generation = this._recordPollGeneration
     this._recordPollInFlight = true
     this.client.request('voice_record_status', {}).then(data => {
-      if (generation === this._recordPollGeneration && this.data.audioRecordPending && data) {
+      if (generation === this._recordPollGeneration && this.data.audioRecordPending && data &&
+          (!this._recordRequest || data.request === this._recordRequest)) {
         this.onBleEvent('voice_record', Object.assign({ name: this.data.audioName }, data))
       }
     }).catch(err => {
@@ -1459,7 +1757,7 @@ Page({
     })
     if (elapsed >= 20) {
       this.stopRecordClock()
-      this.setData({ audioRecordStatus: '等待玩具确认录音状态…' })
+      this.setData({ audioRecordStatus: this.data.audioPhonePending ? '正在结束手机录音…' : '等待玩具确认录音状态…' })
     }
   },
 
@@ -1583,6 +1881,7 @@ Page({
   cancelAudio() {
     if (this.data.audioCreating) return this.toast('正在生成，请稍候')
     if (this.data.audioRecordPending) return this.setData({ audioModal: false })
+    this.cancelPhoneRecording()
     this.stopRecordClock()
     this.setData({ audioModal: false, audioRecording: false, audioRecordPending: false })
   },
@@ -1616,9 +1915,8 @@ Page({
         })
       ])
       if (!outcome || !outcome.ok) {
-        throw new Error(outcome && outcome.timeout ? '设备未确认恢复完成，请重试' : (outcome.message || '恢复失败，请重试'))
+        throw new Error(outcome && outcome.timeout ? '设备仍在处理或连接已断开，请重新连接查看结果' : (outcome.message || '恢复失败，请重试'))
       }
-      if (this.data.product) clearDeviceGuideSeen(this.data.product.id)
       this._leaving = true
       this.setData({ resetModal: false, resetting: false, resetStage: '' })
       this.toast('已恢复出厂设置')

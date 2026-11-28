@@ -1,7 +1,7 @@
 #include "dinosaur_controller.h"
 #include "wzh_body_commands.h"
-#include "wzh_pet_feedback.h"
 #include "wzh_onboarding.h"
+#include "wzh_pet_feedback.h"
 #include "wzh_startup_greeting.h"
 #include "wzh_system_prompts.h"
 
@@ -22,6 +22,7 @@
 #include "config.h"
 #include "dinosaur_audio.h"
 #include "mcp_server.h"
+#include "wzh_conversation_touch.h"
 #include "wzh_sensors.h"
 
 #define TAG "DinosaurMotion"
@@ -1496,9 +1497,12 @@ void DinosaurController::SetPose(const Pose& requested) {
     const auto pet_state = pet_.Get(esp_timer_get_time() / 1000);
     const bool commanded =
         request_active_.load() && running_priority_.load() == wzh::PetPriority::kExplicit;
-    const bool talking = (speaking_.load() || speech_tail_.load() ||
-                          wzh::IsOnboardingVoiceMotionActive()) && pet_state.motion &&
-                         !shutdown_requested_.load() && !servo_test_active_ &&
+    bool prompt_voice = wzh::IsOnboardingVoiceMotionActive();
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+    prompt_voice = prompt_voice || wzh::IsIdleReminderVoiceActive();
+#endif
+    const bool talking = (speaking_.load() || speech_tail_.load() || prompt_voice) &&
+                         pet_state.motion && !shutdown_requested_.load() && !servo_test_active_ &&
                          !commanded && audio_ != nullptr;
     const auto voice = audio_ != nullptr ? audio_->GetTtsMotionData() : DinoMotionData{};
     const auto gesture =
@@ -1607,7 +1611,25 @@ void DinosaurController::SetPose(const Pose& requested) {
     for (size_t i = 0; i < std::size(targets); ++i) {
         targets[i] = output_angles_[i] + (targets[i] - output_angles_[i]) * mix;
     }
-    if (servo_output_.WriteDegrees(targets, std::size(targets))) {
+#if CONFIG_WZH_DINOSAUR_270_SERVO
+    static_assert(DINOSAUR_NECK_TAIL_SERVO_SWING_DEG > 0 &&
+                  2.0f * DINOSAUR_NECK_TAIL_SERVO_SWING_DEG <= DINOSAUR_NECK_TAIL_SERVO_TRAVEL_DEG);
+    // ServoOutput uses logical 90 for the common 1500 us midpoint. Scale only
+    // the travel measured from that midpoint on the four 270-degree axes.
+    constexpr auto neck_tail_pwm_angle = [](float logical_degrees) {
+        constexpr float kPwmMidpoint = 90.0f;
+        constexpr float kTravelScale =
+            2.0f * DINOSAUR_NECK_TAIL_SERVO_SWING_DEG / DINOSAUR_NECK_TAIL_SERVO_TRAVEL_DEG;
+        return kPwmMidpoint + (logical_degrees - kPwmMidpoint) * kTravelScale;
+    };
+    const float pwm_targets[] = {neck_tail_pwm_angle(targets[0]), neck_tail_pwm_angle(targets[1]),
+                                 targets[2], neck_tail_pwm_angle(targets[3]),
+                                 neck_tail_pwm_angle(targets[4])};
+    const bool written = servo_output_.WriteDegrees(pwm_targets, std::size(pwm_targets));
+#else
+    const bool written = servo_output_.WriteDegrees(targets, std::size(targets));
+#endif
+    if (written) {
         // Track commanded movement, not physical motion or measured motor noise.
         if (travel * mix >= 0.1f)
             last_servo_command_movement_us_.store(esp_timer_get_time());
@@ -2391,11 +2413,14 @@ void DinosaurController::Task() {
     wzh::StartupGreetingGate startup(startup_origin_ms);
     bool startup_sound_pending = false;
     bool startup_sound_started = false;
-    static constexpr const char* kStartupSounds[] = {
-        "叫声音效合集 (79)", "叫声音效合集 (13)", "叫声音效合集 (5)"};
-    static constexpr DinoAction kStartupActions[] = {
-        DinoAction::kHappy, DinoAction::kDiscover, DinoAction::kProud};
+    static constexpr const char* kStartupSounds[] = {"叫声音效合集 (79)", "叫声音效合集 (13)",
+                                                     "叫声音效合集 (5)"};
+    static constexpr DinoAction kStartupActions[] = {DinoAction::kHappy, DinoAction::kDiscover,
+                                                     DinoAction::kProud};
     const unsigned startup_variant = esp_random() % std::size(kStartupSounds);
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+    uint32_t last_idle_interaction = wzh::IdleInteractionGeneration();
+#endif
     while (true) {
         const uint32_t now_ms = esp_timer_get_time() / 1000;
         if (tutorial_feedback_pending_.load() &&
@@ -2416,7 +2441,16 @@ void DinosaurController::Task() {
             running_speech_bound_ = false;
         }
         PollInteraction(now_ms);
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+        const auto activity = wzh::IdleInteractionGeneration();
+        if (activity != last_idle_interaction) {
+            last_idle_interaction = activity;
+            autoplay_.Engage(now_ms, esp_random(), true);
+        }
+#endif
         const auto pet_state = pet_.Get(now_ms);
+        autoplay_.SetPaused(now_ms, conversation_active_.load() || shutdown_requested_.load() ||
+                                        servo_output_.blocked() || !pet_state.motion);
         if (startup_sound_pending &&
             (conversation_active_.load() || shutdown_requested_.load() ||
              last_request_us_.load() > 0 || pet_state.mode != wzh::PetMode::kNormal ||
@@ -2425,11 +2459,10 @@ void DinosaurController::Task() {
              Application::GetInstance().IsExternalVoicePreviewActive())) {
             startup_sound_pending = false;
         }
-        if (startup_sound_started &&
-            (conversation_active_.load() || shutdown_requested_.load() ||
-             last_request_us_.load() > 0 || !pet_state.motion ||
-             Application::GetInstance().IsVoiceEnrollmentActive() ||
-             Application::GetInstance().IsExternalVoicePreviewActive())) {
+        if (startup_sound_started && (conversation_active_.load() || shutdown_requested_.load() ||
+                                      last_request_us_.load() > 0 || !pet_state.motion ||
+                                      Application::GetInstance().IsVoiceEnrollmentActive() ||
+                                      Application::GetInstance().IsExternalVoicePreviewActive())) {
             startup_sound_started = false;
         }
         // Remember preemption even while battery protection blocks movement.
@@ -2528,6 +2561,8 @@ void DinosaurController::Task() {
             if (tutorial_audio_active_ && (audio_ == nullptr || !audio_->Playing()))
                 tutorial_audio_active_ = false;
             const bool local_motion = tutorial_audio_active_ ? false : UpdateSoundMotion(now_ms);
+            autoplay_.ObservePlayback(
+                now_ms, local_motion || (audio_ != nullptr && audio_->Playing()), esp_random());
             if (!local_motion && (audio_ == nullptr || !audio_->Playing()))
                 autonomous_playback_ = false;
             const bool offline = !conversation_active_.load();
@@ -2577,6 +2612,10 @@ void DinosaurController::Task() {
             }
             if (autoplay_.Due(now_ms,
                               offline && pet_state.local_sound && !startup_sound_pending &&
+                                  !wzh::IsOnboardingActive() &&
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+                                  !wzh::IdleReminderBlocksAutoplay() &&
+#endif
                                   (!servo_output_.powered() || idle_breathing_) && !local_motion &&
                                   (audio_ == nullptr || !audio_->Playing()),
                               esp_random())) {
@@ -2596,9 +2635,14 @@ void DinosaurController::Task() {
                 continue;
             }
             const auto voice = audio_ != nullptr ? audio_->GetTtsMotionData() : DinoMotionData{};
-            const bool audible = ((conversation_active_.load() &&
-                                   (speaking_.load() || speech_tail_.load())) ||
-                                  wzh::IsOnboardingVoiceMotionActive()) && voice.playing;
+            bool prompt_voice = wzh::IsOnboardingVoiceMotionActive();
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+            prompt_voice = prompt_voice || wzh::IsIdleReminderVoiceActive();
+#endif
+            const bool audible =
+                ((conversation_active_.load() && (speaking_.load() || speech_tail_.load())) ||
+                 prompt_voice) &&
+                voice.playing;
             const bool idle_eligible = !conversation_active_.load() && pet_state.motion &&
                                        !request_active_.load() && !local_motion && !audible &&
                                        !wzh::IsOnboardingActive();
@@ -2611,7 +2655,8 @@ void DinosaurController::Task() {
                 // at the neutral pose. A due autonomous sound may still
                 // preempt this low-level motion.
                 idle_breathing_ = true;
-                if (!pet_state.local_sound && idle_life_.Due(now_ms, true, esp_random())) {
+                if (!pet_state.local_sound &&
+                    idle_life_.Due(now_ms, autoplay_.Legacy(), esp_random())) {
                     RunPulse(*PickPulse());
                     idle_life_.Busy(now_ms, esp_random());
                     continue;
@@ -3272,10 +3317,11 @@ bool DinosaurController::QueueInteraction(wzh::PetInteraction interaction,
     return accepted;
 }
 
-void DinosaurController::HandleTouch(uint8_t code) {
+void DinosaurController::HandleTouch(uint8_t code, bool allow_contact_start) {
     const uint32_t now = esp_timer_get_time() / 1000;
-    pet_.Touch(code, now);
-    PollInteraction(now);
+    pet_.Touch(code, now, allow_contact_start);
+    if (code != 0 && code != 0xFF)
+        PollInteraction(now);
 }
 
 bool DinosaurController::HandleSensorEvent(int event) {
@@ -3355,7 +3401,17 @@ bool DinosaurController::React(wzh::PetReaction reaction, wzh::PetPriority prior
 void DinosaurController::PollInteraction(uint32_t now) {
     const auto touch = pet_.PollTouchEvent(now);
     if (touch.response != wzh::TouchResponse::kNone) {
-        QueueInteraction(touch.interaction());
+#if !CONFIG_WZH_DIALOGUE_PARITY
+        if (conversation_active_.load()) {
+            Application::GetInstance().QueueTouchConversationInput(wzh::ConversationTouchText(
+                touch, {"头", "胸前", "背部靠近脖子的位置", "背部靠近尾巴的位置"}));
+        }
+#endif
+        if (!conversation_active_.load() && touch.response == wzh::TouchResponse::kStrokeForward) {
+            pet_.Gentle(now, 1800);
+        }
+        if (QueueInteraction(touch.interaction()))
+            autoplay_.Engage(now, esp_random(), true);
     }
     int expression = pending_expression_.load();
     if (expression >= 0 && now - expression_since_.load() >= 2500) {

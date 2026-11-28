@@ -21,8 +21,7 @@ public:
         if (interaction == PetInteraction::kNone) {
             return -1;
         }
-        // Current pack: exactly two content-appropriate choices per sensor.
-        // Keep the semantic fallback below for legacy and user-supplied packs.
+        // Seed the pool with curated clips, then fill it from the installed pack.
         const unsigned event = static_cast<unsigned>(interaction) - 1;
         static constexpr const char* panda[][2] = {
             {"摸头_欢快的“嗯”声_萌丫头", "熊猫撒娇声音"},
@@ -59,16 +58,7 @@ public:
                 }
             }
             if (pair[0] >= 0 || pair[1] >= 0) {
-                unsigned choice = random & 1U;
-                if (pair[choice] < 0)
-                    choice ^= 1U;
-                const unsigned other = choice ^ 1U;
-                if (pair[other] >= 0 &&
-                    std::strcmp(files[pair[choice]].name, last_name_.data()) == 0)
-                    choice = other;
-                if (pair[other] >= 0 ||
-                    std::strcmp(files[pair[choice]].name, last_name_.data()) != 0)
-                    return pair[choice];
+                return PickCuratedOrSemantic(files, interaction, pair, random);
             }
         }
         bool has_alternative = false;
@@ -121,6 +111,29 @@ public:
     }
 
 private:
+    template <typename Files>
+    int PickCuratedOrSemantic(const Files& files, PetInteraction interaction, const int (&pair)[2],
+                              uint32_t random) const {
+        std::array<int, 5> pool{};
+        size_t count = 0;
+        for (const int index : pair)
+            if (index >= 0)
+                pool[count++] = index;
+        for (size_t i = 0; i < files.size() && count < pool.size(); ++i) {
+            const int index = static_cast<int>(i);
+            if (index != pair[0] && index != pair[1] && Eligible(files[i]) &&
+                Score(files[i].name, interaction) > 0)
+                pool[count++] = index;
+        }
+        const size_t start = random % count;
+        for (size_t i = 0; i < count; ++i) {
+            const int index = pool[(start + i) % count];
+            if (std::strcmp(files[index].name, last_name_.data()) != 0)
+                return index;
+        }
+        return pool[start];
+    }
+
     static bool NameIs(std::string_view name, std::string_view expected) {
         return name == expected ||
                (name.size() == expected.size() + 5 && name.substr(0, expected.size()) == expected &&

@@ -97,7 +97,7 @@ private:
     static void TaskEntry(void* arg);
     void Task();
     void ManualTask();
-    bool EnsureManualTaskLocked();  // job_mutex_ must be held
+    bool StartManualTaskLocked();  // job_mutex_ must be held
     void DoCheck();
     void DoUpdate();
     bool InitializeClient();
@@ -136,8 +136,6 @@ private:
     std::mutex init_mutex_;
     bool client_initialized_ = false;
     TaskHandle_t task_handle_ = nullptr;
-    std::atomic<bool> check_requested_{false};
-    std::atomic<bool> update_requested_{false};
     std::atomic<bool> job_running_{false};
     bool local_maintenance_ = false;  // guarded by job_mutex_
     std::atomic<bool> job_ok_{false};

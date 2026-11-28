@@ -4552,15 +4552,6 @@ page { background: transparent; }
    --ink-soft for paragraphs, so scope a light value to the manual sheet. */
 .phone.dark .manual-sheet { --ink-soft: rgba(246,236,226,.72); }
 
-/* guide: hide bubble while console/manual state changes, then swap in one frame */
-.pg-root.hide-bubble .pg-bubble {
-  opacity: 0 !important;
-  transition: none !important;
-}
-.pg-root.hide-bubble .pg-spot {
-  border-color: transparent !important;
-}
-
 /* ============================================================
    Real-device performance pass (orb) + 新建 chip centering
    Android WebView was re-rasterising the whole orb on every frame:
@@ -4706,27 +4697,59 @@ page { background: transparent; }
    高度由 device.js 的 --safe-bottom 决定，Android 为 0 时与原来完全一致。 */
 .phone.expanded .sheet { bottom: calc(12rpx + var(--safe-bottom, 0px)); }
 
-.startup-notice {
-  margin: 18rpx 0 8rpx;
-  padding: 16rpx 20rpx;
-  border-radius: 16rpx;
-  background: rgba(185, 119, 34, .12);
-  color: #805018;
-  font-size: 23rpx;
-  line-height: 1.5;
+.orb-notice {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: calc(100% + 6rpx);
+  width: max-content;
+  max-width: 86%;
+  box-sizing: border-box;
+  transform: translateX(-50%);
+  padding: 16rpx 24rpx;
+  border: 1px solid rgba(255,255,255,.84);
+  border-radius: 26rpx;
+  background: #fff7eb;
+  box-shadow: 0 9rpx 30rpx rgba(50,35,28,.12);
+  color: #553b2b;
+  font-size: 25rpx;
+  line-height: 1.45;
+  text-align: center;
+  pointer-events: none;
 }
-.phone.dark .startup-notice { color: #f6cf91; background: rgba(185, 119, 34, .20); }
-.onboarding-progress {
-  display: flex;
-  justify-content: space-between;
-  gap: 16rpx;
-  margin: 18rpx 0 8rpx;
-  padding: 16rpx 20rpx;
-  border-radius: 16rpx;
-  background: rgba(47, 125, 82, .10);
-  color: var(--ink-soft);
-  font-size: 23rpx;
+.orb-notice::before {
+  position: absolute;
+  left: calc(50% - 7rpx);
+  top: -7rpx;
+  width: 14rpx;
+  height: 14rpx;
+  transform: rotate(45deg);
+  border-left: 1px solid rgba(255,255,255,.84);
+  border-top: 1px solid rgba(255,255,255,.84);
+  background: inherit;
+  content: '';
 }
-.onboarding-progress-title { color: var(--ink); font-weight: 600; }
-.phone.dark .onboarding-progress { background: rgba(77, 160, 111, .16); }
+.phone.dark .orb-notice { background: #48372f; color: #fff0dc; border-color: #765f51; }
+.phone.dark .orb-notice::before { border-color: #765f51; }
 
+
+/* Keep the native button, including its disabled state, in the same flex box. */
+.phone .modal-foot .modal-actions { align-items: stretch; }
+.phone .modal-foot .modal-actions .modal-btn {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  width: auto !important;
+  min-width: 0;
+  height: 88rpx;
+  min-height: 88rpx;
+  margin: 0;
+  padding: 0 12rpx;
+  line-height: 1.2;
+}
+.phone .modal-foot .modal-actions .modal-btn::after { border: 0; }
+.phone:not(.dark) .modal-foot .modal-btn.primary[disabled] {
+  color: var(--ink-2);
+  border-color: var(--card-border);
+  background: rgba(255,255,255,.24);
+  opacity: .58;
+}

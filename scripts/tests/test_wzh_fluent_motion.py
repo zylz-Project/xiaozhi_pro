@@ -46,7 +46,7 @@ int main(){
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory)/'profile.cc'
             source.write_text(program)
-            result = subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror',
+            result = subprocess.run([compiler, '-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror',
                                      '-I', str(ROOT/'main/boards/common/wzh'), str(source),
                                      '-o', str(source.with_suffix(''))], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)

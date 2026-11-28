@@ -4,15 +4,21 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <cJSON.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/stream_buffer.h>
+#include <freertos/message_buffer.h>
 #include <freertos/task.h>
 
 struct ble_gap_event;
 struct ble_gatt_access_ctxt;
 struct ble_gatt_svc_def;
+
+namespace voice_tts {
+struct VoiceName;
+}
 
 namespace wzh {
 
@@ -42,7 +48,7 @@ public:
 private:
     static void HostTask(void* arg);
     static void WorkerTask(void* arg);
-    static void WifiWatchTask(void* arg);
+    static void WifiConnectTask(void* arg);
     static void VoiceWatchTask(void* arg);
     static void ResetWatchTask(void* arg);
     static void OnSync();
@@ -53,11 +59,11 @@ private:
     static const struct ble_gatt_svc_def* ServiceTable();
 
     void StartAdvertising();
-    void HandleLine(const std::string& line);
-    bool ProcessIncoming();
+    void HandleLine(const char* line);
     void ResetSession();
 
-    void Notify(const std::string& payload);
+    void Notify(std::string_view payload);
+    void SendJson(cJSON* envelope);
     void SendResponse(int id, cJSON* data);
     void SendError(int id, int code, const char* message);
     void SendEvent(const char* event, cJSON* data);
@@ -85,24 +91,28 @@ private:
     cJSON* BuildDeviceObject();
     cJSON* BuildVoiceList();
     std::string CurrentVoiceId();
-    std::string CurrentVoiceName();
+    std::string CurrentVoiceName(const std::string& id,
+                                 const std::vector<voice_tts::VoiceName>& names);
     bool ResolveVoice(cJSON* data, std::string& id, std::string& name);
     void ReleaseUpload();
 
     Config config_;
     std::string adv_name_;
     std::atomic<bool> started_{false};
+    std::atomic<bool> wifi_connecting_{false};
     bool prepared_ = false;
     TaskHandle_t worker_ = nullptr;
     TaskHandle_t host_ = nullptr;
     std::atomic<uint16_t> conn_handle_{0xFFFF};
     std::atomic<uint16_t> mtu_{23};
     uint8_t own_addr_type_ = 0;
-    StreamBufferHandle_t stream_ = nullptr;
+    MessageBufferHandle_t rx_messages_ = nullptr;
+    char* rx_frame_storage_ = nullptr;
+    // NimBLE host tags each write with its connection generation. The worker
+    // discards fragments from an earlier connection even if handles are reused.
+    std::atomic<uint32_t> rx_generation_{0};
+    uint32_t request_generation_ = 0;  // BLE worker only.
     std::mutex tx_mutex_;
-    std::mutex rx_mutex_;
-    std::string rx_buffer_;
-    std::atomic<bool> session_reset_{false};
 
     std::mutex upload_mutex_;
     uint8_t* upload_buffer_ = nullptr;

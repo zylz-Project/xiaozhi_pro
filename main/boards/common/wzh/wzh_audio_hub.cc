@@ -155,17 +155,20 @@ bool AudioHub::StartManual(AudioStore* store, std::function<bool()> interaction_
     return true;
 }
 
-bool AudioHub::EnsureManualTaskLocked() {
-    if (task_handle_ != nullptr)
+bool AudioHub::StartManualTaskLocked() {
+    job_running_.store(true);
+    if (xTaskCreate(TaskEntry, "wzh_hub_manual", 8192, this, 1, nullptr) == pdPASS)
         return true;
-    if (xTaskCreate(TaskEntry, "wzh_hub_manual", 8192, this, 1, &task_handle_) != pdPASS) {
-        ESP_LOGE(TAG, "无法启动 Audio Hub 手动任务");
-        return false;
-    }
-    return true;
+    job_running_.store(false);
+    update_names_.clear();
+    ESP_LOGE(TAG, "无法启动 Audio Hub 手动任务");
+    return false;
 }
 
-void AudioHub::TaskEntry(void* arg) { static_cast<AudioHub*>(arg)->Task(); }
+void AudioHub::TaskEntry(void* arg) {
+    static_cast<AudioHub*>(arg)->Task();
+    vTaskDelete(nullptr);
+}
 
 void AudioHub::SleepBackoff(int* backoff_s) {
     ESP_LOGW(TAG, "失败退避 %d 秒", *backoff_s);
@@ -641,33 +644,17 @@ bool AudioHub::has_diff() const {
 
 bool AudioHub::RequestCheck() {
     std::lock_guard<std::mutex> lock(job_mutex_);
-    if (local_maintenance_)
+    if (local_maintenance_ || !manual_mode_ || job_running_.load())
         return false;
-    if (!manual_mode_ || !EnsureManualTaskLocked()) {
-        return false;
-    }
-    if (job_running_.exchange(true)) {
-        return false;
-    }
-    check_requested_.store(true);
-    xTaskNotifyGive(task_handle_);
-    return true;
+    return StartManualTaskLocked();
 }
 
 bool AudioHub::RequestUpdate(const std::vector<std::string>& names) {
     std::lock_guard<std::mutex> lock(job_mutex_);
-    if (local_maintenance_)
+    if (local_maintenance_ || !manual_mode_ || job_running_.load() || names.empty())
         return false;
-    if (!manual_mode_ || names.empty() || !EnsureManualTaskLocked()) {
-        return false;
-    }
-    if (job_running_.exchange(true)) {
-        return false;
-    }
     update_names_ = names;
-    update_requested_.store(true);
-    xTaskNotifyGive(task_handle_);
-    return true;
+    return StartManualTaskLocked();
 }
 
 bool AudioHub::BeginLocalMaintenance() {
@@ -699,15 +686,21 @@ void AudioHub::EndLocalMaintenance(bool library_erased) {
 }
 
 void AudioHub::ManualTask() {
-    while (true) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        if (check_requested_.exchange(false)) {
-            DoCheck();
-        } else if (update_requested_.exchange(false)) {
-            DoUpdate();
-        } else {
-            job_running_.store(false);
-        }
+    // The accepted job owns update_names_ until it completes. An empty list
+    // means a manifest check. Return after one job to reclaim the stack.
+    bool check;
+    {
+        std::lock_guard<std::mutex> lock(job_mutex_);
+        check = update_names_.empty();
+    }
+    if (check)
+        DoCheck();
+    else
+        DoUpdate();
+    {
+        std::lock_guard<std::mutex> lock(job_mutex_);
+        update_names_.clear();
+        job_running_.store(false);
     }
 }
 
@@ -724,7 +717,6 @@ void AudioHub::DoCheck() {
     if (!EnsureInitialized()) {
         SetJobMessage("无法读取 Audio Hub 配置");
         status_.store(Status::kError);
-        job_running_.store(false);
         return;
     }
 
@@ -813,7 +805,6 @@ void AudioHub::DoCheck() {
         SetJobMessage("检查完成：远端 " + std::to_string(remote_count) + " 个文件");
     } while (false);
 
-    job_running_.store(false);
 }
 
 void AudioHub::DoUpdate() {
@@ -829,13 +820,11 @@ void AudioHub::DoUpdate() {
     job_ok_.store(false);
     if (names.empty() || remote.empty() || revision.empty()) {
         SetJobMessage("请先检查清单，再选择要更新的文件");
-        job_running_.store(false);
         return;
     }
     if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle ||
         (interaction_busy_ && interaction_busy_())) {
         SetJobMessage("对话或动作进行中，稍后再更新");
-        job_running_.store(false);
         return;
     }
 
@@ -884,7 +873,6 @@ void AudioHub::DoUpdate() {
             SetJobMessage("没有文件被更新");
         }
     }
-    job_running_.store(false);
 }
 
 void AudioHub::Task() {

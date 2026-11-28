@@ -188,11 +188,15 @@ bool AudioStore::LoadToc() {
     // 1) 扫描全部 v3 槽，取最大 seq。
     int32_t best_slot = -1;
     uint32_t best_seq = 0;
+    bool blank = true;
+    bool read_error = false;
     std::vector<AudioFileInfo> best;
     for (uint32_t i = 0; i < toc_slot_count_; ++i) {
         if (!ReadFlash(i * kTocSlotSize, slot.data(), slot.size())) {
-            break;
+            read_error = true;
+            continue;
         }
+        blank = blank && std::all_of(slot.begin(), slot.end(), [](uint8_t value) { return value == 0xff; });
         std::vector<AudioFileInfo> parsed;
         uint32_t seq = 0;
         if (TryParseV3(slot.data(), &seq, &parsed) && seq > best_seq) {
@@ -213,6 +217,7 @@ bool AudioStore::LoadToc() {
 
     // 2) 回退读老工程 v1/v2（固定第 0 槽）。
     if (!ReadFlash(0, slot.data(), slot.size())) {
+        ESP_LOGW(TAG, "无法读取外部音频目录，使用预置声音");
         return false;
     }
     std::vector<AudioFileInfo> legacy;
@@ -227,7 +232,11 @@ bool AudioStore::LoadToc() {
         return true;
     }
     layout_ = Layout::kEmpty;
-    ESP_LOGW(TAG, "未发现有效音频目录（出厂状态），离线动作仍可用");
+    if (blank && !read_error && std::all_of(slot.begin(), slot.end(), [](uint8_t value) { return value == 0xff; })) {
+        ESP_LOGI(TAG, "外部 Flash 可管理音频目录为空");
+    } else {
+        ESP_LOGW(TAG, "外部 Flash 可管理音频目录无有效条目，read_error=%d", read_error);
+    }
     return false;
 }
 

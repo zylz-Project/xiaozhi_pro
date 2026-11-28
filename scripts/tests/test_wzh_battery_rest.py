@@ -128,6 +128,9 @@ int main(){
 constexpr int BATTERY_ADC_CHANNEL=2,ESP_OK=0,BATTERY_DIVIDER_RATIO=2;
 constexpr int BATTERY_LOW_MV=3300,BATTERY_RECOVER_MV=3400,BATTERY_CRITICAL_MV=3000;
 constexpr int BATTERY_EMPTY_VOLTAGE_MV=3200,BATTERY_FULL_VOLTAGE_MV=4200;
+#define TAG "power-test"
+#define ESP_LOGW(...) (void)0
+#define ESP_LOGI(...) (void)0
 int reading=1900,read_count=0,fail_at=-1;uint32_t clock_ms=15000;
 uint32_t esp_log_timestamp(){return clock_ms;}
 int adc_oneshot_read(int,int channel,int* value){
@@ -144,6 +147,7 @@ struct Power{
     Output out;std::atomic<Output*>servo_output_{&out};
     wzh::StableBatteryProtection battery_protection_;
     wzh::BatteryRestVoltage battery_rest_voltage_;
+    wzh::BatteryDisplayLevel battery_display_level_;
     wzh::BatteryWarningLevel battery_warning_;
     std::atomic<int>battery_voltage_mv_{0},battery_live_mv_{0},battery_level_{0},battery_protection_mv_{0};
     std::atomic<bool>battery_sample_valid_{false},battery_load_active_{false},battery_rest_ready_{false};
@@ -160,6 +164,8 @@ int main(){
     for(int i=0;i<5;++i)sample(3800);
     assert(read_count==34&&p.out.flags==0&&p.battery_voltage_mv_==3800);
     assert(p.battery_level_==60&&p.battery_sampling().rest_age_ms==1000);
+    sample(4700);assert(!p.battery_sampling().valid && p.battery_level_==60);
+    sample(3800);sample(3800);sample(3800);sample(3800);sample(3800);
     p.battery_rest_voltage_.ObserveLoad(true,clock_ms);
     sample(3200);sample(3800);assert(!(p.out.flags&wzh::kLowBattery));
     for(int i=0;i<5;++i)sample(3200);

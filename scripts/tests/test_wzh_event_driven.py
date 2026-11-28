@@ -36,7 +36,6 @@ uint32_t clock_ms = 30000;
 unsigned esp_random(){return 0;}
 int irnd(int){return 0;}
 // Run production loops with a deterministic clock and real choreography/cadence.
-constexpr uint32_t kIdleTestDurationMs = 60000U;
 int scenario = 0, auto_sounds = 0, stops = 0;
 int animations = 0, sounds = 0, writes = 0, releases = 0, invites = 0;
 int startup_sounds = 0, startup_gestures = 0;uint32_t startup_at=0, gesture_at=0;
@@ -52,7 +51,8 @@ uint32_t esp_log_timestamp() { return clock_ms; }
 int64_t esp_timer_get_time() { return int64_t(clock_ms) * 1000; }
 void vTaskDelay(uint32_t ticks) {
     clock_ms += ticks;
-    if (clock_ms >= 30000U + kIdleTestDurationMs) throw Finished{};
+    const uint32_t duration_ms = scenario == 5 ? 5000U : 60000U;
+    if (clock_ms >= 30000U + duration_ms) throw Finished{};
 }
 using TickType_t=uint32_t;
 TickType_t xTaskGetTickCount(){return clock_ms;}
@@ -295,15 +295,23 @@ class WzhEventDrivenTest(unittest.TestCase):
             task=function_body(source,'void '+cls+'::Task()').replace(cls+'::','Controller::')
             task=task.replace('ESP_LOGI(TAG, "Startup gesture started");', '++startup_gestures; gesture_at=now_ms;')
             conversation=function_body(source,'void '+cls+'::SetConversationActive(').replace(cls+'::','Controller::')
-            for scenario in range(16):
-                with self.subTest(board=board,scenario=scenario), tempfile.TemporaryDirectory() as directory:
-                    harness=HARNESS.replace('__REFERENCE_HEADER__',str(ROOT/'main/boards/wzh_dinosaur/dinosaur_reference_motion.h')).replace('__AXES__', '5' if stem=='dinosaur' else '3').replace('__TASK__',task).replace('__CONVERSATION__',conversation).replace('__SOUND_METHODS__',methods)
-                    if scenario==5:
-                        harness=harness.replace('60000U','5000U')
-                    cpp=Path(directory)/'task.cc';cpp.write_text(harness)
-                    exe=cpp.with_suffix('')
-                    result=subprocess.run([compiler,'-std=c++17','-pthread','-Wall','-Wextra','-Werror',
-                        '-I',str(ROOT/'main/boards/common/wzh'),str(cpp),'-o',str(exe)],capture_output=True,text=True)
-                    self.assertEqual(result.returncode,0,result.stderr)
-                    result=subprocess.run([str(exe),str(scenario)],capture_output=True,text=True,timeout=15)
-                    self.assertEqual(result.returncode,0,result.stderr)
+            with self.subTest(board=board), tempfile.TemporaryDirectory() as directory:
+                reference_header = ROOT/'main/boards/wzh_dinosaur/dinosaur_reference_motion.h'
+                harness = (HARNESS.replace('__REFERENCE_HEADER__', str(reference_header))
+                           .replace('__AXES__', '5' if stem == 'dinosaur' else '3')
+                           .replace('__TASK__', task)
+                           .replace('__CONVERSATION__', conversation)
+                           .replace('__SOUND_METHODS__', methods))
+                cpp = Path(directory)/'task.cc'
+                cpp.write_text(harness)
+                exe = cpp.with_suffix('')
+                result = subprocess.run(
+                    [compiler, '-std=c++17', '-pthread', '-Wall', '-Wextra', '-Werror',
+                     '-I', str(ROOT/'main/boards/common/wzh'), str(cpp), '-o', str(exe)],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for scenario in range(16):
+                    with self.subTest(scenario=scenario):
+                        result = subprocess.run([str(exe), str(scenario)], capture_output=True,
+                                                text=True, timeout=15)
+                        self.assertEqual(result.returncode, 0, result.stderr)

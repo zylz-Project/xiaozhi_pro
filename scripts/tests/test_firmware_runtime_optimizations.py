@@ -105,6 +105,76 @@ int main(){
 }
 ''', use_json=True)
 
+    def test_mqtt_skips_replaced_audio_and_resumes_the_same_sequence(self):
+        source = (ROOT / 'main/protocols/mqtt_protocol.cc').read_text()
+        receive = source[source.index('    udp->OnMessage([this, last_gap_log'):
+                         source.index('    if (!udp->Connect(')]
+        protocol = (ROOT / 'main/protocols/protocol.cc').read_text()
+        self.run_cpp(r'''
+#include <arpa/inet.h>
+#include <cassert>
+#include <chrono>
+#include <cstring>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+#define ESP_LOGW(...) ((void)0)
+#define ESP_LOGE(...) ((void)0)
+struct AudioStreamPacket {
+ int sample_rate=0,frame_duration=0;
+ uint32_t timestamp=0;
+ std::vector<uint8_t> payload;
+};
+struct Protocol {
+ std::function<void(std::unique_ptr<AudioStreamPacket>)> on_incoming_audio_;
+ std::function<bool()> incoming_audio_filter_;
+ void SetIncomingAudioFilter(std::function<bool()> filter);
+ bool WantsIncomingAudio() const;
+};
+struct Udp {
+ std::function<void(const std::string&)> message;
+ void OnMessage(decltype(message) callback){message=std::move(callback);}
+};
+struct MqttProtocol:Protocol {
+ std::mutex channel_mutex_;
+ uint32_t remote_sequence_=0;
+ int server_sample_rate_=24000, server_frame_duration_=60, decrypted=0;
+ std::chrono::steady_clock::time_point last_incoming_time_;
+ void Receive(Udp*);
+ bool CryptAesCtr(const uint8_t* bytes,size_t len,const uint8_t*, uint8_t* out){
+  ++decrypted;std::memcpy(out,bytes,len);return true;
+ }
+};
+''' + queue_function(protocol, 'void Protocol::SetIncomingAudioFilter(') +
+            queue_function(protocol, 'bool Protocol::WantsIncomingAudio(') +
+            '\nvoid MqttProtocol::Receive(Udp* udp) {\n' + receive + r'''
+}
+int main(){
+ MqttProtocol protocol;Udp udp;bool use_original=false;
+ protocol.SetIncomingAudioFilter([&]{return use_original;});
+ int played=0;
+ protocol.on_incoming_audio_=[&](std::unique_ptr<AudioStreamPacket> packet){
+  assert(packet->timestamp==240&&packet->payload[0]==42);
+  ++played;
+ };
+ protocol.Receive(&udp);
+ auto send=[&](uint32_t sequence){
+  std::string data(17,'\0');data[0]=1;data[3]=1;data[16]=42;
+  uint32_t stamp=htonl(240),number=htonl(sequence);
+  std::memcpy(&data[8],&stamp,4);std::memcpy(&data[12],&number,4);
+  udp.message(data);
+ };
+ send(1);send(4);
+ assert(protocol.remote_sequence_==4&&protocol.decrypted==0&&played==0);
+ assert(protocol.last_incoming_time_.time_since_epoch().count()!=0);
+ use_original=true;
+ send(3);send(5);
+ assert(protocol.remote_sequence_==5&&protocol.decrypted==1&&played==1);
+}
+''')
+
     def test_mqtt_send_releases_channel_lock_and_keeps_transport_alive(self):
         source = (ROOT / 'main/protocols/mqtt_protocol.cc').read_text()
         self.run_cpp(r'''
@@ -132,12 +202,12 @@ struct MqttProtocol{
   if(close_during_crypto){udp_.reset();}
   std::memcpy(out,in,n);return true;
  }
- bool SendAudio(std::unique_ptr<AudioStreamPacket>);
+ bool SendAudio(const AudioStreamPacket&);
 };
 ''' + queue_function(source, 'bool MqttProtocol::SendAudio(') + r'''
 int main(){
  MqttProtocol protocol;
- assert(!protocol.SendAudio(std::make_unique<AudioStreamPacket>()));
+ assert(!protocol.SendAudio(AudioStreamPacket{}));
  int sends=0;
  protocol.udp_=std::make_shared<Udp>();std::weak_ptr<Udp>alive=protocol.udp_;
  protocol.udp_->send=[&](const std::string&bytes){
@@ -149,8 +219,79 @@ int main(){
   assert(ntohs(size)==3&&ntohl(timestamp)==42&&ntohl(sequence)==1);++sends;return 19;
  };
  protocol.close_during_crypto=true;
- assert(protocol.SendAudio(std::make_unique<AudioStreamPacket>()));
+ assert(protocol.SendAudio(AudioStreamPacket{}));
  assert(sends==1&&alive.expired()&&!protocol.udp_);
+}
+''')
+
+    def test_uplink_retries_same_frame_and_discards_old_generation(self):
+        source = (ROOT / 'main/application.cc').read_text()
+        method = queue_function(source, 'void Application::SendQueuedVoice(')
+        self.run_cpp(r'''
+#define CONFIG_USE_VOICE_BARGE_IN 1
+#define ESP_LOGW(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <deque>
+#include <memory>
+#include <vector>
+#include <cstdint>
+const int kDeviceStateListening=1;
+int64_t now=1000000;
+int64_t esp_timer_get_time(){return now;}
+struct AudioStreamPacket{int id;};
+struct AudioService {
+ std::deque<int> next;
+ int released=0;
+ std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue(){
+  if(next.empty())return {};
+  const auto id=next.front();next.pop_front();
+  return std::make_unique<AudioStreamPacket>(AudioStreamPacket{id});
+ }
+ void ReleaseVoiceInterruptionBuffer(){++released;}
+};
+struct Protocol {
+ bool fail=true;
+ std::vector<int> sends;
+ bool CanRetryUplinkAudio(){return true;}
+ bool IsAudioChannelOpened(){return true;}
+ bool SendAudio(const AudioStreamPacket& packet){sends.push_back(packet.id);return !fail;}
+};
+struct Application {
+ explicit Application(Protocol& wire):protocol_(&wire){}
+ Protocol* protocol_; AudioService audio_service_;
+ std::unique_ptr<AudioStreamPacket> uplink_retry_;
+ std::atomic<bool> interaction_stopped_=false,voice_enrollment_active_=false,
+                   barge_in_reconnecting_=false;
+ std::atomic<uint32_t> interaction_generation_=1,protocol_generation_=2;
+ uint32_t uplink_failure_generation_=0,uplink_retry_generation_=0,uplink_retry_protocol_=0,
+          first_interrupted_uplink_generation_=0;
+ int64_t uplink_failure_started_us_=0,uplink_reconnect_after_us_=0,uplink_retry_due_us_=0,
+         uplink_retry_expires_us_=0,first_interrupted_uplink_us_=0;
+ unsigned uplink_retry_count_=0;
+ int GetDeviceState(){return kDeviceStateListening;}
+ bool ReopenConversation(uint32_t,bool,bool){return false;}
+ void SendQueuedVoice();
+};
+''' + method + r'''
+int main(){
+ Protocol socket;
+ Application app{socket};
+ app.audio_service_.next={11,12};
+ app.SendQueuedVoice();assert(app.uplink_retry_&&app.uplink_retry_->id==11);
+ app.SendQueuedVoice();assert(socket.sends.size()==1);
+ now+=45000;socket.fail=false;app.SendQueuedVoice();
+ assert((socket.sends==std::vector<int>{11,11,12}));
+ assert(!app.uplink_retry_);
+ app.audio_service_.next={23};socket.fail=true;app.SendQueuedVoice();
+ app.interaction_generation_.fetch_add(1);
+ now+=45000;socket.fail=false;app.SendQueuedVoice();
+ assert(socket.sends.back()==23&&socket.sends.size()==4&&!app.uplink_retry_);
+ app.audio_service_.next={24};socket.fail=true;app.SendQueuedVoice();
+ now+=400000;socket.fail=false;app.SendQueuedVoice();
+ assert(socket.sends.back()==24&&socket.sends.size()==5&&!app.uplink_retry_);
 }
 ''')
 
@@ -264,6 +405,8 @@ int main(){
 #include <deque>
 #include <functional>
 #include <condition_variable>
+#include <optional>
+#include <cstdint>
 #define ESP_LOGW(...) ((void)0)
 #define TAG "test"
 template<typename...Args>void TestLog(const char*,const char*,Args&&...){}
@@ -298,7 +441,7 @@ struct AudioService{
   assert(timestamp_queue_.empty()&&audio_decode_queue_.empty()&&
          audio_playback_queue_.empty()&&audio_testing_queue_.empty());return true;
  }
- void ResetDecoder();
+ void ResetDecoder(std::optional<uint32_t> expected_generation=std::nullopt);
  bool SetDecodeSampleRate(int,int);
 };
 ''' + queue_function(source, 'bool AudioService::SetDecodeSampleRate(')
@@ -323,6 +466,8 @@ int main(){
  audio.audio_decode_queue_.push_back(1);audio.audio_playback_queue_.push_back(2);
  audio.audio_testing_queue_.push_back(3);audio.timestamp_queue_.push_back(4);
  int notified=0;audio.callbacks_.on_playback_drained=[&]{++notified;};
+ audio.ResetDecoder(1);
+ assert(audio.playback_generation_==0&&notified==0&&!audio.audio_decode_queue_.empty());
  audio.ResetDecoder();assert(audio.playback_generation_==1&&notified==1);
  assert(resets==1&&converter_resets==1);
 }

@@ -1,4 +1,6 @@
 #include "wzh_web_console.h"
+
+#include "wzh_web_assets.h"
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include "wzh_user_web.h"
@@ -32,8 +34,6 @@
 
 #define TAG "WzhWebConsole"
 
-extern const char wzh_console_html_start[] asm("_binary_wzh_console_html_start");
-extern const char wzh_console_html_end[] asm("_binary_wzh_console_html_end");
 
 namespace wzh {
 namespace {
@@ -154,13 +154,16 @@ bool WebConsole::Start() {
     // Starting the bootstrap and HTTP tasks at once needs two internal stacks.
     // Give user-facing audio and networking priority over the developer page.
     // Insufficient memory is transient; the idle tick can retry it safely.
-    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 48 * 1024 ||
-        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 12 * 1024) {
-        ESP_LOGD(
-            TAG, "管理页等待内存恢复: internal=%u largest=%u",
-            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-            static_cast<unsigned>(
-                heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+    const size_t internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (internal < 48 * 1024 || largest < 12 * 1024) {
+        const auto now = esp_timer_get_time();
+        auto previous = last_start_deferral_us_.load();
+        if ((!previous || now - previous >= 10000000) &&
+            last_start_deferral_us_.compare_exchange_strong(previous, now)) {
+            ESP_LOGI(TAG, "管理页等待内存恢复: internal=%u largest=%u",
+                     static_cast<unsigned>(internal), static_cast<unsigned>(largest));
+        }
         return false;
     }
     if (started_.exchange(true)) {
@@ -352,7 +355,7 @@ bool WebConsole::StartHttpServer() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = kConsolePort;
     config.ctrl_port = kConsoleCtrlPort;
-    config.max_uri_handlers = 24;
+    config.max_uri_handlers = kMaxRoutes;
     config.recv_wait_timeout = 3;
     config.stack_size = 8192;
     config.lru_purge_enable = true;
@@ -408,11 +411,13 @@ bool WebConsole::StartHttpServer() {
                     add("/api/developer/factory-reset", HTTP_GET, HandleDeveloperFactoryReset) &&
                     add("/api/developer/factory-reset", HTTP_POST, HandleDeveloperFactoryReset) &&
                     add("/api/developer/voice-config", HTTP_POST, HandleDeveloperVoiceConfig) &&
+                    add("/api/developer/voice-preview/status", HTTP_GET, HandleDeveloperVoicePreviewStatus) &&
                     add("/api/developer/voice-manage", HTTP_POST, HandleDeveloperVoiceManage) &&
                     add("/api/developer/voice-upload", HTTP_POST, HandleDeveloperVoiceUpload) &&
                     add("/api/developer/center", HTTP_POST, HandleDeveloperCenter) &&
                     add("/api/developer/demo", HTTP_POST, HandleDeveloperDemo) &&
-                    add("/api/developer/flash/erase", HTTP_POST, HandleDeveloperErase);
+                    add("/api/developer/flash/erase", HTTP_POST, HandleDeveloperErase) &&
+                    add("/*", HTTP_GET, HandleAsset);
     if (!ok) {
         ESP_LOGE(TAG, "注册管理页路由失败");
         httpd_stop(server_);
@@ -483,9 +488,9 @@ esp_err_t WebConsole::SendError(httpd_req_t* req, int status, const char* code) 
     return err;
 }
 
-void WebConsole::BuildStatus(cJSON* root) {
+void WebConsole::BuildStatus(cJSON* root, bool include_voice) {
     AddStatus(root);
-    if (options_.voice_status_extra)
+    if (include_voice && options_.voice_status_extra)
         options_.voice_status_extra(root);
 }
 
@@ -603,11 +608,17 @@ void WebConsole::AddHubStatus(cJSON* root) {
     cJSON_AddStringToObject(hub_json, "checked_revision", hub->checked_revision().c_str());
 }
 
-esp_err_t WebConsole::HandleRoot(httpd_req_t* req) {
-    const size_t length = static_cast<size_t>(wzh_console_html_end - wzh_console_html_start);
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_send(req, wzh_console_html_start, length);
+esp_err_t WebConsole::HandleRoot(httpd_req_t* req) { return SendWebAsset(req, "developer.html"); }
+
+esp_err_t WebConsole::HandleAsset(httpd_req_t* req) {
+    const std::string_view uri(req->uri);
+    if (uri == "/favicon.ico") {
+        httpd_resp_set_status(req, "204 No Content");
+        return httpd_resp_send(req, nullptr, 0);
+    }
+    if (uri.rfind("/css/", 0) != 0 && uri.rfind("/js/", 0) != 0 && uri.rfind("/assets/", 0) != 0)
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");
+    return SendWebAsset(req, uri.substr(0, uri.find('?')).substr(1));
 }
 
 esp_err_t WebConsole::HandleStatus(httpd_req_t* req) {
@@ -978,6 +989,22 @@ esp_err_t WebConsole::HandleDeveloperStatus(httpd_req_t* req) {
     return result;
 }
 
+esp_err_t WebConsole::HandleDeveloperVoicePreviewStatus(httpd_req_t* req) {
+    auto* self = static_cast<WebConsole*>(req->user_ctx);
+    if (!self->RequireDeveloper(req))
+        return ESP_OK;
+    if (!self->options_.voice_preview_status)
+        return SendError(req, 404, "voice_management_not_supported");
+    cJSON* out = cJSON_CreateObject();
+    if (!out)
+        return httpd_resp_send_500(req);
+    cJSON_AddBoolToObject(out, "ok", true);
+    cJSON_AddStringToObject(out, "phase", self->options_.voice_preview_status());
+    const auto result = SendJson(req, out);
+    cJSON_Delete(out);
+    return result;
+}
+
 esp_err_t WebConsole::HandleDeveloperVoiceManage(httpd_req_t* req) {
     auto* self = static_cast<WebConsole*>(req->user_ctx);
     if (!self->RequireDeveloper(req))
@@ -1005,14 +1032,19 @@ esp_err_t WebConsole::HandleDeveloperVoiceManage(httpd_req_t* req) {
                  cJSON_IsString(action) && action->valuestring &&
                  (!id || (cJSON_IsString(id) && id->valuestring)) &&
                  (!name || (cJSON_IsString(name) && name->valuestring));
-    bool accepted =
-        valid && self->options_.voice_command(action->valuestring, id ? id->valuestring : "",
-                                              name ? name->valuestring : "");
+    const uint32_t request = valid ? self->options_.voice_command(
+        action->valuestring, id ? id->valuestring : "", name ? name->valuestring : "") : 0;
     cJSON_Delete(body);
-    if (!accepted)
+    if (!request)
         return SendError(req, 400, "voice_management_unavailable");
-    httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    cJSON* out = cJSON_CreateObject();
+    if (!out)
+        return httpd_resp_send_500(req);
+    cJSON_AddBoolToObject(out, "ok", true);
+    cJSON_AddNumberToObject(out, "request", request);
+    const auto result = SendJson(req, out);
+    cJSON_Delete(out);
+    return result;
 }
 
 esp_err_t WebConsole::HandleDeveloperVoiceUpload(httpd_req_t* req) {

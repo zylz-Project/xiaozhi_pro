@@ -17,8 +17,7 @@ public:
     }
     static constexpr uint32_t kRepeatIntervalMs = 10U * 60U * 1000U;
     bool Take(uint32_t now_ms) {
-        if (!ready_low_ ||
-            (announced_ && now_ms - last_announcement_ms_ < kRepeatIntervalMs))
+        if (!ready_low_ || (announced_ && now_ms - last_announcement_ms_ < kRepeatIntervalMs))
             return false;
         announced_ = true;
         last_announcement_ms_ = now_ms;
@@ -37,6 +36,14 @@ private:
 
 // Calls from the power task never enqueue/decode audio. A single worker owns
 // prompt production; the application/audio tasks keep their normal priorities.
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+void NoteIdlePowerInteraction();
+uint32_t IdleInteractionGeneration();
+bool IdleReminderBlocksAutoplay();
+bool IsIdleReminderVoiceActive();
+bool IdlePowerMayShutDown();
+#endif
+
 void StartSystemPrompts();
 // First provisioning prompt waits for startup audio and initialization cleanup.
 void RequestWifiSetupPrompt();

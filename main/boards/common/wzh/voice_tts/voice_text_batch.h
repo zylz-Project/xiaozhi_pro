@@ -12,7 +12,7 @@ inline std::string PopTextBatch(std::deque<std::string>& queue, size_t& queued_b
     std::string result = std::move(queue.front());
     queue.pop_front();
     queued_bytes -= result.size();
-    while (merge && !queue.empty() && result.size() + 1 + queue.front().size() <= 240) {
+    while (merge && !queue.empty() && result.size() + 1 + queue.front().size() <= 480) {
         queued_bytes -= queue.front().size();
         result += ' ';
         result += queue.front();

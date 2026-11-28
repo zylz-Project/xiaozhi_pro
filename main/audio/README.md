@@ -137,13 +137,25 @@ listening and CPU/timing acceptance remain pending. See
 
 - `AudioInputTask` reads codec input and feeds the selected engine.
 - `AudioOutputTask` drains decoded PCM to the codec output.
-- `OpusCodecTask` encodes uplink PCM and decodes downlink packets.
+- `OpusCodecTask` has a 24 KiB internal stack. The production WZH conversation
+  profile can encode uplink separately in `AudioEncoderTask` with a 32 KiB PSRAM stack. The linked
+  SILK encoder alone can reserve 9,520 bytes in one stack frame. If a PSRAM
+  stack is unavailable, the internal task handles both directions. The split
+  encoder reports its stack high-water mark after 16 frames.
 - Downlink resampling uses the highest rate-converter quality; the negotiated
   server rate is logged as `Server audio: ... Hz` on connection.
 - `AfeAudioEngine` has its own AFE fetch task on S3/P4/S31.
 
 The audio power timer still enables and disables codec ADC/DAC channels based on
 activity; the engine refactor does not change that policy.
+
+The production WZH conversation profile waits for ready PCM and, for Ali speech, an
+additional Opus backlog to absorb download jitter. Short completed streams
+drain as soon as decoding completes. The output task recovers only after the
+PCM queue ran empty and the estimated DMA horizon expired. PCM already ready
+after a scheduling delay is written immediately. Serial diagnostics distinguish
+PCM starvation, late or short codec writes, and capture drops. Gap time is an
+estimate from writes to the driver. Measure audible continuity on the device.
 
 ## Conversation and playback transitions
 
@@ -247,8 +259,9 @@ physical device.
 The later `AUDIO_PRODUCT_QUALITY` candidate adds bounded source calibration for
 known tail-panda assets, local Opus preskip/end trim/header gain, writer-owned
 smooth endings and reusable quality-3 capture conversion. Microphone encoding
-uses an explicit 32 kbps VBR / complexity-3 budget. It defaults off and is enabled
-only in the two tail-panda variants. These changes preserve physical codec rates,
+uses an explicit 32 kbps VBR budget. The production WZH conversation profile uses
+complexity 2 to leave CPU time for full-duplex playback and recognition. The
+remaining diagnostic variants keep their own encoder and recognition settings. These changes preserve physical codec rates,
 stored volume and speaker protection; they do not change official cloud music
 encoding. Container metadata remains local to `AudioStreamPacket`, with both
 transport wire formats unchanged. Full measurements, host/build validation and

@@ -21,35 +21,35 @@ bool WebsocketProtocol::Start() {
     return true;
 }
 
-bool WebsocketProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
+bool WebsocketProtocol::SendAudio(const AudioStreamPacket& packet) {
     if (websocket_ == nullptr || !websocket_->IsConnected()) {
         return false;
     }
 
     if (version_ == 2) {
         std::string serialized;
-        serialized.resize(sizeof(BinaryProtocol2) + packet->payload.size());
+        serialized.resize(sizeof(BinaryProtocol2) + packet.payload.size());
         auto bp2 = (BinaryProtocol2*)serialized.data();
         bp2->version = htons(version_);
         bp2->type = 0;
         bp2->reserved = 0;
-        bp2->timestamp = htonl(packet->timestamp);
-        bp2->payload_size = htonl(packet->payload.size());
-        memcpy(bp2->payload, packet->payload.data(), packet->payload.size());
+        bp2->timestamp = htonl(packet.timestamp);
+        bp2->payload_size = htonl(packet.payload.size());
+        memcpy(bp2->payload, packet.payload.data(), packet.payload.size());
 
         return websocket_->Send(serialized.data(), serialized.size(), true);
     } else if (version_ == 3) {
         std::string serialized;
-        serialized.resize(sizeof(BinaryProtocol3) + packet->payload.size());
+        serialized.resize(sizeof(BinaryProtocol3) + packet.payload.size());
         auto bp3 = (BinaryProtocol3*)serialized.data();
         bp3->type = 0;
         bp3->reserved = 0;
-        bp3->payload_size = htons(packet->payload.size());
-        memcpy(bp3->payload, packet->payload.data(), packet->payload.size());
+        bp3->payload_size = htons(packet.payload.size());
+        memcpy(bp3->payload, packet.payload.data(), packet.payload.size());
 
         return websocket_->Send(serialized.data(), serialized.size(), true);
     } else {
-        return websocket_->Send(packet->payload.data(), packet->payload.size(), true);
+        return websocket_->Send(packet.payload.data(), packet.payload.size(), true);
     }
 }
 
@@ -86,6 +86,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
     }
 
     error_occurred_ = false;
+    xEventGroupClearBits(event_group_handle_, WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT);
 
     auto network = Board::GetInstance().GetNetwork();
     websocket_ = network->CreateWebSocket(1);
@@ -107,7 +108,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
 
     websocket_->OnData([this](const char* data, size_t len, bool binary) {
         if (binary) {
-            if (on_incoming_audio_ != nullptr) {
+            if (WantsIncomingAudio()) {
                 if (version_ == 2) {
                     BinaryProtocol2* bp2 = (BinaryProtocol2*)data;
                     bp2->version = ntohs(bp2->version);
@@ -166,8 +167,13 @@ bool WebsocketProtocol::OpenAudioChannel() {
     });
 
     ESP_LOGI(TAG, "Connecting to websocket server: %s with version: %d", url.c_str(), version_);
-    if (!websocket_->Connect(url.c_str())) {
+    const auto connected = websocket_->Connect(url.c_str());
+    if (!connected) {
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+        ESP_LOGE(TAG, "Failed to connect to websocket server: %s", connected.error().ToString().c_str());
+#else
         ESP_LOGE(TAG, "Failed to connect to websocket server, code=%d", websocket_->GetLastError());
+#endif
         SetError(Lang::Strings::SERVER_NOT_CONNECTED);
         return false;
     }

@@ -23,10 +23,11 @@
 #include "wzh_ble_service.h"
 #include "wzh_conversation_sounds.h"
 #include "wzh_mcp_tools.h"
-#include "wzh_power_telemetry.h"
 #include "wzh_onboarding.h"
+#include "wzh_power_telemetry.h"
 #include "wzh_product.h"
 #include "wzh_sensors.h"
+#include "wzh_system_prompts.h"
 #include "wzh_user_pairs_catalog.inc"
 #include "wzh_voice_services.h"
 #include "wzh_web_console.h"
@@ -162,6 +163,12 @@ public:
     }
 
     bool SupportsLocalInteraction() const override { return true; }
+#if CONFIG_USE_VOICE_BARGE_IN
+    size_t GetBargeInSpeechGapSamples() const override { return 2880; }
+#endif
+    bool IsLocalPlaybackPending() const override {
+        return local_audio_.Playing() || !local_audio_.WorkerIdle();
+    }
     bool TriggerOnboardingFeedback(uint8_t step) override {
         return controller_.TriggerOnboardingFeedback(step);
     }
@@ -173,13 +180,10 @@ public:
     }
     void OnProtocolServiceAvailable(bool connected) override {
         wzh::NotifyOnboarding(connected ? wzh::OnboardingEvent::kServiceReady
-                                       : wzh::OnboardingEvent::kServiceConfigured);
+                                        : wzh::OnboardingEvent::kServiceConfigured);
     }
     void OnProtocolServiceUnavailable() override {
         wzh::NotifyOnboarding(wzh::OnboardingEvent::kServiceLost);
-    }
-    bool IsLocalPlaybackPending() override {
-        return local_audio_.Playing() || !local_audio_.WorkerIdle();
     }
 
     ExternalTts* GetExternalTts() override { return wzh::ProductExternalTts(); }
@@ -210,6 +214,9 @@ public:
     bool HandleLocalVoiceCommand(const std::string& command) override {
         constexpr const char* prefix = "local:";
         if (command.compare(0, std::strlen(prefix), prefix) != 0) {
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+            wzh::NoteIdlePowerInteraction();
+#endif
             // An ordinary wake phrase is an explicit invitation to resume companionship.
             local_audio_.StopPlayback();
             controller_.HandlePetControl(wzh::PetControl::kWake, false);
@@ -223,6 +230,9 @@ public:
             ESP_LOGD(TAG, "Local command ignored during speaker output: %s", name.c_str());
             return true;
         }
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+        wzh::NoteIdlePowerInteraction();
+#endif
         if (name == "chat_wake") {
             if (wzh::OnboardingBlocksConversation()) {
                 if (!wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kWake))
@@ -267,7 +277,7 @@ public:
         // 当前硬件没有接入充电状态检测脚，只能报告电池正在供电。
         charging = false;
         discharging = true;
-        return true;
+        return level >= 0;
     }
 
     void SetNetworkEventCallback(NetworkEventCallback callback) override {
@@ -319,27 +329,33 @@ private:
     PandaDisplay display_;
 
     void InitializeSensors() {
-        sensors_.Initialize(HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
-                            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
-                                if (event == wzh::Sensors::Event::kPickedUp ||
-                                    event == wzh::Sensors::Event::kShaken) {
-                                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion))
-                                        return true;
-                                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
-                                }
-                                return controller_.HandleSensorEvent(static_cast<int>(event));
-                            });
+        sensors_.Initialize(
+            HUMAN_SENSOR_GPIO, POSTURE_I2C_SDA_GPIO, POSTURE_I2C_SCL_GPIO,
+            &controller_.servo_output(), [this](wzh::Sensors::Event event) {
+                if (event == wzh::Sensors::Event::kPickedUp ||
+                    event == wzh::Sensors::Event::kShaken) {
+                    if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kMotion))
+                        return true;
+                    wzh::NotifyOnboarding(wzh::OnboardingEvent::kMotion);
+                }
+                const bool accepted = controller_.HandleSensorEvent(static_cast<int>(event));
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+                if (accepted || event == wzh::Sensors::Event::kHuman)
+                    wzh::NoteIdlePowerInteraction();
+#endif
+                return accepted;
+            });
         sensors_.RegisterMcpTools("panda");
     }
 
     void InitializeTouch() {
-        power_.RegisterTouchHook([this](uint8_t code, uint8_t pressed, uint8_t) {
-            if (pressed) {
-                if (wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch))
-                    return;
+        power_.RegisterTouchHook([this](uint8_t code, uint8_t pressed, uint8_t released) {
+            const bool starts_contact = code != 0 && code == pressed && released == 0;
+            const bool captured =
+                starts_contact && wzh::CaptureOnboardingInteraction(wzh::OnboardingEvent::kTouch);
+            if (starts_contact && !captured)
                 wzh::NotifyOnboarding(wzh::OnboardingEvent::kTouch);
-            }
-            controller_.HandleTouch(code);
+            controller_.HandleTouch(code, starts_contact && !captured);
         });
     }
 

@@ -1,5 +1,5 @@
 /* Shared first-run guide skin (detail page 15-step tour + connect page 3-step tour).
-   Extracted verbatim from pages/device/device.wxss so both pages stay identical. */
+   Shared by the connect and device pages. */
 .pg-root {
   position: absolute;
   inset: 0;
@@ -28,7 +28,8 @@
   position: absolute;
   z-index: 3;
   pointer-events: auto;
-  padding: 24rpx 26rpx 22rpx;
+  box-sizing: border-box;
+  padding: 20rpx 24rpx 16rpx;
   border-radius: 40rpx;
   border: 1.92rpx solid rgba(255,250,243,.96);
   background: linear-gradient(150deg, rgba(255,252,246,.99), rgba(252,239,225,.985));
@@ -40,21 +41,21 @@
 .pg-bubble.above::before {
   content: '';
   position: absolute;
-  left: 54rpx;
-  width: 26rpx;
-  height: 26rpx;
+  left: calc(var(--pg-arrow, 50%) - 8px);
+  width: 16px;
+  height: 16px;
   background: #fffaf3;
   border: 1.92rpx solid rgba(255,250,243,.96);
   transform: rotate(45deg);
   border-radius: 5rpx;
 }
-.pg-bubble.below::before { top: -14rpx; }
-.pg-bubble.above::before { bottom: -14rpx; }
+.pg-bubble.below::before { top: -8px; border-right: 0; border-bottom: 0; }
+.pg-bubble.above::before { bottom: -8px; border-left: 0; border-top: 0; }
 .pg-head { display: flex; align-items: center; gap: 17rpx; margin-bottom: 13rpx; }
 .pg-avatar {
-  width: 82rpx;
-  height: 82rpx;
-  flex: 0 0 82rpx;
+  width: 62rpx;
+  height: 62rpx;
+  flex: 0 0 62rpx;
   display: grid;
   place-items: center;
   border-radius: 28rpx;
@@ -62,7 +63,7 @@
   border: 1.92rpx solid rgba(255,255,255,.94);
   overflow: hidden;
 }
-.pg-avatar image { width: 70rpx; height: 70rpx; object-fit: contain; }
+.pg-avatar image { width: 54rpx; height: 54rpx; object-fit: contain; }
 .pg-meta { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .pg-kicker {
   font-size: 15rpx;
@@ -80,18 +81,6 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-.pg-badge {
-  flex: 0 0 auto;
-  min-height: 38rpx;
-  padding: 0 15rpx;
-  border-radius: 999px;
-  background: rgba(201,119,82,.12);
-  color: var(--accent-deep, #a95d3c);
-  font-family: var(--mono);
-  font-size: 16rpx;
-  font-weight: 700;
-  line-height: 38rpx;
 }
 .pg-title {
   display: block;

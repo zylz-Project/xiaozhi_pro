@@ -53,6 +53,7 @@ int main(){audio_codec_es8311_t codec;
 #include <cstdint>
 #include <mutex>
 #include <vector>
+#include "speaker_protection.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
@@ -142,14 +143,14 @@ struct Es8311AudioCodec:AudioCodec{
         for board in ('wzh_crawlPanda', 'wzh_tailRedPanda', 'wzh_dinosaur'):
             config = (ROOT / 'main/boards' / board / 'config.h').read_text()
             self.assertIn('#define AUDIO_CODEC_PA_GAIN_DB 20.0f', config)
-            maximum, makeup = ('-0.5f', '21.0f')
+            maximum = '-0.5f'
+            makeup, microphone = ('30.0f', '12.0f') if board == 'wzh_dinosaur' else ('27.0f', '18.0f')
             self.assertIn(f'#define AUDIO_CODEC_MAX_VOLUME_DB {maximum}', config)
             self.assertIn(f'#define AUDIO_CODEC_SPEAKER_MAKEUP_DB {makeup}', config)
             source = (ROOT / 'main/boards' / board / (board + '.cc')).read_text()
             self.assertIn('AUDIO_CODEC_MAX_VOLUME_DB, AUDIO_CODEC_SPEAKER_MAKEUP_DB, 100', source)
-            if board != 'wzh_dinosaur':
-                self.assertIn('#define AUDIO_CODEC_REFERENCE_MIC_GAIN_DB 18.0f', config)
-                self.assertIn('AUDIO_CODEC_REFERENCE_MIC_GAIN_DB', source)
+            self.assertIn(f'#define AUDIO_CODEC_REFERENCE_MIC_GAIN_DB {microphone}', config)
+            self.assertIn('AUDIO_CODEC_REFERENCE_MIC_GAIN_DB', source)
 
     def test_wzh_pa_gain_top_end_curve_mute_and_restore_after_reopen(self):
         self.run_cpp(self.program() + r'''

@@ -6,8 +6,6 @@
 #include <freertos/idf_additions.h>
 #include <algorithm>
 #include <chrono>
-#include <condition_variable>
-#include <cstring>
 #include <new>
 
 #include "ali_provider.h"
@@ -15,13 +13,13 @@
 #include "ali_stream_client.h"
 #endif
 #include "application.h"
-#include "audio_codec.h"
 #include "board.h"
+#include "ogg_demuxer.h"
 #include "voice_config.h"
+#include "voice_identity.h"
 #include "voice_flash_dispatcher.h"
 #include "voice_text_batch.h"
 #include "voice_text_filter.h"
-#include "wav_playback.h"
 
 namespace voice_tts {
 namespace {
@@ -29,214 +27,106 @@ namespace {
 constexpr size_t kMaxPendingSentences = 64;
 constexpr size_t kMaxPendingBytes = 16 * 1024;
 
-// A single bounded PSRAM ring decouples network reception from I2S playback.
-// It also lets the producer start the next sentence while audio remains queued.
-class AliPcmBuffer {
+// AudioService owns the bounded decode and playout queues. Preserve the
+// 48 kHz Ogg timeline, packet durations, and per-stream head/tail trimming.
+class AliOpusPlayback {
 public:
-    AliPcmBuffer(AudioService& audio, uint32_t generation, std::function<bool()> cancelled)
-        : audio_(audio), generation_(generation), cancelled_(std::move(cancelled)) {}
-    bool Start() {
-        data_ =
-            static_cast<uint8_t*>(heap_caps_malloc(kCapacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        if (!data_) {
-            ESP_LOGW(
-                kTag, "Ali PCM allocation failed: psram_free=%u largest=%u",
-                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(
-                    heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
-            return false;
-        }
-#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM && CONFIG_SPIRAM
-        external_task_ = true;
-        const BaseType_t created = xTaskCreateWithCaps(Entry, "ali_pcm", 8192, this, 3, &task_,
-                                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-#else
-        const BaseType_t created = xTaskCreate(Entry, "ali_pcm", 8192, this, 3, &task_);
-#endif
-        if (created != pdPASS) {
-            ESP_LOGW(kTag, "Ali PCM task creation failed: internal_free=%u largest=%u",
-                     static_cast<unsigned>(
-                         heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                     static_cast<unsigned>(
-                         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
-            free(data_);
-            data_ = nullptr;
-            return false;
-        }
-        return true;
-    }
-    bool Write(const uint8_t* input, size_t length) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        while (length && !cancelled_() && !failed_) {
-            if (size_ == kCapacity) {
-                cv_.wait_for(lock, std::chrono::milliseconds(50));
-                continue;
+    AliOpusPlayback(AudioService& audio, uint32_t generation, int64_t turn_started)
+        : audio_(audio), generation_(generation), turn_started_(turn_started) {
+        demuxer_.OnOpusPacket([this](const uint8_t* bytes, size_t size,
+                                     const OpusStreamMetadata& info) {
+            if (!accepted_)
+                return;
+            const auto samples = OpusPacketSamples48k(bytes, size);
+            if (!samples) {
+                accepted_ = false;
+                return;
             }
-            const size_t count = std::min({length, kCapacity - size_, kCapacity - write_});
-            std::memcpy(data_ + write_, input, count);
-            write_ = (write_ + count) % kCapacity;
-            size_ += count;
-            written_ += count;
-            input += count;
-            length -= count;
-            cv_.notify_all();
-        }
-        return !length && !cancelled_() && !failed_;
-    }
-    void CompleteSegment() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        completed_ = written_;
-        cv_.notify_all();
-    }
-    bool Finish() {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            finished_ = true;
-            cv_.notify_all();
-        }
-        while (!done_.load())
-            vTaskDelay(pdMS_TO_TICKS(20));
-#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM && CONFIG_SPIRAM
-        if (external_task_) {
-            while (eTaskGetState(task_) != eSuspended)
-                vTaskDelay(pdMS_TO_TICKS(1));
-            vTaskDeleteWithCaps(task_);
-            task_ = nullptr;
-        }
+            auto packet = std::unique_ptr<AudioStreamPacket>(new (std::nothrow) AudioStreamPacket);
+            if (!packet) {
+                accepted_ = false;
+                return;
+            }
+            packet->sample_rate = 48000;
+            packet->frame_duration = std::max<uint32_t>(5, (samples + 47) / 48);
+            packet->stream = info;
+            // Each HTTPS sentence has its own decoder state and trim metadata.
+            // Keep speaker DSP continuous until the whole response drains.
+            packet->stream.continuous_output = true;
+            packet->stream.end = false;
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+            packet->external_opus.reset(static_cast<uint8_t*>(
+                heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+            if (!packet->external_opus) {
+                accepted_ = false;
+                return;
+            }
+            std::copy_n(bytes, size, packet->external_opus.get());
+            packet->external_opus_size = size;
+#else
+            packet->payload.assign(bytes, bytes + size);
 #endif
-        free(data_);
-        data_ = nullptr;
-        return !failed_ && !cancelled_();
+            accepted_ = audio_.PushPacketToDecodeQueue(std::move(packet), true, generation_);
+            if (!got_packet_ && accepted_) {
+                ESP_LOGI(kTag, "Ali first Opus packet queued: request_ms=%lld turn_ms=%lld",
+                         static_cast<long long>((esp_timer_get_time() - request_started_) / 1000),
+                         static_cast<long long>((esp_timer_get_time() - turn_started_) / 1000));
+            }
+            got_packet_ = true;
+        });
     }
 
+    void BeginRequest(int64_t started) {
+        demuxer_.Reset();
+        request_started_ = started;
+        accepted_ = true;
+        got_packet_ = false;
+    }
+
+    bool Write(const uint8_t* bytes, size_t size) {
+        return !size || (accepted_ && demuxer_.Process(bytes, size) == size && accepted_);
+    }
+
+    bool Complete() const {
+        // Only call after the provider has confirmed a complete HTTP/SSE response.
+        // A whole Ogg stream may end at a verified page boundary, including an
+        // empty EOS page, even when no emitted packet has the EOS flag.
+        return accepted_ && got_packet_ && demuxer_.AtVerifiedPageBoundary();
+    }
+
+    bool HasEndOfStream() const { return demuxer_.saw_end_of_stream(); }
+
 private:
-    static constexpr size_t kCapacity = 192000;  // four seconds of 24 kHz PCM16
-    static constexpr size_t kPrefix = 48000;     // 1000 ms of 24 kHz PCM16
-    static void Entry(void* context) {
-        static_cast<AliPcmBuffer*>(context)->Play();
-#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM && CONFIG_SPIRAM
-        // The producer reclaims the task after observing done_, avoiding the
-        // SDK self-delete path which needs another internal-memory task.
-        vTaskSuspend(nullptr);
-#else
-        vTaskDelete(nullptr);
-#endif
-    }
-    void Play() {
-        bool priming = true;
-        bool have_output = false;
-        unsigned underruns = 0;
-        [[maybe_unused]] uint64_t starvation_ms = 0;
-        while (!cancelled_()) {
-            uint8_t bytes[2880];
-            size_t count = 0;
-            {
-                std::unique_lock<std::mutex> lock(mutex_);
-                if (priming && !finished_) {
-                    // Start the deadline when audio actually arrives, not while
-                    // the HTTPS handshake is still in progress. A completed
-                    // short sentence can play immediately without filling the
-                    // whole prefix.
-                    while (size_ < 2 && !finished_ && !cancelled_())
-                        cv_.wait_for(lock, std::chrono::milliseconds(50));
-                    const size_t prefix = have_output ? 24000 : kPrefix;
-                    const auto until = std::chrono::steady_clock::now() +
-                                       std::chrono::milliseconds(have_output ? 1000 : 2000);
-                    while (size_ < prefix && completed_ <= consumed_ && !finished_ &&
-                           !cancelled_()) {
-                        if (cv_.wait_until(lock, until) == std::cv_status::timeout)
-                            break;
-                    }
-                    priming = false;
-                }
-                const auto wait_start = std::chrono::steady_clock::now();
-                while (size_ < 2 && !finished_ && !cancelled_()) {
-                    cv_.wait_for(lock, std::chrono::milliseconds(50));
-                    if (size_ >= 2) {
-                        if (have_output) {
-                            ++underruns;
-                            starvation_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                 std::chrono::steady_clock::now() - wait_start)
-                                                 .count();
-                        }
-                        priming = true;
-                        break;
-                    }
-                }
-                if (priming)
-                    continue;
-                if (cancelled_() || (finished_ && size_ < 2)) {
-                    if (finished_ && size_ != 0)
-                        failed_ = true;
-                    break;
-                }
-                // Do not submit tiny network fragments as separate audio
-                // writes. Accumulate one 60 ms frame, except for the tail of
-                // a completed sentence or the end of the turn.
-                while (size_ < sizeof(bytes) && completed_ <= consumed_ && !finished_ &&
-                       !cancelled_()) {
-                    cv_.wait_for(lock, std::chrono::milliseconds(50));
-                }
-                if (cancelled_())
-                    break;
-                count = std::min(size_ & ~size_t(1), sizeof(bytes));
-                const size_t first = std::min(count, kCapacity - read_);
-                std::memcpy(bytes, data_ + read_, first);
-                std::memcpy(bytes + first, data_, count - first);
-                read_ = (read_ + count) % kCapacity;
-                size_ -= count;
-                consumed_ += count;
-                cv_.notify_all();
-            }
-            std::vector<int16_t> pcm(count / 2);
-            for (size_t i = 0; i < pcm.size(); ++i) {
-                const uint16_t word = uint16_t(bytes[2 * i]) | (uint16_t(bytes[2 * i + 1]) << 8);
-                pcm[i] = word < 0x8000 ? static_cast<int16_t>(word)
-                                       : static_cast<int16_t>(static_cast<int32_t>(word) - 65536);
-            }
-            if (!audio_.PushPcmToPlaybackQueue(std::move(pcm), 24000, generation_, true)) {
-                std::lock_guard<std::mutex> lock(mutex_);
-                failed_ = true;
-                cv_.notify_all();
-                break;
-            }
-            if (!have_output)
-                ESP_LOGI(kTag, "Ali PCM first frame queued");
-            have_output = true;
-        }
-        ESP_LOGI(kTag, "Ali PCM buffer underruns=%u starvation_ms=%llu", underruns,
-                 static_cast<unsigned long long>(starvation_ms));
-        done_.store(true);
-    }
     AudioService& audio_;
-    uint32_t generation_;
-    std::function<bool()> cancelled_;
-    std::mutex mutex_;
-    std::condition_variable cv_;
-    uint8_t* data_ = nullptr;
-    size_t read_ = 0, write_ = 0, size_ = 0;
-    uint64_t written_ = 0, completed_ = 0, consumed_ = 0;
-    bool finished_ = false, failed_ = false;
-    std::atomic<bool> done_{false};
-    TaskHandle_t task_ = nullptr;
-    bool external_task_ = false;
+    const uint32_t generation_;
+    const int64_t turn_started_;
+    int64_t request_started_ = 0;
+    bool accepted_ = false, got_packet_ = false;
+    OggDemuxer demuxer_{true};
 };
 }  // namespace
 
-bool VoiceSession::Ready() { return ReadyForVoice(""); }
-
-bool VoiceSession::ReadyForVoice(const std::string& voice) {
+bool VoiceSession::Ready() {
     if (bypass_next_.exchange(false)) {
         ESP_LOGW(kTag, "External speech unavailable: one-turn fallback after earlier failure");
         return false;
     }
+    return ReadyForVoice("");
+}
+
+bool VoiceSession::ReadyForVoice(const std::string& voice) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (task_ && (!stopping_ || pending_)) {
         ESP_LOGW(kTag, "External speech unavailable: previous task is still stopping");
         return false;
     }
-    if (LoadAliKey().empty() || (voice.empty() && LoadAliVoice().empty())) {
-        ESP_LOGW(kTag, "External speech unavailable: provider configuration incomplete");
+    const auto selected = voice.empty() ? LoadAliVoice() : voice;
+    if (selected.empty() || selected == kNativeVoiceId) {
+        ESP_LOGD(kTag, "Using server voice: no Ali voice selected");
+        return false;
+    }
+    if (LoadAliKey().empty()) {
+        ESP_LOGW(kTag, "External speech unavailable: Ali key missing for selected voice");
         return false;
     }
     // TLS/AES and the BLE controller need internal DMA memory even when TLS
@@ -279,7 +169,8 @@ bool VoiceSession::BeginWithVoice(uint32_t playback_generation, const std::strin
     const std::string provider = "ali";
     const auto key = LoadAliKey();
     const auto voice = voice_override.empty() ? LoadAliVoice() : voice_override;
-    if ((task_ && (!stopping_ || pending_)) || !completion || key.empty() || voice.empty())
+    if ((task_ && (!stopping_ || pending_)) || !completion || key.empty() || voice.empty() ||
+        voice == kNativeVoiceId)
         return false;
     if (task_) {
         // The cancelled worker may still be unwinding an HTTP read. Keep a
@@ -422,20 +313,29 @@ void VoiceSession::TaskEntry(void* context) {
 void VoiceSession::Run(uint32_t generation) {
     auto cancelled = [this, generation]() { return generation != generation_.load(); };
     auto& audio = Application::GetInstance().GetAudioService();
-    const int output_rate = Board::GetInstance().GetAudioCodec()->output_sample_rate();
-    AliProvider provider;
-    AliPcmBuffer ali_buffer(audio, playback_generation_, cancelled);
-    const bool ali_started = !cancelled() && output_rate == 24000 && ali_buffer.Start();
-    if (!ali_started && !cancelled()) {
-        ESP_LOGW(kTag, "Ali PCM buffer unavailable");
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!cancelled())
+    const int64_t turn_started = esp_timer_get_time();
+    const auto turn_output_clock_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    auto playback = std::unique_ptr<AliOpusPlayback>(
+        new (std::nothrow) AliOpusPlayback(audio, playback_generation_, turn_started));
+    if (!playback) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
             failed_ = true;
+        }
+        CompleteWorker(generation);
+        return;
     }
-    int64_t last_activity = esp_timer_get_time();
+    const auto initial = audio.GetPlaybackBufferStatus();
+    audio.ConfigureExternalSpeechPlayout(playback_generation_);
+    AliProvider provider;
+    int64_t last_activity = turn_started;
+    int64_t batch_started = 0;
+    bool sent_http_request = false;
+    uint32_t last_header_ms = 0;
 #if CONFIG_WZH_ALI_STREAM_EXPERIMENT
     bool use_http = true;
-    if (ali_started && !cancelled()) {
+    if (!cancelled()) {
         StreamRequest stream;
         stream.api_key = api_key_;
         stream.voice_id = voice_id_;
@@ -450,18 +350,18 @@ void VoiceSession::Run(uint32_t generation) {
                 done = finished_;
             }
         };
-        stream.pcm_sink = [&ali_buffer](const uint8_t* data, size_t size) {
-            return ali_buffer.Write(data, size);
+        playback->BeginRequest(esp_timer_get_time());
+        stream.opus_sink = [&playback](const uint8_t* bytes, size_t size) {
+            return playback->Write(bytes, size);
         };
-        stream.sentence_end = [&ali_buffer]() { ali_buffer.CompleteSegment(); };
         StreamResponse response;
         const Result result = SynthesizeStream(stream, response);
-        if (result == Result::kOk) {
+        if (result == Result::kOk && playback->Complete()) {
             use_http = false;
-        } else if (response.text_committed) {
+        } else if (response.text_committed || result == Result::kOk) {
             use_http = false;
             if (!cancelled()) {
-                ESP_LOGW(kTag, "Duplex synthesis failed after text was committed: result=%d",
+                ESP_LOGW(kTag, "Duplex synthesis failed after text submission: result=%d",
                          static_cast<int>(result));
                 std::lock_guard<std::mutex> lock(mutex_);
                 failed_ = true;
@@ -472,12 +372,14 @@ void VoiceSession::Run(uint32_t generation) {
             ESP_LOGW(kTag, "Duplex synthesis unavailable before text; retrying with HTTP");
         }
     }
-    while (use_http && !cancelled() && ali_started) {
+    while (use_http && !cancelled()) {
 #else
-    while (!cancelled() && ali_started) {
+    while (!cancelled()) {
 #endif
         std::string sentence;
         bool done = false;
+        int64_t batching_delay_us = 0;
+        const auto buffered_ms = sent_http_request ? audio.GetPlaybackBufferStatus().buffered_ms : 0;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (cancelled())
@@ -487,13 +389,30 @@ void VoiceSession::Run(uint32_t generation) {
                 queued_bytes_ = 0;
                 done = finished_;
             } else if (!queue_.empty()) {
-                sentence = PopTextBatch(queue_, queued_bytes_, true);
+                const int64_t now = esp_timer_get_time();
+                // Give the next HTTPS request a head start when the current
+                // audio is nearly depleted. Merge briefly only with enough cover.
+                if (buffered_ms >= std::max<uint32_t>(500, last_header_ms) + 120 &&
+                    !finished_ && queue_.size() == 1 &&
+                    queue_.front().size() < 96) {
+                    if (!batch_started)
+                        batch_started = now;
+                    batching_delay_us = 120000 - (now - batch_started);
+                }
+                if (batching_delay_us <= 0) {
+                    sentence = PopTextBatch(queue_, queued_bytes_, true);
+                    batch_started = 0;
+                }
             } else {
                 done = finished_;
             }
         }
         if (done)
             break;
+        if (batching_delay_us > 0) {
+            ulTaskNotifyTake(pdTRUE, std::max<TickType_t>(1, pdMS_TO_TICKS(batching_delay_us / 1000)));
+            continue;
+        }
         if (sentence.empty()) {
             if (esp_timer_get_time() - last_activity > 60000000) {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -511,53 +430,34 @@ void VoiceSession::Run(uint32_t generation) {
         request.text = std::move(sentence);
         request.voice_id = voice_id_;
         request.cancelled = cancelled;
-        bool has_pending_byte = false;
-        bool logged_first_pcm = false;
-        {
-            request.pcm_sink = [&](const uint8_t* bytes, size_t size) {
-                if (output_rate != 24000)
-                    return false;
-                if (size && !logged_first_pcm) {
-                    ESP_LOGI(
-                        kTag, "Ali first PCM received: elapsed_ms=%u",
-                        static_cast<unsigned>((esp_timer_get_time() - request_started) / 1000));
-                    logged_first_pcm = true;
-                }
-                has_pending_byte = has_pending_byte != ((size & 1) != 0);
-                return ali_buffer.Write(bytes, size);
-            };
-        }
+        playback->BeginRequest(request_started);
+        bool first_audio = true;
+        request.opus_sink = [&](const uint8_t* bytes, size_t size) {
+            if (size && first_audio) {
+                first_audio = false;
+                ESP_LOGI(kTag, "Ali first Ogg bytes: elapsed_ms=%lld",
+                         static_cast<long long>((esp_timer_get_time() - request_started) / 1000));
+            }
+            return playback->Write(bytes, size);
+        };
         Response response;
-        ESP_LOGI(kTag, "Requesting speech provider=%s", provider_.c_str());
-        auto result = provider.Synthesize(request, response);
+        sent_http_request = true;
+        const auto result = provider.Synthesize(request, response);
+        last_header_ms = response.header_ms;
         last_activity = esp_timer_get_time();
+        const bool played = result == Result::kOk && playback->Complete();
         if (response.http_status == 200) {
             ESP_LOGI(kTag,
-                     "Ali stream stats: detail=%s bytes=%u events=%u read_max_ms=%u "
-                     "process_max_ms=%u",
-                     response.stream_detail, static_cast<unsigned>(response.stream_bytes),
+                     "Ali Ogg stream: detail=%s eos=%d request_headers_ms=%u elapsed_ms=%lld bytes=%u "
+                     "events=%u read_max_ms=%u process_max_ms=%u",
+                     played ? response.stream_detail
+                            : result == Result::kOk ? "ogg_incomplete" : response.stream_detail,
+                     playback->HasEndOfStream(),
+                     response.header_ms, static_cast<long long>((last_activity - request_started) / 1000),
+                     static_cast<unsigned>(response.stream_bytes),
                      static_cast<unsigned>(response.stream_events), response.stream_max_read_ms,
                      response.stream_max_process_ms);
         }
-        if (result == Result::kOk && !cancelled()) {
-            if (response.streamed) {
-                ESP_LOGI(kTag, "Ali PCM stream complete: HTTP=%d elapsed_ms=%u",
-                         response.http_status,
-                         static_cast<unsigned>((last_activity - request_started) / 1000));
-            } else {
-                ESP_LOGI(kTag, "Speech response: HTTP=%d audio_bytes=%u elapsed_ms=%u",
-                         response.http_status, static_cast<unsigned>(response.wav.size()),
-                         static_cast<unsigned>((last_activity - request_started) / 1000));
-            }
-        }
-        const bool played =
-            result == Result::kOk && (response.streamed ? !has_pending_byte
-                                                        : PlayWav(audio, response.wav, output_rate,
-                                                                  playback_generation_, cancelled));
-        if (played && response.streamed)
-            ali_buffer.CompleteSegment();
-        if (played && !cancelled())
-            ESP_LOGI(kTag, "Speech audio queued for playback");
         if (!played && !cancelled()) {
             ESP_LOGW(kTag, "Voice synthesis failed: result=%d HTTP=%d", static_cast<int>(result),
                      response.http_status);
@@ -569,17 +469,33 @@ void VoiceSession::Run(uint32_t generation) {
             }
         }
     }
-    if (ali_started && !ali_buffer.Finish() && !cancelled()) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!cancelled())
-            failed_ = true;
-    }
+    provider.Close();
     if (!cancelled())
         audio.FinishPlayback(playback_generation_);
     while (!cancelled() && !audio.IsPlaybackIdle())
         vTaskDelay(pdMS_TO_TICKS(20));
-    if (cancelled())
+    if (cancelled()) {
         ESP_LOGI(kTag, "Voice request cancelled");
+    } else {
+        const auto status = audio.GetPlaybackBufferStatus();
+        ESP_LOGI(kTag,
+                 "Ali Ogg playback: first_output_ms=%lld rebuffers=%u gap_ms=%lld "
+                 "long_writes=%u longest_write_ms=%u",
+                 status.first_output_ms >= turn_output_clock_ms && status.first_output_ms > 0
+                     ? static_cast<long long>(status.first_output_ms - turn_output_clock_ms) : -1LL,
+                 static_cast<unsigned>(status.rebuffer_count - initial.rebuffer_count),
+                 static_cast<long long>(status.gap_ms - initial.gap_ms),
+                 static_cast<unsigned>(status.long_write_count),
+                 static_cast<unsigned>(status.longest_write_ms));
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        ESP_LOGI(kTag, "Ali playout pressure: pcm_starves_with_decode_work=%u late_writes=%u "
+                       "short_writes=%u capture_frames_dropped=%u",
+                 static_cast<unsigned>(status.decode_pending_rebuffers),
+                 static_cast<unsigned>(status.late_write_count),
+                 static_cast<unsigned>(status.short_write_count),
+                 static_cast<unsigned>(status.encode_drop_count - initial.encode_drop_count));
+#endif
+    }
     CompleteWorker(generation);
 }
 

@@ -19,6 +19,7 @@ class VoiceSelectionTest(unittest.TestCase):
 #include "voice_identity.h"
 #include "voice_names.h"
 #include "voice_manager.h"
+#include "voice_enrollment.h"
 #include <atomic>
 #include <cassert>
 #include <cstdint>
@@ -38,6 +39,7 @@ public:
  std::atomic<bool> active_{true};bool selection_task_=true;std::string selection_text_;void* task_=(void*)1;
  std::function<void(bool)> complete_;bool answer=true;
  bool Speak(const char* t,uint32_t){spoken.emplace_back(t);return answer;}
+ bool PlayLocalCue(uint32_t){return true;}
  bool SelectionPending()const;void RunSelection(uint32_t,const std::string&);
 };
 ''' + methods + r'''
@@ -51,13 +53,13 @@ int main(){using namespace voice_tts;
  assert(spoken.back().find("切换音色完成")!=std::string::npos);
  a.active_=true;a.complete_=[&](bool ok){assert(ok);};a.RunSelection(1,"切换音色");
  now_us+=60000001;assert(!a.SelectionPending());
- a.active_=true;a.complete_=[&](bool ok){assert(ok);};a.RunSelection(1,"没有这个人");
+ a.active_=true;a.complete_=[&](bool ok){assert(!ok);};a.RunSelection(1,"没有这个人");
  assert(current=="voice-long"&&spoken.back().find("没有找到")!=std::string::npos);
 }
 '''
         with tempfile.TemporaryDirectory() as d:
             cpp=Path(d)/'test.cc';cpp.write_text(program);exe=cpp.with_suffix('')
             result=subprocess.run(['g++','-std=c++17','-pthread','-Wall','-Wextra','-Werror',
-                '-I',str(voice),str(cpp),'-o',str(exe)],capture_output=True,text=True)
+                '-I',str(voice),'-I',str(ROOT/'main/audio'),str(cpp),'-o',str(exe)],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
             subprocess.run([str(exe)],check=True,timeout=10)

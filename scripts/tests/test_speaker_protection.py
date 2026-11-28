@@ -35,18 +35,18 @@ int main(){
 }
 ''')
 
-    def test_wzh_21db_louder_than_previous_profile_and_bounded(self):
+    def test_wzh_reference_profiles_raise_loudness_with_bounded_peaks(self):
         self.run_program(r'''
 #include <cassert>
 int main(){
- for(int rate:{8000,16000,24000,48000})for(bool clarity:{false,true}){
+ for(int rate:{8000,16000,24000,48000})for(bool clarity:{false,true})for(float gain:{27.0f,30.0f}){
   std::vector<int16_t> input(rate);
-  for(int i=0;i<rate;++i)input[i]=std::lrint(300*std::sin(6.283185307179586*1000*i/rate));
+  for(int i=0;i<rate;++i)input[i]=std::lrint(80*std::sin(6.283185307179586*1000*i/rate));
   auto previous=input, louder=input;SpeakerProtection a,b;
-  a.Configure(rate,clarity,clarity,18.0f);b.Configure(rate,clarity,clarity,21.0f);
+  a.Configure(rate,clarity,clarity,21.0f);b.Configure(rate,clarity,clarity,gain);
   a.Process(previous);b.Process(louder);double x=0,y=0;
   for(int i=rate/2;i<rate;++i){x+=double(previous[i])*previous[i];y+=double(louder[i])*louder[i];}
-  assert(10*std::log10(y/x)>2.95&&10*std::log10(y/x)<3.05);
+  assert(std::abs(10*std::log10(y/x)-(gain-21.0f))<0.1);
   uint32_t random=42;for(auto& v:input){random=random*1664525U+1013904223U;v=int16_t(random>>16);}
   auto reference=input;b.Reset();b.Process(reference,3.9810717f);
   b.Reset();std::vector<int16_t> chunks;
@@ -460,8 +460,9 @@ int main() {
 
     def test_codec_applies_protection_only_when_enabled(self):
         source=(ROOT/'main/audio/audio_codec.cc').read_text()
-        method=queue_function(source,'void AudioCodec::OutputData(')
+        method=queue_function(source,'size_t AudioCodec::OutputData(')
         motion_tests.WzhFluentMotionTest.run_cpp(self,r'''
+#include <algorithm>
 #include <cassert>
 #include <atomic>
 #include <cstdint>
@@ -476,8 +477,8 @@ struct AudioCodec {
     SpeakerProtection speaker_protection_;
     std::atomic<bool> output_processing_reset_pending_{true};
     int written = 0;
-    void OutputData(std::vector<int16_t>&);
-    void Write(const int16_t*, int) { ++written; }
+    size_t OutputData(std::vector<int16_t>&);
+    int Write(const int16_t*, int size) { ++written; return size; }
 };
 '''+method+r'''
 int main() {
@@ -543,11 +544,11 @@ struct AudioCodec{
  bool speaker_protection_enabled_=true;
  SpeakerProtection speaker_protection_;
  std::atomic<bool>output_processing_reset_pending_{true};
- void OutputData(std::vector<int16_t>&);
+ size_t OutputData(std::vector<int16_t>&);
  void ResetOutputProcessing();
- void Write(const int16_t*,int){}
+ int Write(const int16_t*,int size){return size;}
 };
-''' + queue_function(source, 'void AudioCodec::OutputData(')
+''' + queue_function(source, 'size_t AudioCodec::OutputData(')
             + queue_function(source, 'void AudioCodec::ResetOutputProcessing(') + r'''
 int main(){
  AudioCodec codec;codec.speaker_protection_.Configure(24000);

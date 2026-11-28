@@ -20,6 +20,9 @@ class ConsoleMemoryAdmissionTest(unittest.TestCase):
 #include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
+#define ESP_LOGI(...) ((void)0)
+int64_t esp_timer_get_time(){return 1000;}
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
@@ -32,7 +35,7 @@ int xTaskCreate(void(*)(void*),const char*,int,void*,int,void*){
     ++creates; return create_ok ? pdPASS : 0;
 }
 struct WebConsole {
-    std::atomic<bool> started_{false}, server_start_failed_{false};
+    std::atomic<bool> started_{false}, server_start_failed_{false}; std::atomic<int64_t> last_start_deferral_us_{0};
     static void StartTaskEntry(void*){}
     bool Start();
 };

@@ -34,7 +34,7 @@ private:
     };
 
 public:
-    OggDemuxer() { Reset(); }
+    explicit OggDemuxer(bool verify_pages = false) : verify_pages_(verify_pages) { Reset(); }
 
     // Enhanced callback uses the normative 48 kHz Opus timeline, not the
     // informational original input rate stored in OpusHead.
@@ -42,6 +42,8 @@ public:
         on_opus_packet_ = std::move(cb);
     }
     bool valid_stream() const { return enhanced_valid_; }
+    bool AtVerifiedPageBoundary() const;
+    bool saw_end_of_stream() const { return verified_eos_; }
     void Reset();
 
     size_t Process(const uint8_t* data, size_t size);
@@ -61,6 +63,12 @@ private:
     int16_t gain_q8_ = 0;
     void ParseOpusHeader();
     void EmitOpusPacket();
+    bool BeginVerifiedPage();
+    void AccumulateChecksum(const uint8_t* bytes, size_t size);
+    void EndVerifiedPage();
+    const bool verify_pages_;
+    bool page_error_ = false, verified_eos_ = false, saw_page_ = false;
+    uint32_t serial_ = 0, next_sequence_ = 0, checksum_ = 0;
     ParseState state_ = ParseState::FIND_PAGE;
     context_t ctx_;
     Opus_t opus_info_;

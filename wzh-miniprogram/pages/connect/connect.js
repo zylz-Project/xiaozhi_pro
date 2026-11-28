@@ -5,11 +5,10 @@ const products = require('../../services/products')
 const store = require('../../services/store')
 const fmt = require('../../utils/format')
 
-// 记住上次连过的设备：下次进来自动置顶并尝试连一次。
+// 最近设备在扫描列表置顶，由用户点选。
 const LAST_KEY = 'panda-last-device'
 // 首次进入连接页的三步引导只自动出现一次。
 const GUIDE_KEY = 'panda-connect-guide-v1'
-const AUTO_RECONNECT_DELAY = 1200
 
 const CONNECT_GUIDE = [
   {
@@ -71,6 +70,7 @@ function writeLast(item) {
       deviceId: item.deviceId,
       name: item.name,
       product: item.product,
+      identity: item.identity || '',
       ts: Date.now()
     })
   } catch (e) {}
@@ -110,7 +110,6 @@ Page({
     emptySub: '确认玩具已开机、蓝牙范围内，再试一次',
     lastName: '',
     lastMissing: false,
-    autoConnecting: false,
     guideOpen: false,
     guideStep: 0,
     guideDots: [0, 1, 2],
@@ -126,9 +125,10 @@ Page({
     this.mock = false
     this.client = null
     this.connected = false
+    this._visible = false
+    this._unloaded = false
+    this._scanId = 0
     this.lastDevice = readLast()
-    this._autoTried = false
-    this._autoTimer = null
     this._guidePending = null
     this.setData({
       statusBarHeight: info.statusBarHeight || 20,
@@ -139,14 +139,27 @@ Page({
       activeName: picked ? toy.name : '',
       lastName: this.lastDevice ? this.lastDevice.name : ''
     })
-    this.startScan()
     if (!guideSeen()) {
       this._guideTimer = setTimeout(() => this.openGuide(), 900)
     }
   },
 
+  onShow() {
+    this._visible = true
+    this.startScan()
+  },
+
+  onHide() {
+    this._visible = false
+    ++this._scanId
+    if (this.client && this.client.stopScan) this.client.stopScan()
+    this.setData({ scanning: false })
+  },
+
   onUnload() {
-    if (this._autoTimer) clearTimeout(this._autoTimer)
+    this._unloaded = true
+    this._visible = false
+    ++this._scanId
     if (this._guideTimer) clearTimeout(this._guideTimer)
     if (this.client && !this.connected) {
       try { this.client.close() } catch (e) {}
@@ -169,25 +182,26 @@ Page({
   decorateDevices(list) {
     const last = this.lastDevice
     const devices = (list || []).map(d => {
-      const p = products.detectProduct(d)
-      const name = d.name || d.localName || '未知设备'
+      const p = d.product === '' ? null : products.detectProduct(d)
+      const live = d.live !== false
       return {
         deviceId: d.deviceId,
-        name: name,
-        product: p.id,
-        icon: p.icon,
-        meta: (p.model || 'WZH') + ' · ' + (d.RSSI >= -65 ? '很近' : '附近'),
+        name: d.name || d.localName || '待识别蓝牙设备',
+        product: p ? p.id : '',
+        icon: p ? p.icon : '',
+        meta: live ? ((p ? p.model : '待识别') + ' · ' + (d.RSSI >= -65 ? '很近' : '附近')) : '最近发现 · 等待广播',
         rssi: d.RSSI || -100,
         bars: fmt.signalBars(d.RSSI || -100),
-        isLast: !!(last && (last.deviceId === d.deviceId || last.name === name))
+        live,
+        isLast: !!(last && last.deviceId === d.deviceId)
       }
     })
     // 上次连过的设备置顶，其余按信号强弱。
-    devices.sort((a, b) => (b.isLast ? 1 : 0) - (a.isLast ? 1 : 0) || b.rssi - a.rssi)
+    devices.sort((a, b) => Number(b.live) - Number(a.live) || Number(b.isLast) - Number(a.isLast) || b.rssi - a.rssi)
     return devices
   },
 
-  renderDevices(list) {
+  renderDevices(list, onRendered) {
     const all = list || this.data.devices || []
     const active = this.data.activeToy
     const name = this.data.activeName
@@ -202,67 +216,48 @@ Page({
       emptySub: active
         ? '确认' + name + '已开机、在蓝牙范围内，再点“重新扫描”'
         : '确认玩具已开机、蓝牙范围内，再试一次'
-    })
-  },
-
-  // 上次连过的设备一出现就自动连一次；用户手动操作会取消。
-  maybeAutoConnect(list) {
-    if (this._autoTried || this.data.connecting || this.data.guideOpen) return
-    const last = this.lastDevice
-    if (!last) return
-    const hit = (list || []).find(d => d.isLast)
-    if (!hit) return
-    this._autoTried = true
-    this.setData({ autoConnecting: true, autoName: hit.name })
-    this._autoTimer = setTimeout(() => {
-      this._autoTimer = null
-      if (this.data.connecting || this.data.guideOpen) {
-        this.setData({ autoConnecting: false })
-        return
-      }
-      this.setData({ autoConnecting: false })
-      this.connectTo(hit, true)
-    }, AUTO_RECONNECT_DELAY)
-  },
-
-  cancelAutoConnect() {
-    if (this._autoTimer) {
-      clearTimeout(this._autoTimer)
-      this._autoTimer = null
-    }
-    this._autoTried = true
-    if (this.data.autoConnecting) this.setData({ autoConnecting: false })
+    }, onRendered)
   },
 
   onToyFilter(e) {
-    this.cancelAutoConnect()
     const id = e.currentTarget.dataset.id
     const active = this.data.activeToy === id ? '' : id
     const toy = active ? products.get(active) : null
     this.setData({ activeToy: active, activeName: toy ? toy.name : '' })
     this.renderDevices(this.data.devices)
-    if (!this.data.scanning && !this.data.devices.length) this.startScan()
+    if (!this.data.scanning && !this.data.visibleDevices.length) this.startScan()
   },
 
-  async startScan() {
-    if (this.data.scanning || this.data.connecting) return
+  async startScan(restart = false) {
+    if (!this._visible || this.data.connecting || (this.data.scanning && !restart)) return
     const client = this.getClient()
-    this.setData({ scanning: true, error: '', demoAvailable: false, bleLabel: this.mock ? '演示模式' : '正在准备蓝牙' })
-    try {
-      await client.open()
-      if (!this.mock) this.setData({ bleLabel: '蓝牙已就绪' })
-      const list = await client.scan(undefined, partial => {
-        const devices = this.decorateDevices(partial)
-        if (!devices.length) return
-        this.setData({ scanning: true, bleLabel: this.mock ? '演示模式' : '发现 ' + devices.length + ' 台设备' })
-        this.renderDevices(devices)
-        this.maybeAutoConnect(devices)
+    const scanId = ++this._scanId
+    const startedAt = Date.now()
+    const current = () => this._visible && this._scanId === scanId
+    let firstLiveCard = false
+    const show = (list, scanning) => {
+      if (!current()) return
+      const devices = this.decorateDevices(scanning ? list : list.filter(d => d.live !== false))
+      const count = devices.filter(d => d.live).length
+      const label = !count ? (scanning ? '正在寻找附近设备' : '附近暂无设备') : '发现 ' + count + ' 台设备'
+      this.setData({ scanning, bleLabel: this.mock ? '演示模式' : label })
+      this.renderDevices(devices, () => {
+        if (current() && !firstLiveCard && this.data.visibleDevices.some(d => d.live)) {
+          firstLiveCard = true
+          if (!this.mock) console.info('[WZH BLE] first visible device', { elapsedMs: Date.now() - startedAt })
+        }
       })
-      const devices = this.decorateDevices(list)
-      this.setData({ scanning: false, demoAvailable: false, bleLabel: this.mock ? '演示模式' : '发现 ' + devices.length + ' 台设备' })
-      this.renderDevices(devices)
-      this.maybeAutoConnect(devices)
+    }
+    this.setData({ scanning: true, error: '', demoAvailable: false, bleLabel: this.mock ? '演示模式' : '正在准备蓝牙' })
+    this.renderDevices([])
+    try {
+      if (client.stopScan) await client.stopScan()
+      if (!current()) return
+      this.setData({ bleLabel: this.mock ? '演示模式' : '正在寻找附近设备' })
+      const list = await client.scan(undefined, partial => show(partial, true))
+      show(list, false)
     } catch (e) {
+      if (!current()) return
       this.setData({
         scanning: false,
         demoAvailable: isDevtools(),
@@ -275,31 +270,31 @@ Page({
 
   onScan() {
     if (this.data.connecting) return
-    if (this.data.scanning) return
-    this.cancelAutoConnect()
-    this._autoTried = false
-    this.setData({ devices: [], error: '' })
-    this.startScan()
+    this.startScan(true)
   },
 
   async onConnect(e) {
     if (this.data.connecting) return
-    this.cancelAutoConnect()
     const id = e.currentTarget.dataset.id
     const item = this.data.devices.find(d => d.deviceId === id)
     if (!item) return
     this.connectTo(item)
   },
 
-  async connectTo(item, auto) {
-    if (!item || this.data.connecting) return
+  async connectTo(item) {
+    if (!item || !this._visible || this.data.connecting) return
     const client = this.client || this.getClient()
-    this.setData({ connecting: true, connectingName: item.name, error: '' })
+    ++this._scanId
+    this.setData({ scanning: false, connecting: true, connectingName: item.name, error: '' })
     try {
       const res = await client.connect(item.deviceId, item)
+      if (this._unloaded) {
+        await client.close()
+        return
+      }
       const product = products.detectProduct(res.device || item)
       store.setToy(product.id)
-      writeLast({ deviceId: item.deviceId, name: item.name, product: product.id })
+      writeLast({ deviceId: item.deviceId, name: item.name, product: product.id, identity: res.device && res.device.identity })
       const app = getApp()
       app.setBle(client, this.mock)
       app.globalData.toy = product.id
@@ -307,22 +302,26 @@ Page({
       this.connected = true
       wx.redirectTo({ url: '/pages/device/device?toy=' + product.id })
     } catch (err) {
+      try { await client.close() } catch (e) {}
+      if (this._unloaded) return
       this.setData({
         connecting: false,
-        error: auto ? ('自动连接“' + item.name + '”失败，点一下设备重试') : (err.message || '连接失败，请重试')
+        error: err.message || '连接失败，请重试'
       })
-      try { await client.close() } catch (e) {}
-      this.client = null
     }
   },
 
   async onDemo() {
     if (this.data.connecting) return
+    const scanId = ++this._scanId
+    if (this.client) await this.client.close()
+    if (!this._visible || scanId !== this._scanId) return
     this.client = new MockClient()
     this.mock = true
     this.setData({ isDevtools: true, demoAvailable: true, bleLabel: '演示模式' })
     try {
       const list = await this.client.scan()
+      if (!this._visible || scanId !== this._scanId) return
       const devices = (list || []).map(d => {
         const p = products.detectProduct(d)
         return { deviceId: d.deviceId, name: d.name, product: p.id, icon: p.icon, meta: p.model + ' · 演示', rssi: d.RSSI, bars: fmt.signalBars(d.RSSI) }
@@ -338,7 +337,6 @@ Page({
   // ---------- 首次连接引导（与详情页同一套聚光灯/气泡皮肤） ----------
 
   openGuide() {
-    this.cancelAutoConnect()
     this._guidePending = null
     this.setData({
       guideOpen: true,
@@ -402,6 +400,7 @@ Page({
     this._guidePending = null
     markGuideSeen()
     this.setData({ guideOpen: false })
+    if (!this.data.visibleDevices.some(d => d.live)) this.startScan()
   },
 
   noop() {}

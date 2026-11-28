@@ -106,6 +106,15 @@ std::string LoadPreviousAliVoice() {
     VoicePair pair;
     return LoadPairOrLegacy(pair) ? pair.previous : "";
 }
+bool LoadAliVoiceSelection(std::string& current, std::string& previous) {
+    std::lock_guard<std::mutex> lock(voice_pair_mutex);
+    VoicePair pair;
+    if (!LoadPairOrLegacy(pair))
+        return false;
+    current = pair.current;
+    previous = pair.previous;
+    return true;
+}
 bool SaveAliVoice(const std::string& voice) {
     if (voice.size() > 128)
         return false;
@@ -122,7 +131,8 @@ bool SaveAliVoice(const std::string& voice) {
         std::memcpy(pair.previous, pair.current, sizeof(pair.previous));
     std::memset(pair.current, 0, sizeof(pair.current));
     std::memcpy(pair.current, voice.data(), voice.size());
-    return SavePair(pair);
+    VoicePair saved;
+    return SavePair(pair) && LoadPairOrLegacy(saved) && voice == saved.current;
 }
 bool CommitAliVoice(const std::string& voice) {
     // Enrollment starts only when Ali is selected, so one existing key is the

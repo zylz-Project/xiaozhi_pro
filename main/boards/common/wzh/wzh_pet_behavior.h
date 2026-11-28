@@ -7,6 +7,7 @@
 #include <initializer_list>
 #include <mutex>
 #include <string_view>
+#include <utility>
 
 #include "wzh_interaction.h"
 #include "wzh_motion_profile.h"
@@ -27,7 +28,7 @@ enum class PetReaction {
     kStartled,
     kSleepy
 };
-enum class TouchResponse { kNone, kAffection, kPlayful, kHeld, kReleased };
+enum class TouchResponse { kNone, kAffection, kPlayful, kStrokeForward, kStrokeReverse };
 
 struct TouchEvent {
     TouchResponse response = TouchResponse::kNone;
@@ -35,11 +36,9 @@ struct TouchEvent {
     PetInteraction interaction() const {
         if (response == TouchResponse::kNone)
             return PetInteraction::kNone;
-        if (response == TouchResponse::kHeld)
+        if (response == TouchResponse::kStrokeForward)
             return PetInteraction::kHeld;
-        if (response == TouchResponse::kReleased)
-            return PetInteraction::kReleased;
-        if (response == TouchResponse::kPlayful)
+        if (response == TouchResponse::kPlayful || response == TouchResponse::kStrokeReverse)
             return PetInteraction::kPlayful;
         if (mask == 1)
             return PetInteraction::kTouch1;
@@ -212,6 +211,9 @@ private:
 // Pure, host-testable policy. Controllers own all PWM, sound and application effects.
 class PetBehavior {
 public:
+    explicit PetBehavior(bool detect_back_stroke = false)
+        : detect_back_stroke_(detect_back_stroke) {}
+
     struct State {
         PetMode mode;
         bool motion;
@@ -326,41 +328,30 @@ public:
         return true;
     }
 
-    void Touch(uint8_t mask, uint32_t now) {
+    void Touch(uint8_t mask, uint32_t now, bool allow_contact_start = true) {
         std::lock_guard<std::mutex> lock(mutex_);
         if ((mask & 0xF0) != 0) {
-            // Invalid/disconnected touch input cancels contact; it is neither
-            // a petting hold nor a deliberate release gesture.
+            // Keep the input unarmed until a valid release is seen.
+            touch_mask_ = 0xFF;
             ResetTouchLocked();
             return;
         }
-        if (mask == touch_mask_) {
-            return;
-        }
         const uint8_t previous = touch_mask_;
-        touch_mask_ = mask;
-        if (maintenance_ || mode_ == PetMode::kRest || mode_ == PetMode::kStopped) {
-            pending_touch_ = TouchResponse::kNone;
+        if (mask == previous || (previous == 0xFF && mask != 0)) {
             return;
         }
-        if (mask == 0) {
-            if (touch_held_) {
-                pending_touch_ = TouchResponse::kReleased;
-            }
-            touch_held_ = false;
-        } else if (previous == 0) {
-            taps_ = mask == last_tap_mask_ && now - last_tap_ <= 1400 ? std::min(taps_ + 1, 3) : 1;
-            last_tap_mask_ = mask;
-            last_tap_ = touch_since_ = now;
-            touch_held_ = false;
-            pending_touch_ = taps_ >= 3 || (mask & (mask - 1)) != 0 ? TouchResponse::kPlayful
-                                                                    : TouchResponse::kAffection;
-            if (pending_touch_ == TouchResponse::kPlayful) {
-                // Consume the gesture. A fourth tap starts a new interaction instead
-                // of repeatedly restarting the long playful response.
-                taps_ = 0;
-            }
+        touch_mask_ = mask;
+        // The ADC may have confirmed a press before the controller attached.
+        // A sample from that contact still updates the level.
+        if ((previous == 0 && mask != 0 && !allow_contact_start) || maintenance_ ||
+            mode_ == PetMode::kRest || mode_ == PetMode::kStopped) {
+            ResetTouchLocked();
+            return;
         }
+        if (detect_back_stroke_ && HandleBackStrokeLocked(previous, mask, now))
+            return;
+        if (previous == 0 && mask != 0)
+            pending_touch_ = MakeTapLocked(mask, now);
         // Contact stays active but the decoded pad code drifted: only update
         // touch_mask_. Interactions start on the 0 -> nonzero rising edge, so a
         // resting finger cannot keep retriggering responses through R-2R noise.
@@ -371,41 +362,94 @@ public:
         if (maintenance_ || mode_ == PetMode::kRest || mode_ == PetMode::kStopped) {
             return {};
         }
-        if (touch_mask_ != 0 && now - touch_since_ >= 1200 && !touch_held_) {
-            touch_held_ = true;
-            gentle_ = true;
-            gentle_since_ = now;
-            gentle_ms_ = 4000;
-            held_beat_ms_ = now;
-            pending_touch_ = TouchResponse::kHeld;
-        }
-        // Continued contact extends gentleness without repeatedly restarting a
-        // clip, but a long hold still gets a soft acknowledgement every few
-        // seconds so the pet does not look frozen under a resting hand.
-        if (touch_held_ && touch_mask_ != 0) {
-            gentle_since_ = now;
-            if (pending_touch_ == TouchResponse::kNone && now - held_beat_ms_ >= 9000) {
-                held_beat_ms_ = now;
-                pending_touch_ = TouchResponse::kHeld;
-            }
-        }
-        const auto response = pending_touch_;
-        pending_touch_ = TouchResponse::kNone;
-        return {response, touch_mask_};
+        if (completed_back_tap_.mask != 0)
+            return std::exchange(completed_back_tap_, TouchEvent{});
+        if (pending_touch_.response != TouchResponse::kNone)
+            return std::exchange(pending_touch_, TouchEvent{});
+        if (back_tap_.mask != 0 && BackStrokeWindowOpenLocked(now, touch_mask_))
+            return {};
+        return std::exchange(back_tap_, TouchEvent{});
     }
 
     TouchResponse PollTouch(uint32_t now) { return PollTouchEvent(now).response; }
 
+    void ResetTouch() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ResetTouchLocked();
+    }
+
 private:
+    bool BackStrokeWindowOpenLocked(uint32_t now, uint8_t contact) const {
+        // The motion task may have sampled its clock just before the ADC task
+        // recorded a new press or release. A stale poll cannot expire it.
+        return static_cast<int32_t>(now - back_started_ms_) < kBackStrokeMs &&
+               (contact != 0 || static_cast<int32_t>(now - back_released_ms_) <= kBackGapMs);
+    }
+
+    TouchEvent MakeTapLocked(uint8_t mask, uint32_t now) {
+        taps_ = mask == last_tap_mask_ && now - last_tap_ <= 1400 ? std::min(taps_ + 1, 3) : 1;
+        last_tap_mask_ = mask;
+        last_tap_ = now;
+        if (taps_ >= 3 || (mask & (mask - 1)) != 0) {
+            taps_ = 0;
+            return {TouchResponse::kPlayful, mask};
+        }
+        return {TouchResponse::kAffection, mask};
+    }
+
+    // SW3 is the front pad, SW4 the rear pad. An initial simultaneous press
+    // has no direction. A short gap or overlap is allowed between the pads.
+    bool HandleBackStrokeLocked(uint8_t previous, uint8_t mask, uint32_t now) {
+        if (back_stroke_consumed_) {
+            back_stroke_consumed_ = mask != 0;
+            return true;
+        }
+        if (back_tap_.mask != 0) {
+            const uint8_t other_pad = kBackPads ^ back_tap_.mask;
+            if (BackStrokeWindowOpenLocked(now, previous)) {
+                if (!(previous & other_pad) && (mask == other_pad || mask == kBackPads)) {
+                    pending_touch_ = {back_tap_.mask == kFrontBackPad
+                                          ? TouchResponse::kStrokeForward
+                                          : TouchResponse::kStrokeReverse,
+                                      kBackPads};
+                    back_tap_ = {};
+                    back_stroke_consumed_ = true;
+                    taps_ = 0;
+                    return true;
+                }
+                if (mask == 0) {
+                    back_released_ms_ = now;
+                    return true;
+                }
+                if (previous != 0 && (mask & ~kBackPads) == 0)
+                    return true;
+            }
+            // A new tap on the same pad or another body part ends the old
+            // candidate. Deliver that tap before the new contact's response.
+            completed_back_tap_ = std::exchange(back_tap_, TouchEvent{});
+        }
+        if (previous == 0 && (mask == kFrontBackPad || mask == kRearBackPad)) {
+            back_tap_ = MakeTapLocked(mask, now);
+            back_started_ms_ = now;
+            return true;
+        }
+        return false;
+    }
+
     void ResetTouchLocked() {
-        touch_mask_ = 0;
-        touch_held_ = false;
-        held_beat_ms_ = 0;
+        // Drop old responses without turning a held level into a new press.
         taps_ = 0;
         last_tap_mask_ = 0;
-        pending_touch_ = TouchResponse::kNone;
+        pending_touch_ = {};
+        back_tap_ = {};
+        completed_back_tap_ = {};
+        back_stroke_consumed_ = false;
     }
+    static constexpr uint8_t kFrontBackPad = 0x04, kRearBackPad = 0x08;
+    static constexpr uint8_t kBackPads = kFrontBackPad | kRearBackPad;
+    static constexpr int32_t kBackStrokeMs = 650, kBackGapMs = 230;
     mutable std::mutex mutex_;
+    const bool detect_back_stroke_;
     PetMode mode_ = PetMode::kNormal;
     bool maintenance_ = false;
     bool gentle_ = false;
@@ -414,7 +458,6 @@ private:
     bool interaction_sound_started_ = false;
     uint32_t interaction_sound_since_ = 0;
     uint32_t gentle_since_ = 0, gentle_ms_ = 0;
-    uint32_t held_beat_ms_ = 0;
     bool priority_active_ = false;
     bool emotion_responded_ = false;
     uint32_t emotion_since_ = 0;
@@ -422,10 +465,11 @@ private:
     uint32_t priority_since_ = 0, priority_ms_ = 0;
     uint8_t touch_mask_ = 0;
     uint8_t last_tap_mask_ = 0;
-    bool touch_held_ = false;
     int taps_ = 0;
-    uint32_t touch_since_ = 0, last_tap_ = 0;
-    TouchResponse pending_touch_ = TouchResponse::kNone;
+    uint32_t last_tap_ = 0;
+    TouchEvent pending_touch_, back_tap_, completed_back_tap_;
+    bool back_stroke_consumed_ = false;
+    uint32_t back_started_ms_ = 0, back_released_ms_ = 0;
 };
 
 }  // namespace wzh

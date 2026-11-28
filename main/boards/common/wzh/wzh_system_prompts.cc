@@ -17,6 +17,7 @@
 #include "application.h"
 #include "assets/lang_config.h"
 #include "board.h"
+#include "wzh_idle_power.h"
 #include "wzh_onboarding.h"
 #include "wzh_prompt_audio_gate.h"
 
@@ -49,6 +50,21 @@ std::atomic<uint32_t> shutdown_requested{0};
 std::atomic<uint32_t> shutdown_produced{0};
 std::atomic<uint32_t> shutdown_generation{0};
 
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+// Odd values publish actual user activity. Zero is reserved for no request.
+std::atomic<uint32_t> idle_activity{1};
+std::atomic<uint32_t> idle_off_activity{0};
+std::atomic<uint32_t> idle_reminder_activity{0};
+std::atomic<bool> idle_reminder_voice{false};
+
+bool IdlePowerAvailable() {
+    auto& app = Application::GetInstance();
+    return startup_greeting_complete.load() && !shutting_down.load() && !IsOnboardingActive() &&
+           app.GetDeviceState() == kDeviceStateIdle && !app.IsVoiceEnrollmentActive() &&
+           !app.IsExternalVoicePreviewActive() && !Board::GetInstance().IsAudioMaintenanceActive();
+}
+#endif
+
 uint32_t QueueShutdownPrompt() {
     const auto request = shutdown_serial.fetch_add(1) + 1;
     // Serialize after StopInteraction's queued cleanup, rather than assuming
@@ -71,12 +87,33 @@ void Worker(void*) {
     auto& app = Application::GetInstance();
     auto& audio = app.GetAudioService();
     uint32_t last_onboarding_retry = 0;
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+    IdlePower idle_power;
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    std::optional<uint32_t> idle_voice_generation;
+#endif
+#endif
 #if CONFIG_WZH_SYSTEM_PROMPTS
     std::optional<uint32_t> low_generation;
     uint32_t low_drained_before = 0;
 #endif
     while (true) {
         const auto now_ms = esp_log_timestamp();
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+        const auto activity = idle_activity.load();
+        const bool idle_available = IdlePowerAvailable();
+        idle_power.Observe(now_ms, activity, idle_available);
+        idle_off_activity.store(idle_power.ShutdownDue(now_ms) ? activity : 0);
+#if CONFIG_WZH_SYSTEM_PROMPTS
+        if (idle_voice_generation &&
+            (*idle_voice_generation != audio.GetPlaybackGeneration() || audio.IsPlaybackIdle())) {
+            idle_voice_generation.reset();
+            idle_reminder_voice.store(false);
+        }
+#endif
+        idle_reminder_activity.store(
+            idle_power.ReminderDue(now_ms) || idle_reminder_voice.load() ? activity : 0);
+#endif
         if (now_ms - last_onboarding_retry >= 1000) {
             last_onboarding_retry = now_ms;
             TryResumeOnboarding();
@@ -111,8 +148,8 @@ void Worker(void*) {
             const auto notice = startup_protection_pending.load();
             std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
             if (reservation.owns_lock() && notice == startup_protection.load() &&
-                app.GetDeviceState() == kDeviceStateIdle &&
-                audio.IsPlaybackIdle() && !audio.IsAudioProcessorRunning() &&
+                app.GetDeviceState() == kDeviceStateIdle && audio.IsPlaybackIdle() &&
+                !audio.IsAudioProcessorRunning() &&
                 !Board::GetInstance().IsAudioMaintenanceActive()) {
                 auto expected = notice;
                 if (startup_protection_pending.compare_exchange_strong(
@@ -158,8 +195,7 @@ void Worker(void*) {
             const auto generation = audio.GetPlaybackGeneration();
             std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::try_to_lock);
             if (reservation.owns_lock() && app.GetDeviceState() == kDeviceStateIdle &&
-                audio.IsPlaybackIdle() &&
-                !audio.IsAudioProcessorRunning() &&
+                audio.IsPlaybackIdle() && !audio.IsAudioProcessorRunning() &&
                 !Board::GetInstance().IsAudioMaintenanceActive()) {
                 bool play = false;
                 {
@@ -171,6 +207,17 @@ void Worker(void*) {
                     low_drained_before = audio.GetPlaybackDrainedCount();
                     audio.PlaySound(Lang::Sounds::OGG_LOW_BATTERY, generation);
                 }
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+                else if (idle_available && idle_power.ReminderDue(now_ms) &&
+                         !idle_power.ShutdownDue(now_ms) &&
+                         !Board::GetInstance().IsLocalPlaybackPending() && IdlePowerAvailable() &&
+                         activity == idle_activity.load()) {
+                    idle_power.ReminderQueued();
+                    idle_voice_generation = generation;
+                    idle_reminder_voice.store(true);
+                    audio.PlaySound(Lang::Sounds::OGG_IDLE_MISS, generation);
+                }
+#endif
             }
         }
 #endif
@@ -178,6 +225,26 @@ void Worker(void*) {
     }
 }
 }  // namespace
+
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+void NoteIdlePowerInteraction() { idle_activity.fetch_add(2); }
+
+uint32_t IdleInteractionGeneration() { return idle_activity.load(); }
+
+bool IdleReminderBlocksAutoplay() {
+    const auto requested = idle_reminder_activity.load();
+    return requested != 0 && requested == idle_activity.load();
+}
+
+bool IsIdleReminderVoiceActive() { return idle_reminder_voice.load(); }
+
+bool IdlePowerMayShutDown() {
+    const auto requested = idle_off_activity.load();
+    return requested != 0 && IdlePowerAvailable() &&
+           !Application::GetInstance().GetAudioService().IsAudioProcessorRunning() &&
+           requested == idle_activity.load();
+}
+#endif
 
 void MaybeStartOnboarding() {
     if (worker_started.load() && startup_greeting_complete.load() &&
@@ -209,9 +276,7 @@ void RequestWifiSetupPrompt() {
 
 void MarkStartupNetworkReady() { startup_network_ready.store(true); }
 
-bool StartupGreetingAudioReady() {
-    return worker_started.load() && !shutting_down.load();
-}
+bool StartupGreetingAudioReady() { return worker_started.load() && !shutting_down.load(); }
 
 bool StartupGreetingFinished() { return startup_greeting_complete.load(); }
 

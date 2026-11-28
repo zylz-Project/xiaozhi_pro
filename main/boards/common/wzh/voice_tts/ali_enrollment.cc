@@ -10,6 +10,9 @@
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC && CONFIG_ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT
+#include "voice_http.h"
+#endif
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -25,13 +28,17 @@ constexpr char kCreateStart[] =
 constexpr char kCreateAudio[] = "\",\"audio\":\"data:audio/wav;base64,";
 constexpr char kVoiceIdPrefix[] = "qwen-audio-3.1-tts-flash-";
 constexpr char kSuffix[] = "\",\"language_hints\":[\"zh\"],\"max_prompt_audio_length\":20}}";
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC && CONFIG_ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT
+using Client = VoiceHttpClient;
+#else
 struct ClientDelete {
     void operator()(esp_http_client* p) const { esp_http_client_cleanup(p); }
 };
+using Client = std::unique_ptr<esp_http_client, ClientDelete>;
+#endif
 struct JsonDelete {
     void operator()(cJSON* p) const { cJSON_Delete(p); }
 };
-using Client = std::unique_ptr<esp_http_client, ClientDelete>;
 using Json = std::unique_ptr<cJSON, JsonDelete>;
 
 bool ValidPrefix(const std::string& prefix) {
@@ -61,7 +68,11 @@ Client Open(const std::string& key, size_t length, int timeout_ms = 30000) {
     config.timeout_ms = timeout_ms;
     config.crt_bundle_attach = esp_crt_bundle_attach;
     config.disable_auto_redirect = true;
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC && CONFIG_ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT
+    auto client = CreateVoiceHttpClient(config);
+#else
     Client client(esp_http_client_init(&config));
+#endif
     const std::string auth = "Bearer " + key;
     if (!client ||
         esp_http_client_set_header(client.get(), "Authorization", auth.c_str()) != ESP_OK ||

@@ -18,6 +18,10 @@ struct BatterySamplingStatus {
     int64_t rest_age_ms = -1;
 };
 
+constexpr int BatteryLevelFromVoltage(int millivolts, int empty_mv, int full_mv) {
+    return std::clamp((millivolts - empty_mv) * 100 / (full_mv - empty_mv), 0, 100);
+}
+
 // A temporal median rejects a single loaded/switching dip; the existing three
 // confirmations then apply to the stable voltage, not individual ADC bursts.
 // Critical undervoltage keeps its independent three-live-sample emergency path.
@@ -34,6 +38,12 @@ public:
         std::sort(sorted.begin(), sorted.end());
         voltage_ = sorted[1];
         stable_.Update(voltage_, low_mv, recover_mv, critical_mv, rested);
+    }
+    // Bootstrap only before the first motion, from one calibrated ADC burst.
+    // Subsequent samples continue through the normal median and protection.
+    void InitializeFromStartupSample(int millivolts, int low_mv, int recover_mv, int critical_mv) {
+        for (unsigned i = 0; i < 5; ++i)
+            Update(millivolts, false, low_mv, recover_mv, critical_mv);
     }
     void Invalidate() {
         live_.Invalidate();
@@ -54,7 +64,7 @@ private:
 };
 
 // Experience warning only; never used to disable motion or cut power.
-// The percentage comes from the existing rested-voltage display estimate.
+// The caller derives the percentage from resting-voltage estimates.
 class BatteryWarningLevel {
 public:
     void Observe(int level) {
@@ -67,6 +77,53 @@ public:
 
 private:
     bool low_ = false;
+};
+
+// Presentation only. A persistent trend changes the displayed percentage by
+// one point at a time, even when the voltage source changes under load.
+class BatteryDisplayLevel {
+public:
+    int Update(int target, uint32_t now, bool rested, bool protection_low) {
+        if (now - sampled_ms_ > kHoldMs)
+            direction_ = 0;  // A gap alone does not confirm a voltage trend.
+        sampled_ms_ = now;
+        if (level_ < 0 || (protection_low && target < level_)) {
+            level_ = target;
+            direction_ = 0;
+            return level_;
+        }
+
+        const int direction = target == level_ ? 0 : target > level_ ? 1 : -1;
+        if (direction == 0 || (direction > 0 && !rested)) {
+            direction_ = 0;
+            return level_;
+        }
+        if (direction != direction_ || rested != using_rest_) {
+            direction_ = direction;
+            using_rest_ = rested;
+            step_since_ms_ = now;
+        } else if (now - step_since_ms_ >= (rested ? kRestStepMs : kLiveStepMs)) {
+            level_ += direction;
+            step_since_ms_ = now;
+        }
+        return level_;
+    }
+
+    int OnMissingSample(uint32_t now) {
+        direction_ = 0;
+        if (now - sampled_ms_ > kHoldMs)
+            level_ = -1;
+        return level_;
+    }
+
+private:
+    static constexpr uint32_t kRestStepMs = 4000;
+    static constexpr uint32_t kLiveStepMs = 8000;
+    static constexpr uint32_t kHoldMs = 5000;
+    uint32_t sampled_ms_ = 0, step_since_ms_ = 0;
+    int level_ = -1;
+    int direction_ = 0;
+    bool using_rest_ = false;
 };
 
 // UI estimate only. Protection must continue to use every valid live reading,
@@ -117,6 +174,17 @@ public:
     }
     int millivolts() const { return (filtered_ + 4) / 8; }
     uint32_t updated_ms() const { return updated_ms_; }
+    bool HasRecentSample(uint32_t now) const {
+        return count_ == samples_.size() && now - updated_ms_ <= kHistoryMaxGapMs;
+    }
+
+    // Prefer a recent rested estimate, but keep reporting a useful estimate
+    // when a long conversation or continuous motion prevents fresh rest data.
+    int DisplayMillivolts(uint32_t now, int live_mv, int stable_mv) const {
+        if (HasRecentSample(now))
+            return millivolts();
+        return stable_mv > 0 ? stable_mv : live_mv;
+    }
 
     // Reject isolated ADC conversion outliers without hiding a sustained drop.
     // All reads belong to one short burst, not a slow protection filter.

@@ -117,7 +117,7 @@ public:
     void SetConversationActive(bool active);
     void SetSpeaking(bool speaking);
     void SetMaintenance(bool blocked);
-    void HandleTouch(uint8_t code);
+    void HandleTouch(uint8_t code, bool allow_contact_start);
     bool TriggerOnboardingFeedback(uint8_t step);
     bool IsOnboardingFeedbackPending() const { return tutorial_feedback_pending_.load(); }
     bool HandleSensorEvent(int event);
@@ -145,7 +145,7 @@ public:
 
 private:
     std::mutex request_mutex_;
-    wzh::PetBehavior pet_;
+    wzh::PetBehavior pet_{true};
     wzh::InteractionMotionSelector interaction_motion_;
     std::atomic<bool> maintenance_{false};
     std::atomic<bool> stop_audio_requested_{false};

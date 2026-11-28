@@ -26,8 +26,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Test build tooling
-        run: python -m unittest discover -s scripts/tests -v
+      - name: Run affected host tests
+        shell: bash
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            # The checkout is GitHub's synthetic PR merge commit.
+            base=HEAD^1
+          elif [[ -n "$PUSH_BEFORE" ]] && git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+            base="$PUSH_BEFORE"
+          else
+            echo "No previous push commit available. Compare against an empty tree."
+            base=$(git mktree </dev/null)
+          fi
+          python3 scripts/test.py --base "$base"
 
       - id: list
         name: Get all variant list
@@ -53,7 +67,6 @@ jobs:
           # first and second parents are the exact base and head commits used
           # for this run, even when the event SHAs are not exposed as refs in
           # the job container.
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           BASE_SHA="HEAD^1"
           HEAD_SHA="HEAD^2"
           echo "Base: $(git rev-parse "$BASE_SHA"), Head: $(git rev-parse "$HEAD_SHA")"

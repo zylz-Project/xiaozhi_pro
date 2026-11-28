@@ -31,6 +31,7 @@ class VoiceHandoffTest(unittest.TestCase):
 #include <string>
 #include "voice_text_filter.h"
 #define ESP_LOGI(...) ((void)0)
+#define ESP_LOGD(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define MALLOC_CAP_SPIRAM 1
 #define MALLOC_CAP_8BIT 2
@@ -45,6 +46,7 @@ int xTaskCreate(void(*)(void*),const char*,int,void*,int,TaskHandle_t* task){
 }
 void xTaskNotifyGive(TaskHandle_t){}
 namespace voice_tts {
+constexpr char kNativeVoiceId[]="xiaozhi-native";
 constexpr size_t kMaxPendingSentences=64,kMaxPendingBytes=16*1024;
 std::string LoadAliKey(){return "key";}
 std::string LoadAliVoice(){return "voice";}

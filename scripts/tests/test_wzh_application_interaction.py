@@ -26,7 +26,8 @@ class WzhApplicationInteractionTest(unittest.TestCase):
         source = (ROOT / "main/application.cc").read_text()
         wake = function(source, "void Application::HandleWakeWordDetectedEvent()")
         wake = wake[:wake.index("    if (!protocol_)")] + "}\n"
-        stop = function(source, "void Application::StopInteraction(")
+        stop = function(source, "void Application::StopInteraction(") + "\n" + function(
+            source, "void Application::StopInteractionInternal(")
         resume = function(source, "void Application::SetListeningMode(")
         program = r'''
 #include <atomic>
@@ -58,7 +59,7 @@ struct Protocol {
     bool opened = true;
     int closed = 0;
     bool IsAudioChannelOpened() { return opened; }
-    void CloseAudioChannel() { ++closed; opened = false; }
+    void CloseAudioChannel(bool = true) { ++closed; opened = false; }
 };
 struct Board {
     ExternalTts* GetExternalTts(){return nullptr;}
@@ -96,6 +97,7 @@ struct Application {
     void Schedule(std::function<void()> callback) { scheduled.push_back(callback); }
     void HandleWakeWordDetectedEvent();
     void StopInteraction(bool play_exit_sound=false);
+    void StopInteractionInternal(bool, bool);
     void SetListeningMode(ListeningMode mode);
     void Drain() { auto work = std::move(scheduled); for (auto& item : work) item(); }
 };

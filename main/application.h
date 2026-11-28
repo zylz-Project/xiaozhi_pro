@@ -69,13 +69,23 @@ public:
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
+    void QueueTouchConversationInput(std::string text);
     bool IsVoiceEnrollmentActive() const { return voice_enrollment_active_.load(); }
+    bool IsConversationReopening() const {
+        return barge_in_reconnecting_.load() || voice_enrollment_reconnecting_.load();
+    }
     bool RequestDeviceVoiceEnrollment(const std::string& name);
+    uint32_t DeviceVoiceEnrollmentRequest() const {
+        return device_voice_enrollment_generation_.load();
+    }
+    bool RequestCancelDeviceVoiceEnrollment(uint32_t request);
     const char* DeviceVoiceEnrollmentStatus() const;
     const char* DeviceVoiceEnrollmentFailure() const;
     bool RequestExternalVoicePreview(const std::string& voice = {});
     bool IsExternalVoicePreviewActive() const { return external_voice_preview_active_.load(); }
     const char* ExternalVoicePreviewStatus() const;
+    uint32_t ExternalVoicePreviewRequest() const { return external_voice_preview_request_.load(); }
+    bool RequestCancelExternalVoicePreview(uint32_t request);
 
     /**
      * Request state transition
@@ -132,6 +142,9 @@ public:
     void WakeWordInvoke(const std::string& wake_word);
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    size_t GetMcpWireOverhead() const;
+#endif
     void SendMcpMessage(const std::string& payload);
     void RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback);
     void SetAecMode(AecMode mode);
@@ -171,6 +184,17 @@ private:
     std::atomic<bool> local_assets_applied_{false};
     std::atomic<bool> interaction_stopped_{false};
     std::atomic<uint32_t> interaction_generation_{0};
+    struct TouchConversationInput {
+        std::string text;
+        uint32_t interaction_generation = 0;
+        uint32_t protocol_generation = 0;
+        int64_t received_us = 0;
+    };
+    std::mutex touch_input_mutex_;
+    TouchConversationInput pending_touch_input_;
+    std::atomic<int64_t> last_listening_voice_edge_us_{0};
+    int64_t next_touch_input_us_ = 0;  // Main task only.
+    void SendPendingTouchConversationInput();
 #if CONFIG_USE_VOICE_BARGE_IN
     std::atomic<uint32_t> pending_voice_interruption_{0};
     BargeInReplyGate barge_in_reply_gate_;
@@ -199,9 +223,11 @@ private:
     std::atomic<bool> voice_enrollment_active_{false};
     std::atomic<int> device_voice_enrollment_status_{0};
     std::atomic<uint32_t> device_voice_enrollment_generation_{0};
+    bool device_voice_enrollment_from_chat_ = false;  // Main task only.
     std::atomic<bool> device_voice_enrollment_attempted_{false};
     // Block late server speech for a local voice-selection turn until the next user transcript.
     std::atomic<bool> voice_selection_reply_guard_{false};
+    std::atomic<uint32_t> external_voice_preview_request_{0};
     std::atomic<bool> external_voice_preview_active_{false};
     // 0 idle, 1 requested/playing, 2 complete, 3 failed, 4 cancelled.
     std::atomic<int> external_voice_preview_status_{0};
@@ -222,8 +248,24 @@ private:
     bool entry_prompt_before_listening_ = false;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
-    bool network_connected_ = false;         // main-task owned
-    bool activation_retry_pending_ = false;  // main-task owned
+    std::atomic<bool> network_link_up_{false};
+    int64_t network_resume_deadline_us_ = 0;  // main-task owned
+    uint32_t network_resume_generation_ = 0;  // main-task owned
+    bool network_connected_ = false;          // main-task owned
+    bool activation_retry_pending_ = false;   // main-task owned
+
+    // Main-task-owned transient Wi-Fi UDP retry state.
+    std::unique_ptr<AudioStreamPacket> uplink_retry_;
+    uint32_t uplink_retry_generation_ = 0;
+    uint32_t uplink_retry_protocol_ = 0;
+    unsigned uplink_retry_count_ = 0;
+    int64_t uplink_retry_due_us_ = 0, uplink_retry_expires_us_ = 0;
+    int64_t uplink_failure_started_us_ = 0, uplink_reconnect_after_us_ = 0;
+    uint32_t uplink_failure_generation_ = 0;
+    int64_t first_interrupted_uplink_us_ = 0;
+    uint32_t first_interrupted_uplink_generation_ = 0;
+    void SendQueuedVoice();
+
 
     // Event handlers
     void HandleStateChangedEvent();
@@ -233,6 +275,8 @@ private:
     void HandleStopListeningEvent();
     void HandleNetworkConnectedEvent();
     void HandleNetworkDisconnectedEvent();
+    void ServiceConversationNetworkRecovery();
+    void StopInteractionInternal(bool play_exit_sound, bool network_lost);
     void HandleActivationDoneEvent();
     void HandleWakeWordDetectedEvent();
     void ContinueOpenAudioChannel(ListeningMode mode);
@@ -243,9 +287,7 @@ private:
     void ClearEarlyAudio();
     void ConfigureWakeWordForListening();
     void ResumeAfterVoiceEnrollment(uint32_t generation);
-#if CONFIG_USE_VOICE_BARGE_IN
-    bool ReconnectAfterVoiceInterruption(uint32_t generation);
-#endif
+    bool ReopenConversation(uint32_t generation, bool after_network_loss, bool replace_channel = false);
 
     // Activation task (runs in background)
     void ActivationTask();

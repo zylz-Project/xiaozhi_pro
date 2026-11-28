@@ -34,6 +34,9 @@
       <view class="orb-foam"><view class="tx-i" wx:for="{{waveLevels}}" wx:key="*this"></view><view class="tx-i" wx:for="{{waveLevels}}" wx:key="*this"></view></view>
     </view>
     <view class="contact-shadow"></view>
+    <view wx:if="{{orbNotice && !expanded && !guideOpen}}" class="orb-notice" aria-role="alert">
+      <text>{{orbNotice}}</text>
+    </view>
   </view>
 
   <view class="sheet">
@@ -44,17 +47,10 @@
         <view class="sheet-state"><text>{{sheetState}}</text></view>
       </view>
 
-      <view wx:if="{{status.startupNotice}}" class="startup-notice" aria-role="alert">{{status.startupNotice}}</view>
-      <view wx:if="{{status.onboarding}}" class="onboarding-progress">
-        <text class="onboarding-progress-title">首次使用教程</text>
-        <text wx:if="{{status.onboarding.done}}">已完成</text>
-        <text wx:else>{{status.onboarding.active ? '正在进行' : '等待继续'}} · {{status.onboarding.displayStep}} / {{status.onboarding.step_count}}</text>
-      </view>
-
       <view class="metrics">
         <view class="metric">
           <view class="tx-small"><view class="ico ico-battery"></view><text>电量</text></view>
-          <view class="tx-b">{{status.battery}}<text class="tx-span">%</text></view>
+          <view class="tx-b">{{status.battery == null ? '—' : status.battery}}<text wx:if="{{status.battery != null}}" class="tx-span">%</text></view>
           <view class="tx-em {{status.charging ? 'is-charging' : ''}}">
             <view class="ico ico-plug"></view>
             <text>{{status.charging ? '充电中' : '使用中'}}</text>
@@ -98,7 +94,7 @@
         </view>
         <button class="voice-try {{auditioning ? 'is-playing' : ''}}" catchtap="onTryVoice">
           <view class="ico ico-speaker"></view>
-          <text>试听</text>
+          <text>{{auditioning ? '停止试听' : '试听'}}</text>
         </button>
         <view class="ico ico-chev chev"></view>
       </view>
@@ -142,8 +138,8 @@
             <view class="panel-head"><text class="tx-h3">设备与网络</text><text class="panel-meta">实时</text></view>
             <view class="device-deck">
               <view class="battery-block">
-                <view class="battery-dial" style="--level: {{status.battery}}">
-                  <view class="battery-core"><text class="tx-b">{{status.battery}}</text><text class="tx-i">%</text></view>
+                <view class="battery-dial" style="--level: {{status.battery == null ? 0 : status.battery}}">
+                  <view class="battery-core"><text class="tx-b">{{status.battery == null ? '—' : status.battery}}</text><text wx:if="{{status.battery != null}}" class="tx-i">%</text></view>
                   <view class="battery-bolt" wx:if="{{status.charging}}"><view class="ico ico-bolt"></view></view>
                 </view>
                 <text class="battery-caption">{{status.charging ? '电量 · 充电中' : '电量 · 使用中'}}</text>
@@ -188,7 +184,7 @@
                   <view class="voice-wave"><view class="tx-i" wx:for="{{waveLevels}}" wx:key="*this"></view></view>
                 </view>
               </view>
-              <button class="listen-mini" bindtap="onTryVoice"><view class="ico ico-speaker"></view><text>试听</text></button>
+              <button class="listen-mini" bindtap="onTryVoice"><view class="ico ico-speaker"></view><text>{{auditioning ? '停止试听' : '试听'}}</text></button>
             </view>
 
             <scroll-view class="fixed-rail" scroll-x enhanced="{{true}}" show-scrollbar="{{false}}" scroll-left="{{railScroll}}" scroll-with-animation="{{false}}" bindscroll="onRailScroll" bindtouchstart="pauseRail" bindtouchend="resumeRail" bindtouchcancel="resumeRail">
@@ -338,7 +334,7 @@
             <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text class="mn-b">充电。</text><text>用 USB-C 线连接 5V 充电器。电量低时设备会限制动作并提示。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text class="mn-b">开机。</text><text>长按电源键约 1 秒，听到启动音、头部回中即开机。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text class="mn-b">连接。</text><text>打开「泽元灵智」小程序，保持手机蓝牙开启，在附近设备里选择以 </text><text class="mn-b">{{product.ap}}-</text><text> 开头的设备。</text></view></view>
-            <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text class="mn-b">配网。</text><text>进入详情页后点「更改网络」，选择家里的 2.4GHz 网络并输入密码。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text class="mn-b">配网。</text><text>进入详情页后点「配置网络」，选择家里的 2.4GHz 网络并输入密码。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">05</text><view class="mn-step-copy"><text class="mn-b">完成设备语音引导后开始对话。</text><text>按语音提示操作；引导结束后可说“{{product.wake}}”或双击电源键开始对话，再双击退出。</text></view></view>
           </view>
           <view class="mn-callout"><text class="mn-b">没有屏幕也没关系。</text><text>设备通过声音和 {{manual.inlineBody}} 动作回应；所有设置都在小程序里完成。</text></view>
@@ -395,7 +391,7 @@
           <view class="mn-p">设备支持 <text class="mn-b">2.4GHz Wi-Fi</text>。双频路由器请确保 2.4GHz 网络已开启。</view>
           <view class="mn-steps">
             <view class="mn-step"><text class="mn-step-n">01</text><view class="mn-step-copy"><text>手机打开蓝牙，在「泽元灵智」小程序里连接以 </text><text class="mn-b">{{product.ap}}-</text><text> 开头的设备。</text></view></view>
-            <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text>进入设备详情页，点网络条右侧的</text><text class="mn-b">「更改」</text><text>。</text></view></view>
+            <view class="mn-step"><text class="mn-step-n">02</text><view class="mn-step-copy"><text>进入设备详情页，点网络条右侧的</text><text class="mn-b">「配置」</text><text>。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">03</text><view class="mn-step-copy"><text>选择家里的 2.4GHz 网络，输入 Wi-Fi 密码（至少 8 位）。</text></view></view>
             <view class="mn-step"><text class="mn-step-n">04</text><view class="mn-step-copy"><text>连接成功后弹窗自动关闭，设备保持在线，不会跳转页面。</text></view></view>
           </view>
@@ -412,7 +408,7 @@
             <view class="mn-li"><text class="mn-b">音量：</text><text>调整设备扬声器音量。</text></view>
             <view class="mn-li"><text class="mn-b">当前音色：</text><text>试听、切换固定音色或复刻音色。</text></view>
             <view class="mn-li"><text class="mn-b">声音：</text><text>录音或上传音频，创建专属复刻音色；最多 10 个。</text></view>
-            <view class="mn-li"><text class="mn-b">更改网络：</text><text>换到另一个 2.4GHz 网络。</text></view>
+            <view class="mn-li"><text class="mn-b">配置网络：</text><text>换到另一个 2.4GHz 网络。</text></view>
             <view class="mn-li"><text class="mn-b">使用说明书：</text><text>就是当前这一页。</text></view>
             <view class="mn-li"><text class="mn-b">恢复出厂设置：</text><text>清除 Wi-Fi 与本机复刻音色，详见第 12 节。</text></view>
           </view>
@@ -506,8 +502,9 @@
         <view class="vm-hero">
           <view class="vm-hero-avatar">{{vmCurrentInitial}}</view>
           <view class="vm-hero-copy"><text class="tx-small">当前音色</text><text class="tx-b">{{vmCurrent}}</text></view>
-          <button class="vm-hero-play" bindtap="onTryVoice"><view class="ico ico-play"></view><text>试听</text></button>
+          <button class="vm-hero-play" bindtap="onTryVoice"><view class="ico ico-play"></view><text>{{auditioning ? '停止试听' : '试听'}}</text></button>
         </view>
+        <button wx:if="{{vmPrevious}}" class="modal-btn" bindtap="onRestoreVoice">切回上一个音色</button>
         <view class="vm-list">
           <view class="vm-row {{vmCurrent === item.name ? 'on' : ''}}" wx:for="{{clones}}" wx:key="id">
             <text class="vm-row-avatar">{{item.initial}}</text>
@@ -552,11 +549,12 @@
       </view>
       <scroll-view class="modal-body" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
         <view class="create-tabs">
-          <button class="create-tab {{audioMode === 'record' ? 'is-on' : ''}}" data-mode="record" bindtap="switchAudioTab"><view class="ico ico-mic"></view><text>录制</text></button>
+          <button class="create-tab {{audioMode === 'record' ? 'is-on' : ''}}" data-mode="record" bindtap="switchAudioTab"><view class="ico ico-mic"></view><text>玩具录音</text></button>
+          <button class="create-tab {{audioMode === 'phone' ? 'is-on' : ''}}" data-mode="phone" bindtap="switchAudioTab"><view class="ico ico-mic"></view><text>手机录音</text></button>
           <button class="create-tab {{audioMode === 'upload' ? 'is-on' : ''}}" data-mode="upload" bindtap="switchAudioTab"><view class="ico ico-upload"></view><text>上传音频</text></button>
         </view>
 
-        <view class="record-panel" wx:if="{{audioMode === 'record'}}">
+        <view class="record-panel" wx:if="{{audioMode !== 'upload'}}">
           <view class="record-stage">
             <button class="record-puck {{audioRecording ? 'is-recording' : ''}}" bindtap="toggleRecord" aria-label="开始录音">
               <view class="record-ring"></view>
@@ -603,8 +601,9 @@
       </scroll-view>
       <view class="modal-foot">
         <view class="modal-actions">
-          <button class="modal-btn" bindtap="cancelAudio">取消</button>
-          <button class="modal-btn primary" disabled="{{audioMode === 'record' ? (audioRecordPending || audioRecording || audioCreating) : (!audioDone || audioCreating)}}" bindtap="onAudioPrimary">{{audioMode === 'record' ? (audioRecording ? '录音中…' : (audioRecordPending ? '准备中…' : '开始录制')) : (audioCreating ? '生成中…' : '生成音色')}}</button>
+          <button wx:if="{{audioRecordPending && audioRecordCancellable}}" class="modal-btn" bindtap="cancelDeviceRecord">取消录音</button>
+          <button wx:else class="modal-btn" bindtap="cancelAudio">{{audioRecordPending ? '关闭' : '取消'}}</button>
+          <button class="modal-btn primary" disabled="{{audioMode === 'phone' ? (audioPhonePending && !audioRecording) : (audioMode === 'record' ? (audioRecordPending || audioRecording || audioCreating) : (!audioDone || audioCreating))}}" bindtap="onAudioPrimary">{{audioMode === 'phone' ? (audioRecording ? '结束录音' : '开始录制') : (audioMode === 'record' ? (audioRecording ? '录音中…' : (audioRecordPending ? '准备中…' : '开始录制')) : (audioCreating ? '生成中…' : '生成音色'))}}</button>
         </view>
       </view>
     </view>
@@ -625,7 +624,7 @@
           <text class="tx-h4">恢复后需要重新配网</text>
           <text class="tx-p">会清除 Wi-Fi 和本机创建的复刻音色；小智绑定、预置语音 Key 保留。</text>
         </view>
-        <view class="reset-warning">先删除云端复刻音色，再清除 Wi-Fi。任一步失败都会中止并保留网络，不会留下半完成状态。</view>
+        <view class="reset-warning">有云端复刻音色时，设备会先联网清理。清理失败时保留 Wi-Fi，以便重试。</view>
         <text class="field-hint" wx:if="{{resetting && resetStage}}">{{resetStage}}</text>
         <view class="field">
           <text class="tx-span">请输入确认语</text>
@@ -647,11 +646,10 @@
     <view class="modal-card">
       <view class="modal-head">
         <view class="modal-head-copy">
-          <text class="modal-kicker">WI-FI · CHANGE</text>
-          <text class="tx-b">更改网络</text>
-          <text class="tx-small">选择网络，设备会自动重连</text>
+          <text class="tx-b">配置网络</text>
+          <text class="tx-small">选择设备要连接的 Wi-Fi</text>
         </view>
-        <button class="modal-close" bindtap="closeWifi"><view class="ico ico-close"></view></button>
+        <button class="modal-close" disabled="{{wifiConnecting}}" bindtap="closeWifi"><view class="ico ico-close"></view></button>
       </view>
       <scroll-view class="modal-body" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
         <view class="wifi-body">
@@ -661,7 +659,7 @@
           </view>
           <view class="wifi-scan-row">
             <text class="wifi-cap">附近的网络</text>
-            <button class="wifi-rescan" bindtap="scanWifi"><view class="ico ico-reset"></view><text>{{wifiScanning ? '扫描中…' : '重新扫描'}}</text></button>
+            <button class="wifi-rescan" disabled="{{wifiScanning || wifiConnecting}}" bindtap="scanWifi"><view class="ico ico-reset"></view><text>{{wifiScanning ? '扫描中…' : '重新扫描'}}</text></button>
           </view>
           <scroll-view class="wifi-list" enable-flex="{{true}}" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
             <view class="wifi-item {{wifiSelected === item.ssid ? 'on' : ''}}" wx:for="{{wifiList}}" wx:key="ssid" data-ssid="{{item.ssid}}" bindtap="selectWifi">
@@ -670,12 +668,13 @@
               <view class="signal-bars"><view class="tx-i {{bi < item.bars ? 'on' : ''}}" wx:for="{{signalLevels}}" wx:for-item="bar" wx:for-index="bi" wx:key="*this"></view></view>
               <text class="wifi-badge" wx:if="{{item.current}}">当前</text>
             </view>
-            <view class="wifi-empty" wx:if="{{!wifiScanning && wifiList.length === 0}}">没有发现网络，请靠近路由器后重试</view>
+            <view class="wifi-empty" wx:if="{{wifiScanning && wifiList.length === 0}}">设备正在搜索附近的 Wi-Fi…</view>
+            <view class="wifi-empty" wx:elif="{{wifiList.length === 0 && !wifiError}}">没有发现网络，请靠近路由器后重试</view>
           </scroll-view>
           <view class="wifi-password" wx:if="{{wifiSelected && wifiNeedPassword}}">
             <view class="field">
               <text class="tx-span">Wi-Fi 密码</text>
-              <input type="text" password value="{{wifiPassword}}" bindinput="onWifiPassword" placeholder="至少 8 位" focus="{{wifiFocus}}" />
+              <input type="text" password value="{{wifiPassword}}" bindinput="onWifiPassword" bindconfirm="onWifiPasswordDone" bindblur="onWifiPasswordDone" bindkeyboardheightchange="onWifiKeyboardHeight" confirm-type="done" placeholder="至少 8 位" focus="{{wifiFocus}}" />
             </view>
           </view>
           <text class="wifi-error" wx:if="{{wifiError}}">{{wifiError}}</text>
@@ -684,7 +683,7 @@
       </scroll-view>
       <view class="modal-foot">
         <view class="modal-actions">
-          <button class="modal-btn" bindtap="closeWifi">取消</button>
+          <button class="modal-btn" disabled="{{wifiConnecting}}" bindtap="closeWifi">取消</button>
           <button class="modal-btn primary" disabled="{{!wifiSelected || wifiConnecting}}" bindtap="connectWifi">{{wifiConnecting ? '连接中…' : '连接网络'}}</button>
         </view>
       </view>
@@ -716,17 +715,15 @@
     </view>
   </view>
 
-  <view class="pg-root {{guideHide ? 'hide-bubble' : ''}}" wx:if="{{guideOpen}}">
-    <view class="pg-catch" catchtap="noop" catchtouchmove="noop"></view>
+  <view class="pg-root" wx:if="{{guideOpen && !guideHide}}">
+    <view wx:if="{{guideKind !== 'wifi' && !(guideKind === 'first' && guideStep === 2)}}" class="pg-catch" catchtap="noop" catchtouchmove="noop"></view>
     <view class="pg-spot" style="left:{{guideSpot.left}}px;top:{{guideSpot.top}}px;width:{{guideSpot.width}}px;height:{{guideSpot.height}}px;border-radius:{{guideSpot.radius}}px"></view>
     <view class="pg-bubble {{guideBubble.place}}" style="{{guideBubble.style}}">
       <view class="pg-head">
         <view class="pg-avatar"><image src="{{product.icon}}" mode="aspectFit"></image></view>
         <view class="pg-meta">
-          <text class="pg-kicker">{{product.code}} / GUIDE</text>
           <text class="pg-who">{{product.name}} · 使用引导</text>
         </view>
-        <text class="pg-badge">{{guideStep + 1}} / {{guideDots.length}}</text>
       </view>
       <text class="pg-title">{{guideCurrent.title}}</text>
       <text class="pg-text">{{guideCurrent.text}}</text>
@@ -734,8 +731,8 @@
         <view class="pg-dots">
           <view class="pg-dot {{index === guideStep ? 'on' : ''}}" wx:for="{{guideDots}}" wx:key="*this"></view>
         </view>
-        <button class="pg-skip" bindtap="closeGuide">跳过</button>
-        <button class="pg-next" bindtap="nextGuide">{{guideStep + 1 === guideDots.length ? '完成' : '下一步'}}</button>
+        <button class="pg-skip" disabled="{{guideSaving}}" bindtap="closeGuide">{{guideSaving ? '保存中…' : '跳过'}}</button>
+        <button wx:if="{{guideKind !== 'wifi' && !(guideKind === 'first' && guideStep === 2 && status.onboarding && !status.onboarding.done && deviceState !== 'listening' && deviceState !== 'speaking')}}" class="pg-next" disabled="{{guideSaving}}" bindtap="nextGuide">{{guideStep + 1 === guideDots.length ? '完成' : '下一步'}}</button>
       </view>
     </view>
   </view>

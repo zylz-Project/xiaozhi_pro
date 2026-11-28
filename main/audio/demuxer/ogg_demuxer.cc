@@ -1,7 +1,26 @@
 #include "ogg_demuxer.h"
 #include "esp_log.h"
+#include <array>
 
 #define TAG "OggDemuxer"
+
+namespace {
+constexpr auto kOggChecksumTable = [] {
+    std::array<uint32_t, 256> table{};
+    for (uint32_t i = 0; i < table.size(); ++i) {
+        uint32_t value = i << 24;
+        for (int bit = 0; bit < 8; ++bit)
+            value = (value << 1) ^ ((value & 0x80000000u) ? 0x04c11db7u : 0);
+        table[i] = value;
+    }
+    return table;
+}();
+
+uint32_t ReadOggUint32(const uint8_t* data) {
+    return uint32_t(data[0]) | (uint32_t(data[1]) << 8) | (uint32_t(data[2]) << 16) |
+           (uint32_t(data[3]) << 24);
+}
+}  // namespace
 
 /// @brief 重置解封器
 void OggDemuxer::Reset() {
@@ -12,6 +31,8 @@ void OggDemuxer::Reset() {
     preskip_remaining_ = 0;
     decoded_48k_ = 0;
     gain_q8_ = 0;
+    page_error_ = verified_eos_ = saw_page_ = false;
+    serial_ = next_sequence_ = checksum_ = 0;
     state_ = ParseState::FIND_PAGE;
     ctx_.packet_len = 0;
     ctx_.seg_count = 0;
@@ -29,6 +50,42 @@ void OggDemuxer::Reset() {
     memset(ctx_.packet_buf, 0, sizeof(ctx_.packet_buf));
 }
 
+bool OggDemuxer::AtVerifiedPageBoundary() const {
+    return verify_pages_ && !page_error_ && saw_page_ && state_ == ParseState::FIND_PAGE &&
+           ctx_.bytes_needed == 4 && !ctx_.packet_continued && opus_info_.head_seen &&
+           opus_info_.tags_seen && enhanced_valid_;
+}
+
+void OggDemuxer::AccumulateChecksum(const uint8_t* bytes, size_t size) {
+    for (size_t i = 0; i < size; ++i)
+        checksum_ = (checksum_ << 8) ^ kOggChecksumTable[(checksum_ >> 24) ^ bytes[i]];
+}
+
+bool OggDemuxer::BeginVerifiedPage() {
+    const uint8_t flags = ctx_.header[5];
+    const auto serial = ReadOggUint32(ctx_.header + 14);
+    const auto sequence = ReadOggUint32(ctx_.header + 18);
+    if ((flags & ~7u) || bool(flags & 1) != ctx_.packet_continued ||
+        (saw_page_ ? ((flags & 2) || serial != serial_ || sequence != next_sequence_)
+                   : !(flags & 2)))
+        return false;
+    serial_ = serial;
+    next_sequence_ = sequence + 1;
+    checksum_ = 0;
+    constexpr uint8_t zero_checksum[4]{};
+    AccumulateChecksum(ctx_.header, 22);
+    AccumulateChecksum(zero_checksum, sizeof(zero_checksum));
+    AccumulateChecksum(ctx_.header + 26, 1);
+    return true;
+}
+
+void OggDemuxer::EndVerifiedPage() {
+    page_error_ = checksum_ != ReadOggUint32(ctx_.header + 22) ||
+                  ((ctx_.header[5] & 4) && ctx_.packet_continued);
+    saw_page_ = true;
+    verified_eos_ = !page_error_ && (ctx_.header[5] & 4);
+}
+
 /// @brief 处理数据块
 /// @param data 输入数据
 /// @param size 输入数据大小
@@ -41,6 +98,26 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
             ctx_.seg_remaining == 0 && ctx_.seg_table[ctx_.seg_index] == 0)) {
         switch (state_) {
             case ParseState::FIND_PAGE: {
+                if (verify_pages_) {
+                    if (verified_eos_ || page_error_)
+                        return processed;
+                    const size_t take = std::min(size - processed, ctx_.bytes_needed);
+                    const size_t offset = 4 - ctx_.bytes_needed;
+                    constexpr char kCapturePattern[] = "OggS";
+                    if (memcmp(kCapturePattern + offset, data + processed, take) != 0) {
+                        page_error_ = true;
+                        return processed;
+                    }
+                    memcpy(ctx_.header + offset, data + processed, take);
+                    processed += take;
+                    ctx_.bytes_needed -= take;
+                    if (!ctx_.bytes_needed) {
+                        state_ = ParseState::PARSE_HEADER;
+                        ctx_.data_offset = 4;
+                        ctx_.bytes_needed = 23;
+                    }
+                    break;
+                }
                 // 寻找页头"OggS"
                 if (ctx_.bytes_needed < 4) {
                     // 处理不完整的"OggS"匹配（跨数据块）
@@ -134,6 +211,10 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                     // 验证页头
                     if (ctx_.header[4] != 0) {
                         ESP_LOGE(TAG, "无效的Ogg版本: %d", ctx_.header[4]);
+                        if (verify_pages_) {
+                            page_error_ = true;
+                            return processed;
+                        }
                         state_ = ParseState::FIND_PAGE;
                         ctx_.bytes_needed = 4;
                         ctx_.data_offset = 0;
@@ -141,11 +222,17 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                     }
 
                     ctx_.seg_count = ctx_.header[26];
+                    if (verify_pages_ && !BeginVerifiedPage()) {
+                        page_error_ = true;
+                        return processed;
+                    }
                     if (ctx_.seg_count > 0 && ctx_.seg_count <= 255) {
                         state_ = ParseState::PARSE_SEGMENTS;
                         ctx_.bytes_needed = ctx_.seg_count;
                         ctx_.data_offset = 0;
                     } else if (ctx_.seg_count == 0) {
+                        if (verify_pages_)
+                            EndVerifiedPage();
                         // 没有段，直接跳到下一个页面
                         state_ = ParseState::FIND_PAGE;
                         ctx_.bytes_needed = 4;
@@ -165,6 +252,8 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
 
                 if (available < ctx_.bytes_needed) {
                     memcpy(ctx_.seg_table + ctx_.data_offset, data + processed, available);
+                    if (verify_pages_)
+                        AccumulateChecksum(data + processed, available);
 
                     ctx_.data_offset += available;
                     ctx_.bytes_needed -= available;
@@ -173,6 +262,8 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                 } else {
                     size_t to_copy = ctx_.bytes_needed;
                     memcpy(ctx_.seg_table + ctx_.data_offset, data + processed, to_copy);
+                    if (verify_pages_)
+                        AccumulateChecksum(data + processed, to_copy);
 
                     processed += to_copy;
                     ctx_.data_offset += to_copy;
@@ -216,12 +307,15 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                         ctx_.packet_continued = false;
                         ctx_.seg_remaining = 0;
                         ctx_.bytes_needed = 4;
+                        page_error_ = verify_pages_;
                         return processed;
                     }
 
                     // 复制数据
                     size_t to_copy = std::min(size - processed, (size_t)seg_len);
                     memcpy(ctx_.packet_buf + ctx_.packet_len, data + processed, to_copy);
+                    if (verify_pages_)
+                        AccumulateChecksum(data + processed, to_copy);
 
                     processed += to_copy;
                     ctx_.packet_len += to_copy;
@@ -240,6 +334,12 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                     if (!seg_continued) {
                         // 包结束
                         if (ctx_.packet_len) {
+                            if (verify_pages_ && !opus_info_.head_seen &&
+                                (ctx_.packet_len < 19 ||
+                                 memcmp(ctx_.packet_buf, "OpusHead", 8) != 0)) {
+                                page_error_ = true;
+                                return processed;
+                            }
                             if (!opus_info_.head_seen) {
                                 if (ctx_.packet_len >= 8 &&
                                     memcmp(ctx_.packet_buf, "OpusHead", 8) == 0) {
@@ -284,6 +384,10 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                                                          ctx_.packet_len);
                                 }
                             } else {
+                                if (verify_pages_) {
+                                    page_error_ = true;
+                                    return processed;
+                                }
                                 ESP_LOGW(TAG, "当前Ogg容器未解析到OpusHead/OpusTags，丢弃");
                             }
                         }
@@ -298,6 +402,8 @@ size_t OggDemuxer::Process(const uint8_t* data, size_t size) {
                 }
 
                 if (ctx_.seg_index == ctx_.seg_count) {
+                    if (verify_pages_)
+                        EndVerifiedPage();
                     // 检查是否所有数据体都已读取
                     if (ctx_.body_offset < ctx_.body_size) {
                         ESP_LOGW(TAG, "数据体不完整: %zu/%zu", ctx_.body_offset, ctx_.body_size);

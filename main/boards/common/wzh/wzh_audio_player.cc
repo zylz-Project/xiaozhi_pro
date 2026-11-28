@@ -101,7 +101,10 @@ void AudioPlayer::StopPlayback() {
     tts_updated_us_.store(0);
     tts_level_.store(0.0f);
     tts_attack_.store(0.0f);
-    Application::GetInstance().GetAudioService().ResetDecoder();
+    if (decoder_generation_) {
+        Application::GetInstance().GetAudioService().ResetDecoder(decoder_generation_);
+        decoder_generation_.reset();
+    }
 }
 
 void AudioPlayer::SetMaintenance(bool enabled) {
@@ -199,8 +202,8 @@ bool AudioPlayer::PlayInteractionSound(PetInteraction interaction) {
         return false;
     }
     interaction_sounds_.Remember(files[index].name);
-    ESP_LOGI(TAG, "Interaction=%s external Flash sound: %s", InteractionName(interaction),
-             files[index].name);
+    ESP_LOGI(TAG, "Interaction=%s sound=%s source=%s", InteractionName(interaction),
+             files[index].name, paired ? "user-pair" : "external-flash");
     return true;
 }
 
@@ -338,6 +341,7 @@ void AudioPlayer::Task() {
             std::lock_guard<std::mutex> lock(playback_mutex_);
             worker_active_.store(false);
             if (request.generation == playback_generation_.load()) {
+                decoder_generation_.reset();
                 playback_pending_ = false;
                 is_playing_.store(false);
             }
@@ -389,6 +393,7 @@ bool AudioPlayer::PlayFile(const PlayRequest& request) {
         motion_attack_.store(0.0f);
         is_playing_.store(true);
         decoder_generation = app.GetAudioService().GetPlaybackGeneration();
+        decoder_generation_ = decoder_generation;
     }
 
     // OggDemuxer 只拆出 Opus 包；真正的解码和 I2S 输出仍由 AudioService 完成。

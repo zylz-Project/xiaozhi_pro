@@ -4,6 +4,8 @@
 #include "system_info.h"
 
 #include <algorithm>
+#include <cstring>
+#include <string_view>
 
 #include <esp_log.h>
 #include <esp_mn_iface.h>
@@ -12,6 +14,29 @@
 #include <cJSON.h>
 
 #define TAG "CustomWakeWord"
+
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+namespace {
+bool IsInterruptionToken(std::string_view token) {
+    return token == "local:interrupt" || token == "local:stop" || token == "local:chat_wake";
+}
+
+bool ContainsPinyinPhrase(std::string_view utterance, std::string_view phrase) {
+    if (phrase.empty())
+        return false;
+    // MultiNet7 inserts a space before each recognized syllable.
+    for (auto start = utterance.find(phrase); start != std::string_view::npos;
+         start = utterance.find(phrase, start + 1)) {
+        const auto end = start + phrase.size();
+        if ((start == 0 || utterance[start - 1] == ' ') &&
+            (end == utterance.size() || utterance[end] == ' ')) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+#endif
 
 CustomWakeWord::CustomWakeWord() : wake_word_opus_() {}
 
@@ -103,6 +128,34 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list,
         ParseWakenetModelConfig();
     }
 
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    if (models_list != nullptr) {
+        threshold_ = CONFIG_WZH_OFFLINE_COMMAND_THRESHOLD / 100.0f;
+        // Keep app-only updates compatible with the original model partition.
+        constexpr const char* aliases[] = {
+#define WZH_INTERRUPT_PHRASE(phrase) phrase,
+#include "wzh_tail_interrupt_phrases.inc"
+#undef WZH_INTERRUPT_PHRASE
+        };
+        for (const auto* alias : aliases) {
+            std::string phrase(alias);
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA || CONFIG_BOARD_TYPE_WZH_DINOSAUR
+            if (const auto name = phrase.find("xiao wu"); name != std::string::npos) {
+#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA
+                phrase.replace(name, 7, "xiao hua");
+#else
+                phrase.replace(name, 7, "xiao wei");
+#endif
+            }
+#endif
+            if (std::none_of(commands_.begin(), commands_.end(), [&phrase](const Command& entry) {
+                    return entry.command == phrase;
+                })) {
+                commands_.push_back({std::move(phrase), "local:interrupt", "wake"});
+            }
+        }
+    }
+#endif
     if (local_commands_only_) {
         // Accept only explicitly local commands from assets; this includes
         // the per-product local:chat_wake command used by WZH products.
@@ -138,6 +191,9 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list,
         return false;
     }
 
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    supports_phrase_interruption_ = std::string_view(mn_name_).starts_with("mn7_cn");
+#endif
     multinet_ = esp_mn_handle_from_name(mn_name_);
     multinet_model_data_ = multinet_->create(mn_name_, duration_);
     if (multinet_model_data_ == nullptr) {
@@ -188,11 +244,12 @@ void CustomWakeWord::Feed(const std::vector<int16_t>& data) {
     FeedSamples(data.data(), data.size(), false);
 }
 
-void CustomWakeWord::FeedMono(const int16_t* data, size_t samples) {
-    FeedSamples(data, samples, true);
+void CustomWakeWord::FeedMono(const int16_t* data, size_t samples, bool phrase_interruption) {
+    FeedSamples(data, samples, true, phrase_interruption);
 }
 
-void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono) {
+void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono,
+                                 [[maybe_unused]] bool phrase_interruption) {
     if (multinet_model_data_ == nullptr || data == nullptr || samples == 0) {
         return;
     }
@@ -202,8 +259,22 @@ void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono)
     if (!running_) {
         return;
     }
-    if (reset_pending_.exchange(false)) {
+    bool reset = reset_pending_.exchange(false);
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    const bool scan_phrases = phrase_interruption && supports_phrase_interruption_;
+    if (scan_phrases != phrase_interruption_) {
+        phrase_interruption_ = scan_phrases;
+        input_buffer_.clear();
+        reset = true;
+    }
+#else
+    constexpr bool scan_phrases = false;
+#endif
+    if (reset) {
         multinet_->clean(multinet_model_data_);
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        poll_raw_phrase_ = true;
+#endif
     }
 
     // If input channels is 2, we need to fetch the left channel data
@@ -223,37 +294,73 @@ void CustomWakeWord::FeedSamples(const int16_t* data, size_t samples, bool mono)
         }
 #endif
 
-        esp_mn_state_t mn_state = multinet_->detect(multinet_model_data_, input_buffer_.data());
-
-        if (mn_state == ESP_MN_STATE_DETECTED) {
-            esp_mn_results_t* mn_result = multinet_->get_results(multinet_model_data_);
-            for (int i = 0; i < mn_result->num && running_; i++) {
-                ESP_LOGI(TAG, "Custom wake word detected: command_id=%d, string=%s, prob=%f",
-                         mn_result->command_id[i], mn_result->string, mn_result->prob[i]);
+        const auto mn_state = multinet_->detect(multinet_model_data_, input_buffer_.data());
+        bool query = mn_state == ESP_MN_STATE_DETECTED;
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        if (scan_phrases) {
+            // Poll a partial utterance every other frame, and always check
+            // the final frame before MultiNet discards its phrase history.
+            query = query || poll_raw_phrase_ || mn_state == ESP_MN_STATE_TIMEOUT;
+            poll_raw_phrase_ = !query || mn_state == ESP_MN_STATE_TIMEOUT;
+        }
+#endif
+        const auto* mn_result = query ? multinet_->get_results(multinet_model_data_) : nullptr;
+        const Command* detected = nullptr;
+        if (mn_result != nullptr && mn_state == ESP_MN_STATE_DETECTED) {
+            const int result_count = std::min(mn_result->num, ESP_MN_RESULT_MAX_NUM);
+            for (int i = 0; i < result_count && running_; ++i) {
                 const int command_id = mn_result->command_id[i];
                 if (command_id <= 0 || static_cast<size_t>(command_id) > commands_.size()) {
                     ESP_LOGW(TAG, "Ignoring unknown command ID %d", command_id);
                     continue;
                 }
-                auto& command = commands_[command_id - 1];
+                const auto& command = commands_[command_id - 1];
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+                if (scan_phrases && !IsInterruptionToken(command.text))
+                    continue;
+#endif
                 if (command.action == "wake") {
-                    last_detected_wake_word_ = command.text;
-                    running_ = false;
-                    input_buffer_.clear();
-                    multinet_->clean(multinet_model_data_);
-
-                    // Dispatch after releasing the detector lock. The main
-                    // task may immediately stop or re-arm it after this event.
-                    lock.unlock();
-                    if (wake_word_detected_callback_) {
-                        wake_word_detected_callback_(last_detected_wake_word_);
-                    }
-                    return;
+                    ESP_LOGI(TAG, "Custom wake word detected: command_id=%d, string=%s, prob=%f",
+                             command_id, mn_result->string, mn_result->prob[i]);
+                    detected = &command;
+                    break;
                 }
             }
+        }
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        if (!detected && scan_phrases && mn_result != nullptr && running_) {
+            const auto* raw = mn_result->raw_string;
+            const auto* end = static_cast<const char*>(
+                std::memchr(raw, '\0', sizeof(mn_result->raw_string)));
+            if (end && end != raw) {
+                const std::string_view utterance(raw, end - raw);
+                for (const auto& command : commands_) {
+                    if (command.action == "wake" && IsInterruptionToken(command.text) &&
+                        ContainsPinyinPhrase(utterance, command.command)) {
+                        detected = &command;
+                        ESP_LOGI(TAG, "Interruption keyword in speech: %s", command.command.c_str());
+                        break;
+                    }
+                }
+            }
+        }
+#endif
+        if (detected && running_) {
+            last_detected_wake_word_ = detected->text;
+            running_ = false;
+            input_buffer_.clear();
             multinet_->clean(multinet_model_data_);
-        } else if (mn_state == ESP_MN_STATE_TIMEOUT) {
+
+            // The callback may stop or re-arm recognition.
+            lock.unlock();
+            if (wake_word_detected_callback_)
+                wake_word_detected_callback_(last_detected_wake_word_);
+            return;
+        }
+        if (mn_state == ESP_MN_STATE_TIMEOUT) {
             ESP_LOGD(TAG, "Command word detection timeout, cleaning state");
+            multinet_->clean(multinet_model_data_);
+        } else if (!scan_phrases && mn_state == ESP_MN_STATE_DETECTED) {
             multinet_->clean(multinet_model_data_);
         }
 

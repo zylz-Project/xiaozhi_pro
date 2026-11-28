@@ -18,6 +18,7 @@ class DeviceVoiceEnrollmentTest(unittest.TestCase):
         source = (ROOT / 'main/application.cc').read_text()
         start = function(source, 'bool Application::RequestDeviceVoiceEnrollment(')
         status = function(source, 'const char* Application::DeviceVoiceEnrollmentStatus(')
+        cancel = function(source, 'bool Application::RequestCancelDeviceVoiceEnrollment(')
         code = r'''
 #include <atomic>
 #include <cassert>
@@ -33,13 +34,14 @@ struct Protocol { bool opened=true; int stops=0, closes=0; bool IsAudioChannelOp
  void SendStopListening(){++stops;} void CloseAudioChannel(){++closes;opened=false;} };
 namespace Lang { namespace Sounds { constexpr std::string_view OGG_POPUP="popup"; } }
 struct Enrollment : VoiceEnrollment {
- bool start_ok=true; std::string name; std::function<void(bool)> capture, done;
+ bool start_ok=true, cancellable=true; int cancelled=0; std::string name; std::function<void(bool)> capture, done;
  bool Start(std::function<void(bool)>,std::function<void(bool)>) override { return false; }
  bool StartNamed(const std::string& n,std::function<void(bool)> c,std::function<void(bool)> d) override {
    name=n; capture=c; done=d; return start_ok; }
  bool Capture(const int16_t*,size_t,bool) override { return true; }
  void Cancel() override {}
- const char* Status() const override { return "recording"; }
+ bool CancelCapture() override { if (!cancellable) return false; ++cancelled; return true; }
+ const char* Status() const override { return cancellable ? "recording" : "processing"; }
 };
 struct Board {
  Enrollment enrollment; bool recording=false; bool maintenance=false; bool onboarding=false;
@@ -60,6 +62,7 @@ struct Application {
  int aborted=0,cleared=0,resumed=0;
  std::atomic<int> device_voice_enrollment_status_{0};std::atomic<unsigned> interaction_generation_{0},device_voice_enrollment_generation_{0};
  std::atomic<bool> device_voice_enrollment_attempted_{false};
+ bool device_voice_enrollment_from_chat_=false;
  DeviceState state=kDeviceStateIdle; Audio audio_service_;std::vector<std::function<void()>> tasks;
  DeviceState GetDeviceState() const{return state;} void SetDeviceState(DeviceState v){state=v;}
  void AbortSpeaking(int){++aborted;} void ClearEarlyAudio(){++cleared;}
@@ -68,8 +71,10 @@ struct Application {
  void Drain(){auto batch=std::move(tasks);tasks.clear();for(auto& f:batch)f();}
  bool RequestDeviceVoiceEnrollment(const std::string&);
  const char* DeviceVoiceEnrollmentStatus() const;
+ uint32_t DeviceVoiceEnrollmentRequest() const { return device_voice_enrollment_generation_.load(); }
+ bool RequestCancelDeviceVoiceEnrollment(uint32_t);
 };
-''' + start + '\n' + status + r'''
+''' + start + '\n' + status + '\n' + cancel + r'''
 int main() {
  Application app; auto& board=Board::GetInstance();
  assert(!app.RequestDeviceVoiceEnrollment(""));
@@ -105,6 +110,22 @@ int main() {
  app.voice_enrollment_active_.store(false);app.Drain();assert(!std::strcmp(app.DeviceVoiceEnrollmentStatus(),"cancelled"));
  app.interaction_generation_.fetch_add(1);app.voice_enrollment_active_.store(true);
  assert(!std::strcmp(app.DeviceVoiceEnrollmentStatus(),"cancelled"));
+ Application fresh;
+ assert(fresh.RequestDeviceVoiceEnrollment("cancel"));fresh.Drain();
+ const auto id=fresh.DeviceVoiceEnrollmentRequest();
+ board.enrollment.capture(true);fresh.Drain();assert(board.recording);
+ assert(!fresh.RequestCancelDeviceVoiceEnrollment(id+1));
+ assert(fresh.RequestCancelDeviceVoiceEnrollment(id));
+ // Cloud processing can win the race after the cancellation was queued.
+ board.enrollment.cancellable=false;fresh.Drain();
+ assert(!std::strcmp(fresh.DeviceVoiceEnrollmentStatus(), "processing"));
+ assert(!fresh.RequestCancelDeviceVoiceEnrollment(id));
+ board.enrollment.cancellable=true;
+ assert(fresh.RequestCancelDeviceVoiceEnrollment(id));fresh.Drain();
+ assert(!std::strcmp(fresh.DeviceVoiceEnrollmentStatus(), "cancelled"));
+ assert(board.enrollment.cancelled==1 && fresh.state==kDeviceStateIdle && !board.recording);
+ board.enrollment.done(true);fresh.Drain();
+ assert(!std::strcmp(fresh.DeviceVoiceEnrollmentStatus(), "cancelled"));
 }
 '''
         with tempfile.TemporaryDirectory() as tmp:

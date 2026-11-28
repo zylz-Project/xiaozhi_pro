@@ -57,6 +57,10 @@ void WifiStation::AddAuth(const std::string&& ssid, const std::string&& password
 
 void WifiStation::Stop() {
     ESP_LOGI(TAG, "Stopping WiFi station");
+    {
+        std::lock_guard<std::mutex> lock(scan_mutex_);
+        scan_allowed_ = false;
+    }
 
     // Unregister event handlers FIRST to prevent scan done from triggering connect
     if (instance_any_id_ != nullptr) {
@@ -79,8 +83,13 @@ void WifiStation::Stop() {
         timer_handle_ = nullptr;
     }
 
-    // Now safe to stop scan, disconnect and stop WiFi (no event callbacks will fire)
-    esp_wifi_scan_stop();
+    {
+        std::lock_guard<std::mutex> lock(scan_mutex_);
+        if (scan_active_) {
+            esp_wifi_scan_stop();
+            scan_active_ = false;
+        }
+    }
     user_scan_pending_.store(false);
     esp_wifi_disconnect();
     if (!persistent_ap_) {
@@ -95,6 +104,7 @@ void WifiStation::Stop() {
 
     // Reset was_connected_ flag to prevent stale state from affecting subsequent sessions
     was_connected_ = false;
+    associated_.store(false);
 
     // Clear connected bit
     xEventGroupClearBits(event_group_, WIFI_EVENT_CONNECTED);
@@ -120,7 +130,10 @@ void WifiStation::OnDisconnected(std::function<void(int reason)> on_disconnected
     on_disconnected_ = on_disconnected;
 }
 
-void WifiStation::Start() {
+bool WifiStation::Start(bool scan_on_start) {
+    scan_on_start_ = scan_on_start;
+    associated_.store(false);
+    last_disconnect_reason_.store(0);
     // Note: esp_netif_init() and esp_wifi_init() should be called once before calling this method
     // WiFi driver is initialized by WifiManager::Initialize() and kept alive
 
@@ -133,7 +146,7 @@ void WifiStation::Start() {
                                     : esp_netif_create_default_wifi_sta();
     if (!station_netif_) {
         ESP_LOGE(TAG, "Unable to obtain station network interface");
-        return;
+        return false;
     }
     if (!hostname_.empty()) {
         esp_err_t err = esp_netif_set_hostname(station_netif_, hostname_.c_str());
@@ -144,23 +157,17 @@ void WifiStation::Start() {
         }
     }
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, &WifiStation::WifiEventHandler, this, &instance_any_id_));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        IP_EVENT, IP_EVENT_STA_GOT_IP, &WifiStation::IpEventHandler, this, &instance_got_ip_));
-    if (persistent_ap_) {
-        ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_LOST_IP,
-                                                            &WifiStation::IpEventHandler, this,
-                                                            &instance_lost_ip_));
-    }
-    ESP_ERROR_CHECK(esp_wifi_set_mode(persistent_ap_ ? WIFI_MODE_APSTA : WIFI_MODE_STA));
-    // The persistent portal already started the shared APSTA driver.
-    if (!persistent_ap_)
-        ESP_ERROR_CHECK(esp_wifi_start());
-
-    if (max_tx_power_ != 0) {
-        ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(max_tx_power_));
-    }
+    if (esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                            &WifiStation::WifiEventHandler, this,
+                                            &instance_any_id_) != ESP_OK ||
+        esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                            &WifiStation::IpEventHandler, this,
+                                            &instance_got_ip_) != ESP_OK)
+        return false;
+    if (persistent_ap_ && esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_LOST_IP,
+                                                              &WifiStation::IpEventHandler, this,
+                                                              &instance_lost_ip_) != ESP_OK)
+        return false;
 
     // Setup the timer to scan WiFi.
     // skip_unhandled_events = false so the timer can wake the CPU from light
@@ -169,19 +176,33 @@ void WifiStation::Start() {
     // (components/esp_timer/src/esp_timer.c) excludes timers with this flag
     // from light-sleep wakeup sources.
     esp_timer_create_args_t timer_args = {
-        .callback = [](void* arg) { esp_wifi_scan_start(nullptr, false); },
+        .callback = [](void* arg) { static_cast<WifiStation*>(arg)->StartScan(); },
         .arg = this,
         .dispatch_method = ESP_TIMER_TASK,
         .name = "WiFiScanTimer",
         .skip_unhandled_events = false};
-    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &timer_handle_));
+    if (esp_timer_create(&timer_args, &timer_handle_) != ESP_OK)
+        return false;
+    const auto mode = persistent_ap_ ? WIFI_MODE_APSTA : WIFI_MODE_STA;
+    if (esp_wifi_set_mode(mode) != ESP_OK)
+        return false;
+    {
+        std::lock_guard<std::mutex> lock(scan_mutex_);
+        scan_allowed_ = true;
+    }
+    // The persistent portal already started the shared APSTA driver.
+    if (!persistent_ap_ && esp_wifi_start() != ESP_OK)
+        return false;
+    if (max_tx_power_ != 0)
+        esp_wifi_set_max_tx_power(max_tx_power_);
     if (persistent_ap_) {
         // STA_START may have fired before this handler was registered.
-        esp_wifi_scan_start(nullptr, false);
+        StartScan();
     }
+    return true;
 }
 
-void WifiStation::ConnectNow(const std::string& ssid, const std::string& password) {
+bool WifiStation::ConnectNow(const std::string& ssid, const std::string& password) {
     if (timer_handle_ != nullptr) {
         esp_timer_stop(timer_handle_);
     }
@@ -199,25 +220,17 @@ void WifiStation::ConnectNow(const std::string& ssid, const std::string& passwor
             sizeof(wifi_config.sta.password) - 1);
     wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-    wifi_config.sta.failure_retry_cnt = failure_retry_cnt_;
+    // A trial has one deadline for all BSSIDs, so give alternate APs a
+    // chance before that deadline when the strongest one fails its handshake.
+    wifi_config.sta.failure_retry_cnt = std::min<uint8_t>(failure_retry_cnt_, 1);
     wifi_config.sta.listen_interval = 10;
 
-    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to apply station config: %s", esp_err_to_name(err));
+    const esp_err_t configured = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (configured != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to apply station config: %s", esp_err_to_name(configured));
+        return false;
     }
-
-    // Drop the current association first so the driver re-evaluates the new
-    // configuration instead of ignoring esp_wifi_connect() while connected.
-    err = esp_wifi_disconnect();
-    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_CONNECT) {
-        ESP_LOGW(TAG, "Disconnect before reconnect failed: %s", esp_err_to_name(err));
-    }
-    vTaskDelay(pdMS_TO_TICKS(100));
-    err = esp_wifi_connect();
-    if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
-        ESP_LOGW(TAG, "Connect request failed: %s", esp_err_to_name(err));
-    }
+    return esp_wifi_connect() == ESP_OK;
 }
 
 bool WifiStation::WaitForConnected(int timeout_ms) {
@@ -228,16 +241,37 @@ bool WifiStation::WaitForConnected(int timeout_ms) {
     return (bits & WIFI_EVENT_CONNECTED) != 0;
 }
 
+esp_err_t WifiStation::StartScan() {
+    std::lock_guard<std::mutex> lock(scan_mutex_);
+    return user_scan_pending_.load() ? ESP_OK : StartScanLocked();
+}
+
+esp_err_t WifiStation::StartScanLocked() {
+    if (!scan_allowed_)
+        return ESP_ERR_INVALID_STATE;
+    if (scan_active_)
+        return ESP_OK;
+    const auto result = esp_wifi_scan_start(nullptr, false);
+    scan_active_ = result == ESP_OK;
+    return result;
+}
+
 esp_err_t WifiStation::ScanNetworks(std::vector<wifi_ap_record_t>& records, int timeout_ms) {
     std::unique_lock<std::mutex> request_lock(user_scan_mutex_, std::try_to_lock);
-    if (!request_lock.owns_lock() || user_scan_pending_.exchange(true))
+    if (!request_lock.owns_lock())
         return ESP_ERR_INVALID_STATE;
     records.clear();
-    xEventGroupClearBits(event_group_, WIFI_EVENT_USER_SCAN_DONE);
-    esp_err_t err = esp_wifi_scan_start(nullptr, false);
-    if (err != ESP_OK) {
-        user_scan_pending_.store(false);
-        return err;
+    {
+        std::lock_guard<std::mutex> lock(scan_mutex_);
+        if (!scan_allowed_ || user_scan_pending_.load())
+            return ESP_ERR_INVALID_STATE;
+        xEventGroupClearBits(event_group_, WIFI_EVENT_USER_SCAN_DONE);
+        user_scan_pending_.store(true);
+        const auto result = StartScanLocked();
+        if (result != ESP_OK) {
+            user_scan_pending_.store(false);
+            return result;
+        }
     }
     const EventBits_t bits =
         xEventGroupWaitBits(event_group_, WIFI_EVENT_USER_SCAN_DONE | WIFI_EVENT_STOPPED, pdFALSE,
@@ -465,15 +499,26 @@ void WifiStation::WifiEventHandler(void* arg, esp_event_base_t event_base, int32
                                    void* event_data) {
     auto* this_ = static_cast<WifiStation*>(arg);
     if (event_id == WIFI_EVENT_STA_START) {
+        if (!this_->scan_on_start_)
+            return;
         if (this_->persistent_ap_)
             return;  // Start() scans after creating the retry timer.
-        esp_wifi_scan_start(nullptr, false);
+        if (this_->StartScan() != ESP_OK)
+            return;
         if (this_->on_scan_begin_) {
             this_->on_scan_begin_();
         }
     } else if (event_id == WIFI_EVENT_SCAN_DONE) {
+        bool user_scan;
+        {
+            std::lock_guard<std::mutex> lock(this_->scan_mutex_);
+            this_->scan_active_ = false;
+            if (!this_->scan_allowed_)
+                return;
+            user_scan = this_->user_scan_pending_.load();
+        }
         xEventGroupSetBits(this_->event_group_, WIFI_EVENT_SCAN_DONE_BIT);
-        if (this_->user_scan_pending_.load()) {
+        if (user_scan) {
             this_->CompleteUserScan();
         } else {
             this_->HandleScanResult();
@@ -486,6 +531,8 @@ void WifiStation::WifiEventHandler(void* arg, esp_event_base_t event_base, int32
         this_->was_connected_ = false;
         wifi_event_sta_disconnected_t* event =
             static_cast<wifi_event_sta_disconnected_t*>(event_data);
+        this_->last_disconnect_reason_.store(event->reason);
+        this_->associated_.store(false);
         ESP_LOGI(TAG, "WiFi disconnected, reason: %d", event->reason);
         if (was_connected && this_->on_disconnected_) {
             this_->on_disconnected_(event->reason);
@@ -509,6 +556,7 @@ void WifiStation::WifiEventHandler(void* arg, esp_event_base_t event_base, int32
         esp_timer_start_once(this_->timer_handle_, this_->scan_current_interval_microseconds_);
         this_->UpdateScanInterval();
     } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
+        this_->associated_.store(true);
     }
 }
 

@@ -1,5 +1,7 @@
 #include "application.h"
+
 #include <new>
+#include <string_view>
 #include "assets.h"
 #include "assets/lang_config.h"
 #include "audio_codec.h"
@@ -13,8 +15,12 @@
 #include "text_glyph_payload.h"
 #include "voice_enrollment.h"
 #include "websocket_protocol.h"
+#if CONFIG_WZH_SYSTEM_PROMPTS
+#include "wzh_onboarding.h"
+#endif
 
 #include <driver/gpio.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <arpa/inet.h>
 #include <cJSON.h>
@@ -92,6 +98,8 @@ void Application::Initialize() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
     };
     callbacks.on_vad_change = [this](bool speaking) {
+        if (GetDeviceState() == kDeviceStateListening)
+            last_listening_voice_edge_us_.store(esp_timer_get_time());
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
     callbacks.on_playback_drained = [this]() {
@@ -100,7 +108,7 @@ void Application::Initialize() {
 #if CONFIG_USE_VOICE_BARGE_IN
     callbacks.on_voice_interruption = [this](uint32_t token) {
         pending_voice_interruption_.store(token);
-#if !CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+#if !CONFIG_WZH_DINO_KEYWORD_BARGE_IN || CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
         xEventGroupSetBits(event_group_, MAIN_EVENT_VOICE_INTERRUPTION);
 #endif
     };
@@ -127,6 +135,7 @@ void Application::Initialize() {
         switch (event) {
             case NetworkEvent::Scanning:
                 display->ShowNotification(Lang::Strings::SCANNING_WIFI, 30000);
+                network_link_up_.store(false);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::Connecting: {
@@ -146,10 +155,12 @@ void Application::Initialize() {
                 std::string msg = Lang::Strings::CONNECTED_TO;
                 msg += data;
                 display->ShowNotification(msg.c_str(), 30000);
+                network_link_up_.store(true);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_CONNECTED);
                 break;
             }
             case NetworkEvent::Disconnected:
+                network_link_up_.store(false);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::WifiConfigModeEnter:
@@ -183,8 +194,11 @@ void Application::Initialize() {
     // Local models must be available before the first successful network connection.
     // A pending resource update keeps the normal update-before-model-init path.
     if (board.SupportsLocalInteraction()) {
+#if CONFIG_ENABLE_ONLINE_UPDATES
         Settings asset_settings("assets", false);
-        if (asset_settings.GetString("download_url").empty()) {
+        if (asset_settings.GetString("download_url").empty())
+#endif
+        {
             local_assets_applied_ = Assets::GetInstance().Apply();
             audio_service_.EnableWakeWordDetection(local_assets_applied_);
         }
@@ -210,7 +224,20 @@ void Application::Run() {
         MAIN_EVENT_VOICE_INTERRUPTION;
 
     while (true) {
-        auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
+        TickType_t wait = portMAX_DELAY;
+        if (uplink_retry_ && !barge_in_reconnecting_.load()) {
+            const auto ms = std::max<int64_t>(0, uplink_retry_due_us_ - esp_timer_get_time()) / 1000;
+            wait = std::max<TickType_t>(1, pdMS_TO_TICKS(ms));
+        }
+        auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, wait);
+
+        // Suspend the old session first when both Wi-Fi edges coalesce.
+        if (bits & MAIN_EVENT_NETWORK_DISCONNECTED) {
+            HandleNetworkDisconnectedEvent();
+        }
+        if ((bits & MAIN_EVENT_NETWORK_CONNECTED) && network_link_up_.load()) {
+            HandleNetworkConnectedEvent();
+        }
 
         if ((bits & MAIN_EVENT_ERROR) && !interaction_stopped_.load()) {
             if (voice_enrollment_active_.load()) {
@@ -222,14 +249,6 @@ void Application::Run() {
                 Alert(Lang::Strings::ERROR, last_error_message_.c_str(), "cancel",
                       Lang::Sounds::OGG_EXCLAMATION);
             }
-        }
-
-        if (bits & MAIN_EVENT_NETWORK_CONNECTED) {
-            HandleNetworkConnectedEvent();
-        }
-
-        if (bits & MAIN_EVENT_NETWORK_DISCONNECTED) {
-            HandleNetworkDisconnectedEvent();
         }
 
         if (bits & MAIN_EVENT_ACTIVATION_DONE) {
@@ -271,36 +290,8 @@ void Application::Run() {
             HandleVoiceInterruptionEvent();
         }
 #endif
-        if ((bits & MAIN_EVENT_SEND_AUDIO) && !barge_in_reconnecting_.load()) {
-            while (auto packet = audio_service_.PopPacketFromSendQueue()) {
-                // A pending stop must not leak uplink frames produced before
-                // the microphone engine actually stopped.
-                if (interaction_stopped_.load() || voice_enrollment_active_.load()) {
-                    continue;
-                }
-                const bool sent = protocol_ && protocol_->SendAudio(std::move(packet));
-#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
-                if (official_probe_active_.load() && !official_probe_sent_stop_) {
-                    if (sent)
-                        ++official_probe_packets_sent_;
-                    else
-                        ++official_probe_packets_failed_;
-                }
-#endif
-                if (protocol_ && !sent) {
-                    // Drop the remaining packets. Leaving them in the queue would
-                    // stall the Opus codec task (it waits for queue space), which in
-                    // turn deadlocks the whole audio input pipeline, as no new
-                    // MAIN_EVENT_SEND_AUDIO event would ever be triggered again.
-                    while (audio_service_.PopPacketFromSendQueue())
-                        ;
-                    break;
-                }
-            }
-#if CONFIG_USE_VOICE_BARGE_IN
-            audio_service_.ReleaseVoiceInterruptionBuffer();
-#endif
-        }
+        if ((bits & MAIN_EVENT_SEND_AUDIO) || uplink_retry_)
+            SendQueuedVoice();
 
         if (bits & MAIN_EVENT_WAKE_WORD_DETECTED) {
             HandleWakeWordDetectedEvent();
@@ -324,6 +315,8 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
+            ServiceConversationNetworkRecovery();
+            SendPendingTouchConversationInput();
             if (activation_retry_pending_ && network_connected_ && clock_ticks_ % 5 == 0 &&
                 GetDeviceState() == kDeviceStateIdle) {
                 HandleNetworkConnectedEvent();
@@ -394,6 +387,25 @@ void Application::HandleNetworkConnectedEvent() {
 void Application::HandleNetworkDisconnectedEvent() {
     network_connected_ = false;
     activation_retry_pending_ = false;
+    auto& board = Board::GetInstance();
+    const auto state_before_cleanup = GetDeviceState();
+    if (board.SupportsLocalInteraction() && (state_before_cleanup == kDeviceStateConnecting ||
+                                             state_before_cleanup == kDeviceStateListening ||
+                                             state_before_cleanup == kDeviceStateSpeaking)) {
+        const auto generation = interaction_generation_.load();
+        const bool can_resume = !interaction_stopped_.load() && !voice_enrollment_active_.load() &&
+                                !external_voice_preview_active_.load() &&
+                                !voice_enrollment_reconnecting_.load() &&
+                                !board.IsAudioMaintenanceActive();
+        StopInteractionInternal(false, true);
+        if (can_resume && interaction_generation_.load() == generation + 1) {
+            network_resume_generation_ = generation + 1;
+            network_resume_deadline_us_ = esp_timer_get_time() + 20'000'000;
+        }
+        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        board.GetDisplay()->UpdateStatusBar(true);
+        return;
+    }
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
     if (official_probe_active_.exchange(false))
         audio_service_.EnableVoiceProcessing(false);
@@ -436,6 +448,40 @@ void Application::HandleNetworkDisconnectedEvent() {
     // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
     display->UpdateStatusBar(true);
+}
+
+void Application::ServiceConversationNetworkRecovery() {
+    const auto deadline = network_resume_deadline_us_;
+    if (!deadline)
+        return;
+    const auto previous = network_resume_generation_;
+    if (esp_timer_get_time() >= deadline || previous != interaction_generation_.load()) {
+        network_resume_deadline_us_ = 0;
+        return;
+    }
+    auto& board = Board::GetInstance();
+    if (!network_connected_ || !network_link_up_.load() || GetDeviceState() != kDeviceStateIdle ||
+        !protocol_ || activation_task_handle_ || voice_enrollment_active_.load() ||
+        external_voice_preview_active_.load() || voice_enrollment_reconnecting_.load() ||
+        barge_in_reconnecting_.load() || board.IsAudioMaintenanceActive())
+        return;
+    if (board.IsOnboardingBlockingConversation()) {
+        network_resume_deadline_us_ = 0;
+        return;
+    }
+    uint32_t expected = previous;
+    if (!interaction_generation_.compare_exchange_strong(expected, previous + 1))
+        return;
+    network_resume_deadline_us_ = 0;
+    interaction_stopped_.store(false);
+    play_popup_on_listening_ = true;
+    entry_prompt_before_listening_ = true;
+    listening_mode_ = GetDefaultListeningMode();
+    barge_in_reconnecting_.store(true);
+    if (SetDeviceState(kDeviceStateConnecting) && ReopenConversation(previous + 1, true))
+        return;
+    barge_in_reconnecting_.store(false);
+    StopInteractionInternal(false, true);
 }
 
 void Application::HandleActivationDoneEvent() {
@@ -496,6 +542,7 @@ void Application::CheckAssetsVersion() {
         return;
     }
 
+#if CONFIG_ENABLE_ONLINE_UPDATES
     Settings settings("assets", true);
     // Check if there is a new assets need to be downloaded
     std::string download_url = settings.GetString("download_url");
@@ -533,6 +580,8 @@ void Application::CheckAssetsVersion() {
             return;
         }
     }
+
+#endif
 
     // Apply assets before starting the recognition engine on the update path.
     const bool applied = assets.Apply();
@@ -590,6 +639,7 @@ void Application::CheckNewVersion() {
         retry_count = 0;
         retry_delay = 10;  // Reset retry delay
 
+#if CONFIG_ENABLE_ONLINE_UPDATES
         if (ota_->HasNewVersion()) {
             if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
                 return;  // This line will never be reached after reboot
@@ -597,7 +647,8 @@ void Application::CheckNewVersion() {
             // If upgrade failed, continue to normal operation
         }
 
-        // No new version, mark the current version as valid
+#endif
+        // Activation remains independent of the update policy.
         ota_->MarkCurrentVersionValid();
         if (!ota_->HasActivationCode() && !ota_->HasActivationChallenge()) {
             // Exit the loop if done checking new version
@@ -665,8 +716,10 @@ void Application::InitializeProtocol() {
     protocol_->OnNetworkError([this, protocol_generation](const std::string& message) {
         if (protocol_generation != protocol_generation_.load())
             return;
-        Schedule([this, protocol_generation, message]() {
-            if (protocol_generation != protocol_generation_.load() || interaction_stopped_.load())
+        const auto generation = interaction_generation_.load();
+        Schedule([this, protocol_generation, generation, message]() {
+            if (protocol_generation != protocol_generation_.load() ||
+                generation != interaction_generation_.load() || interaction_stopped_.load())
                 return;
             if (voice_enrollment_active_.load() || barge_in_reconnecting_.load()) {
                 ESP_LOGW(TAG, "Conversation service unavailable during reconnect");
@@ -677,6 +730,17 @@ void Application::InitializeProtocol() {
         });
     });
 
+    protocol_->SetIncomingAudioFilter([this, protocol_generation]() {
+        if (protocol_generation != protocol_generation_.load() || interaction_stopped_.load() ||
+            external_tts_selected_.load() || voice_enrollment_active_.load() ||
+            voice_selection_reply_guard_.load())
+            return false;
+#if CONFIG_USE_VOICE_BARGE_IN
+        if (barge_in_reply_gate_.blocked())
+            return false;
+#endif
+        return GetDeviceState() == kDeviceStateSpeaking || tts_start_pending_.load();
+    });
     protocol_->OnIncomingAudio([this,
                                 protocol_generation](std::unique_ptr<AudioStreamPacket> packet) {
         if (protocol_generation != protocol_generation_.load())
@@ -783,8 +847,9 @@ void Application::InitializeProtocol() {
             }
             if (strcmp(type->valuestring, "tts") == 0) {
                 const auto* state = cJSON_GetObjectItem(root, "state");
-                ESP_LOGI(TAG, "Official ASR probe server TTS: %s",
-                         cJSON_IsString(state) && state->valuestring ? state->valuestring : "unknown");
+                ESP_LOGI(
+                    TAG, "Official ASR probe server TTS: %s",
+                    cJSON_IsString(state) && state->valuestring ? state->valuestring : "unknown");
             }
             if (strcmp(type->valuestring, "mcp") == 0) {
                 ESP_LOGW(TAG, "Official ASR probe: ignoring device MCP command");
@@ -931,6 +996,9 @@ void Application::InitializeProtocol() {
                                     external->Cancel();
                                     external_tts_callback_token_.fetch_add(1);
                                     audio_service_.ResetDecoder();
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+                                    audio_service_.ConfigureServerSpeechPlayout();
+#endif
                                     external_tts_selected_.store(false);
                                     server_music_active_ = true;
                                     ESP_LOGI(TAG, "Music started; switching to server audio");
@@ -1064,8 +1132,6 @@ void Application::InitializeProtocol() {
                                     if (enable)
                                         audio_service_.EnableWakeWordDetection(false);
                                     audio_service_.EnableVoiceProcessing(enable);
-                                    if (!enable)
-                                        audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
                                 }
                             });
                         };
@@ -1080,9 +1146,9 @@ void Application::InitializeProtocol() {
                             });
                         };
                         const bool started =
-                            clone_request ? enrollment->Start(capture, completion)
-                                          : enrollment->StartSelection(
-                                                selection_pending ? recognized : "切换音色", completion);
+                            clone_request
+                                ? enrollment->Start(capture, completion)
+                                : enrollment->StartSelection(recognized, completion);
                         if (!started) {
                             ESP_LOGW(TAG,
                                      "Voice operation unavailable: check Ali settings or memory");
@@ -1271,7 +1337,27 @@ void Application::HandleToggleConversationEvent() {
     // Always pass through Connecting: the board stops local Flash playback
     // before any prompt or voice input is started, even on an open channel.
     if (SetDeviceState(kDeviceStateConnecting)) {
+#if CONFIG_WZH_SYSTEM_PROMPTS
+        const auto generation = interaction_generation_.load();
+        Schedule([this, mode, generation]() {
+            if (generation != interaction_generation_.load() ||
+                GetDeviceState() != kDeviceStateConnecting || interaction_stopped_.load())
+                return;
+            if (wzh::DeferOnboardingConversation([this, mode, generation](bool played) {
+                    if (generation != interaction_generation_.load() ||
+                        interaction_stopped_.load() || GetDeviceState() != kDeviceStateConnecting)
+                        return;
+                    if (played)
+                        ContinueOpenAudioChannel(mode);
+                    else
+                        StopInteractionInternal(false, true);
+                }))
+                return;
+            ContinueOpenAudioChannel(mode);
+        });
+#else
         Schedule([this, mode]() { ContinueOpenAudioChannel(mode); });
+#endif
     }
 }
 
@@ -1402,6 +1488,12 @@ void Application::HandleStartListeningEvent() {
 }
 
 void Application::HandleStopListeningEvent() {
+    if (network_resume_deadline_us_ ||
+        (barge_in_reconnecting_.load() && GetDeviceState() == kDeviceStateConnecting)) {
+        network_resume_deadline_us_ = 0;
+        StopInteraction();
+        return;
+    }
     if (voice_enrollment_active_.load())
         return;
     auto state = GetDeviceState();
@@ -1431,13 +1523,23 @@ void Application::HandleWakeWordDetectedEvent() {
         const bool keyword = wake_word == "local:interrupt" || wake_word == "local:stop" ||
                              wake_word == "local:chat_wake";
         if (keyword && audio_service_.IsVoiceInterruptionMonitoring()) {
-            const auto token = pending_voice_interruption_.load();
-            if (audio_service_.IsVoiceInterruptionPending(token)) {
-                ESP_LOGI(TAG, "Dino keyword interruption accepted: %s", wake_word.c_str());
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+            const auto token = audio_service_.NoteVoiceInterruptionKeyword();
+            if (token) {
+                pending_voice_interruption_.store(token);
                 HandleVoiceInterruptionEvent();
             } else {
-                ESP_LOGI(TAG, "Dino keyword ignored: no recent near-end voice candidate");
+                ESP_LOGI(TAG, "Keyword recognized: waiting for near-end audio: %s", wake_word.c_str());
             }
+#else
+            const auto token = pending_voice_interruption_.load();
+            if (audio_service_.IsVoiceInterruptionPending(token)) {
+                ESP_LOGI(TAG, "Keyword interruption accepted: %s", wake_word.c_str());
+                HandleVoiceInterruptionEvent();
+            } else {
+                ESP_LOGI(TAG, "Keyword interruption ignored: no recent near-end voice candidate");
+            }
+#endif
         }
 #endif
         // WakeNet can recognize the device's own spoken wake phrase. During an
@@ -1523,6 +1625,12 @@ void Application::HandleWakeWordDetectedEvent() {
 }
 
 void Application::BeginWakeWordInvoke(const std::string& wake_word) {
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    if (wzh::IsOnboardingIntroPending()) {
+        audio_service_.EnableWakeWordDetection(true);
+        return;
+    }
+#endif
     if (Board::GetInstance().IsOnboardingBlockingConversation()) {
         audio_service_.EnableWakeWordDetection(true);
         return;
@@ -1589,7 +1697,7 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
 #if CONFIG_SEND_WAKE_WORD_DATA
     // Encode and send the wake word data to the server
     while (auto packet = audio_service_.PopWakeWordPacket()) {
-        protocol_->SendAudio(std::move(packet));
+        protocol_->SendAudio(*packet);
     }
     // Set the chat state to wake word detected
     protocol_->SendWakeWordDetected(wake_word);
@@ -1757,6 +1865,10 @@ void Application::FlushEarlyAudio() {
     tts_start_pending_.store(false);
     if (GetDeviceState() != kDeviceStateSpeaking)
         audio_service_.ResetDecoder();
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    if (!external_tts_selected_.load())
+        audio_service_.ConfigureServerSpeechPlayout();
+#endif
     aborted_ = false;
 #if CONFIG_USE_VOICE_BARGE_IN
     if (listening_mode_ == kListeningModeAutoStop) {
@@ -1887,6 +1999,10 @@ void Application::ResumeAfterVoiceEnrollment(uint32_t generation) {
 }
 
 void Application::StopInteraction(bool play_exit_sound) {
+    StopInteractionInternal(play_exit_sound, false);
+}
+
+void Application::StopInteractionInternal(bool play_exit_sound, bool network_lost) {
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
     official_probe_active_.store(false);
 #endif
@@ -1916,7 +2032,7 @@ void Application::StopInteraction(bool play_exit_sound) {
     }
     ClearEarlyAudio();
     const auto generation = interaction_generation_.fetch_add(1) + 1;
-    Schedule([this, generation, play_exit_sound]() {
+    auto cleanup = [this, generation, play_exit_sound, network_lost]() {
         if (generation != interaction_generation_.load() || !interaction_stopped_.load())
             return;
         // A capture-start callback may already have passed its guard on the
@@ -1929,14 +2045,16 @@ void Application::StopInteraction(bool play_exit_sound) {
         audio_service_.ResetDecoder();
         if (state == kDeviceStateSpeaking || state == kDeviceStateListening ||
             state == kDeviceStateConnecting) {
-            AbortSpeaking(kAbortReasonNone);
+            if (!network_lost)
+                AbortSpeaking(kAbortReasonNone);
             audio_service_.EnableVoiceProcessing(false);
             // Catch frames that finished encoding while the engine stopped.
             while (audio_service_.PopPacketFromSendQueue()) {
             }
             if (protocol_ && !voice_enrollment_reconnecting_.load() &&
-                !barge_in_reconnecting_.load() && protocol_->IsAudioChannelOpened()) {
-                protocol_->CloseAudioChannel();
+                !barge_in_reconnecting_.load() &&
+                (network_lost || protocol_->IsAudioChannelOpened())) {
+                protocol_->CloseAudioChannel(!network_lost);
             }
             // Queue the one exit prompt before Idle admits local sound again.
             // Ordinary stop/quiet/rest/shutdown remain silent here.
@@ -1946,7 +2064,11 @@ void Application::StopInteraction(bool play_exit_sound) {
             }
             SetDeviceState(kDeviceStateIdle);
         }
-    });
+    };
+    if (network_lost)
+        cleanup();  // Network events run on the application task.
+    else
+        Schedule(std::move(cleanup));
 }
 
 const char* Application::ExternalVoicePreviewStatus() const {
@@ -1986,6 +2108,7 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
         auto* enrollment = Board::GetInstance().GetVoiceEnrollment();
         if (!voice_enrollment_active_.load() || generation != interaction_generation_.load())
             return;
+        device_voice_enrollment_from_chat_ = conversation;
         const auto current = GetDeviceState();
         const bool still_conversation =
             current == kDeviceStateListening || current == kDeviceStateSpeaking;
@@ -2016,20 +2139,20 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
             [this, generation](bool enable) {
                 Schedule([this, generation, enable]() {
                     if (!voice_enrollment_active_.load() ||
-                        generation != interaction_generation_.load())
+                        generation != interaction_generation_.load() ||
+                        device_voice_enrollment_status_.load() != 2)
                         return;
                     Board::GetInstance().SetVoiceEnrollmentRecording(enable);
                     if (enable)
                         audio_service_.EnableWakeWordDetection(false);
                     audio_service_.EnableVoiceProcessing(enable);
-                    if (!enable)
-                        audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
                 });
             },
             [this, generation, conversation](bool ok) {
                 Schedule([this, generation, conversation, ok]() {
                     if (!voice_enrollment_active_.load() ||
-                        generation != interaction_generation_.load())
+                        generation != interaction_generation_.load() ||
+                        device_voice_enrollment_status_.load() != 2)
                         return;
                     Board::GetInstance().SetVoiceEnrollmentRecording(false);
                     audio_service_.EnableVoiceProcessing(false);
@@ -2059,6 +2182,39 @@ bool Application::RequestDeviceVoiceEnrollment(const std::string& name) {
     return true;
 }
 
+bool Application::RequestCancelDeviceVoiceEnrollment(uint32_t request) {
+    if (!request || request != DeviceVoiceEnrollmentRequest() ||
+        request != interaction_generation_.load() || !voice_enrollment_active_.load())
+        return false;
+    const std::string_view status = DeviceVoiceEnrollmentStatus();
+    if (status != "starting" && status != "prompt" && status != "recording")
+        return false;
+    Schedule([this, request]() {
+        const auto status = device_voice_enrollment_status_.load();
+        if (request != DeviceVoiceEnrollmentRequest() ||
+            request != interaction_generation_.load() || !voice_enrollment_active_.load() ||
+            (status != 1 && status != 2))
+            return;
+        auto* enrollment = Board::GetInstance().GetVoiceEnrollment();
+        if (status == 2 && (!enrollment || !enrollment->CancelCapture()))
+            return;
+        device_voice_enrollment_status_.store(5);
+        if (status == 2) {
+            Board::GetInstance().SetVoiceEnrollmentRecording(false);
+            audio_service_.EnableVoiceProcessing(false);
+            audio_service_.ResetDecoder();
+        }
+        if (status == 2 && device_voice_enrollment_from_chat_) {
+            ResumeAfterVoiceEnrollment(request);
+        } else {
+            voice_enrollment_active_.store(false);
+            if (status == 2 && GetDeviceState() == kDeviceStateSpeaking)
+                SetDeviceState(kDeviceStateIdle);
+        }
+    });
+    return true;
+}
+
 const char* Application::DeviceVoiceEnrollmentFailure() const {
     if (!device_voice_enrollment_attempted_.load())
         return "";
@@ -2078,7 +2234,7 @@ const char* Application::DeviceVoiceEnrollmentStatus() const {
         auto* enrollment = Board::GetInstance().GetVoiceEnrollment();
         return enrollment ? enrollment->Status() : "failed";
     }
-    return status == 3 ? "success" : status == 4 ? "failed" : "idle";
+    return status == 3 ? "success" : status == 4 ? "failed" : status == 5 ? "cancelled" : "idle";
 }
 
 bool Application::RequestExternalVoicePreview(const std::string& voice) {
@@ -2088,11 +2244,12 @@ bool Application::RequestExternalVoicePreview(const std::string& voice) {
         Board::GetInstance().IsOnboardingBlockingConversation() ||
         external_voice_preview_active_.exchange(true))
         return false;
+    const auto request = external_voice_preview_request_.fetch_add(1) + 1;
     external_voice_preview_status_.store(1);
     const auto generation = interaction_generation_.load();
-    Schedule([this, generation, voice]() {
+    Schedule([this, generation, request, voice]() {
         auto* external = Board::GetInstance().GetExternalTts();
-        if (!external_voice_preview_active_.load())
+        if (!external_voice_preview_active_.load() || request != ExternalVoicePreviewRequest())
             return;
         if (generation != interaction_generation_.load()) {
             external_voice_preview_active_.store(false);
@@ -2140,6 +2297,16 @@ bool Application::RequestExternalVoicePreview(const std::string& voice) {
     return true;
 }
 
+bool Application::RequestCancelExternalVoicePreview(uint32_t request) {
+    if (!request || request != ExternalVoicePreviewRequest() || !IsExternalVoicePreviewActive())
+        return false;
+    Schedule([this, request]() {
+        if (request == ExternalVoicePreviewRequest() && IsExternalVoicePreviewActive())
+            StopInteraction();
+    });
+    return true;
+}
+
 void Application::SetListeningMode(ListeningMode mode) {
     listening_mode_ = mode;
     SetDeviceState(kDeviceStateListening);
@@ -2163,6 +2330,7 @@ void Application::Reboot() {
 }
 
 bool Application::UpgradeFirmware(const std::string& url, const std::string& version) {
+#if CONFIG_ENABLE_ONLINE_UPDATES
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
 
@@ -2215,6 +2383,11 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         Reboot();
         return true;
     }
+#else
+    (void)url;
+    (void)version;
+    return false;
+#endif
 }
 
 void Application::WakeWordInvoke(const std::string& wake_word) {
@@ -2268,6 +2441,68 @@ bool Application::CanEnterSleepMode() {
 void Application::RegisterMcpBroadcastCallback(std::function<void(const std::string&)> callback) {
     mcp_broadcast_callback_ = std::move(callback);
 }
+
+void Application::QueueTouchConversationInput(std::string text) {
+    const auto interaction = interaction_generation_.load();
+    const auto protocol = protocol_generation_.load();
+    const auto state = GetDeviceState();
+    if (text.empty() || text.size() > 256 ||
+        (state != kDeviceStateListening && state != kDeviceStateSpeaking) ||
+        interaction_stopped_.load() || voice_enrollment_active_.load() ||
+        external_voice_preview_active_.load()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(touch_input_mutex_);
+    if (interaction == interaction_generation_.load() && protocol == protocol_generation_.load())
+        pending_touch_input_ = {std::move(text), interaction, protocol, esp_timer_get_time()};
+}
+
+void Application::SendPendingTouchConversationInput() {
+    const auto now = esp_timer_get_time();
+    const auto state = GetDeviceState();
+    const bool can_send =
+        state == kDeviceStateListening && !pending_listening_start_ && !tts_start_pending_.load() &&
+        !barge_in_reconnecting_.load() && !voice_enrollment_reconnecting_.load() &&
+        !audio_service_.IsVoiceDetected() &&
+        now - last_listening_voice_edge_us_.load() >= 1200000 && audio_service_.IsPlaybackIdle();
+    TouchConversationInput input;
+    {
+        std::lock_guard<std::mutex> lock(touch_input_mutex_);
+        if (pending_touch_input_.text.empty())
+            return;
+        if ((state != kDeviceStateListening && state != kDeviceStateSpeaking) ||
+            interaction_stopped_.load() || voice_enrollment_active_.load() ||
+            external_voice_preview_active_.load() ||
+            pending_touch_input_.interaction_generation != interaction_generation_.load() ||
+            pending_touch_input_.protocol_generation != protocol_generation_.load() ||
+            now - pending_touch_input_.received_us > 6000000) {
+            pending_touch_input_ = {};
+            return;
+        }
+        if (!can_send || now < next_touch_input_us_ ||
+            now - pending_touch_input_.received_us < 350000)
+            return;
+        input = std::move(pending_touch_input_);
+        pending_touch_input_ = {};
+    }
+    if (GetDeviceState() != kDeviceStateListening || audio_service_.IsVoiceDetected() ||
+        tts_start_pending_.load() || !protocol_ || !protocol_->IsAudioChannelOpened() ||
+        !network_connected_ || Board::GetInstance().IsAudioMaintenanceActive() ||
+        interaction_stopped_.load() ||
+        input.interaction_generation != interaction_generation_.load() ||
+        input.protocol_generation != protocol_generation_.load())
+        return;
+    next_touch_input_us_ = now + 4000000;
+    protocol_->SendListenText(input.text);
+}
+
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+size_t Application::GetMcpWireOverhead() const {
+    constexpr std::string_view prefix = "{\"session_id\":\"";
+    constexpr std::string_view suffix = "\",\"type\":\"mcp\",\"payload\":";
+    return protocol_ ? prefix.size() + protocol_->session_id().size() + suffix.size() + 1 : 0;
+}
+#endif
 
 void Application::SendMcpMessage(const std::string& payload) {
     // Always schedule to run in main task for thread safety
@@ -2336,14 +2571,129 @@ void Application::ResetProtocol() {
     });
 }
 
+void Application::SendQueuedVoice() {
+    const auto generation = interaction_generation_.load();
+    const auto protocol_generation = protocol_generation_.load();
+    if (uplink_failure_generation_ != generation) {
+        uplink_failure_generation_ = generation;
+        uplink_failure_started_us_ = 0;
+        uplink_reconnect_after_us_ = 0;
+    }
+    if (uplink_retry_ && (generation != uplink_retry_generation_ ||
+                          protocol_generation != uplink_retry_protocol_ ||
+                          GetDeviceState() != kDeviceStateListening ||
+                          interaction_stopped_.load() || voice_enrollment_active_.load())) {
+        uplink_retry_.reset();
+        uplink_failure_started_us_ = 0;
+    }
+    if (barge_in_reconnecting_.load())
+        return;
+    if (uplink_retry_ && esp_timer_get_time() < uplink_retry_due_us_)
+        return;
+
+    const bool can_retry = protocol_ && protocol_->CanRetryUplinkAudio();
+    while (true) {
+        auto packet = std::move(uplink_retry_);
+        const auto now = esp_timer_get_time();
+        if (packet && now > uplink_retry_expires_us_) {
 #if CONFIG_USE_VOICE_BARGE_IN
-bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
+            audio_service_.ReleaseVoiceInterruptionBuffer();
+#endif
+            packet.reset();
+        }
+        if (!packet) {
+            uplink_retry_count_ = 0;
+            packet = audio_service_.PopPacketFromSendQueue();
+            if (!packet)
+                return;
+        }
+        if (interaction_stopped_.load() || voice_enrollment_active_.load())
+            continue;
+
+        const bool sent = protocol_ && protocol_->SendAudio(*packet);
+#if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
+        if (official_probe_active_.load() && !official_probe_sent_stop_) {
+            if (sent)
+                ++official_probe_packets_sent_;
+            else
+                ++official_probe_packets_failed_;
+        }
+#endif
+        if (sent) {
+            if (first_interrupted_uplink_us_ && first_interrupted_uplink_generation_ == generation) {
+                ESP_LOGI(TAG, "First uplink after interruption: elapsed_ms=%lld",
+                         static_cast<long long>((esp_timer_get_time() - first_interrupted_uplink_us_) / 1000));
+                first_interrupted_uplink_us_ = 0;
+            }
+            if (uplink_failure_started_us_) {
+                ESP_LOGI(TAG, "Wi-Fi voice uplink recovered: elapsed_ms=%lld",
+                         static_cast<long long>((now - uplink_failure_started_us_) / 1000));
+                uplink_failure_started_us_ = 0;
+            }
+#if CONFIG_USE_VOICE_BARGE_IN
+            audio_service_.ReleaseVoiceInterruptionBuffer();
+#endif
+            continue;
+        }
+
+        const bool opened = protocol_ && protocol_->IsAudioChannelOpened();
+        if (can_retry && opened && GetDeviceState() == kDeviceStateListening) {
+            if (!uplink_failure_started_us_) {
+                uplink_failure_started_us_ = now;
+                ESP_LOGW(TAG, "Wi-Fi voice uplink pressure: internal=%u largest=%u",
+                         static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                         static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
+            }
+            if (!uplink_retry_count_)
+                uplink_retry_expires_us_ = now + 340000;
+            if (uplink_retry_count_ < 3 && now < uplink_retry_expires_us_) {
+                const int64_t backoff = 45000LL << uplink_retry_count_++;
+                uplink_retry_due_us_ = std::min(now + backoff, uplink_retry_expires_us_);
+                uplink_retry_generation_ = generation;
+                uplink_retry_protocol_ = protocol_generation;
+                uplink_retry_ = std::move(packet);
+                return;
+            }
+#if CONFIG_USE_VOICE_BARGE_IN
+            audio_service_.ReleaseVoiceInterruptionBuffer();
+#endif
+            if (now - uplink_failure_started_us_ >= 950000 && now >= uplink_reconnect_after_us_) {
+                // An open socket can still stay unable to submit datagrams.
+                // Abandon stale audio and try one replacement on the worker.
+                uplink_reconnect_after_us_ = now + 20000000;
+                uplink_failure_started_us_ = 0;
+                while (audio_service_.PopPacketFromSendQueue()) {
+                }
+                barge_in_reconnecting_.store(true);
+                if (ReopenConversation(generation, false, true))
+                    return;
+                barge_in_reconnecting_.store(false);
+            }
+            // The next input frame signals the event again, avoiding a burst
+            // of sends into the same congested socket.
+            return;
+        }
+#if CONFIG_USE_VOICE_BARGE_IN
+        audio_service_.ReleaseVoiceInterruptionBuffer();
+        if (opened)
+            return;
+#endif
+        while (audio_service_.PopPacketFromSendQueue()) {
+        }
+        return;
+    }
+}
+
+bool Application::ReopenConversation(uint32_t generation, bool after_network_loss,
+                                     bool replace_channel) {
     struct Reconnect {
         Application* app;
         std::shared_ptr<Protocol> protocol;
         uint32_t generation;
+        bool after_network_loss;
+        bool replace_channel;
     };
-    auto* request = new (std::nothrow) Reconnect{this, protocol_, generation};
+    auto* request = new (std::nothrow) Reconnect{this, protocol_, generation, after_network_loss, replace_channel};
     if (!request || !request->protocol) {
         delete request;
         return false;
@@ -2354,27 +2704,52 @@ bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
             auto* app = request->app;
             auto protocol = request->protocol;
             const auto token = request->generation;
-            const bool opened = protocol->IsAudioChannelOpened() || protocol->OpenAudioChannel();
-            app->Schedule([app, protocol, token, opened]() {
+            const bool recovery = request->after_network_loss;
+            const bool current = token == app->interaction_generation_.load() &&
+                                 !app->interaction_stopped_.load() &&
+                                 (!recovery || app->network_link_up_.load());
+            if (current && request->replace_channel && protocol->IsAudioChannelOpened())
+                protocol->CloseAudioChannel();
+            const bool opened =
+                current && (protocol->IsAudioChannelOpened() || protocol->OpenAudioChannel());
+            app->Schedule([app, protocol, token, opened, recovery]() {
+                const auto expected_state =
+                    recovery ? kDeviceStateConnecting : kDeviceStateListening;
                 const bool valid = !app->interaction_stopped_.load() &&
                                    token == app->interaction_generation_.load() &&
                                    app->protocol_ == protocol &&
-                                   app->GetDeviceState() == kDeviceStateListening;
+                                   app->GetDeviceState() == expected_state &&
+                                   (!recovery || app->network_link_up_.load());
                 if (!valid) {
                     if (protocol->IsAudioChannelOpened())
-                        protocol->CloseAudioChannel();
+                        protocol->CloseAudioChannel(!recovery);
                     app->barge_in_reconnecting_.store(false);
-                    app->audio_service_.ReleaseVoiceInterruptionBuffer();
+#if CONFIG_USE_VOICE_BARGE_IN
+                    if (!recovery)
+                        app->audio_service_.ReleaseVoiceInterruptionBuffer();
+#endif
+                    if (recovery && token == app->interaction_generation_.load() &&
+                        app->GetDeviceState() == kDeviceStateConnecting) {
+                        app->StopInteractionInternal(false, true);
+                    }
                     return;
                 }
                 if (!opened || !protocol->IsAudioChannelOpened()) {
                     app->barge_in_reconnecting_.store(false);
-                    app->audio_service_.ReleaseVoiceInterruptionBuffer();
+#if CONFIG_USE_VOICE_BARGE_IN
+                    if (!recovery)
+                        app->audio_service_.ReleaseVoiceInterruptionBuffer();
+#endif
                     app->audio_service_.EnableVoiceProcessing(false);
                     while (app->audio_service_.PopPacketFromSendQueue()) {
                     }
                     app->SetDeviceState(kDeviceStateIdle);
-                    ESP_LOGW(TAG, "Unable to reconnect after voice interruption");
+                    ESP_LOGW(TAG, "Unable to reopen conversation");
+                    return;
+                }
+                if (recovery) {
+                    app->barge_in_reconnecting_.store(false);
+                    app->SetListeningMode(app->listening_mode_);
                     return;
                 }
                 protocol->SendStartListening(app->listening_mode_);
@@ -2383,7 +2758,7 @@ bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
             });
             vTaskDelete(nullptr);
         },
-        "barge_reconnect", 8192, request, 3, nullptr);
+        "conv_reconnect", 8192, request, 3, nullptr);
     if (start != pdPASS) {
         delete request;
         return false;
@@ -2391,6 +2766,7 @@ bool Application::ReconnectAfterVoiceInterruption(uint32_t generation) {
     return true;
 }
 
+#if CONFIG_USE_VOICE_BARGE_IN
 #if CONFIG_WZH_DINO_OFFICIAL_ASR_PROBE
 void Application::BeginOfficialAsrProbe(uint32_t token) {
     if (official_probe_used_ || !protocol_ || !protocol_->IsAudioChannelOpened())
@@ -2477,12 +2853,15 @@ void Application::HandleVoiceInterruptionEvent() {
     const bool channel_open = protocol_ && protocol_->IsAudioChannelOpened();
     if (!channel_open)
         barge_in_reconnecting_.store(true);
-    if (!audio_service_.CommitVoiceInterruption(token, !channel_open)) {
+    const bool retain_prefix = !channel_open || (protocol_ && protocol_->CanRetryUplinkAudio());
+    if (!audio_service_.CommitVoiceInterruption(token, retain_prefix)) {
         barge_in_reconnecting_.store(false);
         return;
     }
     barge_in_reply_gate_.Begin();
     const auto generation = interaction_generation_.fetch_add(1) + 1;
+    first_interrupted_uplink_generation_ = generation;
+    first_interrupted_uplink_us_ = esp_timer_get_time();
     ClearEarlyAudio();
     audio_service_.ResetDecoder();
     pending_listening_start_ = play_popup_on_listening_ = entry_prompt_before_listening_ = false;
@@ -2494,13 +2873,13 @@ void Application::HandleVoiceInterruptionEvent() {
              "echo_corr=%d%% required_ms=%d servo_known=%d powered=%d command_age_ms=%lld",
              static_cast<unsigned long>(token), diagnostic.pending, diagnostic.vad,
              diagnostic.residual, diagnostic.threshold, diagnostic.correlation_percent,
-             diagnostic.required_speech_ms,
-             servo_known, servo_powered, static_cast<long long>(servo_age_ms));
+             diagnostic.required_speech_ms, servo_known, servo_powered,
+             static_cast<long long>(servo_age_ms));
 #endif
     ConfigureWakeWordForListening();
     if (channel_open) {
         protocol_->SendStartListening(listening_mode_);
-    } else if (!ReconnectAfterVoiceInterruption(generation)) {
+    } else if (!ReopenConversation(generation, false)) {
         barge_in_reconnecting_.store(false);
         audio_service_.ReleaseVoiceInterruptionBuffer();
         audio_service_.EnableVoiceProcessing(false);

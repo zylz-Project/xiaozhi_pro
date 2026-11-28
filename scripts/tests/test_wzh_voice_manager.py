@@ -23,15 +23,20 @@ class VoiceManagerTest(unittest.TestCase):
 using namespace voice_tts;
 std::vector<std::string> remote;std::vector<VoiceName> labels;
 std::string current="legacy",previous;int creates=0,deletes=0,reserved=-1;bool create_fail=false,fail_before_submit=false,delete_fail=false,remove_fail=false;
+bool cloud_seen=false,record_ok=true;int lists=0;
 int esp_read_mac(unsigned char* m,int){unsigned char a[6]={1,2,3,4,5,6};std::memcpy(m,a,6);return 0;}
 namespace voice_tts {
 std::string LoadAliKey(){return "key";}
 std::string LoadAliVoice(){return current;}
 std::string LoadPreviousAliVoice(){return previous;}
+bool LoadAliVoiceSelection(std::string& a,std::string& b){a=current;b=previous;return record_ok;}
+bool LoadCloudVoiceObservation(bool& out){out=cloud_seen;return true;}
+bool SaveCloudVoiceObservation(bool value){cloud_seen=value;return true;}
 bool SaveAliVoice(const std::string& id){previous=current;current=id;return true;}
 bool LoadVoiceReservation(int& out){out=reserved;return true;}
 bool SaveVoiceReservation(int value){reserved=value;return true;}
 bool CommitAliVoice(const std::string& id){return SaveAliVoice(id);}
+bool RestorePreviousAliVoice(){if(previous.empty())return false;current.swap(previous);return true;}
 bool ClearAliVoiceSelection(){current.clear();previous.clear();return true;}
 bool ForgetPreviousAliVoice(const std::string& id){if(previous==id)previous.clear();return true;}
 bool IsValidVoiceName(const std::string& name){return !name.empty() && name.size()<=48;}
@@ -39,7 +44,8 @@ bool LoadVoiceNames(std::vector<VoiceName>& out){out=labels;return true;}
 bool SetVoiceName(const std::string& id,const std::string& name){
  for(auto& e:labels)if(e.id==id){e.name=name;return true;}labels.push_back({id,name});return true;}
 bool RemoveVoiceName(const std::string& id){if(remove_fail)return false;labels.erase(std::remove_if(labels.begin(),labels.end(),[&](auto& x){return x.id==id;}),labels.end());return true;}
-bool ListAliVoices(const std::string&,const std::string& prefix,const std::function<bool()>&,std::vector<std::string>& out){
+bool ListAliVoices(const std::string&,const std::string& prefix,const std::function<bool()>& cancelled,std::vector<std::string>& out){
+ ++lists;if(cancelled())return false;
  assert(prefix==VoicePrefixFromMac((const uint8_t*)"\1\2\3\4\5\6",6));out=remote;return true;}
 bool DeleteAliVoice(const std::string&,const std::string&,const std::string& id,const std::function<bool()>&,int){
  ++deletes;if(delete_fail)return false;auto it=std::find(remote.begin(),remote.end(),id);if(it==remote.end())return false;remote.erase(it);return true;}
@@ -55,7 +61,11 @@ int main(){std::string id;int16_t samples[1]={};auto no=[](){return false;};
  assert(SelectKnownVoice("unknown",no)==VoiceOperation::kInvalid);
  assert(SelectKnownVoice(id,[]{return true;})==VoiceOperation::kCancelled);
  std::vector<ManagedVoice> all;assert(ListManagedVoices(all)==VoiceOperation::kOk && all.size()==kBuiltinVoiceCount+1);
+ assert(RestoreManagedVoice()==VoiceOperation::kOk && current==previous && current==id);
+ assert(SelectKnownVoice("longanhuan_v3.1",no)==VoiceOperation::kOk);
+ assert(RestoreManagedVoice()==VoiceOperation::kOk && current==id);
  assert(BeginVoiceReset() && !BeginVoiceReset());
+ assert(RestoreManagedVoice()==VoiceOperation::kBusy);
  assert(ListManagedVoices(all)==VoiceOperation::kBusy);
  assert(SelectKnownVoice(id,no)==VoiceOperation::kBusy);
  EndVoiceReset();assert(!VoiceResetActive());
@@ -79,6 +89,12 @@ int main(){std::string id;int16_t samples[1]={};auto no=[](){return false;};
  assert(remote.size()==1&&current=="longanhuan_v3.1");
  remove_fail=false;assert(ResetManagedVoices(no,progress)==VoiceOperation::kOk);
  assert(remote.empty()&&labels.empty()&&current.empty()&&previous.empty()&&completed==1&&total==1);
+ const int before=lists;auto offline=[](){return true;};
+ record_ok=false;assert(ResetManagedVoices(offline,{})==VoiceOperation::kSave&&lists==before);
+ record_ok=true;current="xiaozhi-native";
+ assert(ResetManagedVoices(offline,{})==VoiceOperation::kOk&&lists==before&&current.empty());
+ cloud_seen=true;current="xiaozhi-native";
+ assert(ResetManagedVoices(offline,{})==VoiceOperation::kCancelled&&lists==before+1&&current=="xiaozhi-native");
 
 }
 '''

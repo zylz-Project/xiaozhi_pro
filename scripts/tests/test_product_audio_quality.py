@@ -182,12 +182,12 @@ struct AudioCodec{
  std::vector<int16_t>finish_padding_,written;float output_stream_gain_=1;
  int output_sample_rate_=24000;
  int16_t last_output_sample_=0,output_gain_q8_=0;
- void OutputData(std::vector<int16_t>&);void ResetOutputProcessing();
+ size_t OutputData(std::vector<int16_t>&);void ResetOutputProcessing();
  void SetOutputStreamGain(int16_t);size_t FinishOutput();
  int Write(const int16_t*data,int size){written.insert(written.end(),data,data+size);return size;}
 };
 '''
-        for marker in ['void AudioCodec::OutputData(', 'void AudioCodec::ResetOutputProcessing(',
+        for marker in ['size_t AudioCodec::OutputData(', 'void AudioCodec::ResetOutputProcessing(',
                        'void AudioCodec::SetOutputStreamGain(', 'size_t AudioCodec::FinishOutput(']:
             program+=queue_function(source,marker)+'\n'
         program+=r'''
@@ -226,6 +226,8 @@ int main(){
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <thread>
+#include "audio_playout_buffer.h"
 #include "opus_stream_metadata.h"
 struct Packet{OpusStreamMetadata stream;};
 struct AudioTask{OpusStreamMetadata stream;};
@@ -235,19 +237,31 @@ struct AudioService{
  bool decode_in_flight_=false,output_in_flight_=false,playback_drained_notified_=true;
  std::atomic<uint32_t> playback_drained_count_{0};
  bool finish_requested_=false,cancel_fade_requested_=false;
+ AudioPlayoutBuffer playout_buffer_;
  uint32_t playback_generation_=7;
  void FinishPlayback(std::optional<uint32_t> expected_generation=std::nullopt);bool IsPlaybackDrainedLocked()const;bool MarkPlaybackDrainedLocked();
+ bool IsPlaybackIdleForTelemetry();
 };
 '''
         for marker in ['void AudioService::FinishPlayback(', 'bool AudioService::IsPlaybackDrainedLocked(',
-                       'bool AudioService::MarkPlaybackDrainedLocked(']:
+                       'bool AudioService::MarkPlaybackDrainedLocked(',
+                       'bool AudioService::IsPlaybackIdleForTelemetry(']:
             program+=queue_function(source,marker)+'\n'
         program+=r'''
 int main(){
- AudioService service;service.FinishPlayback(6);
+ AudioService service;service.playout_buffer_.ConfigureExternalSpeech(7);service.FinishPlayback(6);
+ assert(service.IsPlaybackIdleForTelemetry());
+ {
+  std::lock_guard<std::mutex> lock(service.audio_queue_mutex_);
+  std::thread telemetry([&]{assert(!service.IsPlaybackIdleForTelemetry());});
+  telemetry.join();
+ }
  assert(!service.finish_requested_&&service.playback_drained_notified_);
+ assert(!service.playout_buffer_.SpeechFinished(7));
  service.FinishPlayback(7);
  assert(service.finish_requested_&&!service.playback_drained_notified_);
+ assert(!service.IsPlaybackIdleForTelemetry());
+ assert(service.playout_buffer_.SpeechFinished(7));
  assert(!service.IsPlaybackDrainedLocked()&&!service.MarkPlaybackDrainedLocked());
  service.finish_requested_=false;assert(service.MarkPlaybackDrainedLocked());
  assert(!service.MarkPlaybackDrainedLocked());
@@ -291,7 +305,7 @@ struct Codec{
  std::vector<std::string>events;bool enabled=true;
  void ResetOutputProcessing(){}int output_sample_rate(){return 16000;}
  bool output_enabled(){return enabled;}void EnableOutput(bool value){enabled=value;}
- void SetOutputStreamGain(int16_t){}void OutputData(std::vector<int16_t>&){events.push_back("data");}
+ void SetOutputStreamGain(int16_t){}size_t OutputData(std::vector<int16_t>& data){events.push_back("data");return data.size();}
  size_t FinishOutput(){events.push_back("finish");return 96;}
 };
 struct AudioService{
@@ -366,21 +380,100 @@ int main(){
 }
 ''')
 
+    def test_tail_opus_tasks_keep_safe_stacks_when_psram_allocation_fails(self):
+        start=queue_function((AUDIO/'audio_service.cc').read_text(), 'void AudioService::Start()')
+        self.run_cpp(r'''
+#define CONFIG_USE_AUDIO_PROCESSOR 1
+#define CONFIG_BOARD_TYPE_WZH_TAILREDPANDA 1
+#define CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM 1
+#define ESP_LOGE(...) ((void)0)
+#define ESP_LOGW(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
+#include <atomic>
+#include <cassert>
+#include <mutex>
+#include <string_view>
+
+constexpr unsigned AS_EVENT_AUDIO_TESTING_RUNNING=1, AS_EVENT_WAKE_WORD_RUNNING=2,
+                   AS_EVENT_AUDIO_PROCESSOR_RUNNING=4, AS_EVENT_AUDIO_INPUT_STOP_REQUEST=8;
+constexpr unsigned MALLOC_CAP_SPIRAM=1, MALLOC_CAP_8BIT=2;
+constexpr int pdPASS=1;
+using Task=void(*)(void*);
+bool psram_ok=true, codec_ok=true;
+int codec_requests=0, encoder_requests=0, internal_deleted=0, external_deleted=0;
+Task encoder=nullptr, codec=nullptr;
+void xEventGroupClearBits(void*, unsigned){}
+void esp_timer_start_periodic(void*, unsigned){}
+void xTaskCreatePinnedToCore(Task, const char*, unsigned, void*, int, void**, int){}
+int xTaskCreate(Task fn, const char* name, unsigned stack, void*, int, void**){
+ if(std::string_view(name)=="opus_codec"){
+  ++codec_requests;assert(stack==24*1024);codec=fn;
+  return codec_ok ? pdPASS : 0;
+ }
+ assert(std::string_view(name)=="audio_output");
+ return pdPASS;
+}
+int xTaskCreateWithCaps(Task fn, const char* name, unsigned stack, void*, int, void**, unsigned caps){
+ ++encoder_requests;
+ assert(std::string_view(name)=="opus_encode"&&stack==32*1024);
+ assert(caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+ if(!psram_ok){encoder=nullptr;return 0;}
+ encoder=fn;
+ return pdPASS;
+}
+void vTaskDelete(void*){++internal_deleted;}
+void vTaskDeleteWithCaps(void*){++external_deleted;}
+struct AudioService{
+ bool separate_encoder_=false, buffered_playback_=true, encoded=false, decoded=false;
+ std::mutex audio_queue_mutex_;
+ std::atomic<bool> service_stopped_{true};
+ void* event_group_=nullptr;void* audio_power_timer_=nullptr;
+ void* audio_input_task_handle_=nullptr;
+ void* audio_output_task_handle_=nullptr;
+ void* opus_codec_task_handle_=nullptr;
+ void AudioInputTask(){}void AudioOutputTask(){}
+ void AudioEncoderTask(){encoded=true;}
+ void OpusCodecTask(){decoded=true;}
+ void Start();
+};
+'''+start+r'''
+int main(){
+ AudioService service;
+ service.Start();
+ assert(service.separate_encoder_&&codec_requests==1&&encoder_requests==1);
+ encoder(&service);
+ codec(&service);
+ assert(service.encoded&&service.decoded&&external_deleted==1&&internal_deleted==1);
+ codec_ok=false;
+ service.Start();
+ assert(!service.separate_encoder_&&codec_requests==2&&encoder_requests==1);
+ codec_ok=true;
+ psram_ok=false;
+ service.Start();
+ assert(!service.separate_encoder_&&codec_requests==3&&encoder_requests==2&&!encoder);
+}
+''')
+
     def test_decoder_applies_metadata_before_conversion_and_fences_stale_results(self):
         source=(AUDIO/'audio_service.cc').read_text()
         begin=source.index('        /* Decode the audio from decode queue */')
-        end=source.index('        /* Encode the audio to send queue */',begin)
+        end=source.index('        if (!separate_encoder_ &&',begin)
         block=source[begin:end]
         program=r'''
 #define CONFIG_AUDIO_PRODUCT_QUALITY 1
+#define CONFIG_BOARD_TYPE_WZH_TAILREDPANDA 1
+#define ESP_LOGW(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
 #include <deque>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include "opus_stream_metadata.h"
 constexpr int ESP_AUDIO_ERR_OK=0,ESP_AE_ERR_OK=0,ESP_AUDIO_DEC_RECOVERY_NONE=0;
 using esp_ae_sample_t=int16_t*;
@@ -402,7 +495,11 @@ int esp_ae_rate_cvt_process(void*,int16_t*in,size_t count,int16_t*out,uint32_t*n
  if(fail_convert)return -1;
  assert(*n>=count/2);for(size_t i=0;i<count/2;++i)out[i]=in[i*2];*n=count/2;return 0;
 }
-struct AudioStreamPacket{int sample_rate=48000,frame_duration=20;uint32_t timestamp=0;std::vector<uint8_t>payload{0xd8,0};OpusStreamMetadata stream;};
+struct AudioStreamPacket{
+ int sample_rate=48000,frame_duration=20;uint32_t timestamp=0;
+ std::vector<uint8_t>payload{0xd8,0};OpusStreamMetadata stream;
+ const auto& OpusBytes() const{return payload;}
+};
 constexpr int kAudioTaskTypeDecodeToPlaybackQueue=1;
 struct AudioTask{int type=0;uint32_t timestamp=0,playback_generation=0;std::vector<int16_t>pcm;OpusStreamMetadata stream;};
 struct Codec{int output_sample_rate(){return 24000;}};
@@ -415,12 +512,19 @@ struct AudioService{
  struct{std::function<void()>on_playback_drained;}callbacks_;
  bool SetDecodeSampleRate(int rate,int frame){assert(rate==48000&&frame==20);return true;}
  bool MarkPlaybackDrainedLocked(){return false;}
+ std::deque<AudioTask> audio_encode_queue_;
+ std::condition_variable audio_encode_cv_;
+ bool separate_encoder_=true;
+ std::promise<void> encoding, release_encode;
+ void EncodeAudioFrame(AudioTask&){encoding.set_value();release_encode.get_future().wait();}
  void DecodeOne();
+ void AudioEncoderTask();
+ void OpusCodecTask();
 };
 void AudioService::DecodeOne(){
  std::vector<int16_t>decode_scratch;std::unique_lock<std::mutex>lock(audio_queue_mutex_);
-'''+block+r'''
-}
+'''+block+'\n}\n'+queue_function(source,'void AudioService::AudioEncoderTask(')+'\n'+ \
+            queue_function(source,'void AudioService::OpusCodecTask(')+r'''
 int main(){
  AudioService service;
  auto feed=[&](OpusStreamMetadata metadata){
@@ -442,6 +546,40 @@ int main(){
  fail_convert=true;info={};feed(info);fail_convert=false;assert(service.audio_playback_queue_.empty());
  during_decode=[&]{++service.playback_generation_;};feed(info);
  assert(service.audio_playback_queue_.empty()&&!service.decode_in_flight_);
+
+ during_decode={};
+ AudioService simultaneous;
+ simultaneous.audio_encode_queue_.push_back({});
+ std::thread encoder([&]{simultaneous.AudioEncoderTask();});
+ using namespace std::chrono_literals;
+ assert(simultaneous.encoding.get_future().wait_for(2s)==std::future_status::ready);
+ std::thread decoder([&]{simultaneous.OpusCodecTask();});
+ {
+  std::unique_lock lock(simultaneous.audio_queue_mutex_);
+  simultaneous.audio_decode_queue_.push_back(std::make_unique<AudioStreamPacket>());
+  simultaneous.audio_queue_cv_.notify_all();
+  assert(simultaneous.audio_queue_cv_.wait_for(lock,2s,[&]{
+   return !simultaneous.audio_playback_queue_.empty();
+  }));
+  simultaneous.service_stopped_=true;
+  simultaneous.audio_encode_cv_.notify_one();
+  simultaneous.audio_queue_cv_.notify_all();
+ }
+ simultaneous.release_encode.set_value();
+ encoder.join();decoder.join();
+
+ AudioService fallback;
+ fallback.separate_encoder_=false;
+ fallback.audio_encode_queue_.push_back({});
+ std::thread shared([&]{fallback.OpusCodecTask();});
+ assert(fallback.encoding.get_future().wait_for(2s)==std::future_status::ready);
+ {
+  std::lock_guard lock(fallback.audio_queue_mutex_);
+  fallback.service_stopped_=true;
+  fallback.audio_queue_cv_.notify_all();
+ }
+ fallback.release_encode.set_value();
+ shared.join();
 }
 '''
         self.run_cpp(program)

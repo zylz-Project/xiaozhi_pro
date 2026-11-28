@@ -22,6 +22,9 @@ public:
     virtual void EnableWakeWordDetection(bool enable) = 0;
     virtual void EnableVoiceProcessing(bool enable) = 0;
     virtual void EnableDeviceAec(bool enable) = 0;
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    virtual void EnablePhraseInterruption(bool) {}
+#endif
 
     virtual bool HasWakeWord() const = 0;
     virtual bool IsWakeWordDetectionEnabled() const = 0;

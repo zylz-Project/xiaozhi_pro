@@ -3,6 +3,7 @@
 #include <atomic>
 #include <mutex>
 #include <string_view>
+#include <utility>
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
@@ -37,7 +38,12 @@ std::atomic<bool> wifi_connected{false};
 std::atomic<bool> wifi_requested{false};
 std::atomic<bool> wifi_narrated{false};
 std::atomic<bool> service_verified{false};
-std::atomic<bool> online_double_click{false};
+constexpr uint8_t kFirstConversationStep = 8;
+std::atomic<uint32_t> intro_request{0};
+#if CONFIG_WZH_SYSTEM_PROMPTS
+uint32_t next_intro_request = 0;  // Protected by lifecycle_mutex.
+std::function<void(bool)> resume_conversation;
+#endif
 
 #if CONFIG_WZH_SYSTEM_PROMPTS
 const char* StepName(uint8_t step) {
@@ -80,40 +86,48 @@ std::string_view Sound(uint8_t step) {
     }
 }
 
-bool Available() {
+bool Available(uint32_t request = 0) {
     auto& app = Application::GetInstance();
-    return !stopping.load() && app.GetDeviceState() == kDeviceStateIdle &&
-           !Board::GetInstance().IsAudioMaintenanceActive();
+    if (stopping.load() || Board::GetInstance().IsAudioMaintenanceActive())
+        return false;
+    if (request == 0)
+        return app.GetDeviceState() == kDeviceStateIdle;
+    return intro_request.load() == request && wifi_connected.load() && service_verified.load() &&
+           app.GetDeviceState() == kDeviceStateConnecting;
 }
 
-bool Play(std::string_view sound, bool voice_motion, uint8_t step) {
+bool Play(std::string_view sound, bool voice_motion, uint8_t step, uint32_t request = 0) {
     auto& audio = Application::GetInstance().GetAudioService();
     std::unique_lock<std::mutex> reservation(PromptAudioGate(), std::defer_lock);
     const TickType_t wait_start = xTaskGetTickCount();
+    uint32_t generation = 0;
     while (!stopping.load()) {
+        const auto elapsed = xTaskGetTickCount() - wait_start;
+        if (request != 0 && (!Available(request) || elapsed >= pdMS_TO_TICKS(8000)))
+            return false;
         if (reservation.try_lock()) {
-            if (Available() && audio.IsPlaybackIdle() &&
+            generation = audio.GetPlaybackGeneration();
+            if (Available(request) && audio.IsPlaybackIdle() &&
                 !Board::GetInstance().IsLocalPlaybackPending() &&
                 (!Board::GetInstance().IsOnboardingFeedbackPending() ||
-                 xTaskGetTickCount() - wait_start >= pdMS_TO_TICKS(15000)) &&
+                 elapsed >= pdMS_TO_TICKS(15000)) &&
                 !audio.IsAudioProcessorRunning())
                 break;
             reservation.unlock();
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-    if (stopping.load())
+    if (!reservation.owns_lock() || !Available(request))
         return false;
-    const auto generation = audio.GetPlaybackGeneration();
     voice_motion_active.store(voice_motion);
     ESP_LOGI(kTag, "Voice request: tutorial=%s text=%s", StepName(step),
              OnboardingTranscript(step));
     audio.PlaySound(sound, generation);
-    while (!stopping.load() && Available() && audio.GetPlaybackGeneration() == generation &&
+    while (Available(request) && audio.GetPlaybackGeneration() == generation &&
            !audio.IsPlaybackIdle())
         vTaskDelay(pdMS_TO_TICKS(100));
     voice_motion_active.store(false);
-    return !stopping.load() && Available() && audio.GetPlaybackGeneration() == generation &&
+    return Available(request) && audio.GetPlaybackGeneration() == generation &&
            audio.IsPlaybackIdle();
 }
 
@@ -165,8 +179,10 @@ bool WaitReady(WaitReason reason) {
             return ble_connected.load() || wifi_connected.load();
         case WaitReason::kWifi:
             return wifi_requested.load() || wifi_connected.load();
-        case WaitReason::kService:
-            return wifi_connected.load() && service_verified.load() && online_double_click.load();
+        case WaitReason::kService: {
+            const auto request = intro_request.load();
+            return request != 0 && Available(request);
+        }
         default:
             return false;
     }
@@ -183,6 +199,20 @@ bool StartWorkerLocked(WaitReason previous_wait) {
     wait_reason.store(previous_wait);
     ESP_LOGE(kTag, "Cannot start tutorial worker; will retry");
     return false;
+}
+
+void FinishIntro(uint32_t request, bool played) {
+    std::function<void(bool)> resume;
+    {
+        std::lock_guard<std::mutex> lock(lifecycle_mutex);
+        if (request == 0 || intro_request.load() != request)
+            return;
+        intro_request.store(0);
+        resume = std::move(resume_conversation);
+    }
+    if (resume)
+        Application::GetInstance().Schedule(
+            [resume = std::move(resume), played]() { resume(played); });
 }
 
 void FinishWorker() {
@@ -211,6 +241,7 @@ void Worker(void*) {
     if (!LoadOnboardingProgress(progress)) {
         ESP_LOGE(kTag, "Cannot load tutorial progress");
         started.store(false);
+        FinishIntro(intro_request.load(), false);
         FinishWorker();
         vTaskDelete(nullptr);
         return;
@@ -219,6 +250,7 @@ void Worker(void*) {
         ESP_LOGI(kTag, "Tutorial already completed; skipping");
         current_step.store(OnboardingProgress::kStepCount);
         started.store(false);
+        FinishIntro(intro_request.load(), true);
         FinishWorker();
         vTaskDelete(nullptr);
         return;
@@ -226,8 +258,10 @@ void Worker(void*) {
     current_step.store(progress.step);
     ESP_LOGI(kTag, "Tutorial start/resume: step=%u name=%s", unsigned(progress.step + 1),
              StepName(progress.step));
+    uint32_t request = 0;
     while (!stopping.load() && progress.step < OnboardingProgress::kStepCount) {
-        if (!Available()) {
+        const bool online = progress.step >= kFirstConversationStep;
+        if (!online && !Available()) {
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
@@ -238,9 +272,10 @@ void Worker(void*) {
                 break;
             }
         }
-        if (progress.step == 8) {
-            if (!WaitReady(WaitReason::kService)) {
-                ESP_LOGI(kTag, "Waiting for network, service and double-click");
+        if (online) {
+            request = intro_request.load();
+            if (request == 0 || !Available(request)) {
+                ESP_LOGI(kTag, "Waiting for the first conversation request");
                 wait_reason.store(WaitReason::kService);
                 break;
             }
@@ -251,14 +286,13 @@ void Worker(void*) {
                              : progress.step == 5 ? &wake_events
                                                   : nullptr;
         // Sampled before the prompt: an action the child already performed while
-        // the sentence was playing still counts. Portal status polling cannot
-        // inflate this counter because it only tracks page navigations.
+        // the sentence was playing still counts.
         const uint32_t before = counter != nullptr ? counter->load() : 0;
         ESP_LOGI(kTag, "step=%u/%u name=%s narration=start", unsigned(progress.step + 1),
                  unsigned(OnboardingProgress::kStepCount), StepName(progress.step));
         const bool already_narrated = progress.step == 7 && wifi_narrated.load();
-        if (!already_narrated && !Play(Sound(progress.step), progress.step >= 8, progress.step)) {
-            if (stopping.load())
+        if (!already_narrated && !Play(Sound(progress.step), online, progress.step, request)) {
+            if (stopping.load() || online)
                 break;
             if (!SaveInterrupted(progress)) {
                 if (!stopping.load()) {
@@ -274,8 +308,8 @@ void Worker(void*) {
         }
         // Offline demonstrations need time for interaction; the online chapter
         // is an introduction and can flow more naturally between sentences.
-        if (!already_narrated)
-            WaitFor(counter, before, progress.step >= 8 ? 2500 : 6000, progress.step);
+        if (!already_narrated && !online)
+            WaitFor(counter, before, 6000, progress.step);
         if (progress.step == 7 && !wifi_requested.load() && !wifi_connected.load()) {
             wifi_narrated.store(true);
             wait_reason.store(WaitReason::kWifi);
@@ -283,7 +317,6 @@ void Worker(void*) {
         }
         if (progress.step == 7)
             wifi_narrated.store(false);
-        bool satisfied = true;
         if (stopping.load())
             break;
         // An interaction can enter conversation during the window. The
@@ -293,7 +326,7 @@ void Worker(void*) {
         if (stopping.load())
             break;
         const uint8_t finished_step = progress.step;
-        progress.Finish(satisfied);
+        progress.Finish(true);
         if (!SaveOnboardingProgress(progress)) {
             ESP_LOGE(kTag, "Cannot save tutorial progress; allowing normal use");
             started.store(false);
@@ -315,10 +348,16 @@ void Worker(void*) {
                 started.store(false);
                 break;
             }
+            if (online)
+                break;
         }
     }
     if (progress.Done())
         started.store(false);
+    FinishIntro(request, progress.Done());
+    if (started.load() && !progress.Done() && progress.step >= kFirstConversationStep &&
+        !stopping.load())
+        wait_reason.store(WaitReason::kService);
     FinishWorker();
     vTaskDelete(nullptr);
 }
@@ -398,15 +437,36 @@ void NotifyOnboarding(OnboardingEvent event) {
 }
 void PrepareOnboardingDoubleClick() {
 #if CONFIG_WZH_SYSTEM_PROMPTS
-    const auto step = current_step.load();
-    if (started.load() && step == 5)
+    if (started.load() && current_step.load() == 5)
         ++wake_events;
-    if (started.load() && step == 8) {
-        online_double_click.store(true);
-        TryResumeOnboarding();
-    }
 #endif
 }
+
+bool IsOnboardingIntroPending() {
+    const auto step = current_step.load();
+    return started.load() && !stopping.load() && step >= kFirstConversationStep &&
+           step < OnboardingProgress::kStepCount;
+}
+
+bool DeferOnboardingConversation(std::function<void(bool)> resume) {
+#if CONFIG_WZH_SYSTEM_PROMPTS
+    std::lock_guard<std::mutex> lock(lifecycle_mutex);
+    if (!IsOnboardingIntroPending() || !wifi_connected.load() || !service_verified.load())
+        return false;
+    if (++next_intro_request == 0)
+        ++next_intro_request;
+    resume_conversation = std::move(resume);
+    intro_request.store(next_intro_request);
+    if (worker_running.load() || StartWorkerLocked(WaitReason::kService))
+        return true;
+    intro_request.store(0);
+    resume_conversation = {};
+#else
+    (void)resume;
+#endif
+    return false;
+}
+
 bool CaptureOnboardingInteraction(OnboardingEvent event) {
     const auto window = feedback_window.load();
     const bool match = (window == 2 && event == OnboardingEvent::kTouch) ||
@@ -418,15 +478,15 @@ bool CaptureOnboardingInteraction(OnboardingEvent event) {
     return match;
 }
 bool IsOnboardingActive() { return active.load(); }
+bool IsOnboardingWorkerRunning() { return worker_running.load(); }
 bool IsOnboardingVoiceMotionActive() { return voice_motion_active.load(); }
 bool OnboardingBlocksConversation() {
-    return started.load() && !stopping.load() && current_step.load() < OnboardingProgress::kStepCount;
+    return started.load() && !stopping.load() && current_step.load() < kFirstConversationStep;
 }
 void StopOnboarding() {
     std::lock_guard<std::mutex> lock(lifecycle_mutex);
     restart_after_stop.store(false);
     voice_motion_active.store(false);
-    online_double_click.store(false);
     wait_reason.store(WaitReason::kNone);
     stopping.store(true);
 }

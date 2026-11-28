@@ -15,7 +15,7 @@ AudioCodec::AudioCodec() {}
 
 AudioCodec::~AudioCodec() {}
 
-void AudioCodec::OutputData(std::vector<int16_t>& data) {
+size_t AudioCodec::OutputData(std::vector<int16_t>& data) {
     if (speaker_protection_enabled_) {
         if (output_processing_reset_pending_.exchange(false)) {
             speaker_protection_.Reset();
@@ -30,7 +30,7 @@ void AudioCodec::OutputData(std::vector<int16_t>& data) {
     if (!data.empty())
         last_output_sample_ = data.back();
 #endif
-    Write(data.data(), data.size());
+    return std::max(0, Write(data.data(), data.size()));
 }
 
 void AudioCodec::ResetOutputProcessing() { output_processing_reset_pending_.store(true); }

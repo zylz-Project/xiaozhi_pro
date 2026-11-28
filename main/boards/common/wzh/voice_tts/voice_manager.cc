@@ -39,9 +39,13 @@ VoiceOperation LoadRemote(std::vector<std::string>& ids, std::vector<VoiceName>&
         return VoiceOperation::kSave;
     if (!ListAliVoices(key, prefix, cancelled, ids))
         return cancelled() ? VoiceOperation::kCancelled : VoiceOperation::kNetwork;
+    if (!SaveCloudVoiceObservation(!ids.empty()))
+        return VoiceOperation::kSave;
     int reserved = -1;
     if (!LoadVoiceReservation(reserved))
         return VoiceOperation::kSave;
+    // Save the observation first. An ambiguous create may have succeeded
+    // without leaving a local label or selection for the new cloud ID.
     if (reserved >= 0 && ids.size() > static_cast<size_t>(reserved) && !SaveVoiceReservation(-1))
         return VoiceOperation::kSave;
     if (key_out)
@@ -177,7 +181,9 @@ VoiceOperation DeleteManagedVoice(const std::string& id) {
         return VoiceOperation::kNetwork;
     const bool previous_ok = ForgetPreviousAliVoice(id);
     const bool names_ok = RemoveVoiceName(id);
-    return previous_ok && names_ok ? VoiceOperation::kOk : VoiceOperation::kSave;
+    if (!previous_ok || !names_ok || (ids.size() == 1 && !SaveCloudVoiceObservation(false)))
+        return VoiceOperation::kSave;
+    return VoiceOperation::kOk;
 }
 VoiceOperation ResetManagedVoices(const std::function<bool()>& cancelled,
                                   const std::function<void(size_t, size_t)>& progress,
@@ -185,13 +191,28 @@ VoiceOperation ResetManagedVoices(const std::function<bool()>& cancelled,
     std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
     if (!lock.owns_lock())
         return VoiceOperation::kBusy;
-    std::vector<std::string> ids;
     std::vector<VoiceName> names;
+    int unresolved = -1;
+    std::string current, previous;
+    bool observed = false;
+    if (!LoadVoiceNames(names) || !LoadVoiceReservation(unresolved) ||
+        !LoadAliVoiceSelection(current, previous) || !LoadCloudVoiceObservation(observed))
+        return VoiceOperation::kSave;
+    const auto is_clone = [](const std::string& id) {
+        return !id.empty() && !Builtin(id);
+    };
+    if (names.empty() && unresolved < 0 && !is_clone(current) && !is_clone(previous) && !observed) {
+        if (clearing_local)
+            clearing_local();
+        return ClearAliVoiceSelection() ? VoiceOperation::kOk : VoiceOperation::kSave;
+    }
+    if (progress)
+        progress(0, 0);
+    std::vector<std::string> ids;
     std::string key, prefix;
     auto status = LoadRemote(ids, names, cancelled, &key, &prefix);
     if (status != VoiceOperation::kOk)
         return status;
-    int unresolved = -1;
     if (!LoadVoiceReservation(unresolved))
         return VoiceOperation::kSave;
     if (unresolved >= 0)
@@ -243,7 +264,7 @@ VoiceOperation ResetManagedVoices(const std::function<bool()>& cancelled,
     for (const auto& entry : names)
         if (!RemoveVoiceName(entry.id))
             return VoiceOperation::kSave;
-    if (!ClearAliVoiceSelection() || !SaveVoiceReservation(-1))
+    if (!ClearAliVoiceSelection() || !SaveVoiceReservation(-1) || !SaveCloudVoiceObservation(false))
         return VoiceOperation::kSave;
     return VoiceOperation::kOk;
 }
@@ -264,6 +285,15 @@ VoiceOperation SelectManagedVoice(const std::string& id) {
             return VoiceOperation::kInvalid;
     }
     return SaveAliVoice(id) ? VoiceOperation::kOk : VoiceOperation::kSave;
+}
+
+VoiceOperation RestoreManagedVoice() {
+    std::unique_lock<std::mutex> lock(operations, std::try_to_lock);
+    if (!lock.owns_lock() || reset_active.load())
+        return VoiceOperation::kBusy;
+    if (LoadPreviousAliVoice().empty())
+        return VoiceOperation::kInvalid;
+    return RestorePreviousAliVoice() ? VoiceOperation::kOk : VoiceOperation::kSave;
 }
 
 VoiceOperation SelectKnownVoice(const std::string& id, const std::function<bool()>& cancelled) {

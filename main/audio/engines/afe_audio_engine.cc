@@ -555,7 +555,19 @@ void AfeAudioEngine::ProcessingTask() {
             continue;
         }
 
-        EventBits_t bits = xEventGroupGetBits(event_group_);
+        const EventBits_t bits = xEventGroupGetBits(event_group_);
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        if (phrase_interruption_.load() && kUseAfeForVoiceProcessing &&
+            (bits & kVoiceProcessingEnabled)) {
+            // Publish near-end PCM before the optional phrase scan, which
+            // can finish recognition in this same AFE frame.
+            HandleVoiceResult(result, generation);
+            if (generation == control_generation_.load() && phrase_interruption_.load() &&
+                (xEventGroupGetBits(event_group_) & kWakeWordEnabled))
+                HandleWakeWordResult(result);
+            continue;
+        }
+#endif
         if (bits & kWakeWordEnabled) {
             HandleWakeWordResult(result);
         }
@@ -566,6 +578,12 @@ void AfeAudioEngine::ProcessingTask() {
 }
 
 void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    if (phrase_interruption_.load() && custom_wake_word_ != nullptr) {
+        custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t), true);
+        return;
+    }
+#endif
     if (wake_detector_ == WakeDetector::kMultiNet) {
         custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t));
         return;
@@ -628,6 +646,9 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result, uint32_
     }
     if (output_reset_pending_.exchange(false)) {
         output_buffer_.clear();
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        output_vad_samples_ = 0;
+#endif
 #if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND || CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT
         output_all_speech_ = true;
 #endif
@@ -681,6 +702,32 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result, uint32_
                     result->vad_state == VAD_SPEECH, generation);
     return;
 #endif
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    // Publish VAD for the PCM being emitted. The final AFE fragment can be
+    // unvoiced even when most of the assembled 60 ms frame contained speech.
+    if (!output_callback_ || frame_samples_ <= 0)
+        return;
+    const auto* pcm = result->data;
+    size_t remaining = result->data_size / sizeof(int16_t);
+    const size_t frame = static_cast<size_t>(frame_samples_);
+    while (remaining > 0 && generation == control_generation_.load() &&
+           !output_reset_pending_.load()) {
+        const size_t count = std::min(remaining, frame - output_buffer_.size());
+        output_buffer_.insert(output_buffer_.end(), pcm, pcm + count);
+        if (result->vad_state == VAD_SPEECH)
+            output_vad_samples_ += count;
+        remaining -= count;
+        pcm += count;
+        if (output_buffer_.size() == frame) {
+            if (vad_state_change_callback_)
+                vad_state_change_callback_(output_vad_samples_ >= (frame + 1) / 2);
+            output_callback_(std::move(output_buffer_));
+            output_buffer_.clear();
+            output_buffer_.reserve(frame);
+            output_vad_samples_ = 0;
+        }
+    }
+#else
     if (vad_state_change_callback_) {
 #if CONFIG_USE_VOICE_BARGE_IN
         // Publish the authoritative frame state before its PCM. AudioService
@@ -714,6 +761,7 @@ void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result, uint32_
             output_buffer_.erase(output_buffer_.begin(), output_buffer_.begin() + frame_samples_);
         }
     }
+#endif
 }
 
 #if CONFIG_VOICE_BARGE_IN_NEURAL_FRONTEND || CONFIG_VOICE_BARGE_IN_VADNET_EXPERIMENT

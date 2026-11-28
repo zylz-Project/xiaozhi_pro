@@ -28,18 +28,14 @@
   <scroll-view class="connect-list" scroll-y enhanced show-scrollbar="{{false}}">
     <view wx:if="{{error}}" class="connect-error">{{error}}</view>
 
-    <view wx:if="{{autoConnecting}}" class="last-banner auto">
-      <view class="last-banner-spin"></view>
-      <text class="last-banner-tx">上次连接过，正在自动连接 {{autoName}}…</text>
-    </view>
-    <view wx:elif="{{lastMissing && !autoConnecting}}" class="last-banner">
+    <view wx:if="{{lastMissing}}" class="last-banner">
       <text class="last-banner-tx">上次连接的 {{lastName}} 不在附近，确认它已开机。</text>
     </view>
 
     <view wx:if="{{visibleDevices.length}}" class="device-group">
       <view class="device-group-head"><text>{{activeToy ? activeName : '附近的小伙伴'}}</text><text class="device-count">{{deviceCount}}</text></view>
       <view class="device-card {{item.isLast ? 'is-last' : ''}}" wx:for="{{visibleDevices}}" wx:key="deviceId" data-id="{{item.deviceId}}" bindtap="onConnect">
-        <view class="device-icon"><image src="{{item.icon}}" mode="aspectFit"></image></view>
+        <view class="device-icon"><image wx:if="{{item.icon}}" src="{{item.icon}}" mode="aspectFit"></image></view>
         <view class="device-copy">
           <view class="device-name-row">
             <text class="device-name">{{item.name}}</text>
@@ -51,7 +47,7 @@
           <view class="signal-bars" aria-hidden="true">
             <view wx:for="{{signalLevels}}" wx:for-item="bar" wx:key="*this" class="signal-bar {{bar <= item.bars ? 'on' : ''}}"></view>
           </view>
-          <text class="device-rssi">{{item.rssi}} dBm</text>
+          <text wx:if="{{item.live !== false}}" class="device-rssi">{{item.rssi}} dBm</text>
         </view>
         <view class="device-go"><view class="ico ico-chev"></view></view>
       </view>
@@ -81,7 +77,7 @@
     <button class="scan-btn {{scanning ? 'busy' : ''}}" bindtap="onScan">
       <view wx:if="{{scanning}}" class="scan-spinner"></view>
       <view wx:else class="ico ico-reset"></view>
-      <text>{{scanning ? '正在寻找…' : '重新扫描'}}</text>
+      <text>重新扫描</text>
     </button>
     <view class="connect-note">连接请求直接发送给玩具，无需在玩具上操作</view>
     <view class="connect-links">
@@ -106,10 +102,8 @@
       <view class="pg-head">
         <view class="pg-avatar"><image src="/assets/crawlPanda_icon.png" mode="aspectFit"></image></view>
         <view class="pg-meta">
-          <text class="pg-kicker">ZEYUAN LINGZHI / START</text>
           <text class="pg-who">第一次连接 · 三步就好</text>
         </view>
-        <text class="pg-badge">{{guideStep + 1}} / {{guideDots.length}}</text>
       </view>
       <text class="pg-title">{{guideCurrent.title}}</text>
       <text class="pg-text">{{guideCurrent.text}}</text>

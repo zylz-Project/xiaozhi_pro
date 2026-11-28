@@ -24,7 +24,10 @@ MqttProtocol::MqttProtocol() {
                     ESP_LOGI(TAG, "Reconnecting to MQTT server");
                     auto alive = protocol->alive_;  // Capture alive flag
                     app.Schedule([protocol, alive]() {
-                        if (*alive) {
+                        auto& current = Application::GetInstance();
+                        if (*alive && current.GetDeviceState() == kDeviceStateIdle &&
+                            !current.IsConversationReopening() &&
+                            (!protocol->mqtt_ || !protocol->mqtt_->IsConnected())) {
                             protocol->StartMqttClient(false);
                         }
                     });
@@ -92,7 +95,11 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     }
 
     auto network = Board::GetInstance().GetNetwork();
+    if (!network)
+        return false;
     mqtt_ = network->CreateMqtt(0);
+    if (!mqtt_)
+        return false;
     mqtt_->SetKeepAlive(keepalive_interval);
 
     mqtt_->OnDisconnected([this]() {
@@ -130,14 +137,17 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
             auto session_id = cJSON_GetObjectItem(root, "session_id");
             ESP_LOGI(TAG, "Received goodbye message, session_id: %s",
                      cJSON_IsString(session_id) ? session_id->valuestring : "null");
-            if (cJSON_IsString(session_id) && session_id_ == session_id->valuestring) {
-                auto alive = alive_;  // Capture alive flag
-                Application::GetInstance().Schedule([this, alive]() {
-                    if (*alive) {
-                        // Server initiated goodbye, don't send goodbye back to avoid ping-pong
-                        CloseAudioChannel(false);
-                    }
-                });
+            if (cJSON_IsString(session_id) && session_id->valuestring) {
+                auto alive = alive_;
+                const auto generation = channel_generation_.load();
+                Application::GetInstance().Schedule(
+                    [this, alive, generation, id = std::string(session_id->valuestring)]() {
+                        if (*alive && !Application::GetInstance().IsConversationReopening() &&
+                            generation == channel_generation_.load() && id == session_id_) {
+                            // Server initiated goodbye, don't send goodbye back to avoid ping-pong
+                            CloseAudioChannel(false);
+                        }
+                    });
             }
         } else if (on_incoming_json_ != nullptr) {
             on_incoming_json_(root);
@@ -164,8 +174,13 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     } else {
         broker_address = endpoint;
     }
-    if (!mqtt_->Connect(broker_address, broker_port, client_id, username, password)) {
+    const auto connected = mqtt_->Connect(broker_address, broker_port, client_id, username, password);
+    if (!connected) {
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+        ESP_LOGE(TAG, "Failed to connect to endpoint: %s", connected.error().ToString().c_str());
+#else
         ESP_LOGE(TAG, "Failed to connect to endpoint, code=%d", mqtt_->GetLastError());
+#endif
         SetError(Lang::Strings::SERVER_NOT_CONNECTED);
         return false;
     }
@@ -175,7 +190,15 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
 }
 
 bool MqttProtocol::SendText(const std::string& text) {
-    if (publish_topic_.empty()) {
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    // The ML307's AT publish command accepts at most 1024 payload bytes.
+    const size_t payload_limit = Board::GetInstance().GetProtocolPayloadLimit();
+    if (payload_limit && text.size() > payload_limit) {
+        ESP_LOGW(TAG, "Control payload exceeds cellular MQTT limit: %zu bytes", text.size());
+        return false;
+    }
+#endif
+    if (!mqtt_ || publish_topic_.empty()) {
         return false;
     }
     if (!mqtt_->Publish(publish_topic_, text)) {
@@ -186,7 +209,7 @@ bool MqttProtocol::SendText(const std::string& text) {
     return true;
 }
 
-bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
+bool MqttProtocol::SendAudio(const AudioStreamPacket& packet) {
     constexpr size_t kAudioHeaderSize = 16;
 
     // Keep the critical section short: only snapshot the channel state here.
@@ -200,8 +223,8 @@ bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
         if (udp_ == nullptr) {
             return false;
         }
-        if (aes_nonce_.size() != kAudioHeaderSize || packet->payload.size() > UINT16_MAX) {
-            ESP_LOGE(TAG, "Invalid AES nonce or audio payload length: %zu", packet->payload.size());
+        if (aes_nonce_.size() != kAudioHeaderSize || packet.payload.size() > UINT16_MAX) {
+            ESP_LOGE(TAG, "Invalid AES nonce or audio payload length: %zu", packet.payload.size());
             return false;
         }
         udp = udp_;
@@ -209,18 +232,18 @@ bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
         sequence = htonl(++local_sequence_);
     }
 
-    const uint16_t payload_len = htons(static_cast<uint16_t>(packet->payload.size()));
-    const uint32_t timestamp = htonl(packet->timestamp);
+    const uint16_t payload_len = htons(static_cast<uint16_t>(packet.payload.size()));
+    const uint32_t timestamp = htonl(packet.timestamp);
     memcpy(nonce.data() + 2, &payload_len, sizeof(payload_len));
     memcpy(nonce.data() + 8, &timestamp, sizeof(timestamp));
     memcpy(nonce.data() + 12, &sequence, sizeof(sequence));
 
     std::string encrypted;
-    encrypted.resize(aes_nonce_.size() + packet->payload.size());
+    encrypted.resize(aes_nonce_.size() + packet.payload.size());
     memcpy(encrypted.data(), nonce.data(), nonce.size());
 
-    if (!CryptAesCtr(reinterpret_cast<const uint8_t*>(packet->payload.data()),
-                     packet->payload.size(), reinterpret_cast<const uint8_t*>(nonce.data()),
+    if (!CryptAesCtr(reinterpret_cast<const uint8_t*>(packet.payload.data()),
+                     packet.payload.size(), reinterpret_cast<const uint8_t*>(nonce.data()),
                      reinterpret_cast<uint8_t*>(&encrypted[nonce.size()]))) {
         ESP_LOGE(TAG, "Failed to encrypt audio data");
         return false;
@@ -230,7 +253,20 @@ bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
     return udp->Send(encrypted) > 0;
 }
 
+bool MqttProtocol::CanRetryUplinkAudio() const {
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    if (Board::GetInstance().UsesCellularNetwork())
+        return false;
+#endif
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    return true;  // This board uses the local Wi-Fi UDP socket directly.
+#else
+    return false;
+#endif
+}
+
 void MqttProtocol::CloseAudioChannel(bool send_goodbye) {
+    channel_generation_.fetch_add(1);
     std::shared_ptr<Udp> udp;
     {
         std::lock_guard<std::mutex> lock(channel_mutex_);
@@ -256,6 +292,7 @@ void MqttProtocol::CloseAudioChannel(bool send_goodbye) {
 }
 
 bool MqttProtocol::OpenAudioChannel() {
+    channel_generation_.fetch_add(1);
     if (mqtt_ == nullptr || !mqtt_->IsConnected()) {
         ESP_LOGI(TAG, "MQTT is not connected, try to connect now");
         if (!StartMqttClient(true)) {
@@ -282,8 +319,13 @@ bool MqttProtocol::OpenAudioChannel() {
     }
 
     auto network = Board::GetInstance().GetNetwork();
+    if (!network)
+        return false;
     auto udp = network->CreateUdp(2);
-    udp->OnMessage([this](const std::string& data) {
+    if (!udp)
+        return false;
+    udp->OnMessage([this, last_gap_log = std::chrono::steady_clock::time_point{}](
+                       const std::string& data) mutable {
         /*
          * UDP Encrypted OPUS Packet Format:
          * |type 1u|flags 1u|payload_len 2u|ssrc 4u|timestamp 4u|sequence 4u|
@@ -313,16 +355,28 @@ bool MqttProtocol::OpenAudioChannel() {
             return;
         }
 
+        const bool wanted = WantsIncomingAudio();
+        uint32_t expected_sequence = 0;
         {
             std::lock_guard<std::mutex> lock(channel_mutex_);
-            if (sequence <= remote_sequence_) {
-                ESP_LOGW(TAG, "Received duplicate/old audio sequence: %lu, last: %lu", sequence,
-                         remote_sequence_);
+            if (sequence <= remote_sequence_)
                 return;
-            }
-            if (sequence != remote_sequence_ + 1) {
-                ESP_LOGW(TAG, "Received audio packet with wrong sequence: %lu, expected: %lu",
-                         sequence, remote_sequence_ + 1);
+            expected_sequence = remote_sequence_ + 1;
+            if (!wanted)
+                remote_sequence_ = sequence;
+        }
+        if (!wanted) {
+            // Ali may replace this reply. Advance the receive sequence and
+            // keep the channel alive without allocating or decrypting audio.
+            last_incoming_time_ = std::chrono::steady_clock::now();
+            return;
+        }
+        if (sequence != expected_sequence) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last_gap_log >= std::chrono::seconds(2)) {
+                last_gap_log = now;
+                ESP_LOGW(TAG, "Server audio gap: received=%lu expected=%lu", sequence,
+                         expected_sequence);
             }
         }
 
@@ -347,7 +401,7 @@ bool MqttProtocol::OpenAudioChannel() {
             remote_sequence_ = sequence;
         }
         last_incoming_time_ = std::chrono::steady_clock::now();
-        if (on_incoming_audio_ != nullptr) {
+        if (WantsIncomingAudio()) {
             on_incoming_audio_(std::move(packet));
         }
     });

@@ -16,7 +16,7 @@ int main() {
         assert(IsVoiceEnrollmentRequest(text));
     for (const char* text : {"", "不要复刻音色", "别复克音色", "不复克声音", "复克过声音", "听说有人复刻音色", "什么是声音复刻", "复刻声音成功了吗", "我已经复刻过声音", "\"复刻音色\"", "声音小一点"})
         assert(!IsVoiceEnrollmentRequest(text));
-    for (const char* text : {"切换音色", "帮我换个声音", "更换一下嗓音", "用妈妈的声音说话", "换成别的声音", "切换已经复刻的声音"})
+    for (const char* text : {"切换音色", "千万音色。", "帮我换个声音", "更换一下嗓音", "用妈妈的声音说话", "换成别的声音", "切换已经复刻的声音"})
         assert(IsVoiceSelectionRequest(text));
     for (const char* text : {"不要换声音", "怎么切换音色", "把声音调大", "帮我克隆声音", "我喜欢你的声音", "这个声音好用吗", "别换声音"})
         assert(!IsVoiceSelectionRequest(text));

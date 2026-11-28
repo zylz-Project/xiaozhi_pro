@@ -214,9 +214,14 @@ void DinosaurPower::ReadBattery(uint32_t now) {
         if (i >= 2)
             readings[i - 2] = raw;
     }
-    if (!valid) {
+    // A successful ADC call can still yield an impossible or saturated
+    // voltage. Treat it like a read failure, not an empty or full battery.
+    const int raw = valid ? wzh::BatteryRestVoltage::TrimmedRaw(readings) : 0;
+    const int battery_mv = valid ? AdcToMv(battery_adc_cali_, raw) * BATTERY_DIVIDER_RATIO : 0;
+    if (!valid || battery_mv <= 0 || battery_mv > 4600) {
         battery_protection_.Invalidate();
         battery_rest_voltage_.Invalidate();
+        battery_level_.store(battery_display_level_.OnMissingSample(now));
         battery_sample_valid_.store(false);
         battery_live_mv_.store(0);
         battery_protection_mv_.store(0);
@@ -225,15 +230,17 @@ void DinosaurPower::ReadBattery(uint32_t now) {
             output->SetFault(wzh::kBatteryPending, true);
         return;
     }
-    const int raw = wzh::BatteryRestVoltage::TrimmedRaw(readings);
-    const int battery_mv = AdcToMv(battery_adc_cali_, raw) * BATTERY_DIVIDER_RATIO;
     battery_live_mv_.store(battery_mv);
-    battery_sample_valid_.store(true);
     // Normal protection uses the temporal median plus three confirmations;
     // recovery requires rest. Critical undervoltage has its own live path.
+    const bool previous_low = battery_protection_.low();
     battery_protection_.Update(battery_mv, battery_rest_voltage_.RestReady(now), BATTERY_LOW_MV,
                                BATTERY_RECOVER_MV, BATTERY_CRITICAL_MV);
     battery_protection_mv_.store(battery_protection_.millivolts());
+    if (previous_low != battery_protection_.low())
+        ESP_LOGW(TAG, "Battery protection low=%d live=%dmV stable=%dmV ready=%d",
+                 battery_protection_.low(), battery_mv, battery_protection_.millivolts(),
+                 battery_protection_.ready());
     if (auto* output = servo_output_.load()) {
         output->SetFault(wzh::kLowBattery, battery_protection_.low());
         output->SetFault(wzh::kBatteryPending, !battery_protection_.ready());
@@ -244,13 +251,34 @@ void DinosaurPower::ReadBattery(uint32_t now) {
         const int rest_mv = battery_rest_voltage_.millivolts();
         battery_voltage_mv_.store(rest_mv);
         battery_rest_updated_ms_.store(battery_rest_voltage_.updated_ms());
-        // Approximate UI percentage; protection never uses this estimate.
-        const int level = std::clamp((rest_mv - BATTERY_EMPTY_VOLTAGE_MV) * 100 /
-                                         (BATTERY_FULL_VOLTAGE_MV - BATTERY_EMPTY_VOLTAGE_MV),
-                                     0, 100);
-        battery_level_.store(level);
-        battery_warning_.Observe(level);
+        const int rested_level = wzh::BatteryLevelFromVoltage(rest_mv, BATTERY_EMPTY_VOLTAGE_MV,
+                                                              BATTERY_FULL_VOLTAGE_MV);
+        // The divider's large capacitor can still be settling after a cold
+        // power-up. Do not latch an early underestimated percentage warning.
+        if (now >= 15000) {
+            const int current_level = wzh::BatteryLevelFromVoltage(
+                battery_mv, BATTERY_EMPTY_VOLTAGE_MV, BATTERY_FULL_VOLTAGE_MV);
+            // A filtered value can retain an early, low startup sample. Only
+            // warn when both the filter and current rested sample are low.
+            const bool previous_warning = battery_warning_.low();
+            battery_warning_.Observe(std::max(rested_level, current_level));
+            if (previous_warning != battery_warning_.low())
+                ESP_LOGI(TAG, "Battery reminder low=%d live=%dmV rest=%dmV level=%d%%",
+                         battery_warning_.low(), battery_mv, rest_mv,
+                         std::max(rested_level, current_level));
+        }
     }
+    int display_mv =
+        battery_rest_voltage_.DisplayMillivolts(now, battery_mv, battery_protection_.millivolts());
+    // A latched low battery must not continue to show a healthy cached level.
+    const bool protection_low = battery_protection_.low();
+    if (protection_low)
+        display_mv = std::min(display_mv, BATTERY_LOW_MV);
+    const int target =
+        wzh::BatteryLevelFromVoltage(display_mv, BATTERY_EMPTY_VOLTAGE_MV, BATTERY_FULL_VOLTAGE_MV);
+    battery_level_.store(battery_display_level_.Update(
+        target, now, battery_rest_voltage_.HasRecentSample(now), protection_low));
+    battery_sample_valid_.store(true);
 }
 
 void DinosaurPower::Task() {
@@ -266,6 +294,7 @@ void DinosaurPower::Task() {
     bool boot_hold_logged = false;
     uint32_t last_sample_ms = 0;
     bool power_adc_fault = false;
+    bool previous_gray_sample = false;
     // 双击检测。
     TickType_t last_click_tick = 0;
     int click_count = 0;
@@ -311,9 +340,13 @@ void DinosaurPower::Task() {
         const uint32_t sample_interval_ms = last_sample_ms ? now - last_sample_ms : 0;
         const bool sample_gap = last_sample_ms != 0 && sample_interval_ms > POWER_MAX_SAMPLE_GAP_MS;
         last_sample_ms = now;
+        // Tolerate one gray-band transition sample between valid key readings.
+        const bool gray_sample = !power_sample_valid && power_err == ESP_OK && !sample_gap;
+        const bool skip_gray_sample = gray_sample && !previous_gray_sample;
+        previous_gray_sample = gray_sample;
         int hold_ms = 0;
 
-        if (!power_sample_valid || sample_gap) {
+        if ((!power_sample_valid && !skip_gray_sample) || sample_gap) {
             if (!power_adc_fault)
                 ESP_LOGW(TAG,
                          "Power key sample invalid: %s raw=%d value=%dmV gap=%lums adc=%lums "
@@ -329,7 +362,7 @@ void DinosaurPower::Task() {
             armed = false;
             press_start_ms = 0;
             click_count = 0;
-        } else {
+        } else if (power_sample_valid) {
             if (power_adc_fault)
                 ESP_LOGI(TAG, "Power key sample valid again; wait for a stable release");
             power_adc_fault = false;
@@ -362,6 +395,9 @@ void DinosaurPower::Task() {
                         state = BtnState::kPressed;  // 消抖确认按下
                         press_start_ms = now;
                         hold_tip = 0;
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+                        wzh::NoteIdlePowerInteraction();
+#endif
                         ESP_LOGI(TAG, "Power key pressed (raw=%d)", raw);
                     }
                     break;
@@ -396,7 +432,7 @@ void DinosaurPower::Task() {
                         if (dur < POWER_LONG_PRESS_MS) {
                             // 短按只统计双击；对话切换及提示音由主任务串行处理。
                             const TickType_t tick_now = xTaskGetTickCount();
-                            if (tick_now - last_click_tick <= pdMS_TO_TICKS(400)) {
+                            if (tick_now - last_click_tick <= pdMS_TO_TICKS(WZH_DOUBLE_CLICK_MS)) {
                                 ++click_count;
                             } else {
                                 click_count = 1;
@@ -454,6 +490,10 @@ void DinosaurPower::Task() {
                          code, touch_event.voltage_mv, pressed_mask, released_mask);
                 if (accept_interaction && touch_hook_ready_.load(std::memory_order_acquire) &&
                     touch_hook_) {
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+                    if (pressed_mask)
+                        wzh::NoteIdlePowerInteraction();
+#endif
                     if (pressed_mask)
                         ESP_LOGI(TAG, "Input=touch code=0x%02X voltage=%dmV", code,
                                  touch_event.voltage_mv);
@@ -462,10 +502,19 @@ void DinosaurPower::Task() {
             }
         }
 
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+        // Sample the key and touch input before honoring an idle request.
+        // The normal shutdown sequence still owns servo parking and the latch.
+        if (state == BtnState::kIdle && !pressed && wzh::IdlePowerMayShutDown()) {
+            ESP_LOGI(TAG, "Automatic shutdown after inactivity");
+            Shutdown();
+        }
+#endif
+
         // UI uses rest voltage; stable live voltage protects even during motion.
         const auto* battery_output = servo_output_.load();
         const bool battery_loaded = battery_output == nullptr || battery_output->powered() ||
-                                    !Application::GetInstance().GetAudioService().IsPlaybackIdle();
+                                    !Application::GetInstance().GetAudioService().IsPlaybackIdleForTelemetry();
         battery_rest_voltage_.ObserveLoad(battery_loaded, now);
         battery_load_active_.store(battery_loaded);
         battery_rest_ready_.store(battery_rest_voltage_.RestReady(now));

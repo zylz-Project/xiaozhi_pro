@@ -62,8 +62,16 @@ python3 scripts/build.py --list-boards
 # Canonical variant build
 python3 scripts/build.py <board-directory> --name <variant-name>
 
-# Host-side build tests
-python3 -m unittest discover -s scripts/tests -v
+# Show the tests affected by the worktree, then run them
+python3 scripts/test.py --list
+python3 scripts/test.py
+
+# Scope the run to this task in a worktree with unrelated changes
+python3 scripts/test.py -- main/audio/speaker_protection.h
+
+# Compare a committed branch against its base, or explicitly run everything
+python3 scripts/test.py --base <base-revision>
+python3 scripts/test.py --all
 
 # Format/check touched files
 clang-format -i <files>
@@ -72,10 +80,18 @@ clang-format --dry-run -Werror <files>
 
 The build script changes local `sdkconfig` and build state. Do not assume the build directory still represents a previous target.
 
+Use affected host tests as the default for local development and CI. Select the files changed by this task explicitly when the worktree includes earlier work. Update the source-to-test rules in `scripts/test.py` when adding coverage or changing a subsystem boundary. Investigate an unmapped source path and record the applicable build, manual check, or coverage gap. Reserve `--all` for release checks or an explicitly requested full regression.
+
+`scripts/audio/` and `scripts/motion/` contain explicit asset and review tools. Run a tool when the task needs its output. Local snapshots and retired scripts under `tmp/local-backups/` are recovery material and outside test discovery.
+
+## Issue index
+
+Search [docs/issues.md](docs/issues.md) by symptom, subsystem, or error before repeating a diagnosis. Add or update an entry whenever you encounter a defect, build failure, or repeatable validation gap. Record the affected scope, evidence, status, and the shortest reproducible fix or next check. For resolved issues record how the fix was verified and keep any pending hardware validation visible. Reopen the same entry with new evidence if the symptom recurs.
+
 ## Validation
 
 - Board-only change: build affected variants and smoke-test changed hardware.
-- Core, common-board, audio, protocol, display, dependency, Kconfig, or CMake change: run host tests and build representative affected chip/network paths.
+- Core, common-board, audio, protocol, display, dependency, Kconfig, or CMake changes require affected host tests and representative builds of the affected chip/network paths.
 - Protocol changes: verify WebSocket and MQTT/UDP when shared behavior changes.
 - Audio changes: verify capture, playback, wake/VAD, interruption, reconnect, and applicable AEC modes.
 - UI/assets changes: verify applicable no-display/OLED/LVGL paths and partition size.
@@ -90,5 +106,6 @@ The build script changes local `sdkconfig` and build state. Do not assume the bu
 - Code style: `docs/code_style.md`
 - Protocols: `docs/websocket.md`, `docs/mqtt-udp.md`, `docs/mcp-protocol.md`
 - CI matrix: `.github/workflows/build.yml`
+- Issue index: `docs/issues.md`
 
 Keep detailed or fast-changing information in those files, not here. Add a nested `AGENTS.md` only when a subsystem needs specialized instructions.

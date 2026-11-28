@@ -1,4 +1,5 @@
 #include "sdkconfig.h"
+#include "http_result.h"
 
 #include <esp_heap_caps.h>
 #include <cstdio>
@@ -307,8 +308,8 @@ std::string Esp32Camera::Explain(const std::string &question) {
     }
     http->Write("", 0);
 
-    if (http->GetStatusCode() != 200) {
-        ESP_LOGE(TAG, "Failed to upload photo, status code: %d", http->GetStatusCode());
+    if (HttpIntValue(http->GetStatusCode()) != 200) {
+        ESP_LOGE(TAG, "Failed to upload photo, status code: %d", HttpIntValue(http->GetStatusCode()));
         throw std::runtime_error("Failed to upload photo");
     }
 

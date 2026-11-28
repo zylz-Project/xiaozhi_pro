@@ -44,6 +44,8 @@ enum class WifiEvent {
     ConfigModeExit,   // Exited config AP mode
 };
 
+enum class WifiTrialFailure { None, Unavailable, Association, Authentication, Dhcp, Save };
+
 // Configuration
 struct WifiManagerConfig {
     std::string ssid_prefix = "ESP32";  // AP mode SSID prefix
@@ -91,10 +93,9 @@ public:
     void StartStation();  // Non-blocking, auto-stops config AP if active
     void StopStation();   // Non-blocking
 
-    // Switch the station to a new network: persists the credentials, cancels
-    // the current attempt and reconnects. Returns false when the manager is not
-    // initialized, the arguments are invalid, or the station cannot be started.
-    bool ConnectTo(const std::string& ssid, const std::string& password);
+    // BLE worker only. Commit credentials after association and DHCP succeed.
+    bool TestAndSaveStationNetwork(const std::string& ssid, const std::string& password,
+                                   int timeout_ms, WifiTrialFailure* failure = nullptr);
     esp_err_t ScanNetworks(std::vector<wifi_ap_record_t>& records, int timeout_ms = 12000);
 
     bool IsConnected() const;
@@ -150,6 +151,8 @@ private:
     mutable std::mutex mutex_;
     std::mutex station_lifecycle_mutex_;
     bool initialized_ = false;
+    bool StartStationImpl(bool scan_on_start);
+    std::atomic<bool> station_trial_active_{false};
     bool station_active_ = false;
     bool config_mode_active_ = false;
     bool persistent_portal_active_ = false;

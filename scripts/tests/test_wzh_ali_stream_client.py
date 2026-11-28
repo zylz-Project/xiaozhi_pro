@@ -110,14 +110,13 @@ int main(){
  auto run=[](int selected){
   mode=selected;frames.clear();held=false;sent_text=0;closed=destroyed=0;
   StreamRequest request; StreamResponse response;request.api_key="test";request.voice_id="voice";
-  int step=0,ends=0,cancel_checks=0;std::vector<uint8_t> pcm;
+  int step=0,cancel_checks=0;std::vector<uint8_t> pcm;
   request.cancelled=[&]{return selected==4 && ++cancel_checks>2;};
   request.next_text=[&](std::string& s,bool& done){if(step++==0)s="hello";else done=true;};
-  request.pcm_sink=[&](const uint8_t* p,size_t n){pcm.insert(pcm.end(),p,p+n);return true;};
-  request.sentence_end=[&]{++ends;};
+  request.opus_sink=[&](const uint8_t* p,size_t n){pcm.insert(pcm.end(),p,p+n);return true;};
   auto result=SynthesizeStream(request,response);
   assert(bundle && closed==1 && destroyed==2);
-  if(selected==0){assert(result==Result::kOk && response.text_committed && ends==1);
+  if(selected==0){assert(result==Result::kOk && response.text_committed);
    assert((pcm==std::vector<uint8_t>{1,2,3,4}));}
   if(selected==1)assert(result==Result::kNetworkError && !response.text_committed && !sent_text);
   if(selected==2)assert(result==Result::kNetworkError && response.text_committed && pcm.empty());

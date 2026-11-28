@@ -85,16 +85,11 @@ int main(int argc, char** argv) {
         pet.Touch(3, 150);
         assert(pet.PollTouch(150) == TouchResponse::kNone);
         assert(pet.PollTouch(1299) == TouchResponse::kNone);
-        assert(pet.PollTouch(1300) == TouchResponse::kHeld);
-        assert(pet.Get(1300).gentle && !pet.Get(1300).local_sound);
-        assert(pet.PollTouch(10000) == TouchResponse::kNone);
-        assert(pet.Get(10000).gentle);
-        // A very long hold still gets a soft acknowledgement every 9 seconds.
-        assert(pet.PollTouch(10300) == TouchResponse::kHeld);
-        assert(pet.Get(10300).gentle);
+        assert(pet.PollTouch(1300) == TouchResponse::kNone);
+        assert(!pet.Get(1300).gentle && pet.Get(1300).local_sound);
+        assert(pet.PollTouch(10300) == TouchResponse::kNone);
         pet.Touch(0, 10400);
-        assert(pet.PollTouch(10400) == TouchResponse::kReleased);
-        assert(!pet.Get(15000).gentle);
+        assert(pet.PollTouch(10400) == TouchResponse::kNone);
         PetBehavior taps;
         for (uint32_t i = 0; i < 3; ++i) {
             taps.Touch(1, 100 + i * 400);

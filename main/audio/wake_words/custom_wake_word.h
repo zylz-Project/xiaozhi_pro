@@ -30,7 +30,7 @@ public:
     }
     bool Initialize(AudioCodec* codec, srmodel_list_t* models_list, bool local_commands_only);
     void Feed(const std::vector<int16_t>& data);
-    void FeedMono(const int16_t* data, size_t samples);
+    void FeedMono(const int16_t* data, size_t samples, bool phrase_interruption = false);
     void OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback);
     void Start();
     void Stop();
@@ -63,6 +63,11 @@ private:
     std::atomic<bool> running_ = false;
     std::atomic<bool> reset_pending_{true};
     bool local_commands_only_ = false;
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    bool supports_phrase_interruption_ = false;
+    bool phrase_interruption_ = false;  // Owned by FeedSamples under input_buffer_mutex_.
+    bool poll_raw_phrase_ = true;
+#endif
     std::vector<int16_t> input_buffer_;
     std::mutex input_buffer_mutex_;
 
@@ -74,7 +79,8 @@ private:
     std::mutex wake_word_mutex_;
     std::condition_variable wake_word_cv_;
 
-    void FeedSamples(const int16_t* data, size_t samples, bool mono);
+    void FeedSamples(const int16_t* data, size_t samples, bool mono,
+                     bool phrase_interruption = false);
     void ParseWakenetModelConfig();
 };
 

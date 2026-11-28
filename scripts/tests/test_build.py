@@ -28,8 +28,8 @@ class VersionTests(unittest.TestCase):
     def test_product_matrix_contains_only_unique_wzh_variants(self):
         variants = build._collect_variants(idf_version=(6, 0, 2))
         expected = {
-            "wzh-crawlpanda", "wzh-crawlpanda-barge-in",
-            "wzh-dinosaur", "wzh-dinosaur-barge-in",
+            "wzh-crawlpanda", "wzh-crawlpanda-barge-in", "wzh-crawlpanda-zylz",
+            "wzh-dinosaur", "wzh-dinosaur-barge-in", "wzh-dinosaur-270-servo",
             "wzh-dinosaur-vadnet-test", "wzh-dinosaur-official-asr-probe",
             "wzh-tailredpanda", "wzh-tailredpanda-barge-in",
         }

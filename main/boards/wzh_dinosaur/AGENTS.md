@@ -135,7 +135,7 @@ When changing clips, keep action/clip arrays and enum indexes aligned. Estimate 
 Use ESP-IDF 6.0.2 when available, then run:
 
 ```sh
-python3 -m unittest discover -s scripts/tests -v
+python3 scripts/test.py
 python3 scripts/build.py wzh_dinosaur --name wzh-dinosaur
 clang-format -i path/to/touched.cc path/to/touched.h
 clang-format --dry-run -Werror path/to/touched.cc path/to/touched.h

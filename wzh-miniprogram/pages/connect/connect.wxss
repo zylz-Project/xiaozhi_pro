@@ -204,17 +204,7 @@ page { background: #f6eadc; }
   border-radius: 16rpx;
   background: rgba(255,247,238,.62);
 }
-.last-banner.auto { border-color: rgba(201,119,82,.34); background: rgba(255,246,236,.82); }
 .last-banner-tx { flex: 1; min-width: 0; color: rgba(47,40,34,.62); font-size: 18.27rpx; line-height: 1.45; }
-.last-banner-spin {
-  flex: 0 0 20rpx;
-  width: 20rpx;
-  height: 20rpx;
-  border: 2rpx solid rgba(201,119,82,.22);
-  border-top-color: #c97752;
-  border-radius: 50%;
-  animation: spin .9s linear infinite;
-}
 .device-card.is-last { border-color: rgba(201,119,82,.42); background: rgba(255,248,238,.62); }
 .device-name-row { display: flex; align-items: center; gap: 10rpx; min-width: 0; }
 .device-last {

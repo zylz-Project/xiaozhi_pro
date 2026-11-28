@@ -34,6 +34,9 @@ public:
     void EnableWakeWordDetection(bool enable) override;
     void EnableVoiceProcessing(bool enable) override;
     void EnableDeviceAec(bool enable) override;
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    void EnablePhraseInterruption(bool enable) override { phrase_interruption_.store(enable); }
+#endif
 
     bool HasWakeWord() const override;
     bool IsWakeWordDetectionEnabled() const override;
@@ -97,6 +100,10 @@ private:
     StackType_t* processing_task_stack_ = nullptr;
     StaticTask_t* processing_task_buffer_ = nullptr;
     int frame_samples_ = 0;
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    size_t output_vad_samples_ = 0;
+    std::atomic<bool> phrase_interruption_{false};
+#endif
     std::atomic<bool> is_speaking_{false};
     std::atomic<bool> device_aec_enabled_{false};
     // Deferred AFE buffer reset, performed by ProcessingTask (see UpdateActiveState)

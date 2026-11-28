@@ -65,7 +65,25 @@ int main(){using namespace voice_tts;VoiceWeb web;
  assert(!std::strcmp(cJSON_GetObjectItem(root,"voice_management_status")->valuestring,"cancelled"));
  cJSON_Delete(root);
  assert(!web.Command("unexpected","",""));assert(web.Command("list","",""));assert(!web.Cancel());worker(worker_arg);
- current_voice="id";assert(web.Command("delete","id",""));worker(worker_arg);
+ current_voice="id";
+ const auto request=web.Command("delete","id","");
+ assert(request);
+ const auto verify_result=[&](const char* expected){
+  auto* status=cJSON_CreateObject();web.AddStatus(status);
+  auto* item=cJSON_GetArrayItem(cJSON_GetObjectItem(status,"voice_operations"),0);
+  assert(cJSON_GetObjectItem(item,"request")->valuedouble==request);
+  assert(!std::strcmp(cJSON_GetObjectItem(item,"status")->valuestring,expected));
+  cJSON_Delete(status);
+ };
+ verify_result("busy");
+ worker(worker_arg);
+ verify_result("ok");
+ assert(web.Command("list","",""));
+ worker(worker_arg);
+ verify_result("ok");
+ root=cJSON_CreateObject();web.AddStatus(root,false);
+ assert(!cJSON_GetObjectItem(root,"voice_operations")&&!cJSON_GetObjectItem(root,"voice_catalog"));
+ cJSON_Delete(root);
  assert(actions.size()==2&&actions[0]=="select:longanhuan_v3.1"&&actions[1]=="delete:id");
 }
 ''')

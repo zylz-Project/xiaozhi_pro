@@ -43,11 +43,13 @@ public:
     WifiStation& operator=(const WifiStation&) = delete;
 
     void AddAuth(const std::string&& ssid, const std::string&& password);
-    void Start();
+    bool Start(bool scan_on_start = true);
     void Stop();
     // Cancel any pending scan/queued attempts and connect to this network now.
     // Does not invoke on_connect_; the manager emits the Connecting event.
-    void ConnectNow(const std::string& ssid, const std::string& password);
+    bool ConnectNow(const std::string& ssid, const std::string& password);
+    bool IsAssociated() const { return associated_.load(); }
+    int LastDisconnectReason() const { return last_disconnect_reason_.load(); }
     bool IsConnected();
     bool WaitForConnected(int timeout_ms = 10000);
     // The station event handler owns scan results; callers must not read the
@@ -102,15 +104,23 @@ private:
     std::function<void()> on_scan_begin_;
     std::function<void(const std::vector<wifi_ap_record_t>&)> on_scan_results_;
     std::vector<WifiApRecord> connect_queue_;
+    bool scan_on_start_ = true;
     bool persistent_ap_ = false;
     bool was_connected_ = false;  // Track if we were connected before disconnection
     std::mutex user_scan_mutex_;
     std::mutex user_scan_result_mutex_;
     std::atomic<bool> user_scan_pending_{false};
+    std::mutex scan_mutex_;
+    bool scan_allowed_ = false;
+    bool scan_active_ = false;
+    std::atomic<bool> associated_{false};
+    std::atomic<int> last_disconnect_reason_{0};
     std::vector<wifi_ap_record_t> user_scan_results_;
     esp_err_t user_scan_error_ = ESP_FAIL;
 
     void HandleScanResult();
+    esp_err_t StartScan();
+    esp_err_t StartScanLocked();
     void CompleteUserScan();
     void StartConnect();
     void UpdateScanInterval();  // Exponential backoff for scan interval

@@ -128,6 +128,7 @@ cJSON* cJSON_GetObjectItemCaseSensitive(cJSON* o,const char*) {return o;}
 bool cJSON_IsTrue(cJSON* o) {return o && o->poll;}
 cJSON* cJSON_CreateObject() {return new cJSON;}
 void cJSON_AddBoolToObject(cJSON*,const char*,int){}
+void cJSON_AddNumberToObject(cJSON*,const char*,double){}
 void cJSON_AddStringToObject(cJSON*,const char*,const char*){}
 std::string JsonString(cJSON*,const char*) {return "ok";}
 namespace voice_tts {bool IsValidVoiceName(const std::string& s){return !s.empty();}}
@@ -136,6 +137,7 @@ struct Application {
  bool IsVoiceEnrollmentActive(){return false;}
  bool IsExternalVoicePreviewActive(){return false;}
  bool RequestDeviceVoiceEnrollment(const std::string&){return true;}
+ unsigned DeviceVoiceEnrollmentRequest(){return 123;}
 };
 bool VoiceManagementBusy(){return false;}
 int tasks=0; void* pending=nullptr;

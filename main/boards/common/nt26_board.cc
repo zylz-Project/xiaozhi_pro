@@ -115,6 +115,14 @@ void Nt26Board::StartNetwork() {
                 break;
             case UartEthModem::UartEthModemEvent::RequestingPdpContext:
                 break;
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+            case UartEthModem::UartEthModemEvent::ModemReset:
+            case UartEthModem::UartEthModemEvent::RegistrationLost:
+                OnNetworkEvent(NetworkEvent::Disconnected);
+                break;
+            case UartEthModem::UartEthModemEvent::PlmnSearchFallback:
+                break;
+#endif
         }
     });
 
@@ -203,7 +211,14 @@ std::string Nt26Board::GetBoardJson() {
 Nt26CeregState Nt26Board::GetRegistrationState() {
     Nt26CeregState state;
     if (modem_) {
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+        const auto result = modem_->QueryCellInfo();
+        if (!result)
+            return state;
+        const auto& cell_info = *result;
+#else
         auto cell_info = modem_->GetCellInfo();
+#endif
         state.stat = cell_info.stat;
         state.tac = cell_info.tac;
         state.ci = cell_info.ci;

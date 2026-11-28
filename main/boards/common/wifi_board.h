@@ -52,6 +52,10 @@ public:
     virtual void StartNetwork() override;
     
     virtual NetworkInterface* GetNetwork() override;
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    virtual bool DeferWifiStationStart() const { return false; }
+    bool IsNetworkAvailable() const override;
+#endif
     virtual void SetNetworkEventCallback(NetworkEventCallback callback) override;
     virtual const char* GetNetworkStateIcon() override;
     virtual void SetPowerSaveLevel(PowerSaveLevel level) override;

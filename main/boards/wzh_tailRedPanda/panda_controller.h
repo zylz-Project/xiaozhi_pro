@@ -128,7 +128,7 @@ public:
     void SetConversationActive(bool active);
     void SetSpeaking(bool speaking);
     void SetMaintenance(bool blocked);
-    void HandleTouch(uint8_t code);
+    void HandleTouch(uint8_t code, bool allow_contact_start);
     bool TriggerOnboardingFeedback(uint8_t step);
     bool IsOnboardingFeedbackPending() const { return tutorial_feedback_pending_.load(); }
     bool HandleSensorEvent(int event);

@@ -39,9 +39,9 @@ int main() {
     }
     // Switching pads starts a new sequence; holding does not retrigger every tick.
     pet.Touch(2,5000);assert(pet.PollTouch(5000)==TouchResponse::kAffection);
-    assert(pet.PollTouch(6200)==TouchResponse::kHeld);
+    assert(pet.PollTouch(6200)==TouchResponse::kNone);
     assert(pet.PollTouch(9000)==TouchResponse::kNone);
-    pet.Touch(0,9100);assert(pet.PollTouch(9100)==TouchResponse::kReleased);
+    pet.Touch(0,9100);assert(pet.PollTouch(9100)==TouchResponse::kNone);
 }
 ''')
 
@@ -127,6 +127,8 @@ int main() {
 #include <mutex>
 #include <vector>
 #include "wzh_pet_behavior.h"
+#include "wzh_sound_choreography.h"
+#include "wzh_conversation_touch.h"
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 namespace wzh { struct Sensors { enum class Event { kHuman,kPickedUp,kShaken,kFlipped,kPutDown }; }; }
@@ -144,17 +146,24 @@ struct Request {
 };
 int64_t clock_us=30000000;
 int64_t esp_timer_get_time(){return clock_us;}
+uint32_t esp_random(){return 42;}
 constexpr int pdTRUE=1;
 std::vector<Request> requests;
+struct Application {
+    std::vector<std::string> touch_texts;
+    static Application& GetInstance(){static Application a;return a;}
+    void QueueTouchConversationInput(std::string text){if(!text.empty())touch_texts.push_back(text);}
+};
 int xQueueOverwrite(void*,const Request* request){requests.push_back(*request);return pdTRUE;}
 struct Output { bool locked=false;bool blocked(){return locked;}bool powered(){return false;}unsigned faults(){return locked?1:0;} };
 struct Audio { struct Data{bool playing=false;};Data GetTtsMotionData(){return {};} };
 struct Controller {
     using ActionRequest=Request;
     std::mutex request_mutex_;void* action_queue_=this;
-    wzh::PetBehavior pet_;Output servo_output_;
+    wzh::PetBehavior pet_;wzh::AutoplayCadence autoplay_;Output servo_output_;
     Audio* audio_=nullptr;
     std::atomic<bool> shutdown_requested_{false},request_active_{false},speaking_{false};
+    std::atomic<bool> conversation_active_{false};
     std::atomic<int> pending_expression_{-1};
     std::atomic<uint32_t> expression_since_{0},intent_generation_{0};
     std::atomic<bool> tutorial_feedback_pending_{false};
@@ -169,7 +178,7 @@ struct Controller {
     bool QueueInteraction(wzh::PetInteraction, bool tutorial_shake_head=false);
     bool TriggerOnboardingFeedback(uint8_t);
     bool HandleSensorEvent(int);
-    void HandleTouch(uint8_t);
+    void HandleTouch(uint8_t, bool allow_contact_start = true);
     void PollInteraction(uint32_t);
 };
 '''
@@ -218,6 +227,15 @@ int main(){
     Controller protected_tutorial;protected_tutorial.servo_output_.locked=true;
     assert(!protected_tutorial.TriggerOnboardingFeedback(3));
     assert(!protected_tutorial.tutorial_feedback_pending_);
+    auto& sent=Application::GetInstance().touch_texts;
+    assert(sent.empty()); // Offline feedback must not become cloud input.
+    Controller chatting;chatting.conversation_active_.store(true);
+    chatting.HandleTouch(1);chatting.HandleTouch(0);
+#if TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    assert(sent.empty());
+#else
+    assert(sent.size()==1 && sent[0].find("头")!=std::string::npos);
+#endif
 }
 '''
         for board, stem, cls in [('wzh_crawlPanda','panda','PandaController'),
@@ -228,7 +246,10 @@ int main(){
             for name, ret in [('QueueRequest','bool'),('QueueInteraction','bool'),('TriggerOnboardingFeedback','bool'),
                               ('HandleSensorEvent','bool'),('HandleTouch','void'),('PollInteraction','void')]:
                 methods+=queue_function(source,ret+' '+cls+'::'+name+'(').replace(cls+'::','Controller::')+'\n'
-            with self.subTest(board=board): self.run_cpp(harness+methods+exercise)
+            tail = int(board == 'wzh_tailRedPanda')
+            with self.subTest(board=board):
+                flags = f'#define TAILREDPANDA {tail}\n#define CONFIG_WZH_DIALOGUE_PARITY {1-tail}\n'
+                self.run_cpp(flags+harness+methods+exercise)
 
     def test_external_sound_selection_varies_and_uses_real_directory_only(self):
         self.run_cpp(r'''
@@ -375,6 +396,7 @@ int main(){
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <vector>
 #include "wzh_sound_score.h"
 using namespace wzh;
@@ -434,6 +456,7 @@ struct AudioPlayer {
     struct PlayRequest {int index;unsigned generation;AudioFileInfo file;};
     AudioStore store;AudioStore* store_=&store;std::mutex playback_mutex_;
     std::atomic<unsigned> playback_generation_{1};
+    std::optional<uint32_t> decoder_generation_;
     std::atomic<int> motion_sound_index_{-1};
     std::atomic<const SoundScore*> motion_score_{nullptr};
     std::atomic<SoundKind> motion_kind_{SoundKind::kCall};
@@ -475,43 +498,71 @@ int main(){
 
     def test_stopped_or_replaced_audio_requests_do_not_resume_in_worker(self):
         source=(COMMON/'wzh_audio_player.cc').read_text()
-        task=queue_function(source,'void AudioPlayer::Task()')
+        methods=queue_function(source,'void AudioPlayer::Task()') + '\n' + \
+                queue_function(source,'void AudioPlayer::StopPlayback()')
         program=r'''
 #include <atomic>
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 struct Done{};
-constexpr int pdTRUE=1,portMAX_DELAY=0;
+constexpr int pdTRUE=1,portMAX_DELAY=-1;
 struct PlayRequest { int index;uint32_t generation; };
 int reads=0,played=0;bool replace_during_play=false;
-int xQueueReceive(void*,PlayRequest* request,int){
+int xQueueReceive(void*,PlayRequest* request,int wait){
+    if(wait==0)return 0;
     if(reads==0)*request={0,0};
     else if(reads==1)*request={1,1};
     else throw Done{};
     ++reads;return pdTRUE;
 }
+struct AudioService {
+    uint32_t generation=7;
+    unsigned resets=0;
+    void ResetDecoder(std::optional<uint32_t> expected) {
+        if (expected==generation) { ++generation; ++resets; }
+    }
+};
+struct Application {
+    AudioService audio;
+    static Application& GetInstance(){static Application app;return app;}
+    AudioService& GetAudioService(){return audio;}
+};
 struct AudioPlayer{
     std::atomic<bool>maintenance_{false},worker_active_{false};
     std::array<char,64>current_name_{};
     std::atomic<uint32_t> playback_generation_{1};
+    std::optional<uint32_t> decoder_generation_;
     std::atomic<bool> is_playing_{false};
+    std::atomic<int64_t> local_pcm_start_us_{0},tts_updated_us_{0};
+    std::atomic<float> motion_level_{0},motion_attack_{0},tts_level_{0},tts_attack_{0};
     std::mutex playback_mutex_;bool playback_pending_=true;
     void* play_queue_=this;
     void Task();
+    void StopPlayback();
     void PlayFile(const PlayRequest& request){
         assert(request.index==1&&request.generation==1);++played;
+        decoder_generation_=7;
         if(replace_during_play)++playback_generation_; // Stop, then a new reserved request.
     }
 };
 '''
-        self.run_cpp(program+task+r'''
+        self.run_cpp(program+methods+r'''
 int main(){
     AudioPlayer p;try{p.Task();}catch(Done&){}assert(played==1&&!p.playback_pending_);
+    assert(!p.decoder_generation_);
+    auto& audio=Application::GetInstance().audio;
+    p.StopPlayback();assert(audio.resets==0); // A cue can use the decoder while local audio is idle.
+    p.decoder_generation_=6;
+    p.StopPlayback();assert(audio.resets==0); // A new shared generation is already playing.
+    p.decoder_generation_=7;
+    p.StopPlayback();assert(audio.resets==1&&!p.decoder_generation_);
     reads=played=0;replace_during_play=true;
     AudioPlayer next;try{next.Task();}catch(Done&){}
     assert(played==1&&next.playback_pending_&&next.playback_generation_==2);
+    assert(next.decoder_generation_==7);
 }''')
 
     def test_production_accelerometer_probe_and_read_recovery(self):

@@ -110,7 +110,7 @@ The controller uses `Pose(head, left_arm, right_arm)`, keyframe clips, behaviour
 Use ESP-IDF 6.0.2 when available, then run:
 
 ```sh
-python3 -m unittest discover -s scripts/tests -v
+python3 scripts/test.py
 python3 scripts/build.py wzh_crawlPanda --name wzh-crawlpanda
 clang-format -i path/to/touched.cc path/to/touched.h
 clang-format --dry-run -Werror path/to/touched.cc path/to/touched.h

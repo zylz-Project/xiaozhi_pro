@@ -33,6 +33,7 @@
 #include "wifi_manager.h"
 #include "wzh_factory_reset_policy.h"
 #include "wzh_onboarding.h"
+#include "wzh_onboarding_store.h"
 #include "wzh_web_peer.h"
 
 namespace wzh {
@@ -194,20 +195,13 @@ bool SetSetupGuide(bool complete) {
 bool ClearOnboarding() {
     StopOnboarding();
     const auto deadline = Now() + 8000;
-    while (IsOnboardingActive() && Now() < deadline)
+    while (IsOnboardingWorkerRunning() && Now() < deadline)
         vTaskDelay(pdMS_TO_TICKS(20));
-    if (IsOnboardingActive() || !SetSetupGuide(false))
+    if (IsOnboardingWorkerRunning() || !SetSetupGuide(false))
         return false;
     // Clear the legacy marker first so it cannot recreate completed progress
     // if power is lost between the two NVS transactions.
-    nvs_handle_t handle = 0;
-    if (nvs_open("onboarding", NVS_READWRITE, &handle) != ESP_OK)
-        return false;
-    auto result = nvs_erase_all(handle);
-    if (result == ESP_OK)
-        result = nvs_commit(handle);
-    nvs_close(handle);
-    return result == ESP_OK;
+    return ResetOnboardingProgress();
 }
 [[maybe_unused]] bool DecodeHeader(std::string_view input, std::string& output) {
     output.clear();
@@ -374,47 +368,18 @@ void UserWebPortal::ResetTask(void* arg) {
 
 void UserWebPortal::RunReset() {
     using Phase = FactoryResetPolicy::Phase;
-    auto& wifi = WifiManager::GetInstance();
     FactoryResetPolicy::Operations operations;
-    operations.validate = [this, &wifi]() {
+    operations.validate = [this]() {
         const auto deadline = Now() + 5000;
         while (options_.factory_reset_prepared && !options_.factory_reset_prepared() &&
-               wifi.IsConnected() && Now() < deadline)
+               Now() < deadline)
             vTaskDelay(pdMS_TO_TICKS(20));
-        return wifi.IsConnected() && options_.factory_reset_prepared &&
-               options_.factory_reset_prepared();
+        return options_.factory_reset_prepared && options_.factory_reset_prepared();
     };
-    operations.reset_voices = [this, &wifi]() {
-        if (!wifi.IsConnected())
-            return false;
-        if (voice_tts::LoadAliKey().empty()) {
-#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA
-            return false;
-#else
-            // Other products historically had no clone service. If their
-            // local records contain or may contain a clone, fail closed.
-            std::vector<voice_tts::VoiceName> names;
-            int reservation = -1;
-            if (!voice_tts::LoadVoiceNames(names) || !names.empty() ||
-                !voice_tts::LoadVoiceReservation(reservation) || reservation >= 0)
-                return false;
-            const auto current = voice_tts::LoadAliVoice();
-            const auto previous = voice_tts::LoadPreviousAliVoice();
-            const auto built_in_or_empty = [](const std::string& id) {
-                if (id.empty())
-                    return true;
-                for (const auto& voice : voice_tts::kBuiltinVoices)
-                    if (id == voice.id)
-                        return true;
-                return false;
-            };
-            if (!built_in_or_empty(current) || !built_in_or_empty(previous))
-                return false;
-            return voice_tts::ClearAliVoiceSelection();
-#endif
-        }
+    operations.reset_voices = [this]() -> const char* {
         auto progress = [this](size_t current, size_t total) {
             std::lock_guard<std::mutex> lock(mutex_);
+            reset_phase_ = "deleting_cloud";
             reset_current_ = current;
             reset_total_ = total;
         };
@@ -422,21 +387,36 @@ void UserWebPortal::RunReset() {
             std::lock_guard<std::mutex> lock(mutex_);
             reset_phase_ = "clearing_local";
         };
-        return voice_tts::ResetManagedVoices([&wifi]() { return !wifi.IsConnected(); }, progress,
-                                             local) == voice_tts::VoiceOperation::kOk;
+        const auto status = voice_tts::ResetManagedVoices(
+            []() { return !WifiManager::GetInstance().IsConnected(); }, progress, local);
+        using Voice = voice_tts::VoiceOperation;
+        switch (status) {
+            case Voice::kOk:
+                return nullptr;
+            case Voice::kBusy:
+                return "RESET_VOICE_BUSY";
+            case Voice::kConfig:
+                return "RESET_VOICE_CONFIG";
+            case Voice::kCancelled:
+                return "RESET_VOICE_OFFLINE";
+            case Voice::kNetwork:
+                return "RESET_VOICE_CLOUD_FAILED";
+            case Voice::kUncertain:
+                return "RESET_VOICE_UNCERTAIN";
+            default:
+                return "RESET_VOICE_SAVE_FAILED";
+        }
     };
-    operations.clear_onboarding = [&wifi]() { return wifi.IsConnected() && ClearOnboarding(); };
-    operations.clear_wifi = [&wifi]() {
-        return wifi.IsConnected() && SsidManager::GetInstance().ClearChecked();
-    };
+    operations.clear_onboarding = []() { return ClearOnboarding(); };
+    operations.clear_wifi = []() { return SsidManager::GetInstance().ClearChecked(); };
     operations.report = [this](const FactoryResetPolicy::Progress& progress) {
         std::lock_guard<std::mutex> lock(mutex_);
         switch (progress.phase) {
             case Phase::kChecking:
                 reset_phase_ = "checking";
                 break;
-            case Phase::kDeletingVoices:
-                reset_phase_ = "deleting_cloud";
+            case Phase::kCheckingVoiceRecords:
+                reset_phase_ = "checking";
                 break;
             case Phase::kClearingOnboarding:
                 reset_phase_ = "clearing_onboarding";
@@ -458,6 +438,8 @@ void UserWebPortal::RunReset() {
         vTaskDelay(pdMS_TO_TICKS(1200));
         esp_restart();
     }
+    // The reset stopped the tutorial worker before clearing NVS. If it failed
+    // before the reboot, the machine keeps running, so give the tutorial back.
     ResumeOnboardingAfterAbort();
     voice_tts::EndVoiceReset();
     if (options_.end_factory_reset)
@@ -529,8 +511,28 @@ void UserWebPortal::FactoryResetStatus(cJSON* out) {
         auto* error = cJSON_AddObjectToObject(out, "error");
         if (error) {
             cJSON_AddStringToObject(error, "code", error_code.c_str());
-            cJSON_AddStringToObject(error, "message",
-                                    "恢复失败，已保留 Wi-Fi，请检查网络和语音服务后重试。");
+            const char* message = "恢复失败，已保留 Wi-Fi，请重试。";
+            if (error_code == "RESET_NOT_ALLOWED")
+                message = "设备未能暂停当前操作，已保留 Wi-Fi，请稍后重试。";
+            else if (error_code == "RESET_VOICE_BUSY")
+                message = "语音服务正在处理，已保留 Wi-Fi，请稍后重试。";
+            else if (error_code == "RESET_VOICE_CONFIG")
+                message = "有待清理的复刻音色，已保留 Wi-Fi。请检查语音服务 Key 后重试。";
+            else if (error_code == "RESET_VOICE_OFFLINE")
+                message = "清理复刻音色需要联网，已保留 Wi-Fi。请恢复网络后重试。";
+            else if (error_code == "RESET_VOICE_CLOUD_FAILED")
+                message = "云端音色清理失败，已保留 Wi-Fi。请检查语音服务后重试。";
+            else if (error_code == "RESET_VOICE_UNCERTAIN")
+                message = "仍有待确认的音色创建，已保留 Wi-Fi。请稍后重试。";
+            else if (error_code == "RESET_VOICE_SAVE_FAILED")
+                message = "本地音色记录处理失败，已保留 Wi-Fi，请重试。";
+            else if (error_code == "RESET_ONBOARDING_FAILED")
+                message = "新手教程进度清理失败，已保留 Wi-Fi，请重试。";
+            else if (error_code == "RESET_WIFI_FAILED")
+                message = "Wi-Fi 凭据清理失败，请重试。";
+            else if (error_code == "RESET_UNAVAILABLE")
+                message = "设备暂时无法启动恢复任务，请稍后重试。";
+            cJSON_AddStringToObject(error, "message", message);
         }
     }
 }
@@ -544,18 +546,6 @@ esp_err_t UserWebPortal::FactoryResetStatus(httpd_req_t* req) {
 }
 
 bool UserWebPortal::StartFactoryReset(std::string& code, std::string& message) {
-    if (!WifiManager::GetInstance().IsConnected()) {
-        code = "NET_OFFLINE";
-        message = "设备暂未联网";
-        return false;
-    }
-#if CONFIG_BOARD_TYPE_WZH_CRAWLPANDA
-    if (!options_.has_ali_key || !options_.has_ali_key()) {
-        code = "VOICE_NO_KEY";
-        message = "语音服务未配置，无法确认云端音色";
-        return false;
-    }
-#endif
     if (setup_running_.load() || voice_upload_running_.load()) {
         code = "RESET_BUSY";
         message = "设备正在忙，请稍后重试";
@@ -607,8 +597,6 @@ bool UserWebPortal::StartFactoryReset(std::string& code, std::string& message) {
 }
 
 esp_err_t UserWebPortal::StartFactoryReset(httpd_req_t* req) {
-    if (!WifiManager::GetInstance().IsConnected())
-        return Error(req, "409 Conflict", "NET_OFFLINE", "设备暂未联网");
     auto body = ReadBody(req);
     const char* confirm = body ? String(body.get(), "confirm") : nullptr;
     std::string phrase = confirm ? confirm : "";
@@ -1048,6 +1036,8 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
     }
     if (!session)
         return Error(req, "401 Unauthorized", "AUTH_REQUIRED", "请先登录");
+    if (path == "/api/user/factory-reset")
+        return StartFactoryReset(req);
     if (!online)
         return Error(req, "409 Conflict", "NET_OFFLINE", "设备暂未联网");
     if (path.rfind("/api/user/voices/", 0) == 0) {
@@ -1129,6 +1119,8 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         if (action == "audition") {
             if (!KnownVoice(id))
                 return Error(req, "400 Bad Request", "VOICE_INVALID", "音色不存在");
+            if (std::strcmp(id, voice_tts::kNativeVoiceId) == 0)
+                return Error(req, "409 Conflict", "VOICE_NATIVE", "开始对话即可听到小智原声");
             if (!Application::GetInstance().RequestExternalVoicePreview(id))
                 return Error(req, "409 Conflict", "VOICE_BUSY", "设备正忙，请稍后试听");
             return Ok(req, "202 Accepted");
@@ -1144,8 +1136,6 @@ esp_err_t UserWebPortal::Handle(httpd_req_t* req) {
         return Error(req, "404 Not Found", "NOT_FOUND", "声音服务不可用");
 #endif
     }
-    if (path == "/api/user/factory-reset")
-        return StartFactoryReset(req);
     if (path == "/api/user/volume") {
         auto body = ReadBody(req);
         const auto* value = body ? cJSON_GetObjectItemCaseSensitive(body.get(), "volume") : nullptr;

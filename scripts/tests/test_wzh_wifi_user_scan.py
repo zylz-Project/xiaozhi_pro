@@ -14,6 +14,8 @@ class WifiUserScanTest(unittest.TestCase):
             self.skipTest('g++ required')
         source = (ROOT / 'project_components/esp-wifi-connect/wifi_station.cc').read_text()
         scan = queue_function(source, 'esp_err_t WifiStation::ScanNetworks(')
+        start = queue_function(source, 'esp_err_t WifiStation::StartScan(')
+        start_locked = queue_function(source, 'esp_err_t WifiStation::StartScanLocked(')
         complete = queue_function(source, 'void WifiStation::CompleteUserScan(')
         self.assertIn('this_->CompleteUserScan();', source)
         program = r'''
@@ -51,30 +53,41 @@ void esp_wifi_clear_ap_list() { ++clear_count; }
 struct WifiStation {
  Events events; Events* event_group_=&events;
  std::mutex user_scan_mutex_,user_scan_result_mutex_;
+ std::mutex scan_mutex_;
+ bool scan_allowed_ = true, scan_active_ = false;
  std::atomic<bool> user_scan_pending_{false};
  std::vector<wifi_ap_record_t> user_scan_results_;
  esp_err_t user_scan_error_=ESP_FAIL;
  esp_err_t ScanNetworks(std::vector<wifi_ap_record_t>&,int);
+ esp_err_t StartScan();
+ esp_err_t StartScanLocked();
  void CompleteUserScan();
+ void DeliverScanComplete() {
+  { std::lock_guard<std::mutex> lock(scan_mutex_); scan_active_ = false; }
+  CompleteUserScan();
+ }
 };
-''' + scan + '\n' + complete + r'''
+''' + start + '\n' + start_locked + '\n' + scan + '\n' + complete + r'''
 int main() {
  WifiStation s;std::vector<wifi_ap_record_t> records;int result=-1;
  std::thread t([&]{result=s.ScanNetworks(records,1000);});
  while(!started.load()) std::this_thread::yield();
  std::vector<wifi_ap_record_t> second;
  assert(s.ScanNetworks(second,10)==ESP_ERR_INVALID_STATE);
- s.CompleteUserScan(); t.join();
+ assert(s.StartScan()==ESP_OK && started.load()==1);
+ s.DeliverScanComplete(); t.join();
  assert(result==ESP_OK && records.size()==32 && records[31].id==31);
  assert(s.ScanNetworks(records,5)==ESP_ERR_TIMEOUT);
  assert(s.user_scan_pending_.load());
  assert(s.ScanNetworks(second,5)==ESP_ERR_INVALID_STATE);
- raw_count=0;s.CompleteUserScan();
+ raw_count=0;s.DeliverScanComplete();
  assert(!s.user_scan_pending_.load() && clear_count==1);
  std::thread t2([&]{result=s.ScanNetworks(records,1000);});
  while(started.load()<3) std::this_thread::yield();
- raw_count=1;s.CompleteUserScan();t2.join();
+ raw_count=1;s.DeliverScanComplete();t2.join();
  assert(result==ESP_OK && records.size()==1);
+ s.scan_allowed_=false;
+ assert(s.StartScan()==ESP_ERR_INVALID_STATE && started.load()==3);
 }
 '''
         with tempfile.TemporaryDirectory() as directory:

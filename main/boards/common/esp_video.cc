@@ -1,4 +1,5 @@
 #include "sdkconfig.h"
+#include "http_result.h"
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -1036,8 +1037,8 @@ std::string EspVideo::Explain(const std::string& question) {
     // 结束块
     http->Write("", 0);
 
-    if (http->GetStatusCode() != 200) {
-        ESP_LOGE(TAG, "Failed to upload photo, status code: %d", http->GetStatusCode());
+    if (HttpIntValue(http->GetStatusCode()) != 200) {
+        ESP_LOGE(TAG, "Failed to upload photo, status code: %d", HttpIntValue(http->GetStatusCode()));
         throw std::runtime_error("Failed to upload photo");
     }
 

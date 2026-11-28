@@ -47,6 +47,12 @@ def wzh_offline_commands(product=None, keyword_barge=False):
             'ting', 'ting yi xia', 'deng yi xia', 'bie shuo hua',
             'bie shuo le', 'xian bie shuo', 'ni hao', 'wo you wen ti',
             'wo yao shuo hua'))
+        # These commands also match phrases inside MultiNet7 output.
+        phrases.extend((phrase, 'interrupt') for phrase in (
+            'deng', 'bie', 'man', 'zan', 'shou', 'xiu', 'xian ting',
+            'ni deng yi xia', 'man yi dian', 'zan ting', 'shou yi shou',
+            'xiu xi yi xia', 'bie ji', 'xian ting wo shuo',
+            'ting wo shuo', 'rang wo shuo', 'wo lai shuo'))
     catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            'main', 'boards', 'common', 'wzh', 'wzh_body_phrases.inc')
     pattern = re.compile(r'WZH_BODY_PHRASE\((\d+), "([a-z_]+)", "([^"]+)", "([a-z ]+)"\)')
@@ -60,6 +66,18 @@ def wzh_offline_commands(product=None, keyword_barge=False):
             mask, action, _, pinyin = row.groups()
             if int(mask) & masks[product]:
                 phrases.append((pinyin, action))
+    if product in product_wake and keyword_barge:
+        alias_path = os.path.join(os.path.dirname(catalog), 'wzh_tail_interrupt_phrases.inc')
+        with open(alias_path, encoding='utf-8') as source:
+            for line in source:
+                match = re.fullmatch(r'WZH_INTERRUPT_PHRASE\("([a-z ]+)"\)', line.strip())
+                if not match:
+                    raise ValueError(f'Invalid WZH interrupt phrase: {line.strip()}')
+                phrase = match[1]
+                if 'xiao wu' in phrase:
+                    phrase = phrase.replace('xiao wu', {'crawl': 'xiao hua', 'tail': 'xiao wu',
+                                                        'dinosaur': 'xiao wei'}[product])
+                phrases.append((phrase, 'interrupt'))
     commands = {}
     for phrase, action in phrases:
         if len(phrase.encode('ascii')) > 63:

@@ -8,14 +8,17 @@
 > v2 与旧 v1 的差异：`voice_list` 返回 `voices`；`wifi_scan` 返回
 > `{networks}`；录音改为设备端 `voice_record {name}`；复刻音频改走
 > `voice_upload_begin/chunk/end`；恢复出厂事件字段为 `phase`；固定音色是对象数组。
-> 旧 v1 文档中的云 `fileId`、手机录音、`stage` 字段均已废弃。
+> 旧 v1 的云 `fileId` 与 `stage` 字段已废弃。当前手机录音通过与 WAV 文件相同的 BLE 上传协议发送。
 
 ## 1. 发现与连接
 
 - 广播名：`<AP 前缀>-<MAC 后四位>`，例如 `CrawlPanda-1A2B`、`Dino-6C3F`、
   `RedPanda-9D2E`。前缀由各板 `PANDA_AP_PREFIX` 决定。
-- 广播包**不包含** 128 位 Service UUID（legacy advertising 31 字节放不下）。
-  小程序按名称前缀过滤，连接后再发现 NUS 服务。
+- 现有固件的广播包通过名称标识设备。小程序检查 `localName` 和 `name` 的产品前缀，合并实时回调与扫描快照。仅从快照得到的设备标为“最近发现”，本轮实时看到上次连接的设备后才允许自动重连。
+- 已广播 NUS UUID 且缺少产品名的设备会显示为待识别。连接时通过 NUS 获取 `hello` 设备信息。
+- 最近成功连接且由 `hello.device.identity` 验证的设备，返回时优先复用现有连接。重新连接只短试一次，失败即恢复发现流程。
+- `hello.device.guide_epoch` 随恢复出厂变化。`status.guide_done` 表示设备已保存小程序全局引导的完成或跳过状态。首次完成或跳过时发送 `guide_complete`，参数为 `{"epoch": <guide_epoch>}`。操作可重复，过期周期会被拒绝。手动重看不写状态。
+- `status.wifi.configured` 表示设备保存过网络，用于区分首次配网与暂时离线。`status.wifi.provisioning` 表示配网试连仍在进行。
 - 连接参数：`wx.createBLEConnection` 超时 10s；连接后依次发现服务、开 notify、
   协商 MTU、发送 `hello`。
 - 设备同一时间只接受一个 BLE 连接（`CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1`）。
@@ -78,7 +81,8 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 - 小程序默认按 20 字节有效载荷写；Android 请求 MTU 247，成功后按
   `min(180, mtu - 3)` 分片；iOS 通常保持 20 字节。
 - 设备把同一连接上的连续 write 字节流按 `\n` 重新拼帧，不假设一帧一次 write。
-- 设备单帧缓冲上限 32768 字节，超过返回 `1001` 并清空缓冲。
+- 设备单帧上限 4096 字节（不含换行），超过上限时丢弃到下一换行并返回 `1001`。
+  每次 GATT 写入整段入队或整段拒绝；断开连接后不拼接上一连接的残片。
 - 设备 notify 按 `min(mtu - 3, 244)` 分片，片间约 8ms。
 - 小程序写队列串行发送；设备按到达顺序处理。
 
@@ -131,7 +135,8 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 ## 5. 状态对象
 
 `status` 出现在 `hello.data.status` 与 `get_status` 响应中。设备不单独推送
-`status` 事件；需要最新状态时由小程序主动拉取。
+`status` 事件；需要最新状态时由小程序主动拉取。电量暂未取得可信读数时
+`battery` 为 `null`，小程序显示 `—`，不显示为 `0%`。
 
 ```json
 {
@@ -208,12 +213,16 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 | --- | --- | --- | --- |
 | `set_volume` | `{volume:0..100}` | `{volume:N}` | 越界返回 `1003` |
 | `set_voice` | `{id}` 或 `{name}` | `{id,name}` | 固定/复刻音色都可；忙返回 `1010` |
-| `audition` | `{id}` 或 `{name}` | `{accepted:true}` | 仅 `idle`；设备播放试听句 |
-| `voice_record` | `{name,statusPoll?}` | `{accepted:true,name}` | 设备自己录音并生成复刻音色；旧客户端使用 `voice_record` 事件 |
-| `voice_record_status` | `{}` | `{status,reason?}` | 查询当前或上次设备录音状态；可在进度通知丢失后恢复 |
-| `voice_list` | `{}` | `{voices,currentVoiceId,currentVoice}` | 音色管理忙时 `1010` |
+| `audition` | `{id}` 或 `{name}` | `{accepted:true,request}` | 仅 `idle` 时接受设备试听请求 |
+| `audition_status` | `{}` | `{request,status}` | `status` 为 `idle`、`playing`、`complete`、`failed` 或 `cancelled` |
+| `audition_stop` | `{request}` | `{accepted:true}` | 只取消同编号的活动试听 |
+| `voice_restore` | `{}` | 与 `voice_list` 相同 | 切回上一音色，更新当前与上一个音色的记录 |
+| `voice_record` | `{name,statusPoll?}` | `{accepted:true,name,request}` | 设备自己录音并生成复刻音色；旧客户端使用 `voice_record` 事件 |
+| `voice_record_status` | `{}` | `{status,request,reason?}` | 查询当前或上次设备录音状态；可在进度通知丢失后恢复 |
+| `voice_record_cancel` | `{request}` | `{}` | 仅准备或录音阶段；响应表示已受理，轮询看到 `cancelled` 才确认取消。 |
+| `voice_list` | `{}` | `{voices,currentVoiceId,currentVoice,previousVoiceId}` | 上一音色为空时 `previousVoiceId` 返回空串 |
 | `voice_rename` | `{id,name}` | `{id,name}` | 名称规则见下 |
-| `voice_delete` | `{id}` | `{id}` | 删除当前音色时先切回第一个内置音色 |
+| `voice_delete` | `{id}` | `{id}` | 删除本机的非当前复刻音色 |
 
 `voices` 元素：
 
@@ -222,8 +231,8 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 ```
 
 - `name` 为 1–48 字节，不能为空；重名允许，用 `id` 区分。
-- `voice_delete` 只删本地记录；云端音色由设备在恢复出厂时清理。
-- 当前音色被删除时，设备自动切回 `kBuiltinVoices[0]`（龙安欢）。
+- `voice_delete` 删除本设备归属的云端音色，并清理对应的本地名称及历史引用。
+- 删除当前音色前先切换到其他音色。试听只有同一 `request` 的 `complete` 才确认播放完毕。旧固件不返回试听编号时，客户端保留原来的反馈。
 - `voice_record` 事件：
 
 ```json
@@ -244,6 +253,8 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 旧客户端仍收到事件，监听有时间上限。查询只读取状态，不会重试云端创建；网络
 中断或状态未知时应先检查音色列表，避免重复创建。录音最多 20 秒，可能在有效
 人声达标且静音后提前结束；只有设备报告 `processing` 才视为录音结束。
+取消使用本次录音的 `request`，不会取消后来开始的录音；已进入云端处理时不接受
+取消录音。旧固件不返回 `request` 时，小程序只提供关闭窗口并保留状态轮询。
 
 ### 6.3 Wi-Fi
 
@@ -278,16 +289,15 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 {"event":"wifi_state","data":{"state":"failed","ssid":"Home","message":"连接超时，请检查密码或信号"}}
 ```
 
-- 设备最多等待 20s（40×500ms）；成功后小程序重新 `get_status`。
-- 失败时保留原来的 Wi-Fi，不清空配置；小程序只显示错误，不自动重试。
+- 固件先在 RAM 中试连候选网络，最多等待 20 秒。确认已取得 IP 且 SSID 匹配后写入保存列表，再报告 `connected`。
+- 失败时保留原 Wi-Fi 配置并恢复原列表联网。小程序显示错误，不自动重发换网请求。
 
 ### 6.4 复刻音色
 
 复刻有两条路径，都**不经过小程序云端**：
 
-1. **设备录音**：`voice_record {name}`，设备提示用户对玩具说话 10 秒，
-   设备自己上传阿里云并生成音色。
-2. **上传 WAV**：小程序解析 WAV → 16kHz 单声道 PCM16 → BLE 分片上传。
+1. **设备录音**。设备提示用户对玩具说话，再上传阿里云创建音色。
+2. **手机录音或选择 WAV**。小程序将 WAV 转为 16 kHz 单声道 PCM16，通过 BLE 分片传给玩具，由玩具上传创建。
 
 上传协议：
 
@@ -338,19 +348,18 @@ UTF-8 JSON + `\n` 行分隔。**一个 JSON 对象一行，不允许跨行。**
 
 顺序（与网页版定稿一致）：
 
-1. `checking`：校验在线状态与云端 Key；
-2. `deleting_cloud`：逐个删除云端复刻音色（`current/total` 为进度）；
-3. `clearing_local`：删除本地复刻记录；
-4. `clearing_wifi`：最后清除 Wi-Fi；
-5. `rebooting`：重启。
+1. `checking` 阶段先检查设备状态与本地音色记录。无云音色清理任务时可离线完成。
+2. `deleting_cloud` 阶段清理本机云端复刻音色，`current/total` 报告进度。
+3. `clearing_local` 和 `clearing_onboarding` 阶段清理本机音色记录与引导进度。
+4. `clearing_wifi` 阶段最后清除 Wi-Fi，然后报告 `rebooting` 并重启。
 
-任一步失败立即中止并保留 Wi-Fi，推 `phase=failed`。
-小程序在 `rebooting` 或连接断开后视为成功，回到连接页。
+云音色清理失败时保留 Wi-Fi 并报告 `failed`。已成功删除的云端条目不会恢复。
+小程序在收到 `rebooting` 后报告成功。若蓝牙先断开，界面报告结果未确认。
 
 ## 7. 云能力（未接线）
 
 `wzh-miniprogram/docs/cloud-api.md` 与 `services/cloud.js` 是早期云端占位，
-当前小程序**不调用**：录音与上传都由设备完成，设备持有阿里云 Key。
+当前小程序不调用这套接口。阿里云 Key 及上传云端的流程由设备持有和执行。
 如未来改回“手机上传云端”，需要重新设计 `voice_create` 并升 proto。
 
 ## 8. 错误码

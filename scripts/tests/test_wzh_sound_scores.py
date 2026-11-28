@@ -72,7 +72,7 @@ int main(){
 }
 '''.replace('#include <cstdio>','#include <cstdio>\n#include <string>'))
 
-    def test_every_sensor_has_two_real_pack_files(self):
+    def test_every_sensor_has_a_bounded_varied_real_sound_pool(self):
         manifest = json.loads((ROOT/'docs/wzh/data/sound_pack.json').read_text())
         for product in ['crawling_panda','dinosaur']:
             entries = ['{'+json.dumps(f['name'],ensure_ascii=False)+'}' for f in manifest
@@ -94,7 +94,7 @@ int main(){
             selector.Remember(files[first].name);
             int second=selector.Select(files,interaction,random);assert(second>=0&&second!=first);
         }
-        assert(choices.size()==2);
+        assert(choices.size()>=2&&choices.size()<=5);
     }
 }
 '''.replace('__FILES__',','.join(entries)))
@@ -120,9 +120,23 @@ int main(){
     assert(!motion.Update(sound,PetMechanism::kTail,rest,6000,out,powered)||out==rest);
     AutoplayCadence cadence;uint32_t now=UINT32_MAX-5000;
     assert(!cadence.Due(now,true,0));
-    assert(!cadence.Due(now+1799,true,0));assert(cadence.Due(now+1800,true,0));
-    assert(!cadence.Due(now+10000,false,0));
-    assert(!cadence.Due(now+11799,true,0));assert(cadence.Due(now+11800,true,0));
+    cadence.ObservePlayback(now,false);
+    assert(!cadence.Due(now+1999,true,0));assert(cadence.Due(now+2000,true,0));
+    cadence.ObservePlayback(now+2000,true);
+    assert(!cadence.Due(now+8000,true,0));
+    cadence.ObservePlayback(now+8000,false);
+    assert(!cadence.Due(now+9999,true,0));assert(cadence.Due(now+10000,true,0));
+    cadence.SetPaused(now+10000,true);
+    assert(!cadence.Due(now+140000,true,0));
+    cadence.SetPaused(now+150000,false);
+    assert(cadence.InShow());
+    assert(!cadence.Due(now+260000,true,0));
+    assert(!cadence.InShow() && !cadence.Legacy());
+    assert(cadence.Due(now+290000,true,0));
+    cadence.Due(now+440000,true,0);
+    assert(cadence.Legacy());
+    cadence.Engage(now+440000,0,true);
+    assert(cadence.InShow() && !cadence.Due(now+440001,true,0));
     uint8_t p60[]={24},p20[]={0x98},p120[]={25},bad[]={3,0};
     assert(OpusPacketDurationMs(p60,1)==60&&OpusPacketDurationMs(p20,1)==20);
     assert(OpusPacketDurationMs(p120,1)==120);

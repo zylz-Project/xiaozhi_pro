@@ -127,6 +127,13 @@ struct DebugStatistics {
 struct PlaybackBufferStatus {
     uint32_t decode_packets = 0, pcm_frames = 0, buffered_ms = 0;
     uint32_t rebuffer_count = 0, queue_full_count = 0;
+    int64_t first_output_ms = 0;
+    int64_t gap_ms = 0;
+    uint32_t longest_write_ms = 0, long_write_count = 0;
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    uint32_t decode_pending_rebuffers = 0, late_write_count = 0, short_write_count = 0;
+    uint32_t encode_drop_count = 0;
+#endif
 };
 
 class AudioService {
@@ -144,8 +151,11 @@ public:
 #if CONFIG_USE_VOICE_BARGE_IN
     bool BeginVoiceInterruption();
     bool IsVoiceInterruptionMonitoring();
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    uint32_t NoteVoiceInterruptionKeyword();
+#endif
     bool IsVoiceInterruptionPending(uint32_t token);
-#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR || CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
     struct BargeInDiagnostics {
         bool pending = false;
         bool vad = false;
@@ -161,7 +171,12 @@ public:
 #endif
     bool IsIdle();
     bool IsPlaybackIdle();
+    bool IsPlaybackIdleForTelemetry();
     PlaybackBufferStatus GetPlaybackBufferStatus();
+    void ConfigureExternalSpeechPlayout(uint32_t generation);
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    void ConfigureServerSpeechPlayout();
+#endif
     bool IsWakeWordRunning() const {
         return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING;
     }
@@ -204,7 +219,7 @@ public:
         return playback_drained_count_.load(std::memory_order_relaxed);
     }
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
-    void ResetDecoder();
+    void ResetDecoder(std::optional<uint32_t> expected_generation = std::nullopt);
     void FinishPlayback(std::optional<uint32_t> expected_generation = std::nullopt);
     void SetModelsList(srmodel_list_t* models_list);
 
@@ -246,6 +261,12 @@ private:
     TaskHandle_t audio_output_task_handle_ = nullptr;
     TaskHandle_t opus_codec_task_handle_ = nullptr;
     std::mutex audio_queue_mutex_;
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    bool separate_encoder_ = false;  // Protected by audio_queue_mutex_.
+    std::condition_variable audio_encode_cv_;
+#else
+    static constexpr bool separate_encoder_ = false;
+#endif
 #if CONFIG_AUDIO_PRODUCT_QUALITY
     bool finish_requested_ = false, cancel_fade_requested_ = false;
 #endif
@@ -278,6 +299,11 @@ private:
     bool audio_engine_initialized_ = false;
     std::atomic<bool> voice_detected_{false};
 #if CONFIG_USE_VOICE_BARGE_IN
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    // Acquire first when capture changes also require the audio queue lock.
+    // Begin, commit and cancel hold both locks to publish monitoring state.
+    std::mutex voice_barge_mutex_;
+#endif
     VoiceBargeIn voice_barge_in_;
 #if CONFIG_WZH_DINO_KEYWORD_BARGE_IN
     // MultiNet reports after hearing the phrase; retain its beginning while
@@ -310,12 +336,17 @@ private:
     void AudioInputTask();
     void AudioOutputTask();
     void OpusCodecTask();
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    void AudioEncoderTask();
+#endif
+    void EncodeAudioFrame(AudioTask& task);
     void PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm);
     bool InitializeAudioEngine();
     bool SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckAndUpdateAudioPowerState();
     bool IsPlaybackDrainedLocked() const;
     bool MarkPlaybackDrainedLocked();
+    uint32_t DecodedPlaybackMsLocked() const;
     uint32_t BufferedPlaybackMsLocked() const;
 };
 

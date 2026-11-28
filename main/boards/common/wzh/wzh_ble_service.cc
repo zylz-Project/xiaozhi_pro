@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,12 +36,14 @@
 #include "application.h"
 #include "audio_codec.h"
 #include "board.h"
+#include "ssid_manager.h"
 #include "voice_tts/voice_config.h"
 #include "voice_tts/voice_identity.h"
 #include "voice_tts/voice_manager.h"
 #include "voice_tts/voice_names.h"
 #include "voice_tts/voice_web.h"
 #include "wifi_manager.h"
+#include "wzh_ble_frame.h"
 #include "wzh_ble_rx_stream.h"
 #include "wzh_onboarding.h"
 #include "wzh_onboarding_store.h"
@@ -55,7 +58,10 @@ namespace {
 const char* const kTag = "WzhBle";
 
 constexpr uint16_t kPreferredMtu = 247;
-constexpr size_t kMaxFrame = 4096;
+struct RxFragment {
+    uint32_t generation;
+    uint8_t bytes[512];
+};
 constexpr size_t kMaxChunkBytes = 2048;
 constexpr int kVoiceCapacity = 10;
 constexpr int kMinPcmBytes = 160000;  // 5 s at 16 kHz mono PCM16
@@ -90,25 +96,35 @@ int Base64Value(char c) {
     return -1;
 }
 
-bool Base64Decode(const std::string& input, std::vector<uint8_t>& output) {
-    output.clear();
-    output.reserve(input.size() * 3 / 4 + 3);
-    uint32_t value = 0;
-    int bits = -8;
-    for (char c : input) {
-        if (c == '=')
-            break;
-        if (c == '\r' || c == '\n' || c == ' ')
-            continue;
-        int digit = Base64Value(c);
-        if (digit < 0)
+bool Base64Decode(std::string_view input, uint8_t* output, size_t capacity, size_t& written) {
+    written = 0;
+    if (input.empty() || input.size() % 4 != 0)
+        return false;
+    for (size_t i = 0; i < input.size(); i += 4) {
+        const int a = Base64Value(input[i]);
+        const int b = Base64Value(input[i + 1]);
+        const int c = Base64Value(input[i + 2]);
+        const int d = Base64Value(input[i + 3]);
+        if (a < 0 || b < 0)
             return false;
-        value = (value << 6) | static_cast<uint32_t>(digit);
-        bits += 6;
-        if (bits >= 0) {
-            output.push_back(static_cast<uint8_t>((value >> bits) & 0xFF));
-            bits -= 8;
+        size_t bytes = 3;
+        if (c < 0 || d < 0) {
+            if (i + 4 != input.size() || input[i + 3] != '=')
+                return false;
+            if (c >= 0 && (c & 3) == 0)
+                bytes = 2;
+            else if (input[i + 2] == '=' && (b & 15) == 0)
+                bytes = 1;
+            else
+                return false;
         }
+        if (bytes > capacity - written)
+            return false;
+        output[written++] = static_cast<uint8_t>((a << 2) | (b >> 4));
+        if (bytes > 1)
+            output[written++] = static_cast<uint8_t>((b << 4) | (c >> 2));
+        if (bytes > 2)
+            output[written++] = static_cast<uint8_t>((c << 6) | d);
     }
     return true;
 }
@@ -211,9 +227,11 @@ int VoiceErrorCode(VoiceOperation result) {
     }
 }
 
-struct WifiWatchArgs {
+struct WifiConnectArgs {
     wzh::BleService* service;
     std::string ssid;
+    std::string password;
+    uint32_t generation;
 };
 
 struct VoiceWatchArgs {
@@ -242,14 +260,14 @@ bool BleService::Prepare() {
     const std::string prefix = config_.name_prefix.empty() ? "WZH" : config_.name_prefix;
     adv_name_ = prefix + "-" + suffix;
 
-    if (stream_ == nullptr) {
+    if (rx_messages_ == nullptr) {
         bool external = false;
-        stream_ = CreateBleRxStream(8192, external);
-        if (stream_ != nullptr) {
+        rx_messages_ = CreateBleRxBuffer(8192, external);
+        if (rx_messages_ != nullptr) {
             ESP_LOGI(kTag, "BLE 接收缓冲: %s, capacity=8192", external ? "PSRAM" : "internal");
         }
     }
-    if (stream_ == nullptr) {
+    if (rx_messages_ == nullptr) {
         ESP_LOGE(kTag, "BLE 接收缓冲创建失败");
         return false;
     }
@@ -264,6 +282,15 @@ bool BleService::Prepare() {
     if (free_dma < 80 * 1024 || largest_dma < 32 * 1024) {
         ESP_LOGE(kTag, "BLE 未初始化：内部 DMA 内存不足，保持设备运行");
         return false;
+    }
+
+    if (rx_frame_storage_ == nullptr) {
+        rx_frame_storage_ = static_cast<char*>(
+            heap_caps_malloc(BleFrame::kMaxBytes + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (rx_frame_storage_ == nullptr) {
+            ESP_LOGE(kTag, "BLE 帧缓冲 PSRAM 不足");
+            return false;
+        }
     }
 
     // This worker can write NVS, so its stack must remain in internal RAM.
@@ -414,6 +441,7 @@ int BleService::GapEvent(struct ble_gap_event* event, void* arg) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status == 0) {
+                self->mtu_.store(23);
                 self->conn_handle_.store(event->connect.conn_handle);
                 NotifyOnboarding(OnboardingEvent::kBleConnected);
                 ESP_LOGI(kTag, "手机已连接，conn=%u", event->connect.conn_handle);
@@ -424,6 +452,7 @@ int BleService::GapEvent(struct ble_gap_event* event, void* arg) {
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(kTag, "手机断开，reason=%d", event->disconnect.reason);
             self->conn_handle_.store(0xFFFF);
+            self->rx_generation_.fetch_add(1);
             NotifyOnboarding(OnboardingEvent::kBleDisconnected);
             self->ResetSession();
             self->StartAdvertising();
@@ -445,90 +474,68 @@ int BleService::GapEvent(struct ble_gap_event* event, void* arg) {
     return 0;
 }
 
-int BleService::GattAccess(uint16_t, uint16_t, struct ble_gatt_access_ctxt* ctxt, void*) {
+int BleService::GattAccess(uint16_t conn_handle, uint16_t, struct ble_gatt_access_ctxt* ctxt,
+                           void*) {
     auto* self = g_instance;
-    if (self == nullptr || ctxt == nullptr)
+    if (self == nullptr || ctxt == nullptr || conn_handle != self->conn_handle_.load() ||
+        ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
         return BLE_ATT_ERR_UNLIKELY;
-    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR)
-        return BLE_ATT_ERR_UNLIKELY;
+    }
 
-    uint8_t buffer[512];
+    RxFragment fragment;
+    fragment.generation = self->rx_generation_.load();
     uint16_t length = 0;
-    int rc = ble_hs_mbuf_to_flat(ctxt->om, buffer, sizeof(buffer), &length);
-    if (rc != 0)
+    const int result =
+        ble_hs_mbuf_to_flat(ctxt->om, fragment.bytes, sizeof(fragment.bytes), &length);
+    if (result != 0)
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     if (length == 0)
         return 0;
-    if (xStreamBufferSend(self->stream_, buffer, length, 0) != length) {
+    const size_t bytes = offsetof(RxFragment, bytes) + length;
+    // A GATT write is accepted in full or rejected in full. In particular a
+    // retry after a full queue must not append half of the same fragment twice.
+    if (xMessageBufferSend(self->rx_messages_, &fragment, bytes, 0) != bytes)
         return BLE_ATT_ERR_INSUFFICIENT_RES;
-    }
     return 0;
 }
 
 void BleService::WorkerTask(void* arg) {
     auto* self = static_cast<BleService*>(arg);
-    uint8_t buffer[256];
+    BleFrame frame(self->rx_frame_storage_);
+    uint32_t generation = self->rx_generation_.load();
+    RxFragment fragment;
     while (true) {
-        size_t received =
-            xStreamBufferReceive(self->stream_, buffer, sizeof(buffer), portMAX_DELAY);
-        if (received == 0)
+        const size_t received =
+            xMessageBufferReceive(self->rx_messages_, &fragment, sizeof(fragment), portMAX_DELAY);
+        const auto current = self->rx_generation_.load();
+        if (current != generation) {
+            frame.Reset();
+            generation = current;
+        }
+        self->request_generation_ = generation;
+        constexpr auto kHeaderBytes = offsetof(RxFragment, bytes);
+        if (received <= kHeaderBytes || fragment.generation != generation)
             continue;
-        {
-            std::lock_guard<std::mutex> lock(self->rx_mutex_);
-            self->rx_buffer_.append(reinterpret_cast<const char*>(buffer), received);
-            if (self->rx_buffer_.size() > 32768)
-                self->rx_buffer_.clear();
-        }
-        while (self->ProcessIncoming()) {
-            // Yield between batches so a burst of tiny frames cannot starve the
-            // NimBLE host task; the remaining newline-terminated lines are
-            // drained on the next iteration.
-            vTaskDelay(1);
-        }
-    }
-}
-
-bool BleService::ProcessIncoming() {
-    std::vector<std::string> lines;
-    bool more = false;
-    {
-        std::lock_guard<std::mutex> lock(rx_mutex_);
-        size_t position = 0;
-        while ((position = rx_buffer_.find('\n')) != std::string::npos) {
-            std::string line = rx_buffer_.substr(0, position);
-            rx_buffer_.erase(0, position + 1);
-            if (!line.empty() && line.back() == '\r')
-                line.pop_back();
-            if (!line.empty())
-                lines.push_back(std::move(line));
-            if (lines.size() >= 8) {
-                more = rx_buffer_.find('\n') != std::string::npos;
+        for (size_t index = 0; index < received - kHeaderBytes; ++index) {
+            if (generation != self->rx_generation_.load() || self->conn_handle_.load() == 0xFFFF)
                 break;
+            switch (frame.Feed(fragment.bytes[index])) {
+                case BleFrame::Result::kReady:
+                    self->HandleLine(self->rx_frame_storage_);
+                    break;
+                case BleFrame::Result::kRejected:
+                    self->SendError(0, 1001, "帧过长或格式错误");
+                    break;
+                case BleFrame::Result::kPending:
+                    break;
             }
         }
+        // Allow the host to process writes even when several frames arrived together.
+        taskYIELD();
     }
-    for (const auto& line : lines) {
-        if (line.size() > kMaxFrame) {
-            SendError(0, 1001, "帧过长");
-            continue;
-        }
-        HandleLine(line);
-    }
-    // HandleLine can take long enough for a new write to append a complete
-    // line after the batch above was captured. Re-check under the lock so the
-    // worker drains it instead of blocking in xStreamBufferReceive with a
-    // complete frame stranded in rx_buffer_.
-    std::lock_guard<std::mutex> lock(rx_mutex_);
-    return more || rx_buffer_.find('\n') != std::string::npos;
 }
 
-void BleService::ResetSession() {
-    {
-        std::lock_guard<std::mutex> lock(rx_mutex_);
-        rx_buffer_.clear();
-    }
-    ReleaseUpload();
-}
+void BleService::ResetSession() { ReleaseUpload(); }
 
 void BleService::ReleaseUpload() {
     std::lock_guard<std::mutex> lock(upload_mutex_);
@@ -542,10 +549,12 @@ void BleService::ReleaseUpload() {
     upload_name_.clear();
 }
 
-void BleService::Notify(const std::string& payload) {
+void BleService::Notify(std::string_view payload) {
+    const auto generation =
+        xTaskGetCurrentTaskHandle() == worker_ ? request_generation_ : rx_generation_.load();
     std::lock_guard<std::mutex> lock(tx_mutex_);
-    uint16_t conn = conn_handle_.load();
-    if (!started_.load() || conn == 0xFFFF)
+    const uint16_t conn = conn_handle_.load();
+    if (!started_.load() || conn == 0xFFFF || generation != rx_generation_.load())
         return;
 
     uint16_t mtu = mtu_.load();
@@ -556,6 +565,8 @@ void BleService::Notify(const std::string& payload) {
         fragment = 20;
 
     for (size_t offset = 0; offset < payload.size(); offset += fragment) {
+        if (generation != rx_generation_.load() || conn != conn_handle_.load())
+            break;
         size_t length = std::min(fragment, payload.size() - offset);
         struct os_mbuf* om = ble_hs_mbuf_from_flat(payload.data() + offset, length);
         if (om == nullptr) {
@@ -573,17 +584,25 @@ void BleService::Notify(const std::string& payload) {
     }
 }
 
+void BleService::SendJson(cJSON* envelope) {
+    char* text = cJSON_PrintUnformatted(envelope);
+    cJSON_Delete(envelope);
+    if (text != nullptr) {
+        // Reuse the terminating byte for the wire delimiter instead of making
+        // a second copy of the response just to add a newline.
+        const size_t length = std::strlen(text);
+        text[length] = '\n';
+        Notify(std::string_view(text, length + 1));
+        cJSON_free(text);
+    }
+}
+
 void BleService::SendResponse(int id, cJSON* data) {
     cJSON* out = cJSON_CreateObject();
     cJSON_AddNumberToObject(out, "id", id);
     cJSON_AddBoolToObject(out, "ok", 1);
     cJSON_AddItemToObject(out, "data", data != nullptr ? data : cJSON_CreateObject());
-    char* text = cJSON_PrintUnformatted(out);
-    if (text != nullptr) {
-        Notify(std::string(text) + "\n");
-        cJSON_free(text);
-    }
-    cJSON_Delete(out);
+    SendJson(out);
 }
 
 void BleService::SendError(int id, int code, const char* message) {
@@ -594,29 +613,20 @@ void BleService::SendError(int id, int code, const char* message) {
     cJSON_AddNumberToObject(error, "code", code);
     cJSON_AddStringToObject(error, "message", message != nullptr ? message : "");
     cJSON_AddItemToObject(out, "error", error);
-    char* text = cJSON_PrintUnformatted(out);
-    if (text != nullptr) {
-        Notify(std::string(text) + "\n");
-        cJSON_free(text);
-    }
-    cJSON_Delete(out);
+    SendJson(out);
 }
 
 void BleService::SendEvent(const char* event, cJSON* data) {
     cJSON* out = cJSON_CreateObject();
     cJSON_AddStringToObject(out, "event", event);
     cJSON_AddItemToObject(out, "data", data != nullptr ? data : cJSON_CreateObject());
-    char* text = cJSON_PrintUnformatted(out);
-    if (text != nullptr) {
-        Notify(std::string(text) + "\n");
-        cJSON_free(text);
-    }
-    cJSON_Delete(out);
+    SendJson(out);
 }
 
-void BleService::HandleLine(const std::string& line) {
-    cJSON* root = cJSON_Parse(line.c_str());
-    if (root == nullptr) {
+void BleService::HandleLine(const char* line) {
+    cJSON* root = cJSON_ParseWithOpts(line, nullptr, true);
+    if (!cJSON_IsObject(root)) {
+        cJSON_Delete(root);
         SendError(0, 1001, "帧格式错误");
         return;
     }
@@ -626,6 +636,15 @@ void BleService::HandleLine(const std::string& line) {
     if (data != nullptr && !cJSON_IsObject(data))
         data = nullptr;
 
+#if CONFIG_WZH_IDLE_POWER_ENABLE
+    // Status polling and transport keepalives do not count as interaction.
+    if (op == "chat_start" || op == "chat_stop" || op == "set_volume" || op == "set_voice" ||
+        op == "audition" || op == "audition_stop" || op == "voice_restore" ||
+        op == "voice_record" || op == "voice_upload_begin" || op == "voice_upload_chunk" ||
+        op == "wifi_scan" || op == "wifi_connect" || op == "reset_factory") {
+        NoteIdlePowerInteraction();
+    }
+#endif
     if (op.empty()) {
         SendError(id, 1002, "未知操作");
     } else if (op == "hello") {
@@ -645,8 +664,39 @@ void BleService::HandleLine(const std::string& line) {
         HandleSetVolume(id, data);
     } else if (op == "set_voice") {
         HandleSetVoice(id, data);
+    } else if (op == "voice_restore") {
+        auto& app = Application::GetInstance();
+        if (Board::GetInstance().IsAudioMaintenanceActive() || VoiceManagementBusy() ||
+            app.IsVoiceEnrollmentActive() || app.IsExternalVoicePreviewActive()) {
+            SendError(id, 1010, "声音服务正在处理，请稍后重试");
+        } else {
+            auto result = voice_tts::RestoreManagedVoice();
+            if (result == VoiceOperation::kOk)
+                SendResponse(id, BuildVoiceList());
+            else
+                SendError(id, VoiceErrorCode(result), "暂无可切回的音色或保存失败");
+        }
     } else if (op == "audition") {
         HandleAudition(id, data);
+    } else if (op == "audition_status") {
+        auto& app = Application::GetInstance();
+        cJSON* out = cJSON_CreateObject();
+        cJSON_AddNumberToObject(out, "request", app.ExternalVoicePreviewRequest());
+        cJSON_AddStringToObject(out, "status", app.ExternalVoicePreviewStatus());
+        SendResponse(id, out);
+    } else if (op == "audition_stop") {
+        const auto* request = cJSON_GetObjectItem(data, "request");
+        if (!cJSON_IsNumber(request) ||
+            !(request->valuedouble >= 1 && request->valuedouble <= UINT32_MAX) ||
+            request->valuedouble != static_cast<uint32_t>(request->valuedouble) ||
+            !Application::GetInstance().RequestCancelExternalVoicePreview(
+                static_cast<uint32_t>(request->valuedouble))) {
+            SendError(id, 1010, "这次试听已结束");
+        } else {
+            cJSON* out = cJSON_CreateObject();
+            cJSON_AddBoolToObject(out, "accepted", true);
+            SendResponse(id, out);
+        }
     } else if (op == "voice_list") {
         HandleVoiceList(id);
     } else if (op == "voice_rename") {
@@ -655,11 +705,24 @@ void BleService::HandleLine(const std::string& line) {
         HandleVoiceDelete(id, data);
     } else if (op == "voice_record") {
         HandleVoiceRecord(id, data);
+    } else if (op == "voice_record_cancel") {
+        const auto* item = cJSON_GetObjectItemCaseSensitive(data, "request");
+        constexpr double kMaxRequest = UINT32_MAX;
+        if (!cJSON_IsNumber(item) || !(item->valuedouble > 0 && item->valuedouble <= kMaxRequest) ||
+            item->valuedouble != static_cast<uint32_t>(item->valuedouble)) {
+            SendError(id, 1003, "录音编号无效");
+        } else if (!Application::GetInstance().RequestCancelDeviceVoiceEnrollment(
+                       static_cast<uint32_t>(item->valuedouble))) {
+            SendError(id, 1010, "录音已结束或正在生成音色");
+        } else {
+            SendResponse(id, nullptr);
+        }
     } else if (op == "voice_record_status") {
         auto& app = Application::GetInstance();
         cJSON* out = cJSON_CreateObject();
         const char* status = app.DeviceVoiceEnrollmentStatus();
         cJSON_AddStringToObject(out, "status", status);
+        cJSON_AddNumberToObject(out, "request", app.DeviceVoiceEnrollmentRequest());
         const char* reason = app.DeviceVoiceEnrollmentFailure();
         if (reason != nullptr && reason[0] != '\0')
             cJSON_AddStringToObject(out, "reason", reason);
@@ -678,6 +741,16 @@ void BleService::HandleLine(const std::string& line) {
         HandleWifiStatus(id);
     } else if (op == "wifi_connect") {
         HandleWifiConnect(id, data);
+    } else if (op == "guide_complete") {
+        const auto* epoch = cJSON_GetObjectItemCaseSensitive(data, "epoch");
+        if (!cJSON_IsNumber(epoch) || !(epoch->valuedouble >= 0 && epoch->valuedouble <= UINT32_MAX) ||
+            epoch->valuedouble != static_cast<uint32_t>(epoch->valuedouble)) {
+            SendError(id, 1003, "引导会话无效，请重新连接设备");
+        } else if (!MarkMiniProgramGuideDone(static_cast<uint32_t>(epoch->valuedouble))) {
+            SendError(id, 1011, "设备未保存引导状态，请重试");
+        } else {
+            SendResponse(id, nullptr);
+        }
     } else if (op == "reset_factory") {
         HandleResetFactory(id);
     } else if (op == "voice_create") {
@@ -773,6 +846,10 @@ void BleService::HandleAudition(int id, cJSON* data) {
         SendError(id, 1008, "音色不存在");
         return;
     }
+    if (voice_id == voice_tts::kNativeVoiceId) {
+        SendError(id, 1010, "小智原声会在正常对话中播放");
+        return;
+    }
     auto& app = Application::GetInstance();
     if (app.GetDeviceState() != kDeviceStateIdle) {
         SendError(id, 1010, "设备正在对话或连接中");
@@ -784,6 +861,7 @@ void BleService::HandleAudition(int id, cJSON* data) {
     }
     cJSON* out = cJSON_CreateObject();
     cJSON_AddBoolToObject(out, "accepted", 1);
+    cJSON_AddNumberToObject(out, "request", app.ExternalVoicePreviewRequest());
     SendResponse(id, out);
 }
 
@@ -870,6 +948,7 @@ void BleService::HandleVoiceRecord(int id, cJSON* data) {
     }
     cJSON* out = cJSON_CreateObject();
     cJSON_AddBoolToObject(out, "accepted", 1);
+    cJSON_AddNumberToObject(out, "request", app.DeviceVoiceEnrollmentRequest());
     cJSON_AddStringToObject(out, "name", name.c_str());
     SendResponse(id, out);
 }
@@ -898,8 +977,6 @@ void BleService::HandleUploadBegin(int id, cJSON* data) {
     size_t size = 1 + name.size() + static_cast<size_t>(bytes);
     uint8_t* buffer =
         static_cast<uint8_t*>(heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (buffer == nullptr)
-        buffer = static_cast<uint8_t*>(malloc(size));
     if (buffer == nullptr) {
         SendError(id, 1000, "设备内存不足");
         return;
@@ -919,37 +996,45 @@ void BleService::HandleUploadBegin(int id, cJSON* data) {
 }
 
 void BleService::HandleUploadChunk(int id, cJSON* data) {
-    std::string encoded = JsonString(data, "data");
-    if (encoded.empty()) {
+    const auto* item = cJSON_GetObjectItemCaseSensitive(data, "data");
+    if (!cJSON_IsString(item) || item->valuestring[0] == '\0') {
         SendError(id, 1003, "缺少音频数据");
         return;
     }
-    std::vector<uint8_t> chunk;
-    if (!Base64Decode(encoded, chunk) || chunk.empty()) {
-        SendError(id, 1003, "音频数据格式错误");
-        return;
-    }
-    if (chunk.size() > kMaxChunkBytes) {
+    const std::string_view encoded(item->valuestring);
+    if (encoded.size() > ((kMaxChunkBytes + 2) / 3) * 4) {
         SendError(id, 1003, "单块数据过大");
         return;
     }
-
-    std::lock_guard<std::mutex> lock(upload_mutex_);
-    if (upload_buffer_ == nullptr) {
-        SendError(id, 1003, "尚未开始上传");
+    size_t received = 0, total = 0;
+    const char* failure = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(upload_mutex_);
+        if (!upload_buffer_) {
+            failure = "尚未开始上传";
+        } else {
+            const size_t header = 1 + upload_name_.size();
+            size_t count = 0;
+            const size_t remaining = std::min(kMaxChunkBytes, upload_total_ - upload_offset_);
+            if (!Base64Decode(encoded, upload_buffer_ + header + upload_offset_, remaining,
+                              count)) {
+                // Invalid chunks can only touch the uncommitted tail; offset
+                // stays unchanged and a valid retry replaces it in full.
+                failure = "音频数据格式错误或超出声明长度";
+            } else {
+                upload_offset_ += count;
+                received = upload_offset_;
+                total = upload_total_;
+            }
+        }
+    }
+    if (failure) {
+        SendError(id, 1003, failure);
         return;
     }
-    if (upload_offset_ + chunk.size() > upload_total_) {
-        SendError(id, 1003, "音频数据超出声明长度");
-        return;
-    }
-    size_t header = 1 + upload_name_.size();
-    memcpy(upload_buffer_ + header + upload_offset_, chunk.data(), chunk.size());
-    upload_offset_ += chunk.size();
-
     cJSON* out = cJSON_CreateObject();
-    cJSON_AddNumberToObject(out, "received", upload_offset_);
-    cJSON_AddNumberToObject(out, "total", upload_total_);
+    cJSON_AddNumberToObject(out, "received", received);
+    cJSON_AddNumberToObject(out, "total", total);
     SendResponse(id, out);
 }
 
@@ -994,6 +1079,10 @@ void BleService::HandleUploadCancel(int id) {
 }
 
 void BleService::HandleWifiScan(int id) {
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    if (Board::GetInstance().UsesCellularNetwork())
+        WifiManager::GetInstance().StartStation();
+#endif
     std::vector<wifi_ap_record_t> records;
     esp_err_t err = WifiManager::GetInstance().ScanNetworks(records, 12000);
     if (err != ESP_OK) {
@@ -1065,21 +1154,17 @@ void BleService::HandleWifiConnect(int id, cJSON* data) {
         SendError(id, 1005, "Wi-Fi 密码需为 8 到 63 位");
         return;
     }
-    if (!WifiManager::GetInstance().ConnectTo(ssid, password)) {
-        SendError(id, 1005, "Wi-Fi 切换失败，请稍后重试");
+    if (Board::GetInstance().IsAudioMaintenanceActive() || wifi_connecting_.exchange(true)) {
+        SendError(id, 1010, "设备正在配网或维护，请稍后重试");
         return;
     }
-    NotifyOnboarding(OnboardingEvent::kWifiRequest);
-
-    auto* args = new WifiWatchArgs{this, ssid};
-    if (xTaskCreate(
-            [](void* arg) {
-                WifiWatchTask(arg);
-                vTaskDelete(nullptr);
-            },
-            "wzh_ble_wifi", 3072, args, 3, nullptr) != pdPASS) {
+    auto* args =
+        new (std::nothrow) WifiConnectArgs{this, ssid, std::move(password), request_generation_};
+    if (!args || xTaskCreate(WifiConnectTask, "wzh_ble_wifi", 5120, args, 3, nullptr) != pdPASS) {
         delete args;
-        ESP_LOGW(kTag, "Wi-Fi 状态任务创建失败");
+        wifi_connecting_.store(false);
+        SendError(id, 1010, "设备内存不足，无法开始连接");
+        return;
     }
 
     cJSON* out = cJSON_CreateObject();
@@ -1089,6 +1174,10 @@ void BleService::HandleWifiConnect(int id, cJSON* data) {
 }
 
 void BleService::HandleResetFactory(int id) {
+    if (wifi_connecting_.load()) {
+        SendError(id, 1010, "正在连接网络，请稍后重试");
+        return;
+    }
     if (config_.console == nullptr) {
         SendError(id, 1011, "恢复出厂服务不可用");
         return;
@@ -1125,6 +1214,8 @@ cJSON* BleService::BuildDeviceObject() {
     cJSON_AddStringToObject(device, "productId", config_.product_id.c_str());
     cJSON_AddStringToObject(device, "name", adv_name_.c_str());
     cJSON_AddStringToObject(device, "model", config_.model.c_str());
+    cJSON_AddStringToObject(device, "identity", Board::GetInstance().GetUuid().c_str());
+    cJSON_AddNumberToObject(device, "guide_epoch", GetOnboardingEpoch());
     const esp_app_desc_t* desc = esp_app_get_description();
     cJSON_AddStringToObject(device, "firmware", desc != nullptr ? desc->version : "");
     cJSON* fixed = cJSON_CreateArray();
@@ -1154,15 +1245,17 @@ cJSON* BleService::BuildDeviceObject() {
 cJSON* BleService::BuildStatusObject() {
     cJSON* status = cJSON_CreateObject();
     if (config_.console != nullptr) {
-        config_.console->BuildStatus(status);
-        // The voice list travels over `voice_list`; keep the periodic status
-        // frame small for BLE MTU and JSON parse cost.
-        cJSON_DeleteItemFromObject(status, "voice_catalog");
+        config_.console->BuildStatus(status, false);
     } else {
         cJSON_AddStringToObject(status, "state",
                                 StateName(Application::GetInstance().GetDeviceState()));
     }
+    // Periodic polling must not allocate and discard the full voice catalog.
+    VoiceManagement().AddStatus(status, false);
     cJSON_AddStringToObject(status, "startup_notice", StartupProtectionMessage());
+    bool guide_done = false;
+    if (ReadMiniProgramGuideDone(guide_done))
+        cJSON_AddBoolToObject(status, "guide_done", guide_done);
     OnboardingProgress progress;
     if (PeekOnboardingProgress(progress)) {
         cJSON* onboarding = cJSON_CreateObject();
@@ -1188,7 +1281,12 @@ cJSON* BleService::BuildStatusObject() {
         wifi = cJSON_CreateObject();
         cJSON_AddItemToObject(status, "wifi", wifi);
     }
+    cJSON_DeleteItemFromObject(wifi, "connected");
+    cJSON_DeleteItemFromObject(wifi, "ssid");
+    cJSON_DeleteItemFromObject(wifi, "rssi");
     cJSON_AddBoolToObject(wifi, "connected", connected);
+    cJSON_AddBoolToObject(wifi, "configured", SsidManager::GetInstance().HasSavedNetwork());
+    cJSON_AddBoolToObject(wifi, "provisioning", wifi_connecting_.load());
     cJSON_AddStringToObject(wifi, "ssid", ssid.c_str());
     cJSON_AddNumberToObject(wifi, "rssi", rssi);
     cJSON_AddStringToObject(wifi, "band", BandText(channel).c_str());
@@ -1196,16 +1294,19 @@ cJSON* BleService::BuildStatusObject() {
     cJSON_AddNumberToObject(wifi, "bars", SignalBars(rssi));
     cJSON_AddNumberToObject(wifi, "latency", 0);
 
-    int battery = 0;
+    int battery = -1;
     bool charging = false;
     cJSON* battery_item = cJSON_GetObjectItem(status, "battery");
     if (battery_item != nullptr && cJSON_IsObject(battery_item)) {
-        battery = JsonInt(battery_item, "level", 0);
+        battery = JsonInt(battery_item, "level", -1);
         cJSON* charging_item = cJSON_GetObjectItem(battery_item, "charging");
         charging = cJSON_IsTrue(charging_item);
-        cJSON_DeleteItemFromObject(status, "battery");
     }
-    cJSON_AddNumberToObject(status, "battery", battery);
+    cJSON_DeleteItemFromObject(status, "battery");
+    if (battery >= 0)
+        cJSON_AddNumberToObject(status, "battery", battery);
+    else
+        cJSON_AddNullToObject(status, "battery");
     cJSON_AddBoolToObject(status, "charging", charging);
 
     double temperature = 0;
@@ -1227,7 +1328,13 @@ cJSON* BleService::BuildStatusObject() {
     cJSON_AddNumberToObject(status, "runtimeMinutes", runtime_minutes);
     cJSON_AddStringToObject(status, "runtime", RuntimeText(runtime_minutes).c_str());
 
-    cJSON_AddBoolToObject(status, "online", connected);
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    auto& board = Board::GetInstance();
+    const bool online = board.UsesCellularNetwork() ? board.IsNetworkAvailable() : connected;
+#else
+    const bool online = connected;
+#endif
+    cJSON_AddBoolToObject(status, "online", online);
     cJSON_AddStringToObject(status, "ssid", ssid.c_str());
     cJSON_AddStringToObject(status, "band", BandText(channel).c_str());
     cJSON_AddStringToObject(status, "signal", SignalText(rssi));
@@ -1236,10 +1343,9 @@ cJSON* BleService::BuildStatusObject() {
 
     std::string voice_id = CurrentVoiceId();
     cJSON_AddStringToObject(status, "currentVoiceId", voice_id.c_str());
-    cJSON_AddStringToObject(status, "currentVoice", CurrentVoiceName().c_str());
-
     std::vector<voice_tts::VoiceName> names;
     voice_tts::LoadVoiceNames(names);
+    cJSON_AddStringToObject(status, "currentVoice", CurrentVoiceName(voice_id, names).c_str());
     cJSON_AddNumberToObject(status, "voiceCount",
                             static_cast<int>(voice_tts::kBuiltinVoiceCount + names.size()));
     cJSON_AddNumberToObject(status, "voiceCapacity", kVoiceCapacity);
@@ -1269,27 +1375,25 @@ cJSON* BleService::BuildVoiceList() {
     }
     cJSON_AddItemToObject(root, "voices", voices);
     std::string current = CurrentVoiceId();
+    cJSON_AddStringToObject(root, "previousVoiceId", voice_tts::LoadPreviousAliVoice().c_str());
     cJSON_AddStringToObject(root, "currentVoiceId", current.c_str());
-    cJSON_AddStringToObject(root, "currentVoice", CurrentVoiceName().c_str());
+    cJSON_AddStringToObject(root, "currentVoice", CurrentVoiceName(current, names).c_str());
     return root;
 }
 
 std::string BleService::CurrentVoiceId() {
     std::string id = voice_tts::LoadAliVoice();
-    if (id.empty() && voice_tts::kBuiltinVoiceCount > 0)
-        return voice_tts::kBuiltinVoices[0].id;
-    return id;
+    return id.empty() ? voice_tts::kNativeVoiceId : id;
 }
 
-std::string BleService::CurrentVoiceName() {
-    std::string id = CurrentVoiceId();
+std::string BleService::CurrentVoiceName(const std::string& id,
+                                         const std::vector<voice_tts::VoiceName>& names) {
     for (size_t i = 0; i < voice_tts::kBuiltinVoiceCount; ++i) {
         if (id == voice_tts::kBuiltinVoices[i].id) {
             return voice_tts::kBuiltinVoices[i].name;
         }
     }
-    std::vector<voice_tts::VoiceName> names;
-    voice_tts::LoadVoiceNames(names);
+
     for (const auto& voice : names) {
         if (voice.id == id)
             return voice.name;
@@ -1340,36 +1444,45 @@ bool BleService::ResolveVoice(cJSON* data, std::string& id, std::string& name) {
     return false;
 }
 
-void BleService::WifiWatchTask(void* arg) {
-    auto* args = static_cast<WifiWatchArgs*>(arg);
-    auto* self = args->service;
-    std::string ssid = args->ssid;
-    delete args;
-
-    cJSON* connecting = cJSON_CreateObject();
-    cJSON_AddStringToObject(connecting, "state", "connecting");
-    cJSON_AddStringToObject(connecting, "ssid", ssid.c_str());
-    self->SendEvent("wifi_state", connecting);
-
-    for (int i = 0; i < 40; ++i) {
-        vTaskDelay(pdMS_TO_TICKS(500));
-        if (!self->started_.load())
-            return;
-        auto& manager = WifiManager::GetInstance();
-        if (manager.IsConnected() && manager.GetSsid() == ssid) {
-            cJSON* connected = cJSON_CreateObject();
-            cJSON_AddStringToObject(connected, "state", "connected");
-            cJSON_AddStringToObject(connected, "ssid", ssid.c_str());
-            self->SendEvent("wifi_state", connected);
-            return;
+void BleService::WifiConnectTask(void* arg) {
+    {
+        std::unique_ptr<WifiConnectArgs> job(static_cast<WifiConnectArgs*>(arg));
+        auto* self = job->service;
+        NotifyOnboarding(OnboardingEvent::kWifiRequest);
+        WifiTrialFailure failure;
+        const bool saved =
+            WifiManager::GetInstance().TestAndSaveStationNetwork(job->ssid, job->password, 20000,
+                                                                &failure);
+        std::fill(job->password.begin(), job->password.end(), '\0');
+        if (self->rx_generation_.load() == job->generation) {
+            cJSON* result = cJSON_CreateObject();
+            cJSON_AddStringToObject(result, "state", saved ? "connected" : "failed");
+            cJSON_AddStringToObject(result, "ssid", job->ssid.c_str());
+            if (!saved) {
+                const char* message = "无法开始连接，请稍后重试";
+                switch (failure) {
+                    case WifiTrialFailure::Authentication:
+                        message = "Wi-Fi 认证失败或握手超时，请确认密码并靠近路由器";
+                        break;
+                    case WifiTrialFailure::Dhcp:
+                        message = "已连接到路由器，获取 IP 地址超时";
+                        break;
+                    case WifiTrialFailure::Association:
+                        message = "未能连接到路由器，请确认网络可用并重试";
+                        break;
+                    case WifiTrialFailure::Save:
+                        message = "已连接 Wi-Fi，保存网络失败，请重试";
+                        break;
+                    default:
+                        break;
+                }
+                cJSON_AddStringToObject(result, "message", message);
+            }
+            self->SendEvent("wifi_state", result);
         }
+        self->wifi_connecting_.store(false);
     }
-
-    cJSON* failed = cJSON_CreateObject();
-    cJSON_AddStringToObject(failed, "state", "failed");
-    cJSON_AddStringToObject(failed, "ssid", ssid.c_str());
-    cJSON_AddStringToObject(failed, "message", "连接超时，请检查密码或信号");
-    self->SendEvent("wifi_state", failed);
+    vTaskDelete(nullptr);
 }
 
 void BleService::VoiceWatchTask(void* arg) {

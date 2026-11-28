@@ -3,6 +3,7 @@
  * Reference: https://modelcontextprotocol.io/specification/2024-11-05
  */
 
+#include "http_result.h"
 #include "mcp_server.h"
 #include <esp_log.h>
 #include <esp_app_desc.h>
@@ -148,6 +149,7 @@ void McpServer::AddUserOnlyTools() {
             return true;
         });
 
+#if CONFIG_ENABLE_ONLINE_UPDATES
     // Firmware upgrade
     AddUserOnlyTool("self.upgrade_firmware", "Upgrade firmware from a specific URL. This will download and install the firmware, then reboot the device.",
         PropertyList({
@@ -167,6 +169,8 @@ void McpServer::AddUserOnlyTools() {
             
             return true;
         });
+
+#endif
 
     // Display control
 #ifdef HAVE_LVGL
@@ -232,8 +236,8 @@ void McpServer::AddUserOnlyTools() {
                 }
                 http->Write("", 0);
 
-                if (http->GetStatusCode() != 200) {
-                    throw std::runtime_error("Unexpected status code: " + std::to_string(http->GetStatusCode()));
+                if (HttpIntValue(http->GetStatusCode()) != 200) {
+                    throw std::runtime_error("Unexpected status code: " + std::to_string(HttpIntValue(http->GetStatusCode())));
                 }
                 std::string result = http->ReadAll();
                 http->Close();
@@ -252,7 +256,7 @@ void McpServer::AddUserOnlyTools() {
                 if (!http->Open("GET", url)) {
                     throw std::runtime_error("Failed to open URL: " + url);
                 }
-                int status_code = http->GetStatusCode();
+                int status_code = HttpIntValue(http->GetStatusCode());
                 if (status_code != 200) {
                     throw std::runtime_error("Unexpected status code: " + std::to_string(status_code));
                 }
@@ -264,7 +268,7 @@ void McpServer::AddUserOnlyTools() {
                 }
                 size_t total_read = 0;
                 while (total_read < content_length) {
-                    int ret = http->Read(data + total_read, content_length - total_read);
+                    int ret = HttpIntValue(http->Read(data + total_read, content_length - total_read));
                     if (ret < 0) {
                         heap_caps_free(data);
                         throw std::runtime_error("Failed to download image: " + url);
@@ -284,7 +288,8 @@ void McpServer::AddUserOnlyTools() {
     }
 #endif // HAVE_LVGL
 
-    // Assets download url (always registered — Settings storage works regardless of partition layout)
+#if CONFIG_ENABLE_ONLINE_UPDATES
+    // Assets download URL for the next activation.
     AddUserOnlyTool("self.assets.set_download_url", "Set the download url for the assets",
             PropertyList({
                 Property("url", kPropertyTypeString)
@@ -295,6 +300,7 @@ void McpServer::AddUserOnlyTools() {
                 settings.SetString("download_url", url);
                 return true;
             });
+#endif
 }
 
 void McpServer::AddTool(McpTool* tool) {
@@ -450,58 +456,106 @@ void McpServer::ReplyError(int id, const std::string& message) {
 }
 
 void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_only_tools) {
-    const int max_payload_size = 8000;
-    std::string json = "{\"tools\":[";
-    
+    constexpr size_t kDefaultPayloadLimit = 8000;
+    size_t max_payload_size = kDefaultPayloadLimit;
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    const size_t transport_limit = Board::GetInstance().GetProtocolPayloadLimit();
+    if (transport_limit != 0) {
+        // Calculate the actual wire size instead of guessing a reserve. The
+        // final modem payload is:
+        //   <session envelope><JSON-RPC response>
+        // and the tools page is the JSON-RPC result.
+        static constexpr char kJsonRpcPrefix[] = "{\"jsonrpc\":\"2.0\",\"id\":";
+        static constexpr char kJsonRpcMiddle[] = ",\"result\":";
+        const size_t jsonrpc_overhead =
+            sizeof(kJsonRpcPrefix) - 1 + std::to_string(id).size() + sizeof(kJsonRpcMiddle) - 1 + 1;
+        const size_t wire_overhead = Application::GetInstance().GetMcpWireOverhead();
+        if (wire_overhead + jsonrpc_overhead >= transport_limit) {
+            ESP_LOGE(TAG, "tools/list: session envelope leaves no payload budget");
+            ReplyError(id, "MCP transport payload budget exhausted");
+            return;
+        }
+        max_payload_size =
+            std::min(kDefaultPayloadLimit, transport_limit - wire_overhead - jsonrpc_overhead);
+    }
+#endif
+    static constexpr char kToolsPrefix[] = "{\"tools\":[";
+    static constexpr char kCursorPrefix[] = "],\"nextCursor\":\"";
+    static constexpr char kCursorSuffix[] = "\"}";
+    auto result_size = [](const std::string& tools_json, const std::string& next_cursor) {
+        size_t size = sizeof(kToolsPrefix) - 1 + tools_json.size() + 1;  // closing ]
+        if (!next_cursor.empty()) {
+            size += sizeof(kCursorPrefix) - 1 + next_cursor.size() + sizeof(kCursorSuffix) - 1;
+        }
+        return size;
+    };
+    std::string tools_json;
+
     bool found_cursor = cursor.empty();
-    auto it = tools_.begin();
     std::string next_cursor = "";
-    
-    while (it != tools_.end()) {
+    std::string last_added_name;
+    size_t size_before_last_tool = 0;
+
+    for (auto it = tools_.begin(); it != tools_.end(); ++it) {
         // 如果我们还没有找到起始位置，继续搜索
         if (!found_cursor) {
             if ((*it)->name() == cursor) {
                 found_cursor = true;
             } else {
-                ++it;
                 continue;
             }
         }
 
         if (!list_user_only_tools && (*it)->user_only()) {
-            ++it;
             continue;
         }
-        
+
         // 添加tool前检查大小
-        std::string tool_json = (*it)->to_json() + ",";
-        if (json.length() + tool_json.length() + 30 > max_payload_size) {
+        std::string tool_json = (*it)->to_json();
+        std::string candidate = tools_json.empty() ? tool_json : tools_json + "," + tool_json;
+        if (result_size(candidate, "") > max_payload_size) {
             // 如果添加这个tool会超出大小限制，设置next_cursor并退出循环
             next_cursor = (*it)->name();
             break;
         }
-        
-        json += tool_json;
-        ++it;
+
+        size_before_last_tool = tools_json.size();
+        tools_json = std::move(candidate);
+        last_added_name = (*it)->name();
     }
-    
-    if (json.back() == ',') {
-        json.pop_back();
+
+    if (!found_cursor) {
+        ESP_LOGE(TAG, "tools/list: unknown cursor %s", cursor.c_str());
+        ReplyError(id, "Unknown tools cursor");
+        return;
     }
-    
-    if (json.back() == '[' && !tools_.empty()) {
-        // 如果没有添加任何tool，返回错误
-        ESP_LOGE(TAG, "tools/list: Failed to add tool %s because of payload size limit", next_cursor.c_str());
+
+    // The cursor itself belongs to the modem payload. If adding it pushes the
+    // page over budget, move the last tool to the next page and point the
+    // cursor at that tool.
+    if (result_size(tools_json, next_cursor) > max_payload_size && !tools_json.empty()) {
+        tools_json.resize(size_before_last_tool);
+        next_cursor = last_added_name;
+    }
+
+    if (tools_json.empty() && !next_cursor.empty()) {
+        // A single tool may be larger than the entire transport page. Report
+        // the exact tool instead of returning the same cursor forever.
+        ESP_LOGE(TAG, "tools/list: Failed to add tool %s because of payload size limit",
+                 next_cursor.c_str());
         ReplyError(id, "Failed to add tool " + next_cursor + " because of payload size limit");
         return;
     }
 
+    std::string json = kToolsPrefix;
+    json += tools_json;
+    json += "]";
     if (next_cursor.empty()) {
-        json += "]}";
+        json += "}";
     } else {
-        json += "],\"nextCursor\":\"" + next_cursor + "\"}";
+        json += ",\"nextCursor\":\"" + next_cursor + "\"}";
     }
-    
+
     ReplyResult(id, json);
 }
 

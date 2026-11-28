@@ -19,6 +19,7 @@ class BleBase64Test(unittest.TestCase):
 #include <cassert>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 ''' + digit + '\n' + decode + r'''
 int main() {
@@ -32,9 +33,17 @@ int main() {
   encoded+=i+1<original.size()?alphabet[((b&15)<<2)|(c>>6)]:'=';
   encoded+=i+2<original.size()?alphabet[c&63]:'=';
  }
- std::vector<uint8_t> decoded;
- assert(Base64Decode(encoded,decoded));assert(decoded==original);
- assert(!Base64Decode("AAAA?",decoded));
+ std::vector<uint8_t> decoded(2049, 0xDE);
+ size_t written = 0;
+ assert(Base64Decode(encoded, decoded.data(), 2048, written));
+ assert(written==2048 && decoded.back()==0xDE);
+ assert(std::vector<uint8_t>(decoded.begin(),decoded.begin()+written)==original);
+ assert(!Base64Decode(encoded, decoded.data(), 2046, written));
+ assert(written<=2046 && decoded.back()==0xDE);
+ for (std::string_view bad : {"", "AAAA?", "AAAA====", "AA=A", "Aa==", "AAB=", "AAAA AAA"})
+  assert(!Base64Decode(bad, decoded.data(), 2048, written));
+ for (std::string_view good : {"AA==", "AAA=", "AAAA", "AAAAAA=="})
+  assert(Base64Decode(good, decoded.data(), 2048, written));
 }
 '''
         with tempfile.TemporaryDirectory() as directory:

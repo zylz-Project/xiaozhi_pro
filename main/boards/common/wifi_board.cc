@@ -124,9 +124,13 @@ void WifiBoard::StartNetwork() {
     // WZH products always boot straight into station mode. Missing credentials
     // are configured over BLE; never enter the legacy web provisioning flow or
     // block startup with a Wi-Fi setup prompt.
-    wifi_manager.StartStation();
-    // Must run after StartStation(): start the BLE setup service and the
-    // LAN-only developer console once the station has entered its final mode.
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    if (!DeferWifiStationStart())
+#endif
+        wifi_manager.StartStation();
+    // Start the BLE setup service after Wi-Fi initialization, even when the
+    // dinosaur is still choosing a cloud transport.
+    // The developer console still starts once the device has IP connectivity.
     OnNetworkStackReady();
     Application::GetInstance().SetDeviceState(kDeviceStateIdle);
     wzh::MarkStartupNetworkReady();
@@ -297,6 +301,10 @@ void WifiBoard::EnterWifiConfigMode() {
 }
 
 bool WifiBoard::IsInWifiConfigMode() const { return WifiManager::GetInstance().IsConfigMode(); }
+
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+bool WifiBoard::IsNetworkAvailable() const { return WifiManager::GetInstance().IsConnected(); }
+#endif
 
 NetworkInterface* WifiBoard::GetNetwork() {
     static EspNetwork network;

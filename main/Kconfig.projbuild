@@ -48,6 +48,14 @@ config OTA_URL
     help
         The application will access this URL to check for new firmwares and server address.
 
+config ENABLE_ONLINE_UPDATES
+    bool "Enable online firmware and asset updates"
+    default n if BOARD_TYPE_WZH_DINOSAUR || BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_TAILREDPANDA
+    default y
+    help
+        Allow installing firmware and assets from the network. Activation and
+        retrieval of conversation server settings remain available when disabled.
+
 config WIFI_CONNECT_TIMEOUT_SEC
     int "WiFi connect timeout before entering config mode (seconds)"
     default 60
@@ -393,6 +401,32 @@ config WZH_DINO_KEYWORD_BARGE_IN
         near-end voice candidate before interrupting playback. This is a
         fixed-vocabulary test; ordinary speech alone will not interrupt.
 
+config WZH_DIALOGUE_PARITY
+    bool "Use the shared WZH conversation audio pipeline"
+    depends on (BOARD_TYPE_WZH_CRAWLPANDA || BOARD_TYPE_WZH_DINOSAUR) && AUDIO_PRODUCT_QUALITY
+    default y
+    help
+        Enable PCM-based playout buffering, private Opus encoder task, and
+        the shared phrase-in-speech detector in production WZH variants.
+        Existing diagnostic variants may disable this to compare AFE modes.
+
+config WZH_DINOSAUR_AT_DIAGNOSTIC
+    bool "Dinosaur ML307 AT cellular transport"
+    default n
+    help
+        Enable only for the dinosaur board fitted with ML307. The SDK
+        component resolver also reads this symbol for Wi-Fi variants.
+
+config WZH_DINOSAUR_ML307_DTR_GPIO
+    int "ML307 DTR pin (-1 when absent)"
+    depends on WZH_DINOSAUR_AT_DIAGNOSTIC
+    default -1
+
+config WZH_DINOSAUR_270_SERVO
+    bool "Dinosaur 270 degree neck and tail servos"
+    depends on BOARD_TYPE_WZH_DINOSAUR
+    default n
+
 config WZH_DINOSAUR_MOTION_BARGE_GUARD
     bool "Experimental dinosaur movement-aware interruption duration"
     default n
@@ -595,6 +629,16 @@ menu "WZH Product Configuration"
             内置离线产品播报：恐龙使用 dinosaur 音包，两款熊猫共用 panda 音包。
             先用 scripts/audio/prepare_wzh_system_prompts.py 制作完整音包。
             默认关闭；素材缺失或未确认音色时不会偷偷替换现有声音。
+
+    config WZH_IDLE_POWER_ENABLE
+        bool "Play an idle reminder and power off after inactivity"
+        depends on WZH_SYSTEM_PROMPTS
+        default y
+        help
+            After five minutes without interaction, play the product's idle
+            reminder. At seven minutes and thirty seconds, request normal
+            shutdown from the power task. Onboarding, conversation and audio
+            maintenance reset the inactivity window.
 
     config WZH_SYSTEM_PROMPT_ROOT
         string "Prepared system-voice pack root (relative to project or absolute)"

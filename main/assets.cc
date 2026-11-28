@@ -1,3 +1,4 @@
+#include "http_result.h"
 #include "assets.h"
 #include "application.h"
 #include "board.h"
@@ -263,13 +264,12 @@ bool Assets::LvglStrategy::Apply(Assets* assets, bool refresh_display_theme) {
     auto dark_theme = theme_manager.GetTheme("dark");
 
     cJSON* font = cJSON_GetObjectItem(root, "text_font");
-    if (cJSON_IsString(font)) {
+    auto* display = dynamic_cast<LvglDisplay*>(Board::GetInstance().GetDisplay());
+    if (display != nullptr && cJSON_IsString(font)) {
         std::string fonts_text_file = font->valuestring;
         if (assets->GetAssetData(fonts_text_file, ptr, size)) {
             auto text_font = std::make_shared<LvglCBinFont>(ptr);
-            auto display = dynamic_cast<LvglDisplay*>(Board::GetInstance().GetDisplay());
-            if (text_font->font() == nullptr || display == nullptr ||
-                !display->SetTextFont(text_font)) {
+            if (text_font->font() == nullptr || !display->SetTextFont(text_font)) {
                 ESP_LOGW(TAG, "Ignoring invalid text font asset %s", fonts_text_file.c_str());
             } else {
                 assets->DisableTextFontGlyphPush();
@@ -497,8 +497,8 @@ bool Assets::Download(std::string url,
         return false;
     }
 
-    if (http->GetStatusCode() != 200) {
-        ESP_LOGE(TAG, "Failed to get assets, status code: %d", http->GetStatusCode());
+    if (HttpIntValue(http->GetStatusCode()) != 200) {
+        ESP_LOGE(TAG, "Failed to get assets, status code: %d", HttpIntValue(http->GetStatusCode()));
         return false;
     }
 
@@ -554,7 +554,7 @@ bool Assets::Download(std::string url,
     size_t header_collected = 0;
     bool success = false;
     while (true) {
-        int ret = http->Read(buffer.get(), SECTOR_SIZE);
+        int ret = HttpIntValue(http->Read(buffer.get(), SECTOR_SIZE));
         if (ret < 0) {
             ESP_LOGE(TAG, "Failed to read HTTP data: %s", esp_err_to_name(ret));
             break;

@@ -18,6 +18,7 @@ class StartupNoticeTest(unittest.TestCase):
         source = (COMMON / 'wzh_ble_service.cc').read_text()
         method = queue_function(source, 'cJSON* BleService::BuildStatusObject()')
         program = r'''
+#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <string>
@@ -30,6 +31,8 @@ const char* notice="";
 const char* StartupProtectionMessage(){return notice;}
 struct OnboardingProgress{static constexpr int kStepCount=13;int step=7;bool Done(){return false;}};
 bool PeekOnboardingProgress(OnboardingProgress&){return true;}
+bool progress_saved=false;
+bool ReadMiniProgramGuideDone(bool& done){done=progress_saved;return true;}
 bool IsOnboardingActive(){return false;}bool OnboardingBlocksConversation(){return true;}
 const char* StateName(int){return "idle";}
 struct Application{static Application& GetInstance(){static Application app;return app;}
@@ -37,13 +40,18 @@ struct Application{static Application& GetInstance(){static Application app;retu
 struct WifiManager{static WifiManager& GetInstance(){static WifiManager wifi;return wifi;}
  bool IsConnected(){return true;}int GetRssi(){return -50;}int GetChannel(){return 1;}
  std::string GetSsid(){return "home";}};
+struct SsidManager{static SsidManager& GetInstance(){static SsidManager saved;return saved;}
+ bool HasSavedNetwork() const{return true;}};
 std::string BandText(int){return "2.4G";}const char* SignalText(int){return "ok";}
 int SignalBars(int){return 3;}std::string RuntimeText(int){return "0";}
 int JsonInt(cJSON* obj,const char* key,int fallback){auto* n=cJSON_GetObjectItem(obj,key);return cJSON_IsNumber(n)?n->valueint:fallback;}
-struct Console{void BuildStatus(cJSON*){}};
+struct Console{void BuildStatus(cJSON*, bool include_voice){assert(!include_voice);}};
+struct VoiceManager{void AddStatus(cJSON*, bool include_catalog){assert(!include_catalog);}};
+VoiceManager& VoiceManagement(){static VoiceManager manager;return manager;}
 struct BleService{struct Config{Console* console=nullptr;}config_;
+ std::atomic<bool> wifi_connecting_{false};
  cJSON* BuildStatusObject();std::string CurrentVoiceId(){return "v";}
- std::string CurrentVoiceName(){return "voice";}};
+ std::string CurrentVoiceName(const std::string&,const std::vector<voice_tts::VoiceName>&){return "voice";}};
 ''' + method + r'''
 int main(){
  BleService service;
@@ -51,10 +59,14 @@ int main(){
   notice=value;auto* status=service.BuildStatusObject();
   auto* item=cJSON_GetObjectItem(status,"startup_notice");
   assert(cJSON_IsString(item) && std::strcmp(item->valuestring,value)==0);
+  assert(cJSON_IsTrue(cJSON_GetObjectItem(status,"guide_done"))==progress_saved);
+  assert(cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(status,"wifi"),"provisioning"))==progress_saved);
   auto* guide=cJSON_GetObjectItem(status,"onboarding");
   assert(cJSON_IsObject(guide) && cJSON_IsTrue(cJSON_GetObjectItem(guide,"blocked")));
   assert(cJSON_GetObjectItem(guide,"next_step")->valueint==7);
+  assert(cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(status,"wifi"),"configured")));
   cJSON_Delete(status);
+  progress_saved=true;service.wifi_connecting_.store(true);
  }
 }
 '''

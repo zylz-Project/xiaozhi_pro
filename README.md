@@ -21,15 +21,30 @@ python3 scripts/build.py --list-boards
 python3 scripts/build.py wzh_crawlPanda --name wzh-crawlpanda
 python3 scripts/build.py wzh_dinosaur --name wzh-dinosaur
 python3 scripts/build.py wzh_tailRedPanda --name wzh-tailredpanda
-python3 -m unittest discover -s scripts/tests -v
+python3 scripts/test.py
 ```
 
 构建脚本会更新本地 `sdkconfig` 与 `build/` 状态；切换产品后不要把旧构建目录当成上一产品的产物。构建成功只能证明编译通过，录音、播放、蓝牙、配网、动作和电源保护仍需对应产品的实机验收。
 
+`scripts/test.py` 默认读取相对 `HEAD` 的改动，包括暂存、未暂存和未忽略的新文件。加 `--list` 可先查看会运行的模块。工作区里有多个任务的改动时，用 `python3 scripts/test.py -- main/audio/speaker_protection.h` 显式限定本次文件。已提交的改动可用 `--base <基线提交>` 比较。发布检查或需要完整回归时运行 `python3 scripts/test.py --all`。
+
+CI 使用相同的路径规则，PR 比较目标分支基线，推送比较推送前的提交。缺少可比较的前序提交时，以空树为基线。纯文档修改跳过主机测试。新目录或新功能应把相关测试纳入 `scripts/test.py` 的规则。
+
+按报错或现象查询已有解决方法，解决后把原因、修复方法与验证结果补回同一条记录。见[问题索引](docs/issues.md)。
+
+| 位置 | 用途 |
+| --- | --- |
+| `scripts/build.py`、`gen_lang.py`、`build_default_assets.py`、`scripts/cmake/` | 板型构建、语言和固件资源生成 |
+| `scripts/test.py`、`scripts/tests/` | 按范围运行固件、小程序和构建流程的主机回归 |
+| `scripts/audio/`、`scripts/motion/` | 按需导入录音、生成资源或比对动作。构建会调用提示音和引导资源校验 |
+| `scripts/audio_debug_capture.py`、`scripts/audio_debug_server.py` | 分别接收带包头的诊断数据和旧固件支持的原始 PCM |
+| `scripts/versions.py` | 读取发布包元数据并执行显式发布 |
+| `tmp/local-backups/` | 本机恢复归档，由 Git 忽略 |
+
 ## 项目资料
 
 - [三款产品文档导航](docs/wzh/README.md)；[硬件与存储迁移记录](docs/wzh_migration.md)。
-- [微信小程序及 BLE 协议](wzh-miniprogram/README.md)。
+- [微信小程序及 BLE 协议](wzh-miniprogram/README.md)；[网页参考版功能对齐清单](docs/wzh/product/ble-parity-audit.md)。
 - [音频架构](main/audio/README.md)、[WebSocket](docs/websocket.md)、[MQTT/UDP](docs/mqtt-udp.md) 和 [MCP](docs/mcp-protocol.md)。
 - [ESP-IDF 迁移说明](docs/esp-idf-6-migration.md)与 [代码风格](docs/code_style.md)。
 

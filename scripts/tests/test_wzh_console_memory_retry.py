@@ -19,9 +19,12 @@ class ConsoleMemoryRetryTest(unittest.TestCase):
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstdint>
 #define MALLOC_CAP_INTERNAL 1
 #define MALLOC_CAP_8BIT 2
 #define pdPASS 1
+#define ESP_LOGI(...) ((void)0)
+int64_t esp_timer_get_time(){return 1000;}
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGD(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
@@ -29,7 +32,7 @@ size_t free_bytes=4000, largest=4000; int calls=0; bool fail=false;
 size_t heap_caps_get_free_size(int){return free_bytes;}
 size_t heap_caps_get_largest_free_block(int){return largest;}
 int xTaskCreate(void (*)(void*),const char*,int,void*,int,void*){++calls;return fail?0:pdPASS;}
-struct WebConsole {std::atomic<bool> started_{false},server_start_failed_{false}; static void StartTaskEntry(void*){}; bool Start();};
+struct WebConsole {std::atomic<bool> started_{false},server_start_failed_{false}; std::atomic<int64_t> last_start_deferral_us_{0}; static void StartTaskEntry(void*){}; bool Start();};
 ''' + start + r'''
 int main(){WebConsole w; assert(!w.Start() && calls==0); free_bytes=50000;largest=13000;
 fail=true;assert(!w.Start() && !w.started_ && calls==1);fail=false;

@@ -17,6 +17,7 @@
 #include <freertos/task.h>
 #include <nvs_flash.h>
 #include <algorithm>
+#include <cstring>
 
 #define TAG "WifiManager"
 
@@ -119,7 +120,9 @@ bool WifiManager::IsInitialized() const {
 
 // ==================== Station Mode ====================
 
-void WifiManager::StartStation() {
+void WifiManager::StartStation() { StartStationImpl(true); }
+
+bool WifiManager::StartStationImpl(bool scan_on_start) {
     std::unique_lock<std::mutex> lifecycle(station_lifecycle_mutex_, std::defer_lock);
     if (config_.persistent_portal)
         lifecycle.lock();
@@ -127,11 +130,10 @@ void WifiManager::StartStation() {
 
     if (!initialized_) {
         ESP_LOGE(TAG, "Not initialized");
-        return;
+        return false;
     }
     if (station_active_) {
-        ESP_LOGW(TAG, "Station already active");
-        return;
+        return scan_on_start;
     }
 
     // Auto-stop config AP if active
@@ -168,43 +170,65 @@ void WifiManager::StartStation() {
     station_->OnDisconnected(
         [this](int reason) { NotifyEvent(WifiEvent::Disconnected, std::to_string(reason)); });
 
-    station_->Start();
+    if (!station_->Start(scan_on_start)) {
+        auto* station = station_.get();
+        lock.unlock();
+        station->Stop();
+        ESP_LOGE(TAG, "Unable to start Wi-Fi station");
+        return false;
+    }
     station_active_ = true;
+    return true;
 }
 
-bool WifiManager::ConnectTo(const std::string& ssid, const std::string& password) {
-    if (ssid.empty() || ssid.size() > 32 || password.size() > 64) {
-        ESP_LOGE(TAG, "Invalid credentials for ConnectTo");
+bool WifiManager::TestAndSaveStationNetwork(const std::string& ssid, const std::string& password,
+                                            int timeout_ms, WifiTrialFailure* failure) {
+    if (failure)
+        *failure = WifiTrialFailure::Unavailable;
+    if (ssid.empty() || ssid.size() > 32 || password.size() > 63 || timeout_ms <= 0 ||
+        !IsInitialized() || config_.allow_config_ap || station_trial_active_.exchange(true))
         return false;
-    }
-    if (!IsInitialized()) {
-        ESP_LOGE(TAG, "Not initialized");
-        return false;
-    }
 
-    bool need_start = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        need_start = !station_active_;
+    // New associations use the application's checked SSID store. Keep the
+    // trial out of the Wi-Fi driver's own NVS, including across power loss.
+    if (esp_wifi_set_storage(WIFI_STORAGE_RAM) != ESP_OK) {
+        station_trial_active_.store(false);
+        return false;
     }
-    if (need_start) {
+    StopStation();
+    const bool started = StartStationImpl(false);
+    if (started)
+        NotifyEvent(WifiEvent::Connecting, ssid);
+    wifi_ap_record_t associated{};
+    const bool configured = started && station_->ConnectNow(ssid, password);
+    const bool got_ip = configured && station_->WaitForConnected(timeout_ms);
+    const bool matched = got_ip && esp_wifi_sta_get_ap_info(&associated) == ESP_OK &&
+                         ssid == std::string(reinterpret_cast<const char*>(associated.ssid),
+                                             strnlen(reinterpret_cast<const char*>(associated.ssid),
+                                                     sizeof(associated.ssid)));
+    const bool saved = matched && SsidManager::GetInstance().AddSsidChecked(ssid, password);
+    if (failure && configured) {
+        const int reason = station_->LastDisconnectReason();
+        if (saved)
+            *failure = WifiTrialFailure::None;
+        else if (matched)
+            *failure = WifiTrialFailure::Save;
+        else if (!got_ip && station_->IsAssociated())
+            *failure = WifiTrialFailure::Dhcp;
+        else if (!got_ip &&
+                 (reason == WIFI_REASON_AUTH_FAIL || reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+                  reason == WIFI_REASON_HANDSHAKE_TIMEOUT))
+            *failure = WifiTrialFailure::Authentication;
+        else
+            *failure = WifiTrialFailure::Association;
+    }
+    if (!saved) {
+        // Restart the ordinary scan using the existing saved networks.
+        StopStation();
         StartStation();
     }
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!station_active_ || !station_) {
-            ESP_LOGE(TAG, "Station is not active");
-            return false;
-        }
-    }
-
-    // Persist first so a reboot reconnects to the newly selected network even if
-    // the immediate attempt fails.
-    SsidManager::GetInstance().AddSsid(ssid, password);
-    NotifyEvent(WifiEvent::Connecting, ssid);
-    station_->ConnectNow(ssid, password);
-    ESP_LOGI(TAG, "Connecting to %s on request", ssid.c_str());
-    return true;
+    station_trial_active_.store(false);
+    return saved;
 }
 
 void WifiManager::StopStation() {
@@ -232,6 +256,8 @@ bool WifiManager::IsConnected() const {
 }
 
 esp_err_t WifiManager::ScanNetworks(std::vector<wifi_ap_record_t>& records, int timeout_ms) {
+    if (station_trial_active_.load())
+        return ESP_ERR_INVALID_STATE;
     WifiStation* station = nullptr;
     {
         std::lock_guard<std::mutex> lock(mutex_);

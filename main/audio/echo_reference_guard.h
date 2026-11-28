@@ -21,7 +21,7 @@ public:
         for (size_t i = 0; i < frames; ++i) {
             partial_sum_ += mr[i * 2 + 1];
             if (++partial_count_ == 8) {
-                reference_[position_] = partial_sum_ / 8.0f;
+                reference_[position_] = static_cast<int16_t>(partial_sum_ / 8);
                 position_ = (position_ + 1) % reference_.size();
                 count_ = std::min(count_ + 1, reference_.size());
                 partial_count_ = 0;
@@ -32,7 +32,7 @@ public:
     // A negative result means insufficient/non-audio reference. Do not treat
     // that as independent near-end speech. Absolute correlation handles phase
     // inversion and gain changes; subtracting the mean rejects DC offsets.
-    float Correlation(const int16_t* pcm, size_t samples) const {
+    float Correlation(const int16_t* pcm, size_t samples, float veto_at = 0.9f) const {
         const size_t points = std::min<size_t>(samples / 8, 120);
         if (points < 80 || count_ < points) {
             return -1.0f;
@@ -66,6 +66,7 @@ public:
             squares += value * value;
         }
         float maximum_squared = -1.0f;
+        const float veto_squared = veto_at * veto_at;
         // The usual AFE delay is nearer the newest reference. A strong match
         // already vetoes echo; avoid scanning older history in that case.
         for (size_t offset = newest;; --offset) {
@@ -77,7 +78,7 @@ public:
                 }
                 maximum_squared =
                     std::max(maximum_squared, product * product / (signal_energy * energy));
-                if (maximum_squared >= 0.81f) {
+                if (maximum_squared >= veto_squared) {
                     return std::sqrt(std::min(maximum_squared, 1.0f));
                 }
             }
@@ -92,7 +93,7 @@ public:
     }
 
 private:
-    std::array<float, 1024> reference_;
+    std::array<int16_t, 1024> reference_;
     size_t position_ = 0, count_ = 0, partial_count_ = 0;
     int32_t partial_sum_ = 0;
 };

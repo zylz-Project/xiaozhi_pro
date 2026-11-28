@@ -1,6 +1,10 @@
 #include "audio_service.h"
 #include "board.h"
 #include <esp_log.h>
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+#include <esp_heap_caps.h>
+#include <freertos/idf_additions.h>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -93,10 +97,15 @@ void AudioService::Initialize(AudioCodec* codec) {
     esp_opus_enc_config_t opus_enc_cfg = AS_OPUS_ENC_CONFIG();
 #if CONFIG_AUDIO_PRODUCT_QUALITY
     opus_enc_cfg.bitrate = 32000;
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    opus_enc_cfg.complexity = 2;
+#else
     opus_enc_cfg.complexity = 3;
+#endif
     opus_enc_cfg.enable_dtx = false;
     ESP_LOGI(TAG,
-             "Product capture: 16 kHz, 32 kbps VBR, complexity=3, DTX off, resample quality=3");
+             "Product capture: 16 kHz, 32 kbps VBR, complexity=%u, DTX off, resample quality=3",
+             static_cast<unsigned>(opus_enc_cfg.complexity));
 #endif
     ret = esp_opus_enc_open(&opus_enc_cfg, sizeof(esp_opus_enc_config_t), &opus_encoder_);
     if (opus_encoder_ == nullptr) {
@@ -215,14 +224,45 @@ void AudioService::Start() {
         "audio_output", 2048, this, buffered_playback_ ? 6 : 4, &audio_output_task_handle_);
 #endif
 
-    /* Start the opus codec task */
-    xTaskCreate(
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    // Keep the original internal stack for decoding and shared-codec fallback.
+    // Hold the queue lock until the codec knows who owns uplink encoding.
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    separate_encoder_ = false;
+#endif
+    constexpr unsigned codec_stack_bytes = 24 * 1024;
+    if (xTaskCreate(
+            [](void* arg) {
+                static_cast<AudioService*>(arg)->OpusCodecTask();
+                vTaskDelete(nullptr);
+            },
+            "opus_codec", codec_stack_bytes, this, buffered_playback_ ? 5 : 2,
+            &opus_codec_task_handle_) != pdPASS) {
+        ESP_LOGE(TAG, "Opus codec task allocation failed");
+        return;
+    }
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    // The linked SILK encoder uses over 9 KiB in a single stack frame.
+    constexpr unsigned encoder_stack_bytes = 32 * 1024;
+    // The encoder processes PCM and signals the send queue. Flash and device
+    // I/O remain on their respective tasks, so the encoder can use PSRAM.
+    separate_encoder_ = xTaskCreateWithCaps(
         [](void* arg) {
-            AudioService* audio_service = (AudioService*)arg;
-            audio_service->OpusCodecTask();
-            vTaskDelete(NULL);
+            static_cast<AudioService*>(arg)->AudioEncoderTask();
+            vTaskDeleteWithCaps(nullptr);
         },
-        "opus_codec", 2048 * 12, this, buffered_playback_ ? 5 : 2, &opus_codec_task_handle_);
+        "opus_encode", encoder_stack_bytes, this, 4, nullptr,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+    if (separate_encoder_) {
+        ESP_LOGI(TAG, "Opus split: encoder stack=%u B PSRAM, decoder stack=%u B internal",
+                 encoder_stack_bytes, codec_stack_bytes);
+    }
+#endif
+    if (!separate_encoder_) {
+        ESP_LOGW(TAG, "Opus using shared codec task, stack=%u B internal", codec_stack_bytes);
+    }
+#endif
 }
 
 void AudioService::Stop() {
@@ -233,6 +273,9 @@ void AudioService::Stop() {
 
     bool notify_drained = false;
     {
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_USE_VOICE_BARGE_IN
+        std::lock_guard<std::mutex> detector_lock(voice_barge_mutex_);
+#endif
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         ++playback_generation_;
 #if CONFIG_AUDIO_PRODUCT_QUALITY
@@ -243,6 +286,10 @@ void AudioService::Stop() {
         retain_interruption_prefix_ = false;
         ++capture_generation_;
         voice_barge_in_.Cancel();
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        if (audio_engine_)
+            audio_engine_->EnablePhraseInterruption(false);
+#endif
         barge_preroll_.clear();
         audio_send_queue_.clear();
 #endif
@@ -251,6 +298,9 @@ void AudioService::Stop() {
         audio_playback_queue_.clear();
         audio_testing_queue_.clear();
         notify_drained = MarkPlaybackDrainedLocked();
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        audio_encode_cv_.notify_one();
+#endif
         audio_queue_cv_.notify_all();
     }
     if (notify_drained && callbacks_.on_playback_drained) {
@@ -292,7 +342,11 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         bool ready, monitoring;
         int residual, threshold, correlation, settling;
         {
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+            std::lock_guard<std::mutex> lock(voice_barge_mutex_);
+#else
             std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+#endif
             const bool muted = codec_->output_volume() == 0;
             voice_barge_in_.UpdateReference(ref_rms, mic_clipped, now, muted);
             ready = voice_barge_in_.ReferenceReady(now, muted);
@@ -350,7 +404,11 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     }
 #if CONFIG_USE_VOICE_BARGE_IN
     if (codec_->input_reference() && codec_->input_channels() == 2 && sample_rate == 16000) {
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        std::lock_guard<std::mutex> lock(voice_barge_mutex_);
+#else
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+#endif
         voice_barge_in_.FeedReference(data.data(), data.size() / 2);
     }
 #endif
@@ -461,6 +519,11 @@ void AudioService::AudioOutputTask() {
     uint32_t envelope_generation = 0;
     while (true) {
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        const auto wait_generation = playback_generation_;
+        const bool waited_for_pcm = audio_playback_queue_.empty();
+        const bool decode_work_pending = !audio_decode_queue_.empty() || decode_in_flight_;
+#endif
         audio_queue_cv_.wait(lock, [this]() {
 #if CONFIG_AUDIO_PRODUCT_QUALITY
             if (cancel_fade_requested_ || (finish_requested_ && audio_playback_queue_.empty() &&
@@ -473,25 +536,49 @@ void AudioService::AudioOutputTask() {
             break;
         }
 
-        // Release the queue lock while waiting for a small prefix. Reset/stop
-        // wakes this wait immediately; short prompts wait at most 80 ms.
+        // Release the queue lock while waiting for the playback prefix.
+        // Reset, stop and end of external input wake this wait immediately.
         while (!audio_playback_queue_.empty() && !service_stopped_.load()) {
 #if CONFIG_AUDIO_PRODUCT_QUALITY
             if (cancel_fade_requested_)
                 break;
 #endif
             const auto now = std::chrono::steady_clock::now().time_since_epoch();
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+            if (const auto generation = playback_generation_;
+                playout_buffer_.IsNetworkSpeech(generation)) {
+                const bool decoder_empty = audio_decode_queue_.empty() && !decode_in_flight_;
+                const AudioPlayoutBuffer::NetworkSupply supply{
+                    .pcm_ms = DecodedPlaybackMsLocked(),
+                    .buffered_ms = BufferedPlaybackMsLocked(),
+                    .pcm_full = audio_playback_queue_.size() >= max_playback_tasks_,
+                    .decoding_finished = decoder_empty && playout_buffer_.SpeechFinished(generation),
+                    .waited_for_pcm = waited_for_pcm && wait_generation == generation,
+                    .decode_work_pending = decode_work_pending,
+                };
+                const auto wait = playout_buffer_.WaitForNetworkPcm(
+                    generation, supply,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+                if (!wait)
+                    break;
+                audio_queue_cv_.wait_for(lock, std::chrono::milliseconds(wait));
+                continue;
+            }
+#endif
+            const auto buffered_ms = BufferedPlaybackMsLocked();
             const auto wait = playout_buffer_.WaitMs(
-                playback_generation_, BufferedPlaybackMsLocked(),
+                playback_generation_, buffered_ms,
                 std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
             if (!wait)
                 break;
             const auto generation = playback_generation_;
             const auto queued = audio_playback_queue_.size();
             audio_queue_cv_.wait_for(
-                lock, std::chrono::milliseconds(wait), [this, generation, queued]() {
+                lock, std::chrono::milliseconds(wait), [this, generation, queued, buffered_ms]() {
                     return service_stopped_.load() || generation != playback_generation_ ||
-                           audio_playback_queue_.size() != queued;
+                           playout_buffer_.SpeechFinished(generation) ||
+                           audio_playback_queue_.size() != queued ||
+                           BufferedPlaybackMsLocked() != buffered_ms;
                 });
         }
         if (service_stopped_.load())
@@ -527,6 +614,10 @@ void AudioService::AudioOutputTask() {
         size_t tail_samples = 0;
 #endif
         int64_t output_started_ms = 0;
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        int64_t output_submitted_ms = 0;
+#endif
+        [[maybe_unused]] size_t written_samples = 0;
         if (task.playback_generation == GetPlaybackGeneration()) {
             if (envelope_generation != task.playback_generation) {
                 codec_->ResetOutputProcessing();
@@ -541,17 +632,21 @@ void AudioService::AudioOutputTask() {
                                         std::chrono::steady_clock::now().time_since_epoch())
                                         .count();
 #if CONFIG_AUDIO_PRODUCT_QUALITY
-                if (task.stream.start)
+                if (task.stream.start && !task.stream.continuous_output)
                     codec_->ResetOutputProcessing();
                 if (!finish_only) {
                     codec_->SetOutputStreamGain(task.stream.gain_q8);
                     if (!task.pcm.empty())
-                        codec_->OutputData(task.pcm);
+                        written_samples = codec_->OutputData(task.pcm);
                 }
                 if (task.stream.end)
                     tail_samples = codec_->FinishOutput();
 #else
-                codec_->OutputData(task.pcm);
+                written_samples = codec_->OutputData(task.pcm);
+#endif
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+                output_submitted_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
 #endif
                 played = task.playback_generation == GetPlaybackGeneration();
             }
@@ -589,13 +684,28 @@ void AudioService::AudioOutputTask() {
         bool notify_drained = false;
         lock.lock();
         if (played && task.playback_generation == playback_generation_) {
-            const auto duration = (uint64_t(task.pcm.size())
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+            if (written_samples < task.pcm.size())
+                playout_buffer_.RecordShortWrite(playback_generation_);
+            const auto timed_samples = written_samples;
+#else
+            const auto timed_samples = task.pcm.size();
+#endif
+            const auto duration = (uint64_t(timed_samples)
 #if CONFIG_AUDIO_PRODUCT_QUALITY
                                    + tail_samples
 #endif
                                    ) *
                                   1000 / std::max(1, codec_->output_sample_rate());
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+            const auto dma_capacity_ms = AUDIO_CODEC_DMA_DESC_NUM * AUDIO_CODEC_DMA_FRAME_NUM *
+                                         1000 / std::max(1, codec_->output_sample_rate());
+            if (duration > 0)
+                playout_buffer_.Written(duration, output_started_ms, output_submitted_ms,
+                                        dma_capacity_ms);
+#else
             playout_buffer_.Written(duration, output_started_ms);
+#endif
         }
 #if CONFIG_USE_SERVER_AEC
         /* Record the timestamp for server AEC */
@@ -628,7 +738,8 @@ void AudioService::OpusCodecTask() {
     while (true) {
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
         audio_queue_cv_.wait(lock, [this]() {
-            return service_stopped_.load() || !audio_encode_queue_.empty() ||
+            return service_stopped_.load() ||
+                   (!separate_encoder_ && !audio_encode_queue_.empty()) ||
                    (!audio_decode_queue_.empty() &&
                     audio_playback_queue_.size() < max_playback_tasks_);
         });
@@ -658,12 +769,17 @@ void AudioService::OpusCodecTask() {
             bool decoded = false;
             [[maybe_unused]] bool decode_succeeded = false;
             if (configured && opus_decoder_ != nullptr) {
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+                const auto payload = packet->OpusBytes();
+#else
+                const auto& payload = packet->payload;
+#endif
                 const bool resample = decoder_sample_rate_ != codec_->output_sample_rate();
                 auto& pcm = resample ? decode_scratch : task.pcm;
                 pcm.resize(decoder_frame_size_);
                 esp_audio_dec_in_raw_t raw = {
-                    .buffer = (uint8_t*)(packet->payload.data()),
-                    .len = (uint32_t)(packet->payload.size()),
+                    .buffer = const_cast<uint8_t*>(payload.data()),
+                    .len = static_cast<uint32_t>(payload.size()),
                     .consumed = 0,
                     .frame_recover = ESP_AUDIO_DEC_RECOVERY_NONE,
                 };
@@ -686,8 +802,8 @@ void AudioService::OpusCodecTask() {
                     decode_succeeded = true;
                     pcm.resize(out_frame.decoded_size / sizeof(int16_t));
 #if CONFIG_AUDIO_SPEAKER_SMOOTH_LIMITER
-                    auto quality = decoded_stats.Observe(generation, packet->payload.data(),
-                                                         packet->payload.size(), pcm.data(),
+                    auto quality = decoded_stats.Observe(generation, payload.data(),
+                                                         payload.size(), pcm.data(),
                                                          pcm.size(), decoder_sample_rate_);
                     if (quality) {
                         ESP_LOGI(TAG,
@@ -779,69 +895,92 @@ void AudioService::OpusCodecTask() {
             }
             lock.lock();
         }
-        /* Encode the audio to send queue */
-        if (!audio_encode_queue_.empty()) {
+        if (!separate_encoder_ && !audio_encode_queue_.empty()) {
             auto task = std::move(audio_encode_queue_.front());
             audio_encode_queue_.pop_front();
             audio_queue_cv_.notify_all();
             lock.unlock();
-
-            auto packet = std::make_unique<AudioStreamPacket>();
-            packet->frame_duration = OPUS_FRAME_DURATION_MS;
-            packet->sample_rate = 16000;
-            packet->timestamp = task.timestamp;
-
-            if (opus_encoder_ != nullptr && task.pcm.size() == encoder_frame_size_) {
-                packet->payload.resize(encoder_outbuf_size_);
-                esp_audio_enc_in_frame_t in = {
-                    .buffer = (uint8_t*)(task.pcm.data()),
-                    .len = (uint32_t)(encoder_frame_size_ * sizeof(int16_t)),
-                };
-                esp_audio_enc_out_frame_t out = {
-                    .buffer = packet->payload.data(),
-                    .len = (uint32_t)encoder_outbuf_size_,
-                    .encoded_bytes = 0,
-                };
-                auto ret = esp_opus_enc_process(opus_encoder_, &in, &out);
-                if (ret == ESP_AUDIO_ERR_OK) {
-                    packet->payload.resize(out.encoded_bytes);
-
-                    if (task.type == kAudioTaskTypeEncodeToSendQueue) {
-#if CONFIG_USE_VOICE_BARGE_IN
-                        QueueVoicePacket(std::move(packet), task.capture_generation);
-#else
-                        {
-                            std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
-                            if (audio_send_queue_.full()) {
-                                audio_send_queue_.pop_front();
-                            }
-                            audio_send_queue_.push_back(std::move(packet));
-                        }
-                        if (callbacks_.on_send_queue_available) {
-                            callbacks_.on_send_queue_available();
-                        }
-#endif
-                    } else if (task.type == kAudioTaskTypeEncodeToTestingQueue) {
-                        std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
-                        if (audio_testing_queue_.size() < kTestingPacketCapacity) {
-                            audio_testing_queue_.push_back(std::move(packet));
-                        }
-                    }
-                    debug_statistics_.encode_count++;
-                } else {
-                    ESP_LOGE(TAG, "Failed to encode audio, error code: %d", ret);
-                }
-            } else {
-                ESP_LOGE(TAG,
-                         "Failed to encode audio: encoder not configured or invalid frame size "
-                         "(got %u, expected %u)",
-                         task.pcm.size(), encoder_frame_size_);
-            }
-            lock.lock();
+            EncodeAudioFrame(task);
         }
     }
 
     ESP_LOGW(TAG, "Opus codec task stopped");
+}
+
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+void AudioService::AudioEncoderTask() {
+    unsigned frames_before_stack_report = 16;
+    while (true) {
+        std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+        audio_encode_cv_.wait(lock, [this]() {
+            return service_stopped_.load() || !audio_encode_queue_.empty();
+        });
+        if (service_stopped_.load())
+            break;
+        auto task = std::move(audio_encode_queue_.front());
+        audio_encode_queue_.pop_front();
+        lock.unlock();
+        EncodeAudioFrame(task);
+        if (frames_before_stack_report && --frames_before_stack_report == 0) {
+            ESP_LOGI(TAG, "Opus encoder stack minimum free: %u B",
+                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+        }
+    }
+}
+#endif
+
+void AudioService::EncodeAudioFrame(AudioTask& task) {
+    auto packet = std::make_unique<AudioStreamPacket>();
+    packet->frame_duration = OPUS_FRAME_DURATION_MS;
+    packet->sample_rate = 16000;
+    packet->timestamp = task.timestamp;
+
+    if (opus_encoder_ != nullptr && task.pcm.size() == encoder_frame_size_) {
+        packet->payload.resize(encoder_outbuf_size_);
+        esp_audio_enc_in_frame_t in = {
+            .buffer = (uint8_t*)(task.pcm.data()),
+            .len = (uint32_t)(encoder_frame_size_ * sizeof(int16_t)),
+        };
+        esp_audio_enc_out_frame_t out = {
+            .buffer = packet->payload.data(),
+            .len = (uint32_t)encoder_outbuf_size_,
+            .encoded_bytes = 0,
+        };
+        auto ret = esp_opus_enc_process(opus_encoder_, &in, &out);
+        if (ret == ESP_AUDIO_ERR_OK) {
+            packet->payload.resize(out.encoded_bytes);
+
+            if (task.type == kAudioTaskTypeEncodeToSendQueue) {
+#if CONFIG_USE_VOICE_BARGE_IN
+                QueueVoicePacket(std::move(packet), task.capture_generation);
+#else
+                {
+                    std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
+                    if (audio_send_queue_.full()) {
+                        audio_send_queue_.pop_front();
+                    }
+                    audio_send_queue_.push_back(std::move(packet));
+                }
+                if (callbacks_.on_send_queue_available) {
+                    callbacks_.on_send_queue_available();
+                }
+#endif
+            } else if (task.type == kAudioTaskTypeEncodeToTestingQueue) {
+                std::lock_guard<std::mutex> lock2(audio_queue_mutex_);
+                if (!service_stopped_.load() && audio_testing_queue_.size() < kTestingPacketCapacity) {
+                    audio_testing_queue_.push_back(std::move(packet));
+                }
+            }
+            debug_statistics_.encode_count++;
+        } else {
+            ESP_LOGE(TAG, "Failed to encode audio, error code: %d", ret);
+        }
+    } else {
+        ESP_LOGE(TAG,
+                 "Failed to encode audio: encoder not configured or invalid frame size "
+                 "(got %u, expected %u)",
+                 task.pcm.size(), encoder_frame_size_);
+    }
 }
 
 bool AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
@@ -900,15 +1039,26 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
 
     uint32_t dropped_total = 0;
 #if CONFIG_USE_VOICE_BARGE_IN
-    const size_t min_barge_speech_samples = type == kAudioTaskTypeEncodeToSendQueue
-        ? Board::GetInstance().GetBargeInMinimumSpeechSamples() : 2880;
+    const size_t min_barge_speech_samples =
+        type == kAudioTaskTypeEncodeToSendQueue
+            ? Board::GetInstance().GetBargeInMinimumSpeechSamples()
+            : 0;
 #endif
 #if CONFIG_USE_VOICE_BARGE_IN
     uint32_t interruption_token = 0;
     bool interruption = false;
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    bool keyword_expired = false;
+    bool keyword_ref_ready = false;
+    int keyword_verified_ms = 0;
+#endif
 #endif
     {
-        /* Push the task to the encode queue */
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_USE_VOICE_BARGE_IN
+        std::unique_lock<std::mutex> detector_lock(voice_barge_mutex_, std::defer_lock);
+        if (type == kAudioTaskTypeEncodeToSendQueue)
+            detector_lock.lock();
+#endif
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
 #if CONFIG_USE_VOICE_BARGE_IN
         if (type == kAudioTaskTypeEncodeToSendQueue) {
@@ -916,10 +1066,32 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
                 return;
             }
             task.capture_generation = capture_generation_;
-            interruption = voice_barge_in_.Observe(
-                task.pcm.data(), task.pcm.size(), voice_detected_.load(), esp_timer_get_time(),
-                codec_->output_volume() == 0, min_barge_speech_samples);
+            const auto now = esp_timer_get_time();
+            const bool muted = codec_->output_volume() == 0;
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+            // Correlation scans 512 ms of reference. Neither the Opus decoder
+            // nor the speaker should wait for that scan to finish.
+            lock.unlock();
+#endif
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+            voice_barge_in_.Observe(task.pcm.data(), task.pcm.size(), voice_detected_.load(),
+                                    now, muted, min_barge_speech_samples, true);
+            interruption_token = voice_barge_in_.MatchedKeyword(now, muted);
+            interruption = interruption_token != 0;
+            keyword_expired = voice_barge_in_.ExpireKeyword(now);
+            if (keyword_expired) {
+                keyword_ref_ready = voice_barge_in_.ReferenceReady(now, muted);
+                keyword_verified_ms = voice_barge_in_.verified_speech_ms();
+            }
+#else
+            interruption = voice_barge_in_.Observe(task.pcm.data(), task.pcm.size(),
+                                                    voice_detected_.load(), now, muted,
+                                                    min_barge_speech_samples);
             interruption_token = voice_barge_in_.token();
+#endif
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+            lock.lock();
+#endif
         }
 #endif
 
@@ -943,8 +1115,19 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
             dropped_total = ++debug_statistics_.encode_drop_count;
         }
         audio_encode_queue_.push_back(std::move(task));
-        audio_queue_cv_.notify_all();
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        if (separate_encoder_)
+            audio_encode_cv_.notify_one();
+        else
+#endif
+            audio_queue_cv_.notify_all();
     }
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+    if (keyword_expired) {
+        ESP_LOGI(TAG, "Keyword rejected: pairing expired, reference=%d verified_speech_ms=%d",
+                 keyword_ref_ready, keyword_verified_ms);
+    }
+#endif
 #if CONFIG_USE_VOICE_BARGE_IN
     if (interruption && callbacks_.on_voice_interruption) {
 #if CONFIG_VOICE_BARGE_IN_SHADOW
@@ -1010,12 +1193,21 @@ bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> pa
     const uint32_t generation = expected_generation.value_or(playback_generation_);
     if (generation != playback_generation_)
         return false;
-    if (audio_decode_queue_.size() >= max_decode_packets_) {
+    size_t packet_limit = max_decode_packets_;
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    if (playout_buffer_.IsExternalSpeech(generation)) {
+        // 144 compressed packets (about 2.9 seconds in the usual 20 ms
+        // stream) fit the existing queue storage. The Ali payloads use PSRAM.
+        static_assert(kDecodePacketCapacity >= 144);
+        packet_limit = 144;
+    }
+#endif
+    if (audio_decode_queue_.size() >= packet_limit) {
         ++decode_queue_full_count_;
         if (wait) {
-            audio_queue_cv_.wait(lock, [this, generation]() {
+            audio_queue_cv_.wait(lock, [this, generation, packet_limit]() {
                 return service_stopped_.load() || generation != playback_generation_ ||
-                       audio_decode_queue_.size() < max_decode_packets_;
+                       audio_decode_queue_.size() < packet_limit;
             });
         } else {
             return false;
@@ -1087,11 +1279,18 @@ void AudioService::EnableVoiceProcessing(bool enable) {
     ESP_LOGD(TAG, "%s voice processing", enable ? "Enabling" : "Disabling");
 #if CONFIG_USE_VOICE_BARGE_IN
     {
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        std::lock_guard<std::mutex> detector_lock(voice_barge_mutex_);
+#endif
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         capture_enabled_ = false;
         retain_interruption_prefix_ = false;
         ++capture_generation_;
         voice_barge_in_.Cancel();
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        if (audio_engine_)
+            audio_engine_->EnablePhraseInterruption(false);
+#endif
         barge_preroll_.clear();
         audio_encode_queue_.clear();
         audio_send_queue_.clear();
@@ -1221,7 +1420,14 @@ bool AudioService::IsPlaybackIdle() {
     return IsPlaybackDrainedLocked();
 }
 
-uint32_t AudioService::BufferedPlaybackMsLocked() const {
+bool AudioService::IsPlaybackIdleForTelemetry() {
+    // The power-key polling task cannot wait for playback or a decoder reset.
+    // Treat contention as load so a potentially loaded reading stays conservative.
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_, std::try_to_lock);
+    return lock.owns_lock() && IsPlaybackDrainedLocked();
+}
+
+uint32_t AudioService::DecodedPlaybackMsLocked() const {
     if (codec_ == nullptr)
         return 0;
     uint64_t samples = 0;
@@ -1231,17 +1437,55 @@ uint32_t AudioService::BufferedPlaybackMsLocked() const {
     return samples * 1000 / std::max(1, codec_->output_sample_rate());
 }
 
-PlaybackBufferStatus AudioService::GetPlaybackBufferStatus() {
-    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
-    return {static_cast<uint32_t>(audio_decode_queue_.size()),
-            static_cast<uint32_t>(audio_playback_queue_.size()), BufferedPlaybackMsLocked(),
-            playout_buffer_.rebuffer_count(), decode_queue_full_count_};
+uint32_t AudioService::BufferedPlaybackMsLocked() const {
+    uint32_t duration = DecodedPlaybackMsLocked();
+    if (playout_buffer_.IsNetworkSpeech(playback_generation_)) {
+        for (size_t i = 0; i < audio_decode_queue_.size(); ++i)
+            duration += std::clamp(audio_decode_queue_[i]->frame_duration, 0, 120);
+    }
+    return duration;
 }
 
-void AudioService::ResetDecoder() {
+PlaybackBufferStatus AudioService::GetPlaybackBufferStatus() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    return {
+        .decode_packets = static_cast<uint32_t>(audio_decode_queue_.size()),
+        .pcm_frames = static_cast<uint32_t>(audio_playback_queue_.size()),
+        .buffered_ms = BufferedPlaybackMsLocked(),
+        .rebuffer_count = playout_buffer_.rebuffer_count(),
+        .queue_full_count = decode_queue_full_count_,
+        .first_output_ms = playout_buffer_.first_output_ms(),
+        .gap_ms = playout_buffer_.gap_ms(),
+        .longest_write_ms = playout_buffer_.longest_write_ms(),
+        .long_write_count = playout_buffer_.long_write_count(),
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        .decode_pending_rebuffers = playout_buffer_.decode_pending_rebuffers(),
+        .late_write_count = playout_buffer_.late_write_count(),
+        .short_write_count = playout_buffer_.short_write_count(),
+        .encode_drop_count = debug_statistics_.encode_drop_count,
+#endif
+    };
+}
+
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+void AudioService::ConfigureServerSpeechPlayout() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    playout_buffer_.ConfigureServerSpeech(playback_generation_);
+}
+#endif
+
+void AudioService::ConfigureExternalSpeechPlayout(uint32_t generation) {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    if (generation == playback_generation_)
+        playout_buffer_.ConfigureExternalSpeech(generation);
+}
+
+void AudioService::ResetDecoder(std::optional<uint32_t> expected_generation) {
     bool notify_drained = false;
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        if (expected_generation && *expected_generation != playback_generation_)
+            return;
         ++playback_generation_;
 #if CONFIG_AUDIO_PRODUCT_QUALITY
         cancel_fade_requested_ = true;
@@ -1343,6 +1587,9 @@ bool AudioService::BeginVoiceInterruption() {
         !audio_engine_->CanMonitorVoiceInterruption()) {
         return false;
     }
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    std::lock_guard<std::mutex> detector_lock(voice_barge_mutex_);
+#endif
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     if (!capture_enabled_) {
         return false;
@@ -1352,24 +1599,46 @@ bool AudioService::BeginVoiceInterruption() {
         audio_encode_queue_.clear();
         audio_send_queue_.clear();
         barge_preroll_.clear();
-        voice_barge_in_.Begin();
+        voice_barge_in_.Begin(Board::GetInstance().GetBargeInSpeechGapSamples());
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        audio_engine_->EnablePhraseInterruption(true);
+#endif
     }
     return true;
 }
 
-bool AudioService::IsVoiceInterruptionMonitoring() {
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+uint32_t AudioService::NoteVoiceInterruptionKeyword() {
+    std::lock_guard<std::mutex> detector_lock(voice_barge_mutex_);
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    return capture_enabled_ ? voice_barge_in_.NoteKeyword(esp_timer_get_time(),
+                                                          codec_->output_volume() == 0) : 0;
+}
+#endif
+
+bool AudioService::IsVoiceInterruptionMonitoring() {
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    std::lock_guard<std::mutex> lock(voice_barge_mutex_);
+#else
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+#endif
     return voice_barge_in_.monitoring();
 }
 
 bool AudioService::IsVoiceInterruptionPending(uint32_t token) {
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    std::lock_guard<std::mutex> detector_lock(voice_barge_mutex_);
+#endif
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     return capture_enabled_ &&
            voice_barge_in_.pending(token, esp_timer_get_time(), codec_->output_volume() == 0);
 }
 
-#if CONFIG_BOARD_TYPE_WZH_DINOSAUR
+#if CONFIG_BOARD_TYPE_WZH_DINOSAUR || CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
 AudioService::BargeInDiagnostics AudioService::GetBargeInDiagnostics(uint32_t token) {
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    std::lock_guard<std::mutex> detector_lock(voice_barge_mutex_);
+#endif
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     return {capture_enabled_ &&
                 voice_barge_in_.pending(token, esp_timer_get_time(), codec_->output_volume() == 0),
@@ -1382,11 +1651,17 @@ AudioService::BargeInDiagnostics AudioService::GetBargeInDiagnostics(uint32_t to
 
 bool AudioService::CommitVoiceInterruption(uint32_t token, bool retain_first_packets) {
     {
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+        std::lock_guard<std::mutex> detector_lock(voice_barge_mutex_);
+#endif
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         if (!capture_enabled_ ||
             !voice_barge_in_.Commit(token, esp_timer_get_time(), codec_->output_volume() == 0)) {
             return false;
         }
+#if (CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY) && CONFIG_WZH_DINO_KEYWORD_BARGE_IN
+        audio_engine_->EnablePhraseInterruption(false);
+#endif
         // The input/AFE pipeline stays running: already encoded prefix packets
         // precede the current in-flight packet without a reset or warmup gap.
         audio_send_queue_.clear();
@@ -1444,6 +1719,7 @@ void AudioService::FinishPlayback(std::optional<uint32_t> expected_generation) {
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     if (expected_generation && *expected_generation != playback_generation_)
         return;
+    playout_buffer_.FinishSpeech(playback_generation_);
     playback_drained_notified_ = false;
     if (!audio_decode_queue_.empty())
         audio_decode_queue_[audio_decode_queue_.size() - 1]->stream.end = true;

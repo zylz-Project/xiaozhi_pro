@@ -13,28 +13,36 @@ class FactoryResetPolicyTest(unittest.TestCase):
         if not shutil.which('g++'):
             self.skipTest('g++ required')
         code = (ROOT/'main/boards/common/wzh/wzh_user_web.cc').read_text()
-        methods = queue_function(code, 'bool SetSetupGuide(') + '\n' + queue_function(code, 'bool ClearOnboarding(')
+        store = (ROOT/'main/boards/common/wzh/wzh_onboarding_store.cc').read_text()
+        methods = '\n'.join((queue_function(code, 'bool SetSetupGuide('),
+                             queue_function(store, 'bool ResetOnboardingProgress('),
+                             queue_function(code, 'bool ClearOnboarding(')))
         source = r'''
 #include <cassert>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 using nvs_handle_t=int;
 constexpr int ESP_OK=0,ESP_ERR_NVS_NOT_FOUND=1,NVS_READWRITE=0;
 #define pdMS_TO_TICKS(v) (v)
 std::vector<std::string> calls;bool active=false,fail_legacy=false;uint64_t clock_ms=0;
+std::recursive_mutex store_mutex;
+constexpr char kNamespace[]="onboarding", kEpoch[]="guide_epoch";
+uint32_t esp_random(){return 10;}
 uint64_t Now(){return clock_ms;}void vTaskDelay(int v){clock_ms+=v;}
-void StopOnboarding(){calls.push_back("stop");}bool IsOnboardingActive(){return active;}
+void StopOnboarding(){calls.push_back("stop");}bool IsOnboardingWorkerRunning(){return active;}
 int nvs_open(const char* ns,int,int* h){*h=std::string(ns)=="wzh_web"?1:2;return ESP_OK;}
 int nvs_set_u8(int,const char*,int){return ESP_OK;}
 int nvs_erase_key(int,const char*){calls.push_back("legacy");return fail_legacy?2:ESP_OK;}
 int nvs_erase_all(int){calls.push_back("progress");return ESP_OK;}
+int nvs_set_u32(int,const char*,uint32_t epoch){assert(epoch==10);calls.push_back("epoch");return ESP_OK;}
 int nvs_commit(int h){calls.push_back(h==1?"legacy_commit":"progress_commit");return ESP_OK;}
 void nvs_close(int){}
 ''' + methods + r'''
 int main(){
  assert(ClearOnboarding());
- assert((calls==std::vector<std::string>{"stop","legacy","legacy_commit","progress","progress_commit"}));
+ assert((calls==std::vector<std::string>{"stop","legacy","legacy_commit","progress","epoch","progress_commit"}));
  calls.clear();fail_legacy=true;assert(!ClearOnboarding());
  for(const auto& call:calls)assert(call!="progress");
  calls.clear();fail_legacy=false;active=true;clock_ms=0;assert(!ClearOnboarding());
@@ -60,7 +68,7 @@ int main(){
  for(int failure=0;failure<=4;++failure){
   std::vector<std::string> calls;Policy::Progress result;Policy::Operations op;
   op.validate=[&](){calls.push_back("validate");return failure!=1;};
-  op.reset_voices=[&](){calls.push_back("voices");return failure!=2;};
+  op.reset_voices=[&](){calls.push_back("voices");return failure==2?"RESET_VOICE_OFFLINE":nullptr;};
   op.clear_onboarding=[&](){calls.push_back("onboarding");return failure!=3;};
   op.clear_wifi=[&](){calls.push_back("wifi");return failure!=4;};
   op.report=[&](const auto& p){result=p;};

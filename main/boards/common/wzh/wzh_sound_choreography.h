@@ -3,43 +3,152 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
+#include <mutex>
 #include "wzh_sound_variants.h"
 #include "wzh_user_pair_motion.h"
 
 namespace wzh {
 
-// Completion-based cadence. Busy/disabled intervals restart the quiet interval,
-// including conversation, touch, maintenance, protection and decoder contention.
+// The first two minutes use short rests between shows. From minute two to
+// minute five use 30-second rests, then fall back to one show every 2-3 minutes.
+// An interaction restarts the cycle. Conversation and protection pause it.
 class AutoplayCadence {
 public:
+    static constexpr uint32_t kShowMs = 120000;
+    static constexpr uint32_t kExhibitionMs = 300000;
+    static constexpr uint32_t kSpacedGapMs = 30000;
+    static constexpr uint32_t kLegacyMinGapMs = 120000;
+    static constexpr uint32_t kLegacyGapSpreadMs = 60000;
+
+    // A real interaction (re)starts the burst. Products may include the
+    // interaction response itself in the two-minute window.
+    void Engage(uint32_t now, uint32_t random = 0, bool include_interaction = false) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (paused_ && static_cast<int32_t>(now - pause_started_) < 0)
+            now = pause_started_;
+        EngageLocked(now, random);
+        if (include_interaction)
+            phase_pending_ = false;
+    }
+    void SetPaused(uint32_t now, bool paused) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (paused == paused_)
+            return;
+        if (paused) {
+            paused_ = true;
+            pause_started_ = now;
+        } else {
+            const uint32_t elapsed = now - pause_started_;
+            if (armed_) {
+                phase_start_ += elapsed;
+                since_ += elapsed;
+            }
+            paused_ = false;
+        }
+    }
+    // A showcase owns the lane through both its audio and its finishing
+    // choreography. The rest starts when that complete performance ends.
+    void ObservePlayback(uint32_t now, bool playing, uint32_t random = 0) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (armed_ && !paused_ && !playing && static_cast<int32_t>(now - since_) >= 0) {
+            if (phase_pending_) {
+                phase_start_ = now;
+                phase_pending_ = false;
+            }
+            UpdatePhaseLocked(now, random);
+            if (playback_active_) {
+                since_ = now;
+                delay_ = Gap(random);
+            }
+        }
+        playback_active_ = playing;
+    }
     void Busy(uint32_t now, uint32_t random = 0) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!armed_ || paused_ || static_cast<int32_t>(now - since_) < 0)
+            return;
+        UpdatePhaseLocked(now, random);
+        delay_ = Gap(random);
         since_ = now;
-        // Short exhibition cadence: about two seconds after the previous
-        // audio+motion finishes. Touch responses stay immediate.
-        delay_ = 1800 + random % 600;
-        armed_ = true;
     }
     bool Due(uint32_t now, bool eligible, uint32_t random) {
-        if (!eligible || !armed_) {
-            Busy(now, random);
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (paused_)
             return false;
+        if (!armed_) {
+            if (!eligible)
+                return false;
+            EngageLocked(now, random);
         }
-        return now - since_ >= delay_;
+        if (static_cast<int32_t>(now - phase_start_) < 0 || static_cast<int32_t>(now - since_) < 0)
+            return false;
+        UpdatePhaseLocked(now, random);
+        return eligible && !phase_pending_ && !playback_active_ && now - since_ >= delay_;
+    }
+    bool InShow() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return mode_ == Mode::kShow;
+    }
+    // Idle filler clips for silent mode use the legacy cadence.
+    bool Legacy() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return mode_ == Mode::kLegacy;
     }
 
 private:
+    enum class Mode : uint8_t { kShow, kSpaced, kLegacy };
+    uint32_t Gap(uint32_t random) const {
+        if (mode_ == Mode::kShow)
+            return 2000 + random % 1001;
+        if (mode_ == Mode::kSpaced)
+            return kSpacedGapMs;
+        return kLegacyMinGapMs + random % kLegacyGapSpreadMs;
+    }
+    void EngageLocked(uint32_t now, uint32_t random) {
+        mode_ = Mode::kShow;
+        // Some products count the interaction itself. Otherwise start the
+        // exhibition clock once its first audio or motion has finished.
+        phase_pending_ = true;
+        phase_start_ = since_ = now;
+        delay_ = Gap(random);
+        armed_ = true;
+        if (paused_)
+            pause_started_ = now;
+    }
+    void UpdatePhaseLocked(uint32_t now, uint32_t random) {
+        if (phase_pending_)
+            return;
+        const uint32_t elapsed = now - phase_start_;
+        const auto next = elapsed >= kExhibitionMs ? Mode::kLegacy
+                          : elapsed >= kShowMs     ? Mode::kSpaced
+                                                   : Mode::kShow;
+        if (next == mode_)
+            return;
+        mode_ = next;
+        if (mode_ == Mode::kSpaced && static_cast<int32_t>(since_ - (phase_start_ + kShowMs)) < 0)
+            since_ = phase_start_ + kShowMs;
+        delay_ = Gap(random);
+    }
+    Mode mode_ = Mode::kShow;
     bool armed_ = false;
-    uint32_t since_ = 0, delay_ = 2100;
+    bool paused_ = false;
+    bool playback_active_ = false;
+    bool phase_pending_ = false;
+    uint32_t pause_started_ = 0;
+    mutable std::mutex mutex_;
+    uint32_t phase_start_ = 0, since_ = 0, delay_ = 0;
 };
 
-// Between sounds and interactions the pet should still look alive. This
-// cadence only fires while fully idle, then leaves the next few seconds to the
-// clip/pulse that was just started.
+// Keep occasional standalone motions in the legacy phase when sound is off.
 class IdleCadence {
 public:
+    static constexpr uint32_t kMinGapMs = 120000;
+    static constexpr uint32_t kGapSpreadMs = 60000;
+
     void Busy(uint32_t now, uint32_t random = 0) {
         since_ = now;
-        delay_ = 3000 + random % 4000;
+        delay_ = kMinGapMs + random % kGapSpreadMs;
         armed_ = true;
     }
     bool Due(uint32_t now, bool eligible, uint32_t random) {
@@ -52,7 +161,7 @@ public:
 
 private:
     bool armed_ = false;
-    uint32_t since_ = 0, delay_ = 6000;
+    uint32_t since_ = 0, delay_ = kMinGapMs;
 };
 
 // A bounded, allocation-free score player. Each file's measured envelope and

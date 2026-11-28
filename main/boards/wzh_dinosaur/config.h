@@ -6,6 +6,27 @@
 #include <driver/spi_master.h>
 #include <esp_adc/adc_oneshot.h>
 
+// Dinosaur builds enable the ML307 AT transport by default. Wi-Fi remains
+// available for fallback and runtime selection.
+#ifndef DINOSAUR_ENABLE_4G
+#define DINOSAUR_ENABLE_4G 0
+#endif
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+#undef DINOSAUR_ENABLE_4G
+#define DINOSAUR_ENABLE_4G 1
+#endif
+#if DINOSAUR_ENABLE_4G != 0 && DINOSAUR_ENABLE_4G != 1
+#error "DINOSAUR_ENABLE_4G must be 0 or 1"
+#endif
+
+// ESP32 UART: TX connects to ML307 RX, RX connects to ML307 TX.
+#ifndef DINOSAUR_ML307_TX_GPIO
+#define DINOSAUR_ML307_TX_GPIO GPIO_NUM_12
+#endif
+#ifndef DINOSAUR_ML307_RX_GPIO
+#define DINOSAUR_ML307_RX_GPIO GPIO_NUM_11
+#endif
+
 // ES8311 同时服务于在线语音和离线本地声音。二者共用 XiaoZhi AudioService，
 // 不允许离线模块再次安装 I2S 驱动。
 #define AUDIO_INPUT_SAMPLE_RATE 24000
@@ -23,7 +44,8 @@
 // NS4150: R35/R37=30k, Av=300k/30k=10 (+20 dB). Reserve top-end headroom.
 #define AUDIO_CODEC_PA_GAIN_DB 20.0f
 #define AUDIO_CODEC_MAX_VOLUME_DB -0.5f
-#define AUDIO_CODEC_SPEAKER_MAKEUP_DB 21.0f
+#define AUDIO_CODEC_SPEAKER_MAKEUP_DB 30.0f
+#define AUDIO_CODEC_REFERENCE_MIC_GAIN_DB 12.0f
 #define AUDIO_CODEC_ES8311_ADDR ES8311_CODEC_DEFAULT_ADDR
 
 #define BOOT_BUTTON_GPIO GPIO_NUM_0
@@ -37,7 +59,8 @@
 #define POWER_BUTTON_RELEASE_MV 1200  // 释放 IO6 实测约 1224~1299 mV
 #define POWER_MAX_SAMPLE_GAP_MS 250   // 超过此间隔视为接触状态未知
 #define POWER_LONG_PRESS_MS 1500
-#define POWER_DEBOUNCE_MS 50
+#define POWER_DEBOUNCE_MS 30
+#define WZH_DOUBLE_CLICK_MS 650
 #define POWER_POLL_MS 20
 #define BATTERY_ADC_CHANNEL ADC_CHANNEL_2
 #define BATTERY_DIVIDER_RATIO 2
@@ -93,6 +116,10 @@
 #define SERVO_TAIL_LR_DEFAULT 90
 #define SERVO_TAIL_UD_MIN 55
 #define SERVO_TAIL_UD_MAX 180
+#if CONFIG_WZH_DINOSAUR_270_SERVO
+#define DINOSAUR_NECK_TAIL_SERVO_TRAVEL_DEG 270.0f
+#define DINOSAUR_NECK_TAIL_SERVO_SWING_DEG 100.0f
+#endif
 #define SERVO_TIMER LEDC_TIMER_0
 #define SERVO_FREQ_HZ 50
 #define SERVO_DUTY_RES LEDC_TIMER_14_BIT

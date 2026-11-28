@@ -2,8 +2,14 @@
 #define PROTOCOL_H
 
 #include <cJSON.h>
+#include <sdkconfig.h>
 #include <chrono>
 #include <functional>
+#include <memory>
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+#include <cstdlib>
+#include <span>
+#endif
 #include <string>
 #include <vector>
 
@@ -15,6 +21,18 @@ struct AudioStreamPacket {
     uint32_t timestamp = 0;
     std::vector<uint8_t> payload;
     OpusStreamMetadata stream;  // Local-only; default network packets are unchanged.
+#if CONFIG_BOARD_TYPE_WZH_TAILREDPANDA || CONFIG_WZH_DIALOGUE_PARITY
+    struct FreeBytes {
+        void operator()(uint8_t* bytes) const { std::free(bytes); }
+    };
+    std::unique_ptr<uint8_t, FreeBytes> external_opus;
+    size_t external_opus_size = 0;
+
+    std::span<const uint8_t> OpusBytes() const {
+        return external_opus ? std::span<const uint8_t>(external_opus.get(), external_opus_size)
+                             : std::span<const uint8_t>(payload);
+    }
+#endif
 };
 
 struct BinaryProtocol2 {
@@ -50,6 +68,7 @@ public:
     inline const std::string& session_id() const { return session_id_; }
 
     void OnIncomingAudio(std::function<void(std::unique_ptr<AudioStreamPacket> packet)> callback);
+    void SetIncomingAudioFilter(std::function<bool()> filter);
     void OnIncomingJson(std::function<void(const cJSON* root)> callback);
     void OnAudioChannelOpened(std::function<void()> callback);
     void OnAudioChannelClosed(std::function<void()> callback);
@@ -61,16 +80,20 @@ public:
     virtual bool OpenAudioChannel() = 0;
     virtual void CloseAudioChannel(bool send_goodbye = true) = 0;
     virtual bool IsAudioChannelOpened() const = 0;
-    virtual bool SendAudio(std::unique_ptr<AudioStreamPacket> packet) = 0;
+    virtual bool SendAudio(const AudioStreamPacket& packet) = 0;
+    virtual bool CanRetryUplinkAudio() const { return false; }
     virtual void SendWakeWordDetected(const std::string& wake_word);
+    bool SendListenText(const std::string& text);
     virtual void SendStartListening(ListeningMode mode);
     virtual void SendStopListening();
     virtual void SendAbortSpeaking(AbortReason reason);
     virtual void SendMcpMessage(const std::string& message);
 
 protected:
+    bool WantsIncomingAudio() const;
     std::function<void(const cJSON* root)> on_incoming_json_;
     std::function<void(std::unique_ptr<AudioStreamPacket> packet)> on_incoming_audio_;
+    std::function<bool()> incoming_audio_filter_;
     std::function<void()> on_audio_channel_opened_;
     std::function<void()> on_audio_channel_closed_;
     std::function<void(const std::string& message)> on_network_error_;

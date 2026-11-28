@@ -12,6 +12,67 @@ ROOT = Path(__file__).resolve().parents[2]
 class DinoKeywordBargeTest(unittest.TestCase):
     run_cpp = barge.VoiceBargeInTest.run_cpp
 
+    def test_tail_keyword_accepts_one_qualified_frame_but_rejects_echo(self):
+        self.run_cpp('#define CONFIG_BOARD_TYPE_WZH_TAILREDPANDA 1\n'
+                     '#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n' + barge.HEADER + r'''
+#include <cassert>
+int main() {
+ VoiceBargeIn detector;
+ const auto token = detector.Begin();
+ const auto speech = BargeWave(280);
+ const auto echo = BargeWave(1000, true);
+ int64_t now = 0;
+ for (int i=0; i<2; ++i) {
+  now += 60000;
+  FeedBargeReference(detector, now);
+  assert(!detector.Observe(speech.data(), speech.size(), false, now, false, 0, true));
+ }
+ assert(detector.threshold()==125 && detector.settling_ms()==120);
+ now += 60000;
+ FeedBargeReference(detector, now);
+ assert(!detector.Observe(echo.data(), echo.size(), true, now, false, 0, true));
+ assert(detector.NoteKeyword(now, false)==0);
+ now += 60000;
+ FeedBargeReference(detector, now);
+ assert(detector.Observe(speech.data(), speech.size(), true, now, false, 0, true));
+ assert(detector.verified_speech_ms()==60 && detector.required_speech_ms()==60);
+ assert(detector.MatchedKeyword(now, false)==token);
+ for (int i=0; i<3; ++i) {
+  now += 60000;
+  FeedBargeReference(detector, now, 0);
+  assert(!detector.Observe(speech.data(), speech.size(), false, now, false, 0, true));
+ }
+ assert(!detector.ReferenceReady(now));
+ assert(detector.NoteKeyword(now, false)==token);
+ FeedBargeReference(detector, now+1000, 0, true);
+ assert(!detector.MatchedKeyword(now+1000, false));
+}
+''')
+
+    def test_tail_profile_preserves_speech_across_a_three_frame_vad_gap(self):
+        self.run_cpp('#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n' + barge.HEADER + r'''
+#include <cassert>
+int main() {
+ const auto speech = BargeWave(1500);
+ for (const auto limit : {1920u, 2880u}) {
+  VoiceBargeIn detector;
+  const auto token = detector.Begin(limit);
+  int64_t now = 0;
+  auto frame = [&](bool vad) {
+   now += 60000;
+   FeedBargeReference(detector, now);
+   return detector.Observe(speech.data(), speech.size(), vad, now);
+  };
+  for (int i = 0; i < 5; ++i) assert(!frame(false));
+  assert(!frame(true));
+  for (int i = 0; i < 3; ++i) assert(!frame(false));
+  const bool accepted = frame(true);
+  assert(accepted == (limit == 2880u));
+  assert(detector.pending(token, now) == accepted);
+ }
+}
+''')
+
     def test_recent_candidate_expires_and_rearms(self):
         self.run_cpp('#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n' + barge.HEADER + r'''
 #include <cassert>
@@ -30,6 +91,43 @@ int main(){
   found=detector.Observe(speech.data(),speech.size(),true,now);}
  assert(found&&detector.pending(token,now));
  assert(detector.Commit(token,now));
+}
+''')
+
+    def test_tail_keyword_pairs_in_both_event_orders_and_expires(self):
+        self.run_cpp('#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n' + barge.HEADER + r'''
+#include <cassert>
+int main() {
+ VoiceBargeIn detector;
+ const auto speech=BargeWave(1500);
+ int64_t now=0;
+ auto frame=[&](bool vad) {
+  now+=60000;
+  FeedBargeReference(detector,now);
+  detector.Observe(speech.data(),speech.size(),vad,now,false,0,true);
+  return detector.MatchedKeyword(now,false);
+ };
+ auto prime=[&](){detector.Begin(); for(int i=0;i<5;++i)assert(!frame(false));};
+ prime();
+ assert(!frame(true));
+ assert(!detector.NoteKeyword(now+1000,false));
+ assert(frame(true));
+ assert(detector.Commit(detector.token(),now));
+ assert(!detector.ExpireKeyword(now+500000));
+ prime();
+ assert(!frame(true)&&!frame(true));
+ assert(detector.NoteKeyword(now+1000,false)==detector.token());
+ assert(detector.Commit(detector.token(),now+1000));
+ prime();
+ assert(!detector.NoteKeyword(now,false));
+ for(int i=0;i<7;++i)assert(!frame(false));
+ assert(detector.ExpireKeyword(now));
+ assert(!frame(true)&&!frame(true));
+ assert(!detector.MatchedKeyword(now,false));
+ assert(detector.NoteKeyword(now,false));
+ detector.Cancel();
+ prime();
+ assert(!frame(true)&&!frame(true));
 }
 ''')
 
@@ -90,7 +188,14 @@ int main(){Application a;a.Install();a.callbacks.on_voice_interruption(42);
                     if entry['text'] == 'local:interrupt'}
         for product in ('dinosaur', 'crawl', 'tail'):
             self.assertFalse(keywords(product, False))
-            self.assertEqual(keywords(product, True), wanted)
+            effective = keywords(product, True)
+            name = {'crawl': 'xiao hua', 'tail': 'xiao wu', 'dinosaur': 'xiao wei'}[product]
+            self.assertTrue(wanted | {'deng', 'bie', 'man', 'zan', 'shou', 'xiu',
+                                      'zan ting', 'ni deng yi xia', name, 'xu',
+                                      'deng deng', 'ting zhi', 'bie bo le',
+                                      'wo cha yi ju', 'ting xia lai', 'qing ni ting',
+                                      'ting bu yao jiang le'} <= effective)
+            self.assertFalse(({'xiao hua', 'xiao wu', 'xiao wei'} - {name}) & effective)
 
     def test_each_product_has_its_own_wake_phrase(self):
         phrases = {'crawl': 'xiao hua xiao hua', 'tail': 'xiao wu xiao wu',

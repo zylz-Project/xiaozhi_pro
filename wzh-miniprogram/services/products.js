@@ -67,11 +67,16 @@ function get(id) {
   return PRODUCTS[normalizeId(id)]
 }
 
-function fromName(name) {
+function matchName(name) {
   const n = String(name || '').toLowerCase()
   if (n.indexOf('dino') >= 0 || n.indexOf('恐龙') >= 0) return PRODUCTS.dinosaur
   if (n.indexOf('redpanda') >= 0 || n.indexOf('tailred') >= 0 || n.indexOf('小熊猫') >= 0) return PRODUCTS.redpanda
-  return PRODUCTS.crawlPanda
+  if (n.indexOf('crawlpanda') >= 0 || n.indexOf('爬爬熊猫') >= 0) return PRODUCTS.crawlPanda
+  return fromModel(n)
+}
+
+function fromName(name) {
+  return matchName(name) || PRODUCTS.crawlPanda
 }
 
 const MODEL_TO_ID = {
@@ -99,4 +104,4 @@ function detectProduct(device) {
   return fromName(device.product || device.name || device.localName || '')
 }
 
-module.exports = { PRODUCTS, ALIASES, normalizeId, get, fromName, fromModel, detectProduct }
+module.exports = { PRODUCTS, ALIASES, normalizeId, get, matchName, fromName, fromModel, detectProduct }

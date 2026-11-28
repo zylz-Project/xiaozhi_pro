@@ -36,6 +36,7 @@ VoiceOperation EnrollManagedVoice(const int16_t* samples, size_t count, const st
 VoiceOperation RenameManagedVoice(const std::string& id, const std::string& name);
 VoiceOperation DeleteManagedVoice(const std::string& id);
 VoiceOperation SelectManagedVoice(const std::string& id);
+VoiceOperation RestoreManagedVoice();
 // Worker only: serializes with voice creation/deletion and stops on first error.
 VoiceOperation ResetManagedVoices(const std::function<bool()>& cancelled,
                                   const std::function<void(size_t, size_t)>& progress,

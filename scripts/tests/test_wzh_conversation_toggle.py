@@ -88,7 +88,7 @@ struct Protocol{
     std::function<void(std::unique_ptr<AudioStreamPacket>)>audio;
     bool IsAudioChannelOpened(){return opened;}
     bool OpenAudioChannel(){++opens;if(during_open)during_open();opened=open_succeeds;return opened;}
-    void CloseAudioChannel(){opened=false;++closes;if(closed){if(deferred_close)delayed_closes.push_back(closed);else closed();}}
+    void CloseAudioChannel(bool = true){opened=false;++closes;if(closed){if(deferred_close)delayed_closes.push_back(closed);else closed();}}
     void DeliverCloses(){auto work=std::move(delayed_closes);delayed_closes.clear();for(auto&f:work)f();}
     void SendStartListening(int){++listens;}
     void SendStopListening(){}
@@ -141,6 +141,7 @@ public:
     void ContinueOpenAudioChannel(ListeningMode);void StartListeningAudio();void SetListeningMode(ListeningMode);
     void FlushEarlyAudio();void ClearEarlyAudio();
     void StopInteraction(bool play_exit_sound=false);
+    void StopInteractionInternal(bool, bool);
     void Button(){ToggleConversation();if(pending_bits){pending_bits=0;HandleToggleConversationEvent();}}
     void Install(){auto&board=Board::GetInstance();const auto protocol_generation=protocol_generation_.load();__AUDIO_CALLBACK__;__CLOSE_CALLBACK__;}
     void Tts(const char* body){
@@ -216,7 +217,7 @@ int main(){
         source=(ROOT/'main/application.cc').read_text()
         methods='\n'.join(queue_function(source,'void Application::'+name+'(') for name in [
             'ToggleConversation','HandleToggleConversationEvent','ContinueOpenAudioChannel',
-            'StopInteraction','StartListeningAudio','SetListeningMode','FlushEarlyAudio',
+            'StopInteraction','StopInteractionInternal','StartListeningAudio','SetListeningMode','FlushEarlyAudio',
             'ClearEarlyAudio'])
         audio=queue_function(source,'protocol_->OnIncomingAudio(')
         closed=queue_function(source,'protocol_->OnAudioChannelClosed(')
@@ -597,7 +598,7 @@ struct Codec{
  std::function<void()>enable,write;
  int output_sample_rate(){return 16000;}
  bool output_enabled(){return enabled;}void EnableOutput(bool x){enabled=x;if(enable)enable();}
- void OutputData(std::vector<int16_t>&){++writes;if(write)write();}
+ size_t OutputData(std::vector<int16_t>& data){++writes;if(write)write();return data.size();}
 };
 struct AudioService{
  Codec codec;Codec*codec_=&codec;void*audio_power_timer_=nullptr;

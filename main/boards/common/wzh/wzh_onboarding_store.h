@@ -12,6 +12,10 @@ bool LoadOnboardingProgress(OnboardingProgress& progress);
 // never writes NVS. A missing record simply reports "nothing done".
 bool PeekOnboardingProgress(OnboardingProgress& progress);
 bool SaveOnboardingProgress(const OnboardingProgress& progress);
+uint32_t GetOnboardingEpoch();
+bool ReadMiniProgramGuideDone(bool& done);
+bool MarkMiniProgramGuideDone(uint32_t epoch);
+bool ResetOnboardingProgress();
 
 }  // namespace wzh
 #endif  // WZH_ONBOARDING_STORE_H_

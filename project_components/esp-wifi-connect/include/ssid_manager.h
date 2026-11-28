@@ -24,6 +24,10 @@ public:
     bool AddSsidChecked(const std::string& ssid, const std::string& password);
     bool ClearChecked();
     bool RestoreListChecked(const std::vector<SsidItem>& snapshot);
+    bool HasSavedNetwork() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return !ssid_list_.empty();
+    }
     std::vector<SsidItem> GetSsidList() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return ssid_list_;

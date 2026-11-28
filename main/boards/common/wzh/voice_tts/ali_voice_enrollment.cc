@@ -12,6 +12,7 @@
 
 #include "ali_enrollment.h"
 #include "application.h"
+#include "assets/lang_config.h"
 #include "board.h"
 #include "external_tts.h"
 #include "voice_config.h"
@@ -125,6 +126,24 @@ void AliVoiceEnrollment::Cancel() {
     phase_.store(Phase::kCancelled);
     if (task_)
         xTaskNotifyGive(task_);
+}
+
+bool AliVoiceEnrollment::CancelCapture() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto phase = phase_.load();
+        if (!active_.load() || (phase != Phase::kPrompt && phase != Phase::kRecording))
+            return false;
+        active_.store(false);
+        generation_.fetch_add(1);
+        recording_.store(false);
+        phase_.store(Phase::kCancelled);
+        if (task_)
+            xTaskNotifyGive(task_);
+    }
+    if (auto* speech = Board::GetInstance().GetExternalTts())
+        speech->Cancel();
+    return true;
 }
 
 void AliVoiceEnrollment::PublishPhase(Phase phase, uint32_t generation) {
@@ -298,69 +317,62 @@ void AliVoiceEnrollment::RunSelection(uint32_t generation, const std::string& te
     std::vector<VoiceName> names;
     const bool loaded = LoadVoiceNames(names);
     bool ok = false;
-    if (loaded && !cancelled()) {
-        const bool request = text.find("切换音色") != std::string::npos;
-        if (request) {
-            std::vector<std::string> phrases;
-            std::string line = "可以切换的音色有：";
-            auto append = [&](const std::string& name) {
-                if (line.size() + name.size() + 8 > 440) {
-                    line += "。";
-                    phrases.push_back(line);
-                    line = "还有：";
-                }
-                line += name + "，";
-            };
-            for (const auto& builtin : kBuiltinVoices)
-                append(builtin.name);
-            for (const auto& entry : names)
-                append(entry.name);
-            line += "你想用哪个音色？";
-            phrases.push_back(line);
-            ok = true;
-            for (const auto& phrase : phrases)
-                if (!Speak(phrase.c_str(), generation)) {
-                    ok = false;
-                    break;
-                }
-            if (ok && !cancelled())
-                selection_deadline_us_.store(esp_timer_get_time() + 60000000);
-        } else {
-            selection_deadline_us_.store(0);
-            std::string chosen;
-            size_t longest = 0;
-            bool ambiguous = false;
-            auto match = [&](const std::string& name, const std::string& id) {
-                if (text.find(name) == std::string::npos)
-                    return;
-                if (name.size() > longest) {
-                    chosen = id;
-                    longest = name.size();
-                    ambiguous = false;
-                } else if (name.size() == longest && id != chosen) {
-                    ambiguous = true;
-                }
-            };
-            for (const auto& builtin : kBuiltinVoices)
-                match(builtin.name, builtin.id);
+    if (!cancelled()) {
+        std::string chosen;
+        size_t longest = 0;
+        bool ambiguous = false;
+        auto match = [&](const std::string& name, const std::string& id) {
+            if (text.find(name) == std::string::npos)
+                return;
+            if (name.size() > longest) {
+                chosen = id;
+                longest = name.size();
+                ambiguous = false;
+            } else if (name.size() == longest && id != chosen) {
+                ambiguous = true;
+            }
+        };
+        for (const auto& builtin : kBuiltinVoices)
+            match(builtin.name, builtin.id);
+        if (loaded) {
             for (const auto& entry : names)
                 match(entry.name, entry.id);
-            if (text.find("取消") != std::string::npos) {
-                ok = Speak("好的，保持现在的音色。", generation);
-            } else if (ambiguous) {
-                ok = Speak("有多个相同名称的音色，请在设备页面选择。", generation);
-            } else if (!chosen.empty()) {
-                const auto result = SelectKnownVoice(chosen, cancelled);
-                if (result == VoiceOperation::kOk)
-                    ok = Speak("切换音色完成。", generation);
-                else if (!cancelled())
-                    ok = Speak("音色暂时无法切换，请稍后再试。", generation);
-            } else {
-                ok = Speak("没有找到这个音色，请重新说切换音色。", generation);
-            }
         }
-    } else if (!cancelled()) {
-        Speak("音色列表暂时不可用。", generation);
+        if (text.find("取消") != std::string::npos) {
+            selection_deadline_us_.store(0);
+            Speak("好的，保持现在的音色。", generation);
+            ok = true;
+        } else if (ambiguous) {
+            Speak("有多个相同名称的音色，请在设备页面选择。", generation);
+        } else if (!chosen.empty()) {
+            const auto result = SelectKnownVoice(chosen, cancelled);
+            ok = result == VoiceOperation::kOk;
+            if (ok) {
+                selection_deadline_us_.store(0);
+                if (!Speak("切换音色完成。", generation))
+                    PlayLocalCue(generation);
+            } else if (!cancelled()) {
+                Speak("音色暂时无法切换，请稍后再试。", generation);
+            }
+        } else if (IsVoiceSelectionRequest(text)) {
+            std::string line = "可以切换的音色有：";
+            for (const auto& builtin : kBuiltinVoices)
+                line += std::string(builtin.name) + "、";
+            if (loaded) {
+                for (const auto& entry : names)
+                    line += entry.name + "、";
+            }
+            line += "你想用哪个音色？";
+            if (!Speak(line.c_str(), generation))
+                PlayLocalCue(generation);
+            // A lost readout must not discard the user's spoken selection.
+            if (!cancelled()) {
+                selection_deadline_us_.store(esp_timer_get_time() + 60000000);
+                ok = true;
+            }
+        } else {
+            Speak("没有找到这个音色，可以再说一次名称。", generation);
+        }
     }
     std::function<void(bool)> complete;
     {
@@ -382,7 +394,9 @@ bool AliVoiceEnrollment::Speak(const char* text, uint32_t generation) {
     auto& audio = Application::GetInstance().GetAudioService();
     // First-time enrollment may have a Key but no selected voice yet. Use a
     // built-in voice only for the prompt without persisting a selection.
-    const std::string prompt_voice = LoadAliVoice().empty() ? kBuiltinVoices[0].id : "";
+    const auto selected = LoadAliVoice();
+    const std::string prompt_voice = (selected.empty() || selected == kNativeVoiceId)
+                                         ? kBuiltinVoices[0].id : "";
     if (!external || !active_.load() || !external->ReadyForVoice(prompt_voice) ||
         generation != generation_.load())
         return false;
@@ -415,13 +429,29 @@ bool AliVoiceEnrollment::Speak(const char* text, uint32_t generation) {
     return generation == generation_.load();
 }
 
+bool AliVoiceEnrollment::PlayLocalCue(uint32_t generation) {
+    if (!active_.load() || generation != generation_.load())
+        return false;
+    auto& audio = Application::GetInstance().GetAudioService();
+    const auto playback = audio.GetPlaybackGeneration();
+    audio.PlaySound(Lang::Sounds::OGG_POPUP, playback);
+    const int64_t deadline = esp_timer_get_time() + 3000000;
+    while (generation == generation_.load() && playback == audio.GetPlaybackGeneration() &&
+           !audio.IsPlaybackIdle() && esp_timer_get_time() < deadline) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return active_.load() && generation == generation_.load() &&
+           playback == audio.GetPlaybackGeneration() && audio.IsPlaybackIdle();
+}
+
 void AliVoiceEnrollment::Run(uint32_t generation, const std::string& name) {
     const auto cancelled = [this, generation]() {
         return generation != generation_.load() || !active_.load();
     };
     bool ok = false;
     int16_t* buffer = nullptr;
-    if (Speak("请连续说话十秒左右，直到听到提示。", generation) && !cancelled())
+    const bool announced = Speak("那请你从一数到二十吧。", generation);
+    if ((announced || PlayLocalCue(generation)) && !cancelled())
         buffer = static_cast<int16_t*>(
             heap_caps_malloc(kMaxSamples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     else if (!cancelled())
@@ -456,9 +486,15 @@ void AliVoiceEnrollment::Run(uint32_t generation, const std::string& name) {
             last = last_speech_;
             samples_ = nullptr;
         }
-        ESP_LOGI(kTag, "Recording complete: samples=%u speech_ms=%u", static_cast<unsigned>(count),
-                 static_cast<unsigned>(speech * 1000 / kRate));
         PublishPhase(Phase::kProcessing, generation);
+        if (!cancelled()) {
+            ESP_LOGI(kTag, "Recording complete: samples=%u speech_ms=%u",
+                     static_cast<unsigned>(count), static_cast<unsigned>(speech * 1000 / kRate));
+            // Let the user hear the local end-of-recording cue before TLS and upload start.
+            const bool cue_played = PlayLocalCue(generation);
+            if (!cancelled())
+                ESP_LOGI(kTag, "Recording finish cue: %s", cue_played ? "drained" : "interrupted");
+        }
         std::string voice;
         const size_t begin = first > kRate / 4 ? first - kRate / 4 : 0;
         const size_t end = std::min(count, last + kRate / 4);
@@ -485,9 +521,10 @@ void AliVoiceEnrollment::Run(uint32_t generation, const std::string& name) {
         heap_caps_free(buffer);
     if (!cancelled()) {
         // Notify the user with the newly saved voice only after successful commit.
-        if (ok)
-            Speak("我完成复刻啦。", generation);
-        else if (error_.load() == Error::kVoiceFull)
+        if (ok) {
+            if (!Speak("我完成复刻啦。", generation))
+                PlayLocalCue(generation);
+        } else if (error_.load() == Error::kVoiceFull)
             Speak("音色已经有十个了，请先在管理页面删除一个。", generation);
         else if (error_.load() == Error::kUncertain)
             Speak("上一次复刻状态还没有确认，请先在管理页面刷新音色列表。", generation);

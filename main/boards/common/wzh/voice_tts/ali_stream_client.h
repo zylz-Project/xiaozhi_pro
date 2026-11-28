@@ -13,8 +13,7 @@ struct StreamRequest {
     std::string voice_id;
     std::function<bool()> cancelled;
     std::function<void(std::string&, bool&)> next_text;
-    std::function<bool(const uint8_t*, size_t)> pcm_sink;
-    std::function<void()> sentence_end;
+    std::function<bool(const uint8_t*, size_t)> opus_sink;
 };
 struct StreamResponse {
     bool text_committed = false;

@@ -37,8 +37,77 @@ int main(){
     assert(buffer.WaitMs(4,60,2040)==80); // cancellation restarts prefix
     assert(buffer.WaitMs(4,60,2119)==1);
     assert(buffer.WaitMs(4,60,2120)==0);
+    buffer.ConfigureExternalSpeech(5);
+    assert(buffer.WaitMs(5,20,3000)==1050);
+    assert(buffer.WaitMs(5,100,3030)==1020);
+    assert(buffer.WaitMs(5,850,3030)==0);
+    buffer.Written(40,3030);
+    assert(buffer.first_output_ms()==3030);
+    assert(buffer.WaitMs(5,20,3200)==1350);
+    assert(buffer.WaitMs(5,950,3240)==1310);
+    assert(buffer.WaitMs(5,1080,3250)==0);
+    buffer.Written(20,3250);
+    assert(buffer.gap_ms()==180);
+    assert(buffer.WaitMs(5,20,3350)==1350);
+    buffer.FinishSpeech(4);
+    assert(buffer.WaitMs(5,20,3360)==1340);
+    buffer.FinishSpeech(5);
+    assert(buffer.WaitMs(5,20,3360)==0);
+    buffer.Written(20,3360);
+    assert(buffer.gap_ms()==270);
+    buffer.ConfigureExternalSpeech(5);
+    assert(buffer.WaitMs(5,20,3500)==1050);
+    assert(buffer.first_output_ms()==0);
+    assert(buffer.WaitMs(6,60,3300)==80);
     buffer.Enable(false);
-    assert(buffer.WaitMs(5,1,3000)==0);
+    assert(buffer.WaitMs(7,1,3400)==0);
+}
+''')
+
+    def test_tail_prefills_network_audio_and_caps_the_dma_horizon(self):
+        motion_tests.WzhFluentMotionTest.run_cpp(self,
+            '#define CONFIG_BOARD_TYPE_WZH_TAILREDPANDA 1\n'
+            '#include "'+str(HEADER)+'"\n'+r'''
+#include <cassert>
+int main(){
+    AudioPlayoutBuffer buffer;
+    buffer.Enable(true);
+    buffer.ConfigureExternalSpeech(1);
+    AudioPlayoutBuffer::NetworkSupply supply{60, 1200, false, false, false, false};
+    assert(buffer.WaitForNetworkPcm(1,supply,1000)==1050); // Opus alone isn't playable.
+    supply.pcm_ms=240;
+    assert(buffer.WaitForNetworkPcm(1,supply,1120)==0);
+    // Repeated quick writes cannot imply seconds of physical DMA backlog.
+    for(int i=0;i<10;++i) buffer.Written(20,1120,1120,60);
+    supply.pcm_ms=60;
+    assert(buffer.WaitForNetworkPcm(1,supply,1240)==0); // Ready PCM, no artificial refill.
+    buffer.Written(60,1240,1325,60);
+    assert(buffer.rebuffer_count()==0&&buffer.late_write_count()==1);
+    supply.waited_for_pcm=true;
+    supply.decode_work_pending=true;
+    assert(buffer.WaitForNetworkPcm(1,supply,1340)==320);
+    supply.pcm_ms=240;
+    assert(buffer.WaitForNetworkPcm(1,supply,1400)==0);
+    buffer.Written(60,1400,1460,60);
+    assert(buffer.rebuffer_count()==1&&buffer.gap_ms()==100);
+    assert(buffer.decode_pending_rebuffers()==1);
+    assert(buffer.long_write_count()==0&&buffer.longest_write_ms()==85);
+    buffer.Written(20,1470,1530,60);
+    assert(buffer.long_write_count()==1);
+    buffer.RecordShortWrite(1);
+    assert(buffer.short_write_count()==1);
+    buffer.ConfigureServerSpeech(2);
+    supply={120, 120, true, false, false, false};
+    assert(buffer.WaitForNetworkPcm(2,supply,2000)==0); // 20 ms frames can fill queue.
+    assert(buffer.short_write_count()==0&&buffer.late_write_count()==0);
+    buffer.ConfigureExternalSpeech(3);
+    supply={60, 60, false, false, false, false};
+    assert(buffer.WaitForNetworkPcm(3,supply,3200)==1050);
+    buffer.FinishSpeech(3);
+    assert(buffer.WaitForNetworkPcm(3,supply,3210)==1040); // Decoder still working.
+    supply.decoding_finished=true;
+    assert(buffer.WaitForNetworkPcm(3,supply,3220)==0); // Short speech drains immediately.
+    assert(buffer.WaitMs(4,60,3400)==80); // a local cue stays responsive
 }
 ''')
 
@@ -66,7 +135,7 @@ struct Codec{
  int writes=0;bool enabled=false;
  int output_sample_rate(){return 16000;}
  bool output_enabled(){return enabled;}void EnableOutput(bool e){enabled=e;}
- void OutputData(std::vector<int16_t>&){++writes;}
+ size_t OutputData(std::vector<int16_t>& data){++writes;return data.size();}
 };
 struct AudioService{
  Codec codec;Codec*codec_=&codec;void*audio_power_timer_=nullptr;

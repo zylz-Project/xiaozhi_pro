@@ -22,7 +22,7 @@ python3 scripts/build.py wzh_crawlPanda --name wzh-crawlpanda
 python3 scripts/build.py wzh_dinosaur --name wzh-dinosaur
 python3 scripts/build.py wzh_tailRedPanda --name wzh-tailredpanda
 
-python3 -m unittest discover -s scripts/tests -v   # host-side tests
+python3 scripts/test.py                             # affected host tests
 clang-format -i <touched-files>                    # format only touched C/C++
 ```
 
@@ -30,6 +30,7 @@ clang-format -i <touched-files>                    # format only touched C/C++
 - The three WZH boards share one `build/` directory — run builds **sequentially**, never in parallel.
 - `scripts/build.py` rewrites `sdkconfig` for the selected board; don't assume the build dir still represents a previous target.
 - A successful build is not hardware validation (AGENTS.md §Validation also applies).
+- Use `scripts/test.py -- <paths>` to scope mixed worktrees. Look up problems and record verified repairs in `docs/issues.md`.
 
 ## WZH architecture beyond upstream
 

@@ -25,13 +25,13 @@ class BleRxStreamTest(unittest.TestCase):
 void* heap_caps_malloc(size_t, int);
 void heap_caps_free(void*);
 """)
-            (root / "freertos/stream_buffer.h").write_text("""#pragma once
+            (root / "freertos/message_buffer.h").write_text("""#pragma once
 #include <cstddef>
 #include <cstdint>
 struct StaticStreamBuffer_t { int lock; };
-using StreamBufferHandle_t = void*;
-StreamBufferHandle_t xStreamBufferCreateStatic(size_t, size_t, uint8_t*, StaticStreamBuffer_t*);
-StreamBufferHandle_t xStreamBufferCreate(size_t, size_t);
+using MessageBufferHandle_t = void*;
+MessageBufferHandle_t xMessageBufferCreateStatic(size_t, uint8_t*, StaticStreamBuffer_t*);
+MessageBufferHandle_t xMessageBufferCreate(size_t);
 """)
             (root / "test.cc").write_text("""#include <cassert>
 #include <cstdlib>
@@ -50,19 +50,19 @@ void* heap_caps_malloc(size_t size, int caps) {
 void heap_caps_free(void* p) {
     ++frees; for (auto& v : live) if (v == p) v = nullptr; free(p);
 }
-StreamBufferHandle_t xStreamBufferCreateStatic(size_t size, size_t trigger, uint8_t* p, StaticStreamBuffer_t* c) {
-    assert(size == 8193 && trigger == 1 && p && c);
+MessageBufferHandle_t xMessageBufferCreateStatic(size_t size, uint8_t* p, StaticStreamBuffer_t* c) {
+    assert(size == 8193 && p && c);
     return fail == 3 ? nullptr : c;
 }
-StreamBufferHandle_t xStreamBufferCreate(size_t size, size_t trigger) {
-    assert(size == 8192 && trigger == 1); ++dynamic_calls;
+MessageBufferHandle_t xMessageBufferCreate(size_t size) {
+    assert(size == 8192); ++dynamic_calls;
     return fail == 4 ? nullptr : reinterpret_cast<void*>(1);
 }
 int main() {
     for (int mode = 0; mode < 5; ++mode) {
         fail = mode; calls = frees = dynamic_calls = 0; live.clear();
         bool external = false;
-        auto result = wzh::CreateBleRxStream(8192, external);
+        auto result = wzh::CreateBleRxBuffer(8192, external);
         assert((result != nullptr) == (mode != 4));
         assert(external == (mode == 0));
         assert(dynamic_calls == (mode != 0));
@@ -76,6 +76,53 @@ int main() {
                             "-I", str(root), "-I", str(ROOT / "main/boards/common/wzh"),
                             str(root / "test.cc"), "-o", str(executable)], check=True)
             subprocess.run([str(executable)], check=True)
+
+    def test_partial_multi_frame_errors_and_reset_with_reused_storage(self):
+        if not shutil.which("g++"):
+            self.skipTest("g++ required")
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "frame.cc").write_text(r'''#include <cassert>
+#include <string>
+#include <string_view>
+#include <vector>
+#include "wzh_ble_frame.h"
+int main() {
+    using Frame = wzh::BleFrame;
+    char storage[Frame::kMaxBytes + 1];
+    Frame frame(storage);
+    std::vector<std::string> frames;
+    size_t rejected = 0;
+    auto feed = [&](std::string_view bytes) {
+        for (auto byte : bytes) {
+            auto result = frame.Feed(byte);
+            if (result == Frame::Result::kReady) frames.emplace_back(storage);
+            if (result == Frame::Result::kRejected) ++rejected;
+        }
+    };
+    feed(R"({"id":1,"data")");
+    assert(frames.empty());
+    feed(":{}}\r\n{}\n\n");
+    assert((frames == std::vector<std::string>{R"({"id":1,"data":{}})", "{}"}));
+    feed(std::string(Frame::kMaxBytes + 1, ' ') + "{}\n{}\n");
+    assert(rejected == 1 && frames.size() == 3);
+    feed(std::string_view("{}\0{}\n", 6));
+    feed("[[[[[[[[[0]]]]]]]]]\n");
+    assert(rejected == 3 && frames.size() == 3);
+    feed(R"({"data":"escaped \" [ [{"})" "\n");
+    assert(frames.size() == 4);
+    feed("{\"old\":");
+    frame.Reset();
+    feed("{}\n");
+    assert(frames.size() == 5 && frames.back() == "{}");
+    feed("{" + std::string(Frame::kMaxBytes - 2, ' ') + "}\n");
+    assert(frames.size() == 6 && frames.back().size() == Frame::kMaxBytes);
+}
+''')
+            subprocess.run(['g++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                            '-I', str(ROOT / 'main/boards/common/wzh'), str(root / 'frame.cc'),
+                            '-o', str(root / 'frame')], check=True)
+            subprocess.run([str(root / 'frame')], check=True, timeout=10)
 
 
 if __name__ == "__main__":

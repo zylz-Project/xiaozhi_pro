@@ -34,6 +34,7 @@ int xTaskCreate(void(*)(void*),const char*,int,void*,int,TaskHandle_t* h){
  *h=reinterpret_cast<void*>(1);return pdPASS;
 }
 namespace voice_tts {
+constexpr char kNativeVoiceId[]="xiaozhi-native";
 std::string ali="ali-key",voice="voice-A";
 std::string LoadAliKey(){return ali;}std::string LoadAliVoice(){return voice;}
 struct VoiceSession {
@@ -57,6 +58,10 @@ int main(){
  assert(!session.Begin(8,[](bool){}));
  VoiceSession preview;assert(preview.BeginWithVoice(9,"audition",[](bool){}));
  assert(preview.voice_id_=="audition"&&voice=="voice-B");
+ VoiceSession native;voice=kNativeVoiceId;
+ assert(!native.Begin(10,[](bool){}));
+ assert(!native.BeginWithVoice(10,kNativeVoiceId,[](bool){}));
+ voice="voice-B";
  VoiceSession failed;fail_create=true;assert(!failed.Begin(8,[](bool){}));assert(failed.api_key_.empty());
 }
 '''
@@ -125,7 +130,7 @@ int main(){
             self.assertEqual(result.returncode,0,result.stderr)
             subprocess.run([str(p/'test')],check=True,timeout=10)
 
-    def test_request_download_and_untrusted_urls(self):
+    def test_ogg_sse_requests_reuse_connection_and_reject_partial_responses(self):
         if not shutil.which('g++') or not shutil.which('gcc'):
             self.skipTest('C/C++ compilers required')
         http_h = r'''
@@ -147,6 +152,8 @@ int esp_http_client_fetch_headers(esp_http_client_handle_t);
 int esp_http_client_get_status_code(esp_http_client_handle_t);
 int esp_http_client_read(esp_http_client_handle_t,char*,int);
 bool esp_http_client_is_complete_data_received(esp_http_client_handle_t);
+bool esp_http_client_is_persistent_connection(esp_http_client_handle_t);
+int esp_http_client_close(esp_http_client_handle_t);
 '''
         source = r'''
 #include <algorithm>
@@ -158,29 +165,33 @@ bool esp_http_client_is_complete_data_received(esp_http_client_handle_t);
 #include <vector>
 #include "esp_http_client.h"
 #include "ali_provider.h"
-#include "ali_url.h"
-static std::string post, auth, destination;
+static std::string post, auth;
 static std::string sse_override;
-static bool download_has_auth=false, complete=true, evil=false, use_sse=false, sse_header=false;
+static bool complete=true, sse_header=false, fail_open=false;
+static int inits=0, closed=0, opens=0;
 static bool reached_eof=false;
 static bool slow_read=false, slow_sink=false;
 struct esp_http_client {int method;std::string body;size_t pos=0;};
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t* c) {
- assert(c->disable_auto_redirect); auto* h=new esp_http_client{c->method,"",0};
- if(c->method==HTTP_METHOD_GET) {destination=c->url;h->body=std::string("RIFF1234WAVE",12);}
- else if(use_sse){h->body="data: {\"output\":{\"audio\":{\"data\":\"AQI=\"}}}\r\n\r\n"
- "data: {\"output\":{\"audio\":{\"data\":\"AwQ=\"},\"finish_reason\":\"stop\"}}\n\n";
- if(!sse_override.empty())h->body=sse_override;}
- else {h->body=evil?R"({"output":{"audio":{"url":"https://evil.example/a"}}})":
- R"({"output":{"audio":{"url":"http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/x.wav?signature=redacted"}}})";}
- return h;
+ assert(c->disable_auto_redirect && c->method==HTTP_METHOD_POST);++inits;
+ return new esp_http_client{c->method,"",0};
 }
 void esp_http_client_cleanup(esp_http_client_handle_t h){delete h;}
-int esp_http_client_set_header(esp_http_client_handle_t h,const char* k,const char* v){
- if(std::string(k)=="Authorization"){if(h->method==HTTP_METHOD_GET)download_has_auth=true;else auth=v;}
+int esp_http_client_set_header(esp_http_client_handle_t,const char* k,const char* v){
+ if(std::string(k)=="Authorization")auth=v;
  if(std::string(k)=="X-DashScope-SSE")sse_header=std::string(v)=="enable";
- return 0;}
-int esp_http_client_open(esp_http_client_handle_t,int){return 0;}
+ return 0;
+}
+int esp_http_client_open(esp_http_client_handle_t h,int){
+ ++opens;
+ if(fail_open){fail_open=false;return -1;}
+ h->body="data: {\"output\":{\"audio\":{\"data\":\"AQI=\"}}}\r\n\r\n"
+ "data: {\"output\":{\"audio\":{\"data\":\"AwQ=\"},\"finish_reason\":\"stop\"}}\n\n";
+ if(!sse_override.empty())h->body=sse_override;
+ h->pos=0;reached_eof=false;return 0;
+}
+bool esp_http_client_is_persistent_connection(esp_http_client_handle_t){return true;}
+int esp_http_client_close(esp_http_client_handle_t){++closed;return 0;}
 int esp_http_client_write(esp_http_client_handle_t,const char* p,int n){int count=std::min(n,7);post.append(p,count);return count;}
 int esp_http_client_fetch_headers(esp_http_client_handle_t){return 0;}
 int esp_http_client_get_status_code(esp_http_client_handle_t){return 200;}
@@ -197,29 +208,25 @@ int mbedtls_base64_decode(unsigned char* out,size_t cap,size_t* written,const un
  *written=2;return 0;
 }
 int main(){
- std::string url;
- assert(!voice_tts::AliAudioHttpsUrl("https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com.evil/a",url));
- assert(!voice_tts::AliAudioHttpsUrl("https://evil@dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a",url));
- assert(!voice_tts::AliAudioHttpsUrl("https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com:443/a",url));
  voice_tts::AliProvider provider;voice_tts::Request r;voice_tts::Response out;
  r.api_key="fake-test-key";r.voice_id="test-voice";r.text="hi";
- assert(provider.Synthesize(r,out)==voice_tts::Result::kOk);
- assert(auth=="Bearer fake-test-key" && !download_has_auth);
- assert(destination.find("https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/")==0);
- assert(post.find("qwen-audio-3.1-tts-flash")!=std::string::npos);
- assert(post.find("test-voice")!=std::string::npos && post.find("24000")!=std::string::npos);
- assert(post.find("\"instruction\"")!=std::string::npos);
- assert(out.wav.size()==12);
- use_sse=true;post.clear();destination.clear();reached_eof=false;std::vector<uint8_t> pcm;
+ assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidInput);
+ std::vector<uint8_t> pcm;
  slow_read=true;slow_sink=true;
- r.pcm_sink=[&](const uint8_t* p,size_t n){assert(!reached_eof);
+ r.opus_sink=[&](const uint8_t* p,size_t n){assert(!reached_eof);
   if(slow_sink){slow_sink=false;std::this_thread::sleep_for(std::chrono::milliseconds(4));}
   pcm.insert(pcm.end(),p,p+n);return true;};
- assert(provider.Synthesize(r,out)==voice_tts::Result::kOk && out.streamed && sse_header);
+ assert(provider.Synthesize(r,out)==voice_tts::Result::kOk && sse_header);
  assert(std::string(out.stream_detail)=="ok" && out.stream_events==2 && out.stream_bytes>0);
  assert(out.stream_max_read_ms>=3 && out.stream_max_process_ms>=3);
- assert((pcm==std::vector<uint8_t>{1,2,3,4}) && destination.empty());
- assert(post.find("\"format\":\"pcm\"")!=std::string::npos);
+ assert((pcm==std::vector<uint8_t>{1,2,3,4}));
+ assert(post.find("\"format\":\"opus\"")!=std::string::npos);
+ assert(post.find("qwen-audio-3.1-tts-flash")!=std::string::npos);
+ assert(post.find("test-voice")!=std::string::npos && post.find("24000")!=std::string::npos);
+ assert(auth=="Bearer fake-test-key" && inits==1 && opens==1 && closed==0);
+ fail_open=true;
+ assert(provider.Synthesize(r,out)==voice_tts::Result::kOk);
+ assert(inits==1 && opens==3 && closed==1);
  sse_override="data: {\"output\":{\"audio\":{\"data\":\"AQI=\"}}}\n\n";
  reached_eof=false;assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
  assert(std::string(out.stream_detail)=="missing_end");
@@ -229,13 +236,13 @@ int main(){
  sse_override="data: invalid-json\n\n";
  assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
  assert(std::string(out.stream_detail)=="event_json");
- sse_override.clear();r.pcm_sink=[](const uint8_t*,size_t){return false;};
+ sse_override.clear();r.opus_sink=[](const uint8_t*,size_t){return false;};
  assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
  assert(std::string(out.stream_detail)=="sink_stopped");
- r.pcm_sink={};use_sse=false;
- evil=true;destination.clear();assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
- assert(destination.empty());evil=false;complete=false;
- assert(provider.Synthesize(r,out)==voice_tts::Result::kNetworkError);
+ r.opus_sink=[](const uint8_t*,size_t){return true;};
+ complete=false;
+ assert(provider.Synthesize(r,out)==voice_tts::Result::kInvalidResponse);
+ assert(std::string(out.stream_detail)=="http_incomplete");
  complete=true;int checks=0;r.cancelled=[&checks] {return ++checks>4;};
  assert(provider.Synthesize(r,out)==voice_tts::Result::kCancelled);
  r.cancelled=[] {return true;};assert(provider.Synthesize(r,out)==voice_tts::Result::kCancelled);

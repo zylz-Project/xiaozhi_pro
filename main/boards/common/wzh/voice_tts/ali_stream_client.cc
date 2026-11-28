@@ -71,7 +71,7 @@ bool Send(esp_transport_handle_t ws, const char* action, const std::string& id,
             !cJSON_AddStringToObject(payload, "model", "qwen-audio-3.1-tts-flash") ||
             !cJSON_AddStringToObject(params, "text_type", "PlainText") ||
             !cJSON_AddStringToObject(params, "voice", value.c_str()) ||
-            !cJSON_AddStringToObject(params, "format", "pcm") ||
+            !cJSON_AddStringToObject(params, "format", "opus") ||
             !cJSON_AddNumberToObject(params, "sample_rate", 24000) ||
             !cJSON_AddStringToObject(
                 params, "instruction",
@@ -103,7 +103,7 @@ Result SynthesizeStream(const StreamRequest& request, StreamResponse& response) 
     if (request.api_key.empty() || request.api_key.size() > 256 || request.voice_id.empty() ||
         request.voice_id.size() > 128 ||
         request.api_key.find_first_of("\r\n") != std::string::npos || !request.next_text ||
-        !request.pcm_sink || !request.sentence_end)
+        !request.opus_sink)
         return Result::kInvalidInput;
     if (Cancelled(request))
         return Result::kCancelled;
@@ -128,7 +128,6 @@ Result SynthesizeStream(const StreamRequest& request, StreamResponse& response) 
         return Result::kNetworkError;
 
     bool started = false, finish_sent = false, got_audio = false;
-    bool odd_byte = false;
     size_t total_audio = 0;
     int frame_remaining = 0;
     bool frame_fin = false;
@@ -196,11 +195,10 @@ Result SynthesizeStream(const StreamRequest& request, StreamResponse& response) 
             if (static_cast<size_t>(count) > kMaxAudio - total_audio)
                 return Result::kTooLarge;
             if (!got_audio)
-                ESP_LOGI(kTag, "First PCM: elapsed_ms=%u",
+                ESP_LOGI(kTag, "First Ogg bytes: elapsed_ms=%u",
                          static_cast<unsigned>((esp_timer_get_time() - started_at) / 1000));
             total_audio += static_cast<size_t>(count);
-            odd_byte = odd_byte != ((count & 1) != 0);
-            if (!request.pcm_sink(reinterpret_cast<const uint8_t*>(buffer), count))
+            if (!request.opus_sink(reinterpret_cast<const uint8_t*>(buffer), count))
                 return Cancelled(request) ? Result::kCancelled : Result::kInvalidResponse;
             got_audio = true;
         }
@@ -213,11 +211,8 @@ Result SynthesizeStream(const StreamRequest& request, StreamResponse& response) 
                     ESP_LOGI(kTag, "Task ready: elapsed_ms=%u",
                              static_cast<unsigned>((esp_timer_get_time() - started_at) / 1000));
                     break;
-                case AliStreamProtocol::Event::kSentenceEnd:
-                    request.sentence_end();
-                    break;
                 case AliStreamProtocol::Event::kFinished:
-                    return got_audio && !odd_byte ? Result::kOk : Result::kInvalidResponse;
+                    return got_audio ? Result::kOk : Result::kInvalidResponse;
                 case AliStreamProtocol::Event::kError:
                     return Result::kInvalidResponse;
                 default:

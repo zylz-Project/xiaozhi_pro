@@ -17,7 +17,7 @@ bool Contains(const char* text, const char* token) {
 
 bool PandaAudio::Initialize() {
     if (!store_.Init()) {
-        ESP_LOGW(TAG, "外部音频 Flash 暂不可用；预置调校音画配套仍可使用");
+        ESP_LOGI(TAG, "使用预置调校音画配套");
     }
     if (!wzh::AudioPlayer::Start(&store_)) {
         return false;

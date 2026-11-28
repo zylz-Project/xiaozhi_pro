@@ -84,7 +84,6 @@ public:
         return false;
     }
     virtual bool IsOnboardingFeedbackPending() const { return false; }
-    virtual bool IsLocalPlaybackPending() { return false; }
     virtual bool IsOnboardingBlockingConversation() const { return false; }
     // A deferred service is configured but connects only when a conversation opens.
     virtual void OnProtocolServiceAvailable(bool connected) { (void)connected; }
@@ -98,9 +97,17 @@ public:
     virtual void SetVoiceEnrollmentRecording(bool) {}
     virtual bool KeepAudioOutputEnabled() const { return false; }
     virtual bool IsAudioMaintenanceActive() { return false; }
+    virtual bool IsLocalPlaybackPending() const { return false; }
 #if CONFIG_USE_VOICE_BARGE_IN
     // Boards may request a longer local speech candidate, in 16 kHz samples.
-    virtual size_t GetBargeInMinimumSpeechSamples() const { return 2880; }
+    virtual size_t GetBargeInMinimumSpeechSamples() const { return 0; }
+    virtual size_t GetBargeInSpeechGapSamples() const {
+#if CONFIG_WZH_DIALOGUE_PARITY
+        return 2880;
+#else
+        return 1920;
+#endif
+    }
 #endif
 #if CONFIG_BOARD_TYPE_WZH_DINOSAUR
     // Diagnostic only: commanded movement is not physical position feedback.
@@ -113,6 +120,11 @@ public:
     // Return true when the board consumes a recognized phrase locally.
     virtual bool HandleLocalVoiceCommand(const std::string&) { return false; }
     virtual NetworkInterface* GetNetwork() = 0;
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+    virtual bool IsNetworkAvailable() const { return true; }
+    virtual bool UsesCellularNetwork() const { return false; }
+    virtual size_t GetProtocolPayloadLimit() const { return 0; }
+#endif
     virtual void StartNetwork() = 0;
     // Called after the network driver is initialized and the station is
     // started. Boards use it to bring up services that need the Wi-Fi stack

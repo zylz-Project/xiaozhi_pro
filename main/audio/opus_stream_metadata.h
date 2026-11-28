@@ -13,6 +13,7 @@ struct OpusStreamMetadata {
     uint32_t skip_48k = 0;
     uint32_t keep_end_48k = UINT32_MAX;
     int16_t gain_q8 = 0;
+    bool continuous_output = false;
 };
 
 inline uint32_t OpusPacketSamples48k(const uint8_t* data, size_t size) {

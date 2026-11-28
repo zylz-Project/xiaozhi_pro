@@ -50,7 +50,7 @@ public:
         std::function<bool()> preview_ali_voice;
         std::function<bool()> cancel_voice;
         std::function<const char*()> voice_preview_status;
-        std::function<bool(const std::string&, const std::string&, const std::string&)>
+        std::function<uint32_t(const std::string&, const std::string&, const std::string&)>
             voice_command;
         std::function<bool(uint8_t*, size_t)> voice_upload;
         std::function<bool(const std::string&)> voice_device_record;
@@ -72,7 +72,7 @@ public:
 
     // Full device status used by the BLE transport: the same payload as
     // /api/developer/status, including the voice catalog.
-    void BuildStatus(cJSON* root);
+    void BuildStatus(cJSON* root, bool include_voice = true);
 
     // Non-HTTP entry points for factory reset, shared with the BLE transport.
     // StartFactoryReset does not validate a confirmation string; callers own
@@ -88,6 +88,7 @@ private:
     bool EnsureAp();
     void DestroyAp();
 
+    static constexpr size_t kMaxRoutes = 26;
     struct RouteSlot {
         WebConsole* owner = nullptr;
         esp_err_t (*handler)(httpd_req_t*) = nullptr;
@@ -95,6 +96,7 @@ private:
     static esp_err_t GuardedDispatch(httpd_req_t* req);
     static esp_err_t GuardedError(httpd_req_t* req, httpd_err_code_t error);
     static esp_err_t HandleRoot(httpd_req_t* req);
+    static esp_err_t HandleAsset(httpd_req_t* req);
     static esp_err_t HandleStatus(httpd_req_t* req);
     static esp_err_t HandleAudio(httpd_req_t* req);
     static esp_err_t HandlePlay(httpd_req_t* req);
@@ -111,6 +113,7 @@ private:
     static esp_err_t HandleDeveloperOta(httpd_req_t* req);
     static esp_err_t HandleDeveloperFactoryReset(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceConfig(httpd_req_t* req);
+    static esp_err_t HandleDeveloperVoicePreviewStatus(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceManage(httpd_req_t* req);
     static esp_err_t HandleDeveloperVoiceUpload(httpd_req_t* req);
     static esp_err_t HandleDeveloperCenter(httpd_req_t* req);
@@ -130,13 +133,14 @@ private:
 
     Options options_;
     std::unique_ptr<UserWebPortal> user_portal_;
-    std::array<RouteSlot, 24> routes_{};
+    std::array<RouteSlot, kMaxRoutes> routes_{};
     size_t route_count_ = 0;
     std::mutex lifecycle_mutex_;
     std::atomic<bool> started_{false};
     // IDF 6.0.2 can leave listener sockets open when httpd_start fails after
     // creating them. Do not repeatedly create bootstrap tasks in that state.
     std::atomic<bool> server_start_failed_{false};
+    std::atomic<int64_t> last_start_deferral_us_{0};
     esp_netif_t* ap_netif_ = nullptr;
     httpd_handle_t server_ = nullptr;
     std::string ap_ssid_;

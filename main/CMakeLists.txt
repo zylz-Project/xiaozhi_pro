@@ -89,6 +89,10 @@ set(BUILTIN_ICON_FONT font_material_symbols_14_1)
 set(EMOTE_RESOLUTION "320_240")
 
 # Select the board source directory from Kconfig
+if(CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC AND NOT CONFIG_BOARD_TYPE_WZH_DINOSAUR)
+    message(FATAL_ERROR "The ML307 variant requires the WZH Dinosaur board")
+endif()
+
 # Set default assets if the board uses partition table V2
 if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA)
     set(BOARD_DIR "wzh_crawlPanda")
@@ -156,7 +160,22 @@ if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA OR CONFIG_BOARD_TYPE_WZH_DINOSAUR OR CONFIG_
     list(APPEND SOURCES ${WZH_COMMON_SOURCES})
     list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh)
     list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/voice_tts)
-    set(WZH_CONSOLE_FILES "assets/wzh_console.html")
+    file(GLOB_RECURSE WZH_UI_INPUTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/wzh_ui/*")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${WZH_UI_INPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/pack_wzh_ui.py")
+    if(CONFIG_BOARD_TYPE_WZH_CRAWLPANDA)
+        set(WZH_UI_PRODUCT crawlPanda)
+    elseif(CONFIG_BOARD_TYPE_WZH_DINOSAUR)
+        set(WZH_UI_PRODUCT dinosaur)
+    else()
+        set(WZH_UI_PRODUCT redpanda)
+    endif()
+    execute_process(COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/pack_wzh_ui.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/wzh_ui" "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_pack.bin"
+        "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_manifest.inc" "${WZH_UI_PRODUCT}"
+        COMMAND_ERROR_IS_FATAL ANY)
+    list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}")
+    set(WZH_CONSOLE_FILES "${CMAKE_CURRENT_BINARY_DIR}/wzh_ui_pack.bin")
     set(WZH_CONVERSATION_SOUNDS "assets/wzh_sounds/conversation_exit.ogg")
 endif()
 
@@ -454,6 +473,12 @@ function(build_default_assets_bin)
         "${SDKCONFIG}"
         "${PROJECT_DIR}/scripts/build_default_assets.py"
     )
+
+    if(CONFIG_WZH_OFFLINE_COMMANDS)
+        list(APPEND DEFAULT_ASSETS_DEPENDENCIES
+            "${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/wzh_body_phrases.inc"
+            "${CMAKE_CURRENT_SOURCE_DIR}/boards/common/wzh/wzh_tail_interrupt_phrases.inc")
+    endif()
 
     # Prepare arguments for build script
     set(BUILD_ARGS

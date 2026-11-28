@@ -148,9 +148,11 @@ void SystemInfo::PrintTaskList() {
 }
 
 void SystemInfo::PrintHeapStats() {
-    int free_sram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    int min_free_sram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
-    ESP_LOGI(TAG, "free sram: %u minimal sram: %u", free_sram, min_free_sram);
+    constexpr auto caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    ESP_LOGI(TAG, "free sram: %u minimal sram: %u largest sram block: %u",
+             static_cast<unsigned>(heap_caps_get_free_size(caps)),
+             static_cast<unsigned>(heap_caps_get_minimum_free_size(caps)),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(caps)));
 }
 
 #if CONFIG_WZH_MEMORY_DIAGNOSTICS

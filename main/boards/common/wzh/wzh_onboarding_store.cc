@@ -4,12 +4,15 @@
 #include <cstddef>
 #include <mutex>
 
+#include <esp_random.h>
 #include <nvs.h>
 
 namespace wzh {
 namespace {
 constexpr char kNamespace[] = "onboarding";
 constexpr char kRecord[] = "progress";
+constexpr char kEpoch[] = "guide_epoch";
+constexpr char kMiniProgramDone[] = "mini_guide_done";
 // v2 adds the "skipped" mask, so a step abandoned after three failures is
 // not replayed on every boot. v1 records still load (skipped = 0).
 constexpr uint8_t kVersion = 2;
@@ -46,6 +49,73 @@ bool WriteLegacyComplete() {
     return result == ESP_OK;
 }
 }  // namespace
+
+uint32_t GetOnboardingEpoch() {
+    std::lock_guard<std::recursive_mutex> lock(store_mutex);
+    nvs_handle_t handle = 0;
+    uint32_t epoch = 0;
+    if (nvs_open(kNamespace, NVS_READONLY, &handle) == ESP_OK) {
+        nvs_get_u32(handle, kEpoch, &epoch);
+        nvs_close(handle);
+    }
+    return epoch;
+}
+
+bool ReadMiniProgramGuideDone(bool& done) {
+    std::lock_guard<std::recursive_mutex> lock(store_mutex);
+    done = false;
+    nvs_handle_t handle = 0;
+    auto result = nvs_open(kNamespace, NVS_READONLY, &handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND)
+        return true;
+    if (result != ESP_OK)
+        return false;
+    uint8_t value = 0;
+    result = nvs_get_u8(handle, kMiniProgramDone, &value);
+    nvs_close(handle);
+    done = result == ESP_OK && value == 1;
+    return result == ESP_ERR_NVS_NOT_FOUND || (result == ESP_OK && value <= 1);
+}
+
+bool MarkMiniProgramGuideDone(uint32_t epoch) {
+    std::lock_guard<std::recursive_mutex> lock(store_mutex);
+    nvs_handle_t handle = 0;
+    if (nvs_open(kNamespace, NVS_READWRITE, &handle) != ESP_OK)
+        return false;
+    uint32_t current_epoch = 0;
+    auto result = nvs_get_u32(handle, kEpoch, &current_epoch);
+    if (result == ESP_ERR_NVS_NOT_FOUND)
+        result = ESP_OK;  // Existing devices without a reset epoch use zero.
+    if (result == ESP_OK && current_epoch != epoch)
+        result = ESP_ERR_INVALID_STATE;
+    uint8_t done = 0;
+    if (result == ESP_OK) {
+        result = nvs_get_u8(handle, kMiniProgramDone, &done);
+        if (result == ESP_ERR_NVS_NOT_FOUND || (result == ESP_OK && done != 1)) {
+            result = nvs_set_u8(handle, kMiniProgramDone, 1);
+            if (result == ESP_OK)
+                result = nvs_commit(handle);
+        }
+    }
+    nvs_close(handle);
+    return result == ESP_OK;
+}
+
+bool ResetOnboardingProgress() {
+    std::lock_guard<std::recursive_mutex> lock(store_mutex);
+    nvs_handle_t handle = 0;
+    if (nvs_open(kNamespace, NVS_READWRITE, &handle) != ESP_OK)
+        return false;
+    auto result = nvs_erase_all(handle);
+    if (result == ESP_OK) {
+        const uint32_t epoch = esp_random();
+        result = nvs_set_u32(handle, kEpoch, epoch == 0 ? 1 : epoch);
+    }
+    if (result == ESP_OK)
+        result = nvs_commit(handle);
+    nvs_close(handle);
+    return result == ESP_OK;
+}
 
 bool SaveOnboardingProgress(const OnboardingProgress& progress) {
     std::lock_guard<std::recursive_mutex> lock(store_mutex);

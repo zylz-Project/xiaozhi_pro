@@ -10,6 +10,102 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class AliEnrollmentTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('g++'), 'g++ required')
+    def test_prompt_failure_does_not_block_recording_or_a_saved_selection(self):
+        source = (ROOT / 'main/boards/common/wzh/voice_tts/ali_voice_enrollment.cc').read_text()
+        methods = '\n'.join(queue_function(source, f'void AliVoiceEnrollment::{name}(')
+                            for name in ('RunSelection', 'Run'))
+        program = r'''
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdlib>
+#include <mutex>
+#include <vector>
+#include "main/audio/voice_enrollment.h"
+#include "main/boards/common/wzh/voice_tts/voice_identity.h"
+using voice_tts::kBuiltinVoices;
+constexpr size_t kRate=16000,kMaxSamples=20*kRate,kMinSpeechSamples=5*kRate;
+constexpr int MALLOC_CAP_SPIRAM=1,MALLOC_CAP_8BIT=2;
+std::string saved_id;
+bool capture_stopped=false;
+int recording_cues=0;
+int64_t esp_timer_get_time(){return 1000;}
+#define ESP_LOGI(...) ((void)0)
+#define pdTRUE 1
+#define pdMS_TO_TICKS(n) (n)
+void ulTaskNotifyTake(int,int){assert(false);}
+void* heap_caps_malloc(size_t bytes,int){return std::malloc(bytes);}
+void heap_caps_free(void* memory){std::free(memory);}
+struct VoiceName{std::string id,name;};
+enum class VoiceOperation{kOk,kFull,kUncertain,kSave,kBusy};
+bool allow_save=true;
+bool LoadVoiceNames(std::vector<VoiceName>& names){names.push_back({"clone", "我的音色"});return true;}
+VoiceOperation SelectKnownVoice(const std::string& id,const std::function<bool()>& cancelled){
+ assert(!cancelled());if(!allow_save)return VoiceOperation::kSave;
+ saved_id=id;return VoiceOperation::kOk;
+}
+VoiceOperation EnrollManagedVoice(const int16_t* pcm,size_t count,const std::string& name,
+                                 const std::function<bool()>& cancelled,std::string& id){
+ assert(pcm&&count==kMinSpeechSamples&&name=="克隆"&&!cancelled());
+ assert(capture_stopped&&recording_cues==1);
+ id=saved_id="created";return VoiceOperation::kOk;
+}
+struct AliVoiceEnrollment {
+ enum class Phase{kPrompt,kRecording,kProcessing,kSuccess,kFailed};
+ enum class Error{kNone,kPrompt,kMemory,kShort,kVoiceFull,kUncertain,kSave,kBusy,kCloud};
+ std::atomic<Phase> phase_{Phase::kPrompt};std::atomic<Error> error_{Error::kNone};
+ std::atomic<uint32_t> generation_{1};std::atomic<bool> active_{true},recording_{false},audio_done_{false};
+ std::atomic<int64_t> selection_deadline_us_{0};
+ std::mutex mutex_;void* task_=nullptr;std::string selection_text_;bool selection_task_=false;
+ std::function<void(bool)> complete_,capture_switch_;
+ int16_t* samples_=nullptr;size_t count_=0,speech_samples_=0,silence_samples_=0,first_speech_=0,last_speech_=0;
+ int cues=0;
+ bool Speak(const char*,uint32_t){return false;}
+ bool PlayLocalCue(uint32_t){++cues;if(capture_stopped)++recording_cues;return true;}
+ void PublishPhase(Phase phase,uint32_t){phase_=phase;}
+ void RunSelection(uint32_t,const std::string&);void Run(uint32_t,const std::string&);
+};
+''' + methods + r'''
+int main(){
+ bool completed=false;
+ AliVoiceEnrollment selection;
+ selection.complete_=[&](bool ok){completed=ok;};
+ selection.RunSelection(1,"切换音色");
+ assert(completed&&selection.cues==1&&selection.selection_deadline_us_>esp_timer_get_time());
+ selection.active_=true;
+ selection.complete_=[&](bool ok){completed=ok;};
+ selection.RunSelection(1,"于小云");
+ assert(completed&&saved_id=="yuxiaoyun_v3.1"&&selection.cues==2&&selection.selection_deadline_us_==0);
+ selection.active_=true;allow_save=false;
+ selection.complete_=[&](bool ok){completed=ok;};
+ selection.RunSelection(1,"切换音色到龙安欢");
+ assert(!completed&&saved_id=="yuxiaoyun_v3.1");
+ AliVoiceEnrollment enrollment;
+ enrollment.complete_=[&](bool ok){completed=ok;};
+ enrollment.capture_switch_=[&](bool enable){
+  if (enable){
+   assert(enrollment.cues==1&&enrollment.phase_==AliVoiceEnrollment::Phase::kRecording);
+   enrollment.last_speech_=enrollment.speech_samples_=enrollment.count_=kMinSpeechSamples;
+   enrollment.audio_done_=true;
+  } else {
+   capture_stopped=true;
+   assert(!enrollment.recording_&&recording_cues==0);
+  }
+ };
+ enrollment.Run(1,"克隆");
+ assert(completed&&saved_id=="created"&&enrollment.phase_==AliVoiceEnrollment::Phase::kSuccess);
+ assert(enrollment.cues==3);
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'test.cc'
+            path.write_text(program)
+            exe = path.with_suffix('')
+            subprocess.run(['g++', '-std=c++17', '-I', str(ROOT), str(path), '-o', str(exe)],
+                           check=True)
+            subprocess.run([str(exe)], check=True, timeout=10)
+
     def test_first_enrollment_prompt_uses_builtin_without_changing_selected_voice(self):
         if not shutil.which('g++'):
             self.skipTest('g++ required')
@@ -33,6 +129,7 @@ std::string LoadAliKey(){return key;}
 std::string LoadAliVoice(){return selected;}
 struct BuiltinVoice{const char* id;};
 const BuiltinVoice kBuiltinVoices[]={{"builtin"}};
+constexpr char kNativeVoiceId[]="xiaozhi-native";
 struct AudioService{uint32_t GetPlaybackGeneration(){return 42;}};
 struct Application{AudioService audio;static Application& GetInstance(){static Application a;return a;}
  AudioService& GetAudioService(){return audio;}};
@@ -57,6 +154,8 @@ int main(){
  AliVoiceEnrollment a;assert(!a.IsConfigured());key="key";assert(a.IsConfigured());
  assert(a.Speak("prompt",1));auto& e=Board::GetInstance().external;
  assert(e.ready_voice=="builtin"&&e.begun_voice=="builtin"&&selected.empty());
+ selected=kNativeVoiceId;assert(a.Speak("prompt",1));
+ assert(e.ready_voice=="builtin"&&e.begun_voice=="builtin"&&selected==kNativeVoiceId);
  selected="cloned";assert(a.Speak("prompt",1));
  assert(e.ready_voice.empty()&&e.begun_voice.empty()&&selected=="cloned");
  assert(!a.Speak("prompt",2));

@@ -49,7 +49,7 @@ using namespace wzh;
 int main(){
     for(auto control:{PetControl::kStop,PetControl::kRest,PetControl::kQuiet}){
         PetBehavior pet;pet.Touch(1,100);pet.PollTouch(100);
-        assert(pet.PollTouch(1300)==TouchResponse::kHeld);
+        assert(pet.PollTouch(1300)==TouchResponse::kNone);
         pet.Control(control,1400);pet.Control(PetControl::kWake,5000);
         assert(pet.PollTouch(8000)==TouchResponse::kNone&&!pet.Get(8000).gentle);
         pet.Touch(0,8100);assert(pet.PollTouch(8100)==TouchResponse::kNone);
@@ -487,7 +487,8 @@ template<class... T>void log_stub(const T&...){}
 #define ESP_LOGI(...) log_stub(__VA_ARGS__)
 #define ESP_LOGW(...) log_stub(__VA_ARGS__)
 constexpr const char* TAG="key";
-constexpr int ESP_OK=0,POWER_BUTTON_ADC_CHANNEL=5,POWER_DEBOUNCE_MS=50,POWER_LONG_PRESS_MS=1500;
+constexpr int ESP_OK=0,POWER_BUTTON_ADC_CHANNEL=5,POWER_DEBOUNCE_MS=30,POWER_LONG_PRESS_MS=1500;
+constexpr int WZH_DOUBLE_CLICK_MS=650;
 constexpr int POWER_BUTTON_PRESS_MV=1000,POWER_BUTTON_RELEASE_MV=1200,POWER_MAX_SAMPLE_GAP_MS=250;
 using esp_err_t=int;
 const char* esp_err_to_name(int){return "error";}
@@ -512,7 +513,8 @@ struct Power{
     BtnState state=BtnState::kIdle;int adc_=0,power_adc_cali_=0;
     uint32_t state_since_ms=0,press_start_ms=0;int hold_tip=0;
     uint32_t last_sample_ms=0,previous_work_ms=0,sleep_ms=0,iteration_start_ms=0;
-    bool armed=false,boot_hold_logged=false,power_adc_fault=false;
+    uint32_t previous_key_ms=0,previous_touch_ms=0,previous_telemetry_ms=0;
+    bool armed=false,boot_hold_logged=false,power_adc_fault=false,previous_gray_sample=false;
     TickType_t last_click_tick=0;int click_count=0,shutdowns=0;
     void Shutdown(){++shutdowns;}
     void Step(){__KEY__}
@@ -543,13 +545,30 @@ int main(){
     assert(q.shutdowns==0);
     sample(q,3300,true,10);                       // Stable release re-arms shutdown
     sample(q,100,true,85);assert(q.shutdowns>=1);
+    // Confirm the reference window across the original 400 ms boundary and
+    // tolerate exactly one successful ADC sample in the middle band.
+    auto& app=Application::GetInstance();const auto toggles=app.toggles;
+    Power r;
+    sample(r,3300,true,5);sample(r,100,true,5);sample(r,3300,true,5);
+    sample(r,3300,true,20);sample(r,100,true,5);sample(r,1100,true,1);sample(r,3300,true,5);
+    assert(app.toggles==toggles+1 && r.shutdowns==0);
+    Power late;
+    sample(late,3300,true,5);sample(late,100,true,5);sample(late,3300,true,5);
+    sample(late,3300,true,24);sample(late,100,true,5);sample(late,3300,true,5);
+    assert(app.toggles==toggles+1 && late.shutdowns==0);
 }
 '''
         for board,stem,_ in BOARDS:
             source=(ROOT/'main/boards'/board/(stem+'_power.cc')).read_text()
+            config=(ROOT/'main/boards'/board/'config.h').read_text()
+            self.assertIn('#define POWER_DEBOUNCE_MS 30',config)
+            self.assertIn('#define WZH_DOUBLE_CLICK_MS 650',config)
             start=source.index('        const uint32_t adc_start_ms = esp_log_timestamp();',source.index('::Task()'))
             end=source.index('        // IO5 上',start)
-            with self.subTest(board=board):self.run_cpp(harness.replace('__KEY__',source[start:end]))
+            key_loop = source[start:end].replace('const uint32_t touch_started_ms',
+                                                  '[[maybe_unused]] const uint32_t touch_started_ms')
+            with self.subTest(board=board):
+                self.run_cpp(harness.replace('__KEY__', key_loop))
 
     def test_conversation_close_cancels_pending_motion_on_all_three_products(self):
         harness=r'''

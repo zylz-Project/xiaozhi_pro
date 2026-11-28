@@ -65,6 +65,22 @@ int main(){
 }
 ''')
 
+    def test_keyword_near_end_keeps_one_short_syllable_gap(self):
+        self.run_cpp('#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1\n' + HEADER + r'''
+#include <cassert>
+int main(){
+ VoiceBargeIn detector;auto speech=BargeWave(1500);int64_t now=0;
+ auto frame=[&](bool vad){now+=60000;FeedBargeReference(detector,now);
+   return detector.Observe(speech.data(),speech.size(),vad,now);};
+ auto settle=[&]{detector.Begin();for(int i=0;i<5;++i)assert(!frame(false));};
+ settle();assert(!frame(true));assert(!frame(false));assert(frame(true));
+ assert(detector.required_speech_ms()==120);
+ detector.Cancel();settle();assert(!frame(true));
+ for(int i=0;i<3;++i)assert(!frame(false));
+ assert(!frame(true));assert(frame(true));
+}
+''')
+
     def test_dinosaur_motion_guard_uses_recent_powered_command_only(self):
         source=(ROOT/'main/boards/wzh_dinosaur/wzh_dinosaur.cc').read_text()
         method=queue_function(source,'size_t GetBargeInMinimumSpeechSamples() const')
@@ -84,12 +100,12 @@ struct Dinosaur : Base {Controller controller_;
 ''' + method + r'''
 };
 int main(){
- Dinosaur d;assert(d.GetBargeInMinimumSpeechSamples()==2880);
- d.controller_.last=now_us-14000;assert(d.GetBargeInMinimumSpeechSamples()==2880);
+ Dinosaur d;assert(d.GetBargeInMinimumSpeechSamples()==0);
+ d.controller_.last=now_us-14000;assert(d.GetBargeInMinimumSpeechSamples()==0);
  d.controller_.powered=true;assert(d.GetBargeInMinimumSpeechSamples()==4800);
  d.controller_.last=now_us-150000;assert(d.GetBargeInMinimumSpeechSamples()==4800);
- d.controller_.last=now_us-150001;assert(d.GetBargeInMinimumSpeechSamples()==2880);
- d.controller_.last=now_us+1;assert(d.GetBargeInMinimumSpeechSamples()==2880);
+ d.controller_.last=now_us-150001;assert(d.GetBargeInMinimumSpeechSamples()==0);
+ d.controller_.last=now_us+1;assert(d.GetBargeInMinimumSpeechSamples()==0);
 }
 ''')
 
@@ -437,7 +453,8 @@ struct AudioStreamPacket{int number=0;};
 struct Codec{bool reference=true;bool input_reference(){return reference;}int output_volume(){return 70;}};
 struct Engine{bool ready=true;bool CanMonitorVoiceInterruption(){return ready;}};
 struct Board{static Board& GetInstance(){static Board board;return board;}
- size_t GetBargeInMinimumSpeechSamples() const{return 2880;}};
+ size_t GetBargeInMinimumSpeechSamples() const{return 2880;}
+ size_t GetBargeInSpeechGapSamples() const{return 1920;}};
 struct AudioService{
  Engine engine;Engine*audio_engine_=&engine;
  Codec codec;Codec*codec_=&codec;bool device_aec_enabled_=true,capture_enabled_=true,running=true,retain_interruption_prefix_=false;
@@ -623,13 +640,15 @@ int main(){
         program=program.replace('void EnableVoiceProcessing(bool enabled){voice=enabled;if(enabled)ResetDecoder();}',
             'void EnableVoiceProcessing(bool enabled){voice=processor_running=enabled;if(enabled)ResetDecoder();else monitoring=interruption_pending=false;}')
         program=program.replace('std::atomic<bool>interaction_stopped_{false};','''
+    uint32_t first_interrupted_uplink_generation_ = 0;
+    int64_t first_interrupted_uplink_us_ = 0;
     BargeInReplyGate barge_in_reply_gate_;
     std::atomic<uint32_t>pending_voice_interruption_{0};
     void HandleVoiceInterruptionEvent();
-    bool ReconnectAfterVoiceInterruption(uint32_t){return false;}
+    bool ReopenConversation(uint32_t, bool, bool = false){return false;}
     std::atomic<bool>interaction_stopped_{false};''')
         program=program.replace('void SendStartListening(int){++listens;}',
-            'void SendStartListening(int){++listens;events.push_back("listen");}')
+            'bool CanRetryUplinkAudio(){return false;} void SendStartListening(int){++listens;events.push_back("listen");}')
         program=program.replace('void AbortSpeaking(int){++aborts;}',
             'void AbortSpeaking(int){++aborts;aborted_=true;events.push_back("abort");}')
         program=program.replace('enum DeviceState{kDeviceStateIdle',
@@ -839,13 +858,14 @@ int main(){unsigned bits=MAIN_EVENT_VOICE_INTERRUPTION|MAIN_EVENT_WAKE_WORD_DETE
 assert(interrupted==1&&woken==1);}
 ''')
 
-    def test_closed_channel_reconnect_preserves_prefix_and_cancellation(self):
+    def reconnect_application(self):
         source=(ROOT/'main/application.cc').read_text()
         program=self.application().replace(
             'Protocol*protocol_=&protocol;',
-            'std::shared_ptr<Protocol> protocol_{&protocol, [](Protocol*){}};')
-        program=program.replace('bool ReconnectAfterVoiceInterruption(uint32_t){return false;}',
-                                'bool ReconnectAfterVoiceInterruption(uint32_t);')
+            'std::shared_ptr<Protocol> protocol_{&protocol, [](Protocol*){}}; '
+            'std::atomic<bool> network_link_up_{true};')
+        program=program.replace('bool ReopenConversation(uint32_t, bool, bool = false){return false;}',
+                                'bool ReopenConversation(uint32_t, bool, bool replace_channel = false);')
         program=program.replace('class Application;', r'''
 constexpr unsigned MAIN_EVENT_SEND_AUDIO=2;
 constexpr int pdPASS=1;
@@ -855,7 +875,10 @@ int xTaskCreate(void(*fn)(void*),const char*,int,void*arg,int,void*){
 }
 void vTaskDelete(void*){}
 class Application;''')
-        program += queue_function(source,'bool Application::ReconnectAfterVoiceInterruption(')
+        return program + queue_function(source,'bool Application::ReopenConversation(')
+
+    def test_closed_channel_reconnect_preserves_prefix_and_cancellation(self):
+        program = self.reconnect_application()
         self.run_cpp(program+r'''
 int main(){
  Application app;app.Install();app.state=kDeviceStateSpeaking;app.protocol.opened=false;
@@ -884,6 +907,54 @@ int main(){
  assert(!failed.audio_service_.voice&&failed.audio_service_.send_packets==0);
 }
 ''',use_json=True)
+
+    def test_wifi_loss_recovers_once_and_respects_exit_and_expiry(self):
+        source = (ROOT/'main/application.cc').read_text()
+        program = self.reconnect_application()
+        program = program.replace('int64_t esp_timer_get_time(){return 10000000;}',
+                                  'int64_t now=10000000;int64_t esp_timer_get_time(){return now;}')
+        program = program.replace('struct Display{', 'struct Display{void UpdateStatusBar(bool){}')
+        program = program.replace('struct Board{', 'struct Board{bool SupportsLocalInteraction(){return true;}')
+        program = program.replace('void StopInteractionInternal(bool, bool);', r"""
+    void StopInteractionInternal(bool, bool);
+    bool network_connected_=true, activation_retry_pending_=false;
+    void* activation_task_handle_=nullptr;
+    int64_t network_resume_deadline_us_=0;
+    uint32_t network_resume_generation_=0;
+    void HandleNetworkDisconnectedEvent();
+    void ServiceConversationNetworkRecovery();
+""")
+        program += '\n'.join(queue_function(source, 'void Application::' + name + '(') for name in (
+            'HandleNetworkDisconnectedEvent', 'ServiceConversationNetworkRecovery'))
+        self.run_cpp(program + r"""
+int main() {
+    const auto lose = [](Application& app) {
+        app.Install(); app.state = kDeviceStateSpeaking; app.protocol.opened = true;
+        app.audio_service_.voice = true; app.audio_service_.send_packets = 2;
+        app.network_link_up_.store(false);
+        app.HandleNetworkDisconnectedEvent(); app.Drain();
+        assert(app.state == kDeviceStateIdle && !app.audio_service_.voice);
+        assert(!app.protocol.opened && app.audio_service_.send_packets == 0);
+        app.ServiceConversationNetworkRecovery(); assert(!worker);
+        app.network_connected_ = true; app.network_link_up_.store(true);
+    };
+    Application short_loss; lose(short_loss);
+    short_loss.ServiceConversationNetworkRecovery(); assert(worker);
+    assert(short_loss.state == kDeviceStateConnecting);
+    worker(); worker = nullptr; short_loss.Drain();
+    assert(short_loss.state == kDeviceStateListening && short_loss.protocol.opened);
+    short_loss.ServiceConversationNetworkRecovery(); assert(!worker);
+    Application expired; lose(expired); now += 20000000;
+    expired.ServiceConversationNetworkRecovery(); assert(!worker);
+    Application cancelled; lose(cancelled); cancelled.StopInteraction(); cancelled.Drain();
+    cancelled.ServiceConversationNetworkRecovery(); assert(!worker);
+    Application late; lose(late); late.ServiceConversationNetworkRecovery(); assert(worker);
+    late.protocol.during_open = [&] { late.StopInteraction(); };
+    worker(); worker = nullptr; late.Drain();
+    assert(late.state == kDeviceStateIdle && !late.protocol.opened);
+    assert(late.protocol.listens == 0);
+}
+""", use_json=True)
 
     def test_monitor_survives_short_reply_and_physical_tail_then_returns_to_auto_listening(self):
         self.run_cpp(self.application()+r'''
@@ -1031,5 +1102,55 @@ int main(){
  current=true;engine.HandleVoiceResult(&silence,0);assert(states==4&&!current);
  engine.control_generation_=1;engine.HandleVoiceResult(&speech,0);
  assert(states==4&&packets==3); // Old fetch generation cannot publish fresh-session PCM/VAD.
+}
+''')
+
+    def test_tail_vad_represents_the_whole_encoded_frame(self):
+        source = (AUDIO/'engines/afe_audio_engine.cc').read_text()
+        self.run_cpp(r'''
+#define CONFIG_USE_VOICE_BARGE_IN 1
+#define CONFIG_BOARD_TYPE_WZH_TAILREDPANDA 1
+#define CONFIG_WZH_DINO_KEYWORD_BARGE_IN 1
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <functional>
+#include <vector>
+constexpr int VAD_SPEECH=1,VAD_SILENCE=0;
+struct afe_fetch_result_t{int16_t*data;int data_size;int vad_state;};
+struct AfeAudioEngine{
+ std::atomic<bool> output_reset_pending_{false};
+ std::atomic<uint32_t> control_generation_{0};
+ std::vector<int16_t> output_buffer_;
+ size_t output_vad_samples_=0;
+ int frame_samples_=960;
+ std::function<void(bool)> vad_state_change_callback_;
+ std::function<void(std::vector<int16_t>&&)> output_callback_;
+ void HandleVoiceResult(const afe_fetch_result_t*,uint32_t);
+};
+''' + queue_function(source, 'void AfeAudioEngine::HandleVoiceResult(') + r'''
+int main(){
+ AfeAudioEngine engine;
+ bool current=false;
+ std::vector<bool> detected;
+ std::vector<int16_t> pcm(960, 1000);
+ engine.vad_state_change_callback_=[&](bool speaking){current=speaking;};
+ engine.output_callback_=[&](std::vector<int16_t>&& frame){
+  assert(frame.size()==960);
+  detected.push_back(current);
+ };
+ auto feed=[&](int samples,int vad,uint32_t generation){
+  const afe_fetch_result_t result{pcm.data(),samples*2,vad};
+  engine.HandleVoiceResult(&result,generation);
+ };
+ feed(640,VAD_SPEECH,0);feed(480,VAD_SILENCE,0);
+ assert(detected==std::vector<bool>{true});
+ feed(400,VAD_SILENCE,0);feed(400,VAD_SPEECH,0);
+ assert((detected==std::vector<bool>{true,false}));
+ feed(640,VAD_SPEECH,0);
+ engine.control_generation_=1;engine.output_reset_pending_=true;
+ feed(960,VAD_SPEECH,0);feed(960,VAD_SILENCE,1);
+ assert((detected==std::vector<bool>{true,false,false}));
 }
 ''')

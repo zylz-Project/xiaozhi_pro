@@ -15,6 +15,7 @@ public:
                     std::function<void(bool)> complete) override;
     bool Capture(const int16_t* samples, size_t count, bool speech) override;
     void Cancel() override;
+    bool CancelCapture() override;
     const char* Status() const override;
     const char* Failure() const override;
     bool IsConfigured() const override;
@@ -29,6 +30,7 @@ private:
     void Run(uint32_t generation, const std::string& name);
     void RunSelection(uint32_t generation, const std::string& text);
     bool Speak(const char* text, uint32_t generation);
+    bool PlayLocalCue(uint32_t generation);
     std::mutex mutex_;
     std::atomic<uint32_t> generation_{0};
     std::atomic<bool> active_{false};

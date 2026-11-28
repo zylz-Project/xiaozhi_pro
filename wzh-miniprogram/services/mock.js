@@ -1,12 +1,15 @@
 const products = require('./products')
 
+const setupByDevice = new Map()
+
 const BUILTIN = [
   { id: 'longanhuan_v3.1', name: '龙安欢', description: '活泼亲切', builtin: true },
   { id: 'longanlingxin_v3.1', name: '龙安灵心', description: '温柔自然', builtin: true },
   { id: 'longanfengyue_v3.1', name: '龙安风悦', description: '自然清晰', builtin: true },
   { id: 'xunanchuan_v3.1', name: '许南川', description: '温暖男声', builtin: true },
   { id: 'yuxiaoyun_v3.1', name: '于小云', description: '元气亲切', builtin: true },
-  { id: 'wenhuaiqing_v3.1', name: '温怀清', description: '柔和故事声', builtin: true }
+  { id: 'wenhuaiqing_v3.1', name: '温怀清', description: '柔和故事声', builtin: true },
+  { id: 'xiaozhi-native', name: '小智原声', description: '小智官方对话音色', builtin: true }
 ]
 
 function delay(ms) {
@@ -99,18 +102,24 @@ class MockClient {
     this.deviceId = deviceId || 'mock-crawl'
     this.product = products.get(table[this.deviceId] || 'crawlPanda')
     this.connected = true
+    if (!setupByDevice.has(this.deviceId)) {
+      setupByDevice.set(this.deviceId, { epoch: 0, guideDone: true, ssid: 'Home' })
+    }
+    const setup = setupByDevice.get(this.deviceId)
     this.status = {
-      online: true,
+      online: Boolean(setup.ssid),
+      guide_done: setup.guideDone,
+      wifi: { configured: Boolean(setup.ssid), provisioning: false },
       state: 'idle',
       startup_notice: '',
-      onboarding: { done: true, active: false, blocked: false, next_step: 13, step_count: 13 },
+      onboarding: { done: setup.narrated !== false, blocked: false },
       battery: 86,
       charging: true,
       temp: 41,
       tempState: '正常',
       runtimeMinutes: 138,
       runtime: '2h18',
-      ssid: 'Home',
+      ssid: setup.ssid,
       band: '2.4G',
       signal: '强',
       rssi: -48,
@@ -128,6 +137,8 @@ class MockClient {
       voice_catalog: []
     }
     this.device = productMeta(this.product)
+    this.device.identity = this.deviceId
+    this.device.guide_epoch = setup.epoch
     this.device.clones = this.clones.slice()
     this.refreshVoiceStatus()
     this.emit('connected', { device: this.device })
@@ -156,11 +167,21 @@ class MockClient {
     if (this.clones.length >= 10) return null
     const item = { id: 'c' + Date.now(), name: String(name || '我的音色').slice(0, 8), date: cloneDate() }
     this.clones.push(item)
+    this._previousVoice = this.status.currentVoiceId
     this.status.currentVoice = item.name
     this.status.currentVoiceId = item.id
     this.refreshVoiceStatus()
     this.emit('status', this.status)
     return item
+  }
+
+  voiceList() {
+    return {
+      voices: this.allVoices(),
+      currentVoiceId: this.status.currentVoiceId,
+      currentVoice: this.status.currentVoice,
+      previousVoiceId: this._previousVoice || ''
+    }
   }
 
   async request(op, data) {
@@ -176,6 +197,10 @@ class MockClient {
       case 'get_status':
         this.refreshVoiceStatus()
         return this.status
+      case 'guide_complete':
+        if (data?.epoch !== this.device.guide_epoch) throw new Error('引导会话无效，请重新连接设备')
+        setupByDevice.get(this.deviceId).guideDone = this.status.guide_done = true
+        return {}
       case 'ping':
         return { pong: Date.now() }
       case 'set_volume': {
@@ -189,14 +214,35 @@ class MockClient {
         const name = String((data && data.name) || '')
         const item = this.allVoices().find(v => (id && v.id === id) || (!id && v.name === name))
         if (!item) throw Object.assign(new Error('没有这个音色'), { code: 1003 })
+        if (item.id !== this.status.currentVoiceId) this._previousVoice = this.status.currentVoiceId
         this.status.currentVoice = item.name
         this.status.currentVoiceId = item.id
         this.emit('status', this.status)
         return { id: item.id, name: item.name }
       }
-      case 'audition':
-        return { playing: true, name: (data && data.name) || this.currentVoice().name }
+      case 'audition': {
+        if (this._audition && this._audition.status === 'playing') {
+          throw Object.assign(new Error('正在试听'), { code: 1010 })
+        }
+        const request = this._nextAudition = (this._nextAudition || 0) + 1
+        this._audition = { request, status: 'playing' }
+        setTimeout(() => {
+          if (this._audition.request === request && this._audition.status === 'playing') {
+            this._audition.status = 'complete'
+          }
+        }, 1600)
+        return { accepted: true, request }
+      }
+      case 'audition_status':
+        return this._audition || { request: 0, status: 'idle' }
+      case 'audition_stop':
+        if (!this._audition || this._audition.request !== data.request || this._audition.status !== 'playing') {
+          throw Object.assign(new Error('这次试听已结束'), { code: 1010 })
+        }
+        this._audition.status = 'cancelled'
+        return { accepted: true }
       case 'chat_start':
+        setupByDevice.get(this.deviceId).narrated = this.status.onboarding.done = true
         this.status.state = 'speaking'
         this.emit('status', this.status)
         return { state: 'speaking' }
@@ -206,24 +252,36 @@ class MockClient {
         return { state: 'idle' }
       case 'voice_record': {
         const name = String((data && data.name) || '我的音色').slice(0, 8)
+        const request = this._nextRecordRequest = (this._nextRecordRequest || 0) + 1
+        const current = () => this._recordStatus.request === request && this._recordStatus.status !== 'cancelled'
         const report = status => {
-          this._recordStatus = { status: status, name: name }
+          this._recordStatus = { status: status, name: name, request: request }
           this.emit('voice_record', this._recordStatus)
         }
         report('starting')
-        setTimeout(() => report('prompt'), 300)
-        setTimeout(() => report('recording'), 900)
+        setTimeout(() => { if (current()) report('prompt') }, 300)
+        setTimeout(() => { if (current()) report('recording') }, 900)
         setTimeout(() => {
+          if (!current()) return
           report('processing')
           setTimeout(() => {
+            if (!current()) return
             this.addClone(name)
             report('success')
           }, 900)
         }, 2500)
-        return { accepted: true, name: name }
+        return { accepted: true, name: name, request: request }
       }
       case 'voice_record_status':
         return this._recordStatus || { status: 'idle' }
+      case 'voice_record_cancel':
+        if (!this._recordStatus || this._recordStatus.request !== Number(data && data.request) ||
+            !['starting', 'prompt', 'recording'].includes(this._recordStatus.status)) {
+          throw Object.assign(new Error('录音已结束或正在生成音色'), { code: 1010 })
+        }
+        this._recordStatus = Object.assign({}, this._recordStatus, { status: 'cancelled' })
+        this.emit('voice_record', this._recordStatus)
+        return {}
       case 'wifi_scan':
         return {
           networks: [
@@ -243,10 +301,13 @@ class MockClient {
         const openNetwork = ssid === 'Home-Guest'
         if (!openNetwork && password.length < 8) throw Object.assign(new Error('Wi-Fi 密码至少 8 位'), { code: 1005 })
         this.wifiBusy = true
+        this.status.wifi.provisioning = true
         this.emit('wifi_state', { state: 'connecting', ssid })
         setTimeout(() => {
           this.wifiBusy = false
-          this.status.ssid = ssid
+          const setup = setupByDevice.get(this.deviceId)
+          setup.ssid = this.status.ssid = ssid
+          this.status.wifi = { configured: true, provisioning: false }
           this.status.online = true
           this.status.band = '2.4G'
           this.status.signal = '强'
@@ -262,19 +323,30 @@ class MockClient {
         setTimeout(() => this.emit('reset', { phase: 'deleting_cloud', current: 1, total: 3 }), 500)
         setTimeout(() => this.emit('reset', { phase: 'clearing_wifi', current: 2, total: 3 }), 1100)
         setTimeout(() => {
+          const setup = setupByDevice.get(this.deviceId)
+          this.device.guide_epoch = ++setup.epoch
+          setup.guideDone = this.status.guide_done = false
+          setup.narrated = this.status.onboarding.done = false
+          setup.ssid = this.status.ssid = ''
           this.status.online = false
-          this.status.ssid = ''
+          this.status.wifi = { configured: false, provisioning: false }
           this.clones = []
+          this._previousVoice = ''
           this.refreshVoiceStatus()
           this.emit('reset', { phase: 'rebooting', current: 3, total: 3 })
         }, 1700)
         return { accepted: true }
+      case 'voice_restore': {
+        const prev = this.allVoices().find(voice => voice.id === this._previousVoice)
+        if (!prev) throw Object.assign(new Error('暂无可切回的音色'), { code: 1008 })
+        this._previousVoice = this.status.currentVoiceId
+        this.status.currentVoiceId = prev.id
+        this.status.currentVoice = prev.name
+        this.emit('status', this.status)
+        return this.voiceList()
+      }
       case 'voice_list':
-        return {
-          voices: this.allVoices(),
-          currentVoiceId: this.status.currentVoiceId,
-          currentVoice: this.status.currentVoice
-        }
+        return this.voiceList()
       case 'voice_create':
         throw Object.assign(new Error('请通过 voice_upload_begin/chunk/end 上传音频'), { code: 1003 })
       case 'voice_upload_begin': {
@@ -331,6 +403,7 @@ class MockClient {
         if (i < 0) throw Object.assign(new Error('没有这个音色'), { code: 1003 })
         const wasCurrent = this.status.currentVoiceId === id
         this.clones.splice(i, 1)
+        if (this._previousVoice === id) this._previousVoice = ''
         if (wasCurrent) {
           this.status.currentVoice = BUILTIN[0].name
           this.status.currentVoiceId = BUILTIN[0].id

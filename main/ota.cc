@@ -1,3 +1,4 @@
+#include "http_result.h"
 #include "ota.h"
 #include "assets/lang_config.h"
 #include "settings.h"
@@ -54,8 +55,10 @@ std::string Ota::GetCheckVersionUrl() {
 std::unique_ptr<Http> Ota::SetupHttp() {
     auto& board = Board::GetInstance();
     auto network = board.GetNetwork();
-    auto http = network->CreateHttp(0);
+    auto http = network ? network->CreateHttp(0) : nullptr;
     auto user_agent = SystemInfo::GetUserAgent();
+    if (!http)
+        return nullptr;
     http->SetHeader("Activation-Version", has_serial_number_ ? "2" : "1");
     http->SetHeader("Device-Id", SystemInfo::GetMacAddress().c_str());
     http->SetHeader("Client-Id", board.GetUuid());
@@ -89,18 +92,26 @@ esp_err_t Ota::CheckVersion() {
     }
 
     auto http = SetupHttp();
+    if (!http)
+        return ESP_ERR_INVALID_STATE;
 
     std::string data = board.GetSystemInfoJson();
     std::string method = data.length() > 0 ? "POST" : "GET";
     http->SetContent(std::move(data));
 
-    if (!http->Open(method, url)) {
+    const auto opened = http->Open(method, url);
+    if (!opened) {
+#if CONFIG_WZH_DINOSAUR_AT_DIAGNOSTIC
+        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", opened.error().ToString().c_str());
+        return ESP_FAIL;
+#else
         int last_error = http->GetLastError();
         ESP_LOGE(TAG, "Failed to open HTTP connection, code=0x%x", last_error);
         return last_error;
+#endif
     }
 
-    auto status_code = http->GetStatusCode();
+    auto status_code = HttpIntValue(http->GetStatusCode());
     if (status_code != 200) {
         ESP_LOGE(TAG, "Failed to check version, status code: %d", status_code);
         return status_code;
@@ -286,8 +297,8 @@ bool Ota::Upgrade(const std::string& firmware_url,
         return false;
     }
 
-    if (http->GetStatusCode() != 200) {
-        ESP_LOGE(TAG, "Failed to get firmware, status code: %d", http->GetStatusCode());
+    if (HttpIntValue(http->GetStatusCode()) != 200) {
+        ESP_LOGE(TAG, "Failed to get firmware, status code: %d", HttpIntValue(http->GetStatusCode()));
         return false;
     }
 
@@ -308,7 +319,7 @@ bool Ota::Upgrade(const std::string& firmware_url,
     size_t total_read = 0, recent_read = 0;
     auto last_calc_time = esp_timer_get_time();
     while (true) {
-        int ret = http->Read(buffer + buffer_offset, PAGE_SIZE - buffer_offset);
+        int ret = HttpIntValue(http->Read(buffer + buffer_offset, PAGE_SIZE - buffer_offset));
         if (ret < 0) {
             ESP_LOGE(TAG, "Failed to read HTTP data: %s", esp_err_to_name(ret));
             heap_caps_free(buffer);
@@ -493,6 +504,8 @@ esp_err_t Ota::Activate() {
     }
 
     auto http = SetupHttp();
+    if (!http)
+        return ESP_ERR_INVALID_STATE;
 
     std::string data = GetActivationPayload();
     http->SetContent(std::move(data));
@@ -502,7 +515,7 @@ esp_err_t Ota::Activate() {
         return ESP_FAIL;
     }
 
-    auto status_code = http->GetStatusCode();
+    auto status_code = HttpIntValue(http->GetStatusCode());
     if (status_code == 202) {
         return ESP_ERR_TIMEOUT;
     }

@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -88,6 +89,7 @@ protected:
     // not cover the interval before the worker submits its first Opus packet.
     mutable std::mutex playback_mutex_;
     std::atomic<bool> playback_pending_{false};
+    std::optional<uint32_t> decoder_generation_;
     std::atomic<bool> maintenance_{false};
     std::atomic<bool> worker_active_{false};
     std::array<char, 64> current_name_{};
